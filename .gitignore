@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local model weights -- 3.3GB, fetched by `pnpm setup`, never committed
+/models
+
+# Playwright MCP scratch output
+/.playwright-mcp
+
+# Real client documents used for testing the validator. These must NEVER be
+# committed -- the client requires third-party minimization, and this repo is
+# public. Keep test material here; it stays on the machine.
+/documents
+/test-docs
