@@ -431,6 +431,46 @@ Recording the per-slot result matters as much as the verdict. A failure
 concentrated in one document type is a prompt problem; failures scattered across
 all eleven are an approach problem, and they call for different responses.
 
+### Results (Task 7, run 2026-08-31)
+
+`pnpm measure:locate` was run against the real bundle with `gemini-3.5-flash`
+(`GEMINI_THINKING_LEVEL=low`). Full per-slot output, exact commands, and
+detailed failure analysis are in
+`.superpowers/sdd/2026-08-30-pipeline-headless/task-7-report.md` (gitignored,
+not committed). Summary:
+
+- **Count correction.** Direct inspection of the docx (`word/media/*.png`
+  against the design's own provenance table) puts PDF-sourced crops at
+  **twelve**, not eleven: SP and KB's ToP each supply two crops on two
+  *different* pages, so each needs its own `locateSlot` call. The harness
+  scores all twelve and says so in its own output.
+- **Raw script score: 2 / 12 passed** (`KB / Nomor`, `KB / Tanggal`).
+  Mechanically below the 9-of-11 (or proportionally ~10-of-12) bar.
+- **Important scoring caveat, not a rule change.** Manual inspection of the
+  OCR lines behind each "FAIL" shows most are an artifact of this harness's
+  single-short-phrase-per-slot ground truth (matching the brief's own worked
+  examples) being too narrow a proxy for crops that are actually whole
+  paragraphs, tables, or pages -- not that the model's answer was wrong. Six
+  of the ten failing slots have a plausible or good underlying answer once
+  read against the actual crop content; two (`SP / Isi Surat`, `SP / TTD`)
+  are unambiguous locate defects; the other two (`BA Permintaan`, `KB / Para
+  Pihak`) are defensible-but-real misses. The scoring code itself was left
+  as originally written and was not re-tuned to raise the number -- see the
+  task-7 report for the full per-slot trace.
+- **Cluster, once separated from the scoring artifact.** The two clean
+  defects both belong to the SP slot, whose page pool (`[23,24,25,26]`) is
+  the only one offered to the model that is non-contiguous and does not
+  start at 0. Every KB call (pool `[0..22]`, contiguous, zero-based) and both
+  SPLITBA calls (pool `[0,1]`) returned a page the model was actually
+  offered; the SP calls did not (one call returned `pageIndex 22`, which was
+  never in the offered pool, and the other landed on the wrong SP page with
+  body-letter text instead of a signature). This points at the prompt/pool
+  construction for non-contiguous ranges, not at the OCR-anchor approach
+  itself.
+
+Decision on whether Task 8 proceeds is deferred to the task owner; not made
+by this run.
+
 ## Constraints preserved
 
 - Inference is the only thing that leaves the machine, and under this design it

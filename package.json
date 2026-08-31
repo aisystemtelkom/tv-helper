@@ -11,6 +11,7 @@
     "ollama:serve": "node scripts/ollama-serve.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs",
+    "measure:locate": "node scripts/measure-locate.mjs",
     "vendor:ocr": "node scripts/vendor-ocr.mjs",
     "prebuild": "pnpm vendor:ocr"
   },
