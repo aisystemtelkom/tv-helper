@@ -61,7 +61,7 @@ preserve empty sections so the operator can fill them by hand later.
 | 4 to 11 (KB, seven slots) | `...merged.pdf` pages 1 to 23, Perjanjian Kerjasama |
 | 17 (Email) | `SPLITBA...pdf` page 2, Outlook message |
 | 12 (Konfigurasi Excel) | a screenshot of the order config xlsx itself |
-| 13 to 16 (Konfigurasi) | screenshots of the EPIC web app at `http://10.192.30.26:8080/web`, with red rectangles drawn by hand |
+| 13 to 16 (Konfigurasi) | screenshots of the EPIC web app on the internal network, with red rectangles drawn by hand |
 
 Eleven of seventeen come from the two PDFs. Six cannot, because their sources
 are a web application and a spreadsheet the operator has open elsewhere.
@@ -89,8 +89,10 @@ what order.
 Roughly 60 percent of its values are traceable to the two PDFs: the service
 address, bandwidth, VRF name, project name, and the PIC phone numbers that
 appear in the email. The rest exist only in EPIC or in a mapping tool, notably
-Customer Account `C0004709285`, Billing Account `B0004806726/4806726`, Sales
-Team `700032, 846163`, and the LatLong pair.
+the Customer Account, the Billing Account, the Sales Team codes, and the
+LatLong pair. (Their real values are deliberately not reproduced here: this
+repo is public, and an account number tied to a named customer is client
+material by the same standard that keeps their documents out of it.)
 
 ## Scope for v1
 
