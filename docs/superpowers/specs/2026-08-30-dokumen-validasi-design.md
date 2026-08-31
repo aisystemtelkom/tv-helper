@@ -231,8 +231,11 @@ because the fixture and the config would both describe the slot list. Generating
 keeps one source of truth. The document is structurally simple: a header, some
 headings, and two-column tables.
 
-The `docx` package's advisory status is verified before it is added, given what
-SheetJS taught this project.
+**Advisory check, run 2026-08-30.** `npm audit` over `docx@9.7.1` (MIT),
+`tesseract.js@7.0.0` (Apache-2.0), and `@google-cloud/firestore@9.0.0`
+(Apache-2.0) reports zero vulnerabilities at every severity. Given what SheetJS
+taught this project, that check is a precondition rather than a formality, and
+it should be re-run before each of these is bumped.
 
 **The header table is text, not crops, and needs its own sourcing.** Its six
 fields come from three different places, and the operator confirms all six on
@@ -303,9 +306,46 @@ page that would fix it, and the only way back in is a redeploy.
 **Revocation lag is a real property and is handled explicitly.** JWT sessions
 mean removing someone from the allowlist does not by itself end their live
 session. Rather than papering over this with short expiry, the allowlist is
-cached in server memory with a 60 second TTL and re-checked in middleware.
-Revocation therefore takes effect within a minute, at a cost of one Firestore
-read per minute per instance instead of one per request.
+cached in server memory with a 60 second TTL and re-checked on every request
+that matters. Revocation therefore takes effect within a minute, at a cost of
+one Firestore read per minute per instance instead of one per request.
+
+**Where that check runs is decided by Next 16, not by preference.** See the
+Next 16 subsection below. The short version is that the authoritative check
+lives in a helper called by each route handler and server component, not in the
+proxy layer.
+
+### What Next 16 changes about all of this
+
+Checked against `node_modules/next/dist/docs` on 2026-08-30, as AGENTS.md
+requires. Three findings change the design rather than merely the syntax.
+
+**`middleware.ts` is deprecated and renamed to `proxy.ts`.** The exported
+function is `proxy`, and a codemod exists:
+`npx @next/codemod@canary middleware-to-proxy .`. Proxy defaults to the Node.js
+runtime in v16, and setting the `runtime` config option there throws, so the
+Firestore SDK can run in it even though it should not.
+
+**Proxy must not be the authorization boundary.** The Next 16 reference states
+it directly: a matcher change or a refactor that moves a Server Function to a
+different route can silently remove proxy coverage, so authentication and
+authorization must be verified inside each Server Function rather than relying
+on proxy alone. The allowlist check therefore lives in
+`src/lib/auth/require-user.ts`, called by every route handler and server
+component that touches a run. Proxy does only the cheap unauthenticated
+redirect, and is an optimization, never the gate.
+
+**The in-memory cache cannot live in proxy.** The same reference warns that
+proxy is invoked separately from render code, in optimized cases deployed to a
+CDN, and that it must not rely on shared modules or globals. A module-level
+cache there would be unreliable or simply absent. The 60 second cache therefore
+belongs to `require-user.ts`, which runs in the ordinary server runtime where
+module state is real.
+
+**Proxy needs a negative matcher.** Without one it runs on every request
+including `_next/static`, `_next/image`, and everything in `public/`, which
+would put an auth redirect in front of the CSS and, here, in front of the
+self-hosted OCR assets.
 
 ### Cost inventory
 
@@ -342,6 +382,11 @@ downloads them once.
   not require Google verification to publish to Production, but confirm that
   during setup rather than discovering it when an operator is locked out
   mid-week.
+- **The standalone build does not copy `public/` or `.next/static`.** Next's own
+  output docs say so, and the Dockerfile must copy both into
+  `.next/standalone/` explicitly. Forget it and the self-hosted tesseract wasm
+  and `ind.traineddata` return 404 in production while working perfectly in
+  `next dev`, which is the worst possible failure shape.
 - Secrets are mounted from Secret Manager, never baked into the image or set as
   plain Cloud Run environment variables.
 - Firestore is reached through the service account and Application Default
@@ -433,6 +478,10 @@ rather than being assumed to be covered.
 - **Documents stay in IndexedDB.** There is deliberately no Cloud Storage
   bucket. Adding one re-opens a client constraint and adds egress on 13MB PDFs
   for no gain.
+- **Proxy is not the auth boundary, and the file is `proxy.ts`.** Next 16
+  renamed `middleware.ts` and states that a matcher change can silently remove
+  coverage. Every route that touches a run calls `requireUser()` itself. Moving
+  the gate into proxy "to avoid duplication" is the regression to watch for.
 
 ## Open questions
 
@@ -466,8 +515,10 @@ src/app/api/extract/route.ts
 
 src/lib/auth/config.ts         Auth.js, Google provider, signIn allowlist check
 src/lib/auth/allowlist.ts      Firestore reads, 60s memory cache, bootstrap owner
+src/lib/auth/require-user.ts   the authoritative gate, called per route
 src/app/admin/page.tsx         allowlist management, admin role only
-src/middleware.ts              session check and allowlist re-check
+src/proxy.ts                   unauthenticated redirect only, with a negative
+                               matcher; NOT middleware.ts, renamed in Next 16
 
 Dockerfile                     standalone build, multi-arch
 next.config.ts                 gains output: "standalone"
