@@ -103,7 +103,12 @@ const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const { default: JSZip } = await import("jszip");
 import { renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
-import { locateSlot } from "../src/lib/pipeline/locate.ts";
+import {
+  locateSlot,
+  CROP_PADDING_PX,
+  FOOTER_GAP_MULTIPLE,
+} from "../src/lib/pipeline/locate.ts";
+import { boxForLineRange } from "../src/lib/pipeline/geometry.ts";
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -271,6 +276,32 @@ async function geminiAsk(prompt) {
 const MODEL_CACHE_PATH = join(tmpdir(), "tv-helper-measure-locate-model-cache.json");
 const FORCE_FRESH = process.env.MEASURE_LOCATE_FORCE === "1";
 
+/**
+ * MEASURE_LOCATE_REPEAT asks the SAME prompt again under a separate cache
+ * key, so the same question can be sampled more than once without either
+ * answer overwriting the other.
+ *
+ * This exists because a prompt A/B on this gate is otherwise uninterpretable.
+ * Changing one sentence changes the prompt for all eight field slots, so all
+ * eight are re-asked, and the model is not deterministic: some of the movement
+ * between an "old prompt" run and a "new prompt" run is the prompt and some is
+ * just resampling. `locate.ts`'s own header records an earlier footer-rule A/B
+ * that "moved answers on nine of the twelve scored slots" and was reverted on
+ * that basis -- with no measurement of how many slots move when NOTHING is
+ * changed. Run `MEASURE_LOCATE_REPEAT=1` and `=2` against the unchanged prompt
+ * first and that noise floor becomes a number instead of an assumption.
+ *
+ * The salt is mixed into the CACHE KEY ONLY, never into the prompt: repeat 3
+ * asks a byte-identical question to repeat 0. Repeat 0 is the default and its
+ * key is the bare `slot:hash` the cache already holds, so existing entries
+ * keep hitting and a default run re-spends nothing.
+ */
+const REPEAT = Number(process.env.MEASURE_LOCATE_REPEAT ?? 0);
+if (!Number.isInteger(REPEAT) || REPEAT < 0) {
+  console.error(`MEASURE_LOCATE_REPEAT must be a non-negative integer, got "${process.env.MEASURE_LOCATE_REPEAT}"`);
+  process.exit(1);
+}
+
 async function loadJsonCache(path) {
   if (!existsSync(path)) return {};
   try {
@@ -287,7 +318,8 @@ async function saveJsonCache(path, cache) {
 function makeCachedAsk(slotName, modelCache) {
   return async function cachedAsk(prompt) {
     const hash = createHash("sha256").update(prompt).digest("hex").slice(0, 16);
-    const key = `${slotName}:${hash}`;
+    // Repeat 0 keeps the historical bare key so the existing cache still hits.
+    const key = REPEAT === 0 ? `${slotName}:${hash}` : `${slotName}:${hash}:r${REPEAT}`;
     if (!FORCE_FRESH && modelCache[key]) {
       console.log(`    [cache] reusing cached model reply for "${slotName}"`);
       return modelCache[key];
@@ -765,6 +797,44 @@ const GROUND_TRUTH = [
     // hint, and the sample's second capture is a different region on a
     // different page. Asking the template's ToP hint twice would score the
     // same question twice and call the second answer a different slot.
+    //
+    // ## Why this row fails, and why it is not a locate defect to go fix
+    //
+    // Diagnosed from the OCR of merged page 20 rather than from the score.
+    // The model answers lines 6-15, stably: 6-15 on two of three identical
+    // samples and 6-16 on the third. The human's crop is lines 1-15. So the
+    // two agree on where the block ENDS (line 15, the last line of the
+    // remittance-account block) and disagree only on where it STARTS. An
+    // earlier reading of this miss as "starts too late AND stops too early"
+    // is wrong on the second half; `containsAll` fails on `from` alone.
+    //
+    // What is actually on that page: line 1 is the letterhead, lines 2-5 are
+    // clause 4 (where to send invoices), lines 6-10 are clause 5 (when payment
+    // is made, ending "ditujukan :"), lines 11-15 are the account block
+    // itself. Asked for "the bank account number the payment is transferred
+    // to", the model returned the account block plus the clause that
+    // introduces it. That is a tighter and better-targeted piece of evidence
+    // than the human's, which additionally carries the page letterhead and an
+    // unrelated clause about invoice delivery.
+    //
+    // There is no document-agnostic rule that recovers the human's start.
+    // "Include the page letterhead for provenance" was the obvious candidate
+    // and the sample itself refutes it: of the crops whose block does not
+    // begin at the top of the page, ONLY this one includes the letterhead.
+    // `KB / Nomor` starts at line 2 of page 0, below a two-line letterhead;
+    // `KB / TTD Pejabat` starts at line 7 of page 22, below a one-line
+    // letterhead. A rule that reproduced this crop would inflate those two and
+    // contradict the human on 7 of 8 field slots.
+    //
+    // Worth knowing before treating this row as a product defect: PRODUCTION
+    // NEVER ASKS THIS QUESTION. `kbLanjutan.top` is one slot with one hint and
+    // `crops: 2`, so `generate.mjs` makes a single locate call per round (the
+    // one scored as `KB / ToP (1)`, which passes) and the second capture stays
+    // outstanding for the dokumen tambahan round and manual selection -- see
+    // the `crops: 2` comment in template.ts. The hint on this row is therefore
+    // this harness's own invention, not a production string, which is also why
+    // rewriting it until the row passes would measure nothing: it would be
+    // tuning a question no shipping code asks.
     slot: "KB / ToP (2)",
     doc: "merged",
     page: 20,
@@ -890,6 +960,42 @@ function evaluate(entry, result, pages, cropOcrCache) {
       `while the crop [${minLine},${maxLine}] does not`;
   }
 
+  // ---------------------------------------------------------------------
+  // How TALL the proposal is, against how tall the human's own crop is.
+  //
+  // Reported, deliberately NOT scored. The line-count caps above cannot see
+  // this: `KB / TTD Pejabat` answers a 14-line range for a 9-line crop and
+  // passes both of them comfortably, while the picture that actually lands
+  // in the deliverable is ~9 inches of mostly blank paper, because the last
+  // line it takes is the running page footer two thirds of a page below the
+  // signature block. A line is a line whether it sits 40 pixels below the
+  // previous one or 1700, so a line-count rule is structurally blind to the
+  // defect and no amount of tuning it will help.
+  //
+  // Both boxes come from `boxForLineRange` with the production padding, on
+  // the same page geometry, so this is the real crop against the real crop
+  // rather than a proxy: `requiredHeightPx` is what the human's own chosen
+  // lines occupy on the 300 DPI page, not the docx thumbnail's pixel height
+  // (which is a Word-embedded screenshot at an unknown, much lower DPI and
+  // says nothing about the source page).
+  //
+  // It is left unscored on purpose. Making it a pass condition would be a
+  // second gate fitted to twelve samples, and would fail slots for a
+  // whitespace habit rather than for citing the wrong evidence. It is here
+  // so the inflation is a printed number that a change can be measured
+  // against, instead of the "roughly 1.3in became 8in" estimate that this
+  // defect has been carried as until now.
+  // ---------------------------------------------------------------------
+  const bounds = { x: 0, y: 0, w: pageEntry.width, h: pageEntry.height };
+  const chosenHeightPx = result.zone.box.h;
+  const requiredHeightPx = boxForLineRange(
+    pageEntry.lines,
+    minLine,
+    maxLine,
+    CROP_PADDING_PX,
+    bounds,
+  ).h;
+
   return {
     pass,
     pageOk,
@@ -898,8 +1004,52 @@ function evaluate(entry, result, pages, cropOcrCache) {
     chosenPage,
     lineRange: [from, to],
     requiredLineRange: [minLine, maxLine],
+    chosenHeightPx,
+    requiredHeightPx,
+    humanGapRatio: maxGapRatio(pageEntry.lines, minLine, maxLine),
     detail,
   };
+}
+
+/** Page pixels to inches. Every page in this pipeline is rendered at 300 DPI
+ * (`renderPageUpright(page, 300, ...)` above), so this is exact, not nominal. */
+const RENDER_DPI = 300;
+const inches = (px) => px / RENDER_DPI;
+
+/**
+ * The largest vertical gap inside a line range, in units of that range's own
+ * median line pitch -- the exact quantity `trimRunningFooter` thresholds on.
+ *
+ * Reported for the HUMAN's line range on every slot, because that is the
+ * number that justifies (or refutes) `FOOTER_GAP_MULTIPLE`. Every gap inside a
+ * human-authored crop is a gap the trim must NEVER cut: it is legitimate
+ * content spacing, by definition, since a person included both sides of it in
+ * one piece of evidence. So the highest value this column ever reaches across
+ * the twelve crops is a hard lower bound on any safe constant, measured rather
+ * than guessed -- and the distance between that bound and the ratio at a real
+ * footer is the whole safety margin. Printing both is what stops the constant
+ * from being folklore.
+ *
+ * Returns null when the range is too short for a median pitch to mean
+ * anything, which is the same condition under which the trim declines to fire.
+ */
+function maxGapRatio(pageLines, from, to) {
+  const picked = pageLines
+    .filter((l) => l.i >= from && l.i <= to)
+    .sort((a, b) => a.i - b.i);
+  if (picked.length < 4) return null;
+
+  const pitches = [];
+  for (let k = 1; k < picked.length; k++) {
+    pitches.push(picked[k].box.y - picked[k - 1].box.y);
+  }
+  const sorted = [...pitches].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const typical =
+    sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  if (typical <= 0) return null;
+
+  return Math.max(...pitches) / typical;
 }
 
 // ---------------------------------------------------------------------------
@@ -1074,6 +1224,55 @@ async function main() {
   const pageOkCount = results.filter((r) => r.verdict.pageOk).length;
   console.log(
     `Page selection alone: ${pageOkCount} / ${results.length} landed on the expected page.`,
+  );
+  console.log();
+
+  // Crop extent, reported and not scored -- see the note in `evaluate`. The
+  // required range is printed for PASSING slots too, which the summary above
+  // never showed: without it there is no way to see how much slack a passing
+  // slot has, so a prompt change that quietly walks a slot to the edge of
+  // containment looks identical to one that leaves it comfortable.
+  console.log("Crop extent (reported, not scored -- see evaluate()):");
+  console.log(
+    `${"Slot".padEnd(20)} ${"Chosen".padEnd(10)} ${"Human".padEnd(10)} ` +
+      `${"Height".padEnd(9)} ${"Human".padEnd(9)} ${"Inflation".padEnd(14)} HumanGap`,
+  );
+  let worstHumanGap = 0;
+  for (const { entry, verdict } of results) {
+    if (verdict.requiredHeightPx === undefined) {
+      console.log(`${entry.slot.padEnd(20)} (no extent: ${verdict.detail})`);
+      continue;
+    }
+    const ratio = verdict.chosenHeightPx / verdict.requiredHeightPx;
+    const gap = verdict.humanGapRatio;
+    if (gap !== null && gap > worstHumanGap) worstHumanGap = gap;
+    console.log(
+      `${entry.slot.padEnd(20)} ` +
+        `${verdict.lineRange.join(",").padEnd(10)} ` +
+        `${verdict.requiredLineRange.join(",").padEnd(10)} ` +
+        `${(inches(verdict.chosenHeightPx).toFixed(2) + "in").padEnd(9)} ` +
+        `${(inches(verdict.requiredHeightPx).toFixed(2) + "in").padEnd(9)} ` +
+        `${(ratio.toFixed(2) + "x" + (ratio >= 2 ? "  <- inflated" : "")).padEnd(14)} ` +
+        `${gap === null ? "-" : gap.toFixed(1) + "x"}`,
+    );
+  }
+  console.log();
+  // The safety margin behind FOOTER_GAP_MULTIPLE, printed rather than
+  // asserted. HumanGap is the largest gap inside a human-authored crop, in
+  // units of that crop's own line pitch -- content spacing the trim must never
+  // cut. The constant has to sit above every value in that column; how far
+  // above is the margin, and if a future bundle pushes this number up to the
+  // constant, the trim is no longer safe and this line is where that shows up.
+  console.log(
+    `Largest gap inside any human crop: ${worstHumanGap.toFixed(1)}x its own line pitch. ` +
+      `FOOTER_GAP_MULTIPLE is ${FOOTER_GAP_MULTIPLE}x.`,
+  );
+  console.log(
+    worstHumanGap >= FOOTER_GAP_MULTIPLE
+      ? "  WARNING: a human crop contains a gap at or above the trim threshold -- " +
+          "trimRunningFooter can now cut real evidence."
+      : `  Margin: the trim fires no earlier than ${(FOOTER_GAP_MULTIPLE / (worstHumanGap || 1)).toFixed(1)}x ` +
+          "beyond the widest legitimate in-crop gap measured.",
   );
   console.log();
   if (!only) {

@@ -380,7 +380,13 @@ test("classifyPages rejects an empty spans array", async () => {
   );
 });
 
-import { locateSlot, buildLocatePrompt, CROP_PADDING_PX } from "../src/lib/pipeline/locate.ts";
+import {
+  locateSlot,
+  buildLocatePrompt,
+  CROP_PADDING_PX,
+  trimRunningFooter,
+  FOOTER_GAP_MULTIPLE,
+} from "../src/lib/pipeline/locate.ts";
 
 const ocrPage = (index, texts) => ({
   index,
@@ -457,6 +463,162 @@ test("locateSlot resolves a later list position to that page's true index", asyn
   const result = await locateSlot("SP TTD", "the signature block", [farPage1, farPage2], ask);
   assert.equal(result.zone.pageIndex, 24);
   assert.deepEqual(result.zone.lineRange, [1, 1]);
+});
+
+// ---------------------------------------------------------------------------
+// trimRunningFooter: the running-page-footer defect.
+//
+// The prompt tells the model to stop at "the next heading, the next unrelated
+// section, or the end of the page". A running footer is none of those, so the
+// model ends its block on one, and because the footer sits at the very bottom
+// of the page the resulting rectangle stretches down the whole blank remainder.
+// Measured on the sample bundle before this trim existed, `KB / TTD Pejabat`
+// produced a 9.11in crop of a 1.98in signature block.
+//
+// These build Line objects directly rather than going through
+// groupWordsIntoLines, because the point is the geometry -- some of the cases
+// below (every line sharing one y) cannot be expressed as words that the
+// grouper would keep as separate lines at all.
+// ---------------------------------------------------------------------------
+
+const lineAt = (i, y, text = `line ${i}`, h = 20) => ({
+  i,
+  text,
+  box: { x: 10, y, w: 200, h },
+  words: [{ text, box: { x: 10, y, w: 200, h } }],
+});
+
+/** A body block on a 50px pitch, then a footer far below it. */
+const bodyThenFooter = [
+  lineAt(0, 100),
+  lineAt(1, 150),
+  lineAt(2, 200),
+  lineAt(3, 250),
+  lineAt(4, 3200, "Page 19 of 23"),
+];
+
+test("trimRunningFooter drops a trailing line separated by a huge gap", () => {
+  // Pitches are 50,50,50,2950; the median is 50, so the last gap is 59x -- far
+  // past FOOTER_GAP_MULTIPLE.
+  assert.deepEqual(trimRunningFooter(bodyThenFooter, 0, 4), [0, 3]);
+});
+
+test("trimRunningFooter leaves ordinary paragraph spacing alone", () => {
+  // A blank line's worth of extra leading is nothing like a footer gap.
+  const spaced = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 200), lineAt(3, 340)];
+  assert.deepEqual(trimRunningFooter(spaced, 0, 3), [0, 3]);
+});
+
+test("trimRunningFooter's threshold is a multiple of the block's OWN pitch", () => {
+  // The same shape at a different scale must behave identically -- that is the
+  // whole reason the rule is a ratio and not a page-position band. A gap just
+  // under the threshold survives at both scales; just over is cut at both.
+  for (const pitch of [10, 50, 400]) {
+    const under = [
+      lineAt(0, 0),
+      lineAt(1, pitch),
+      lineAt(2, 2 * pitch),
+      lineAt(3, 2 * pitch + pitch * (FOOTER_GAP_MULTIPLE - 1)),
+    ];
+    assert.deepEqual(trimRunningFooter(under, 0, 3), [0, 3], `pitch ${pitch} under`);
+
+    const over = [
+      lineAt(0, 0),
+      lineAt(1, pitch),
+      lineAt(2, 2 * pitch),
+      lineAt(3, 2 * pitch),
+      lineAt(4, 2 * pitch + pitch * (FOOTER_GAP_MULTIPLE + 1)),
+    ];
+    assert.deepEqual(trimRunningFooter(over, 0, 4), [0, 3], `pitch ${pitch} over`);
+  }
+});
+
+test("trimRunningFooter cuts a footer that OCR split into two lines", () => {
+  // Both footer lines sit close together, so the oversized gap is the one
+  // ABOVE the first of them -- a rule that only ever dropped the final line
+  // would leave the first footer line, and the crop would still run to the
+  // bottom of the page.
+  const twoLineFooter = [
+    lineAt(0, 100),
+    lineAt(1, 150),
+    lineAt(2, 200),
+    lineAt(3, 250),
+    lineAt(4, 3200, "initials"),
+    lineAt(5, 3240, "Page 19 of 23"),
+  ];
+  assert.deepEqual(trimRunningFooter(twoLineFooter, 0, 5), [0, 3]);
+});
+
+test("trimRunningFooter declines when the range is too short to have a pitch", () => {
+  // Three lines give two gaps, and a median of two numbers that includes the
+  // outlier under test is not a measurement of anything.
+  const three = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 3200)];
+  assert.deepEqual(trimRunningFooter(three, 0, 2), [0, 2]);
+});
+
+test("trimRunningFooter declines when the cut would leave too few lines", () => {
+  // The gap here is enormous, but keeping only two lines would mean trimming
+  // on the strength of a pitch measured from a single gap.
+  const topHeavy = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 3000), lineAt(3, 3050)];
+  assert.deepEqual(trimRunningFooter(topHeavy, 0, 3), [0, 3]);
+});
+
+test("trimRunningFooter declines on a degenerate block with no pitch at all", () => {
+  // One row of a table that OCR split into several boxes at the same y has no
+  // line pitch to be a multiple of. Dividing by it would yield Infinity and
+  // trim a block that has no footer in it.
+  const sameY = [lineAt(0, 100), lineAt(1, 100), lineAt(2, 100), lineAt(3, 100)];
+  assert.deepEqual(trimRunningFooter(sameY, 0, 3), [0, 3]);
+});
+
+test("trimRunningFooter reads lines by number, not by array order", () => {
+  const shuffled = [
+    bodyThenFooter[4],
+    bodyThenFooter[1],
+    bodyThenFooter[3],
+    bodyThenFooter[0],
+    bodyThenFooter[2],
+  ];
+  assert.deepEqual(trimRunningFooter(shuffled, 0, 4), [0, 3]);
+  // And it must not reorder the caller's own array while doing it.
+  assert.deepEqual(
+    shuffled.map((l) => l.i),
+    [4, 1, 3, 0, 2],
+  );
+});
+
+test("trimRunningFooter only considers the range it was given", () => {
+  // A footer outside [from,to] is not the trim's business, and a range that
+  // stops short of it must come back untouched.
+  assert.deepEqual(trimRunningFooter(bodyThenFooter, 0, 3), [0, 3]);
+});
+
+test("locateSlot's box, lineRange and text all reflect the trim", async () => {
+  // The failure this guards against is the wrong-and-quiet one: a rectangle
+  // that no longer includes the footer while the citation and the transcript
+  // beside it still claim it does. All three must agree.
+  const page = { index: 5, width: 500, height: 4000, lines: bodyThenFooter };
+  const ask = async () => '{"pageIndex":0,"from":0,"to":4,"confidence":"high"}';
+
+  const result = await locateSlot("TTD", "the signature block", [page], ask);
+
+  assert.deepEqual(result.zone.lineRange, [0, 3]);
+  assert.ok(!result.text.includes("Page 19 of 23"));
+  assert.equal(result.text, "line 0\nline 1\nline 2\nline 3");
+  // Lines 0-3 span y=100 to y=270, padded by CROP_PADDING_PX.
+  assert.equal(result.zone.box.y, 100 - CROP_PADDING_PX);
+  assert.equal(result.zone.box.h, 170 + CROP_PADDING_PX * 2);
+});
+
+test("locateSlot still raises on a malformed range rather than silently trimming it", () => {
+  // trimRunningFooter must hand a reversed range straight back, so the error
+  // boxForLineRange has always raised is still the error a caller sees.
+  const page = { index: 0, width: 500, height: 4000, lines: bodyThenFooter };
+  const ask = async () => '{"pageIndex":0,"from":3,"to":1,"confidence":"high"}';
+  return assert.rejects(
+    () => locateSlot("TTD", "x", [page], ask),
+    /line range reversed/,
+  );
 });
 
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
