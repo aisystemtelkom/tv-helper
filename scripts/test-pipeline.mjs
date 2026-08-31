@@ -1251,3 +1251,518 @@ test("locateSlot orders the evidence text by line number, whatever order page.li
 // by `npx tsc --noEmit -p tsconfig.json`. Imported here so `pnpm test` runs its
 // assertions too and the file cannot rot unnoticed.
 import "./test-pipeline-types.ts";
+// ---------------------------------------------------------------------------
+// Document-agnostic search, and the dokumen tambahan loop's headless
+// foundation. See docs/superpowers/specs/
+// 2026-08-31-corrections-and-document-agnostic.md sections 2 and 4.
+// ---------------------------------------------------------------------------
+
+import {
+  inTemplateOrder,
+  mergeZones,
+  outstandingFields,
+  outstandingSlots,
+  parseArgs,
+  rankedPool,
+  satisfiedSlotKeys,
+  searchRound,
+  slotCropCount,
+  templateSlots,
+  withFieldHints,
+} from "./generate.mjs";
+
+/** A page carrying just what the search path reads off one. */
+function fakePage(index, docName = "bundle.pdf") {
+  return {
+    index,
+    source: 0,
+    sourceName: docName,
+    pageInDoc: index,
+    width: 100,
+    height: 200,
+    lines: [{ i: 0, text: `page ${index}` }],
+  };
+}
+
+/** Two sections, one of each layout, so a round exercises both branches. */
+const TINY_TEMPLATE = {
+  id: "TEST",
+  label: "test",
+  sections: [
+    {
+      title: "Whole pages",
+      layout: "images",
+      slots: [
+        { key: "whole.1", label: "Whole 1", docType: "BAPermintaan",
+          hint: "the whole request page", fillable: true },
+        { key: "whole.2", label: "Whole 2", docType: "BAPermintaan",
+          hint: "the second whole request page", fillable: true },
+      ],
+    },
+    {
+      title: "Fields",
+      layout: "table",
+      slots: [
+        { key: "field.one", label: "One", docType: "KB", hint: "a", fillable: true },
+        { key: "field.two", label: "Two", docType: "KB", hint: "b", fillable: true,
+          crops: 2 },
+        { key: "field.manual", label: "Manual", docType: null, hint: "c",
+          fillable: false },
+      ],
+    },
+  ],
+  xlsxRows: [
+    { nomor: 1, itemI: "Lead", itemII: "Description", fieldKey: "namaProyek" },
+    { itemII: "Account", fieldKey: "cc" },
+    { itemII: "Nothing a PDF backs" },
+  ],
+  fieldHints: { cc: "the customer, not an email header" },
+};
+
+const foundZone = (pageIndex) => ({
+  zone: { pageIndex, box: { x: 0, y: 0, w: 10, h: 10 }, lineRange: [0, 0] },
+  text: "x",
+  confidence: "high",
+});
+
+test("rankedPool offers every page, with the preferred docType's pages first", () => {
+  const pages = [0, 1, 2, 3].map((i) => fakePage(i));
+  const byType = new Map([
+    ["KB", [2, 3]],
+    ["Email", [0]],
+    ["BAPermintaan", [1]],
+  ]);
+
+  const pool = rankedPool(["KB"], byType, pages);
+
+  // Ranked: the KB pages lead.
+  assert.deepEqual(pool.slice(0, 2).map((p) => p.index), [2, 3]);
+  // NOT narrowed: every page the round supplied is still in the pool. This is
+  // the assertion that fails if the old docType filter is reintroduced -- the
+  // filter is what shipped a wrong customer name, and its replacement is the
+  // disambiguation in the hints, not a smaller pool.
+  assert.deepEqual(
+    [...pool].map((p) => p.index).sort((a, b) => a - b),
+    [0, 1, 2, 3],
+  );
+});
+
+test("rankedPool keeps every page when nothing was classified as the preferred type", () => {
+  const pages = [0, 1].map((i) => fakePage(i));
+
+  assert.deepEqual(
+    rankedPool(["KB"], new Map(), pages).map((p) => p.index),
+    [0, 1],
+  );
+  assert.deepEqual(
+    rankedPool([null], new Map([["KB", [1]]]), pages).map((p) => p.index),
+    [0, 1],
+  );
+});
+
+test("searchRound offers a table slot every page, not just its docType's", async () => {
+  const pages = [0, 1, 2].map((i) => fakePage(i));
+  const byType = new Map([
+    ["KB", [0]],
+    ["Email", [1, 2]],
+  ]);
+
+  const seen = new Map();
+  await searchRound({
+    template: TINY_TEMPLATE,
+    byType,
+    pages,
+    locate: async (slot, pool) => {
+      seen.set(slot.key, pool.map((p) => p.index));
+      return null;
+    },
+  });
+
+  // Every page, KB first: the Email pages are still searchable for a KB slot.
+  assert.deepEqual(seen.get("field.one"), [0, 1, 2]);
+  assert.deepEqual(seen.get("field.two"), [0, 1, 2]);
+});
+
+test("searchRound reports outstanding slots as structured data, with reasons", async () => {
+  const pages = [0].map((i) => fakePage(i));
+  const byType = new Map([["KB", [0]]]);
+
+  const { zones, reasons } = await searchRound({
+    template: TINY_TEMPLATE,
+    byType,
+    pages,
+    locate: async (slot) => {
+      if (slot.key === "field.one") throw new Error("model exhausted its retries");
+      return null;
+    },
+  });
+
+  assert.deepEqual(zones, []);
+  const outstanding = outstandingSlots(TINY_TEMPLATE, zones, reasons);
+
+  // Structured, not a log line: key, label, section, counts and reason.
+  assert.deepEqual(
+    outstanding.map((o) => o.key).sort(),
+    ["field.one", "field.two", "whole.1", "whole.2"],
+  );
+  for (const item of outstanding) {
+    assert.equal(item.kind, "slot");
+    assert.equal(typeof item.label, "string");
+    assert.equal(typeof item.section, "string");
+    assert.equal(item.found, 0);
+    assert.ok(item.required >= 1);
+    assert.ok(item.reason.length > 0);
+  }
+
+  const byKey = new Map(outstanding.map((o) => [o.key, o]));
+  // The reason survives from the round that produced it, so an operator can
+  // tell "the model found nothing" from "the call failed".
+  assert.match(byKey.get("field.one").reason, /exhausted its retries/);
+  assert.match(byKey.get("field.two").reason, /found no match/);
+  // A whole-page slot whose page was never classified says which type is
+  // missing rather than taking an arbitrary page.
+  assert.match(byKey.get("whole.1").reason, /BAPermintaan/);
+  // The non-fillable slot is not "outstanding" -- no PDF backs it at all.
+  assert.equal(byKey.has("field.manual"), false);
+});
+
+test("searchRound skips slots an earlier round already satisfied", async () => {
+  const pages = [0, 1].map((i) => fakePage(i));
+  const byType = new Map([
+    ["KB", [0]],
+    ["BAPermintaan", [1]],
+  ]);
+
+  const asked = [];
+  const { zones } = await searchRound({
+    template: TINY_TEMPLATE,
+    byType,
+    pages,
+    satisfied: new Set(["field.one", "whole.1"]),
+    locate: async (slot) => {
+      asked.push(slot.key);
+      return foundZone(0);
+    },
+  });
+
+  // The satisfied field slot costs no model call at all. That is the point:
+  // a second document is searched only for what is still missing.
+  assert.deepEqual(asked, ["field.two"]);
+  assert.equal(zones.some((z) => z.key === "field.one"), false);
+
+  // And the satisfied whole-page slot does not consume this round's first
+  // BAPermintaan page: whole.2 takes it, because whole.1 was filled from an
+  // earlier round's pages, not from these.
+  const whole2 = zones.find((z) => z.key === "whole.2");
+  assert.ok(whole2, "whole.2 should have taken the round's first BA page");
+  assert.equal(whole2.pageIndex, 1);
+});
+
+test("mergeZones is additive: a later round never discards an earlier zone", () => {
+  const round1 = [
+    { key: "field.one", pageIndex: 3, box: {}, lineRange: [1, 2] },
+    { key: "whole.1", pageIndex: 0, box: {}, lineRange: [0, 9] },
+  ];
+  // Round 2 proposes a different zone for a key round 1 already filled, plus
+  // a genuinely new one.
+  const round2 = [
+    { key: "field.one", pageIndex: 99, box: {}, lineRange: [7, 8] },
+    { key: "whole.2", pageIndex: 12, box: {}, lineRange: [0, 4] },
+  ];
+
+  const merged = mergeZones(round1, round2, TINY_TEMPLATE);
+
+  // Every round-1 zone survives untouched...
+  for (const zone of round1) assert.ok(merged.includes(zone));
+  // ...the round-2 replacement for an already-filled single-crop slot is
+  // dropped rather than overwriting it...
+  assert.equal(merged.filter((z) => z.key === "field.one").length, 1);
+  assert.equal(merged.find((z) => z.key === "field.one").pageIndex, 3);
+  // ...and the new slot is added.
+  assert.equal(merged.find((z) => z.key === "whole.2").pageIndex, 12);
+});
+
+test("mergeZones lets a later round supply the second crop of a two-crop slot", () => {
+  const round1 = [{ key: "field.two", pageIndex: 1, box: {}, lineRange: [0, 1] }];
+  const round2 = [{ key: "field.two", pageIndex: 5, box: {}, lineRange: [2, 3] }];
+  const round3 = [{ key: "field.two", pageIndex: 9, box: {}, lineRange: [4, 5] }];
+
+  const afterTwo = mergeZones(round1, round2, TINY_TEMPLATE);
+  assert.deepEqual(afterTwo.map((z) => z.pageIndex), [1, 5]);
+
+  // `crops: 2` is the cap, so a third round adds nothing more.
+  const afterThree = mergeZones(afterTwo, round3, TINY_TEMPLATE);
+  assert.deepEqual(afterThree.map((z) => z.pageIndex), [1, 5]);
+});
+
+test("satisfiedSlotKeys counts against crops, not against 'has any zone'", () => {
+  const one = [{ key: "field.two", pageIndex: 1 }];
+  assert.equal(satisfiedSlotKeys(TINY_TEMPLATE, one).has("field.two"), false);
+
+  const two = [...one, { key: "field.two", pageIndex: 2 }];
+  assert.equal(satisfiedSlotKeys(TINY_TEMPLATE, two).has("field.two"), true);
+
+  // A single-crop slot is satisfied by one zone.
+  assert.equal(
+    satisfiedSlotKeys(TINY_TEMPLATE, [{ key: "field.one", pageIndex: 0 }]).has(
+      "field.one",
+    ),
+    true,
+  );
+});
+
+test("outstandingSlots names a half-filled two-crop slot instead of calling it done", () => {
+  const zones = [
+    { key: "field.one", pageIndex: 0 },
+    { key: "field.two", pageIndex: 1 },
+    { key: "whole.1", pageIndex: 2 },
+    { key: "whole.2", pageIndex: 3 },
+  ];
+
+  const outstanding = outstandingSlots(TINY_TEMPLATE, zones);
+
+  assert.deepEqual(outstanding.map((o) => o.key), ["field.two"]);
+  assert.equal(outstanding[0].found, 1);
+  assert.equal(outstanding[0].required, 2);
+  assert.match(outstanding[0].reason, /1 of 2/);
+});
+
+test("a partly-filled slot's reason leads with its count, not the last round's message", () => {
+  // Measured on the real two-round run: kbLanjutan.top held one of its two
+  // captures from round 1, round 2 searched the tambahan for the second and
+  // found none, and the reason read "the model found no match" -- which says
+  // the slot is empty, next to a found:1 that says it is not.
+  const zones = [
+    { key: "field.one", pageIndex: 0 },
+    { key: "field.two", pageIndex: 1 },
+    { key: "whole.1", pageIndex: 2 },
+    { key: "whole.2", pageIndex: 3 },
+  ];
+  const reasons = new Map([["field.two", "the model found no match"]]);
+
+  const [item] = outstandingSlots(TINY_TEMPLATE, zones, reasons);
+
+  assert.equal(item.found, 1);
+  assert.match(item.reason, /^1 of 2 captures found/);
+  // The round's own message is kept, but as the tail rather than the claim.
+  assert.match(item.reason, /the model found no match/);
+
+  // A slot with nothing at all still leads with what went wrong.
+  const empty = outstandingSlots(TINY_TEMPLATE, [], reasons).find(
+    (o) => o.key === "field.two",
+  );
+  assert.equal(empty.reason, "the model found no match");
+});
+
+test("outstandingFields names every backed xlsx row that came back blank", () => {
+  const outstanding = outstandingFields(TINY_TEMPLATE, [
+    { fieldKey: "cc", value: "BANK CONTOH NUSANTARA" },
+    { fieldKey: "namaProyek", value: "   " },
+  ]);
+
+  // A whitespace-only value is blank: the workbook cell would look empty and
+  // an empty cell nobody tried to fill is indistinguishable from one where
+  // the evidence does not exist.
+  assert.deepEqual(outstanding.map((o) => o.key), ["namaProyek"]);
+  assert.equal(outstanding[0].kind, "field");
+});
+
+test("inTemplateOrder sorts by template position and keeps discovery order per key", () => {
+  const zones = [
+    { key: "field.two", pageIndex: 10 },
+    { key: "whole.2", pageIndex: 1 },
+    { key: "field.two", pageIndex: 20 },
+    { key: "whole.1", pageIndex: 0 },
+  ];
+
+  assert.deepEqual(
+    inTemplateOrder(zones, TINY_TEMPLATE).map((z) => [z.key, z.pageIndex]),
+    [
+      ["whole.1", 0],
+      ["whole.2", 1],
+      // Both of field.two's crops, still in the order they were found: that
+      // order is the stacking order buildDocx renders.
+      ["field.two", 10],
+      ["field.two", 20],
+    ],
+  );
+});
+
+test("two rounds are additive end to end: round 2 fills only what round 1 missed", async () => {
+  const template = TINY_TEMPLATE;
+  const byType = new Map();
+  let zones = [];
+  const reasons = new Map();
+  const asked = [];
+
+  // Round 1: one BA page and one KB page. field.one is found; field.two is
+  // not; whole.2 has no second BA page.
+  const round1Pages = [fakePage(0, "bundle.pdf"), fakePage(1, "bundle.pdf")];
+  byType.set("BAPermintaan", [0]);
+  byType.set("KB", [1]);
+
+  const r1 = await searchRound({
+    template,
+    byType,
+    pages: round1Pages,
+    satisfied: satisfiedSlotKeys(template, zones),
+    locate: async (slot) => {
+      asked.push(`r1:${slot.key}`);
+      return slot.key === "field.one" ? foundZone(1) : null;
+    },
+  });
+  for (const [key, reason] of r1.reasons) reasons.set(key, reason);
+  zones = mergeZones(zones, r1.zones, template);
+
+  assert.deepEqual(asked, ["r1:field.one", "r1:field.two"]);
+  assert.deepEqual(
+    outstandingSlots(template, zones, reasons).map((o) => o.key).sort(),
+    ["field.two", "whole.2"],
+  );
+
+  // Round 2: the dokumen tambahan, one more BA page. It is searched only for
+  // the outstanding slots.
+  const round2Pages = [fakePage(2, "tambahan.pdf")];
+  byType.set("BAPermintaan", [0, 2]);
+
+  const r2 = await searchRound({
+    template,
+    byType,
+    pages: round2Pages,
+    satisfied: satisfiedSlotKeys(template, zones),
+    locate: async (slot) => {
+      asked.push(`r2:${slot.key}`);
+      return foundZone(2);
+    },
+  });
+  for (const [key, reason] of r2.reasons) reasons.set(key, reason);
+  zones = mergeZones(zones, r2.zones, template);
+
+  // field.one was already satisfied, so round 2 never re-asked for it.
+  assert.deepEqual(asked, ["r1:field.one", "r1:field.two", "r2:field.two"]);
+
+  // Round 1's zone is still there, and the new page filled the rest.
+  const byKey = new Map(zones.map((z) => [z.key, z]));
+  assert.equal(byKey.get("field.one").pageIndex, 1, "round 1's zone survived");
+  assert.equal(byKey.get("whole.1").pageIndex, 0);
+  assert.equal(byKey.get("whole.2").pageIndex, 2);
+
+  // field.two still needs its second crop, and says so.
+  assert.deepEqual(
+    outstandingSlots(template, zones, reasons).map((o) => o.key),
+    ["field.two"],
+  );
+});
+
+test("withFieldHints puts each key's definition in front of the prompt", async () => {
+  let sent;
+  const ask = async (prompt) => {
+    sent = prompt;
+    return "ok";
+  };
+
+  const wrapped = withFieldHints(ask, ["cc", "unknownKey"], TINY_TEMPLATE.fieldHints);
+  assert.equal(await wrapped("Extract these fields.\nFields: cc, unknownKey"), "ok");
+
+  assert.match(sent, /FIELD DEFINITIONS/);
+  assert.match(sent, /cc: the customer, not an email header/);
+  // The original prompt is preserved verbatim: this wraps fields.ts's prompt,
+  // it does not rewrite it.
+  assert.ok(sent.endsWith("Extract these fields.\nFields: cc, unknownKey"));
+  // A key with no definition contributes no line.
+  assert.equal(sent.includes("unknownKey:"), false);
+
+  // Nothing described means the original ask is handed back untouched, so an
+  // undescribed group costs no wrapper and no prompt text.
+  assert.equal(withFieldHints(ask, ["unknownKey"], TINY_TEMPLATE.fieldHints), ask);
+});
+
+test("parseArgs opens a new round per --tambahan and keeps the initial bundle together", () => {
+  // parseArgs checks that every path exists before returning, so these are
+  // real committed files rather than invented .pdf names. It never opens
+  // them, and nothing here depends on their contents.
+  const { rounds } = parseArgs([
+    "package.json",
+    "tsconfig.json",
+    "--tambahan",
+    "README.md",
+    "--tambahan",
+    "AGENTS.md",
+    "--out",
+    "somewhere",
+  ]);
+
+  assert.equal(rounds.length, 3);
+  assert.deepEqual(rounds.map((r) => r.length), [2, 1, 1]);
+  assert.ok(rounds[0][0].endsWith("package.json"));
+  assert.ok(rounds[1][0].endsWith("README.md"));
+  assert.ok(rounds[2][0].endsWith("AGENTS.md"));
+
+  assert.throws(() => parseArgs([]), /no PDF given/);
+  assert.throws(
+    () => parseArgs(["package.json", "--tambahan"]),
+    /--tambahan needs a PDF/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--tambahan", "nope.pdf"]),
+    /no such file/,
+  );
+});
+
+test("every AO slot searched by the model carries a hint that rules something out", () => {
+  // The pool is no longer narrowed by docType, so a hint is all that keeps a
+  // table slot from matching a look-alike elsewhere in the bundle. A hint
+  // that only restates the label is what the 2026-08-31 note calls "thin
+  // enough to match the wrong thing anywhere in a bundle".
+  const searched = templateSlots(AO_TEMPLATE)
+    .filter(({ section, slot }) => section.layout === "table" && slot.fillable)
+    .map(({ slot }) => slot);
+
+  assert.ok(searched.length > 0);
+  for (const slot of searched) {
+    assert.ok(
+      /\bnot\b/i.test(slot.hint),
+      `${slot.key}'s hint names nothing it is not: ${slot.hint}`,
+    );
+    assert.ok(slot.hint.length > 60, `${slot.key}'s hint is too thin: ${slot.hint}`);
+  }
+});
+
+test("AO_TEMPLATE.fieldHints tell cc apart from an email header, and namaProyek from the contract title", () => {
+  const { fieldHints } = AO_TEMPLATE;
+
+  // Every backed xlsx row has a definition; a key without one reaches the
+  // model as its bare name, which is the state that shipped a wrong customer.
+  const backed = [
+    ...new Set(AO_TEMPLATE.xlsxRows.map((row) => row.fieldKey).filter(Boolean)),
+  ];
+  for (const key of backed) {
+    assert.ok(fieldHints[key], `${key} has no fieldHint`);
+  }
+
+  // The two disambiguations the corrections note calls for by name.
+  assert.match(fieldHints.cc, /\bCc\b/);
+  assert.match(fieldHints.cc, /email header/i);
+  assert.match(fieldHints.namaProyek, /Surat Penunjukan/);
+
+  // And no real client identifier leaked into a committed file while writing
+  // them -- the repo is public, and a hint is written while looking straight
+  // at the client's own paperwork, which is exactly when an example gets
+  // copied out of it.
+  //
+  // The checks are STRUCTURAL rather than a list of the client's own strings:
+  // spelling those out here would put them in the public repo itself, which
+  // is the thing being prevented. An EPIC id, a quote number, or any long run
+  // of digits (an account, a phone, a rekening) is what a leak looks like.
+  for (const hint of Object.values(fieldHints)) {
+    assert.equal(/\bLOP\s*\d/i.test(hint), false, hint);
+    assert.equal(/\b\d-\d{9,}\b/.test(hint), false, hint);
+    assert.equal(/\d{6,}/.test(hint), false, hint);
+  }
+});
+
+test("every fillable AO slot declares a crop count a round can report against", () => {
+  for (const { slot } of templateSlots(AO_TEMPLATE)) {
+    assert.ok(slotCropCount(slot) >= 1, `${slot.key} has a crop count below 1`);
+  }
+});

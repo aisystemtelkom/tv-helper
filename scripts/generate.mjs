@@ -4,12 +4,12 @@
  * render, OCR, classify, locate, crop, extract, export -- with no UI and no
  * browser involved.
  *
- *   pnpm generate documents/<bundle>.pdf documents/<splitba>.pdf [--out dir]
+ *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]... [--out dir]
  *
  * Everything it knows about the target document comes from
  * `src/lib/forms/template.ts`. This file is wiring, not policy.
  *
- * Two things here are load-bearing and easy to "simplify" back into bugs:
+ * Four things here are load-bearing and easy to "simplify" back into bugs:
  *
  * 1. IT ROUTES ON `section.layout`. A `layout: "images"` section is a
  *    WHOLE-PAGE capture -- a human filling the sample screenshots the entire
@@ -26,6 +26,25 @@
  *    the same `in= out= (thoughts=) total=` line so cost shows up in this log
  *    rather than on an invoice a month later. No provider SDK is imported
  *    here, and none should be.
+ *
+ * 3. THE SEARCH IS DOCUMENT-AGNOSTIC. `classify.ts`'s spans ORDER a slot's
+ *    pool -- likeliest document first -- and never shorten it. The same slot
+ *    list is searched across whatever documents are supplied, with no
+ *    assumption about which document carries which field (2026-08-31
+ *    corrections note, section 2). This replaced a hard `docType` filter that
+ *    existed for a real reason: on an unnarrowed pool the customer name
+ *    matched the printed email's own `Cc:` header and both deliverables
+ *    shipped a WRONG CUSTOMER. What holds that bug down now is the
+ *    disambiguation in `SlotDef.hint` and `Template.fieldHints`, not a
+ *    smaller haystack -- weaken those and the bug comes back quietly.
+ *
+ * 4. A RUN IS ADDITIVE ACROSS ROUNDS. The positional PDFs are round 1. Each
+ *    `--tambahan` is a further round: the operator answering "yes, another
+ *    document exists" for the slots round 1 left outstanding. A later round
+ *    searches only what is still missing and can never discard a zone an
+ *    earlier round found (corrections note, section 4). The UI for that
+ *    conversation is a later plan's; this is the headless capability under
+ *    it, and the CLI shape is provisional.
  *
  * OCR results are cached in the system temp directory, keyed by the source
  * file's content hash plus page and DPI, because OCR-ing 29 300-DPI scans
@@ -203,13 +222,31 @@ async function ask(prompt) {
 // Arguments.
 // ---------------------------------------------------------------------------
 
-const USAGE = `Usage: pnpm generate <bundle.pdf> [more.pdf ...] [--out <dir>]
+const USAGE = `Usage: pnpm generate <bundle.pdf> [more.pdf ...] [--tambahan <extra.pdf>]...
+                    [--out <dir>]
 
-Writes <ID EPIC>_DOKUMEN_VALIDASI.docx and <ID EPIC>_ORDER_Config.xlsx into
-<dir> (default: out/, which is gitignored).`;
+Writes <ID EPIC>_DOKUMEN_VALIDASI.docx, <ID EPIC>_ORDER_Config.xlsx and
+<ID EPIC>_OUTSTANDING.json into <dir> (default: out/, which is gitignored).
 
-function parseArgs(argv) {
-  const pdfs = [];
+Every positional PDF is round 1: the whole slot list is searched across all of
+them, with no assumption about which document carries what. Each --tambahan
+opens a further round -- the "dokumen tambahan" an operator supplies when a
+round left slots outstanding -- and that round searches the new document for
+ONLY the slots still missing. Zones found earlier are never re-searched and
+never discarded. The JSON names every slot still outstanding at the end, so a
+blank cell in the deliverable is a recorded decision rather than a silent gap.`;
+
+/**
+ * Rounds, not a flat PDF list: `rounds[0]` is the initial bundle and each
+ * `--tambahan` appends a round of its own. One PDF per `--tambahan` because
+ * that is what the operator conversation looks like ("is there another
+ * document?" is asked one document at a time); pass the flag twice for two.
+ * Provisional -- section 4 of the corrections note gives the UI to a later
+ * plan, and this shape exists to prove the headless capability under it.
+ */
+export function parseArgs(argv) {
+  /** @type {string[][]} */
+  const rounds = [[]];
   let outDir = join(repoRoot, "out");
 
   for (let i = 0; i < argv.length; i++) {
@@ -218,18 +255,24 @@ function parseArgs(argv) {
       const value = argv[++i];
       if (!value) throw new Error("--out needs a directory");
       outDir = resolve(value);
+    } else if (arg === "--tambahan") {
+      const value = argv[++i];
+      if (!value) throw new Error("--tambahan needs a PDF");
+      rounds.push([resolve(value)]);
     } else if (arg.startsWith("--")) {
       throw new Error(`unknown option ${arg}`);
     } else {
-      pdfs.push(resolve(arg));
+      rounds[0].push(resolve(arg));
     }
   }
 
-  if (pdfs.length === 0) throw new Error("no PDF given");
-  for (const p of pdfs) {
-    if (!existsSync(p)) throw new Error(`no such file: ${p}`);
+  if (rounds[0].length === 0) throw new Error("no PDF given");
+  for (const round of rounds) {
+    for (const p of round) {
+      if (!existsSync(p)) throw new Error(`no such file: ${p}`);
+    }
   }
-  return { pdfs, outDir };
+  return { rounds, outDir };
 }
 
 // ---------------------------------------------------------------------------
@@ -259,11 +302,21 @@ async function saveCache(cache) {
 // actually get cut. Pass 2 re-renders only the pages a slot landed on.
 // ---------------------------------------------------------------------------
 
-async function ocrEveryPage(sources, cache) {
-  /** @type {{ source: number, pageInDoc: number, index: number, width: number, height: number, lines: unknown[] }[]} */
-  const pages = [];
+/**
+ * Appends this round's pages to the run's global page list and returns just
+ * the ones it added.
+ *
+ * The list is global and append-only across rounds on purpose: a zone's
+ * `pageIndex` is an index into it, so a document arriving in round 3 must not
+ * renumber the pages round 1's zones already point at. `index` therefore
+ * always equals the page's position in `pages`, which several helpers below
+ * rely on.
+ */
+async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
+  const added = [];
 
-  for (const [sourceIndex, source] of sources.entries()) {
+  for (const sourceIndex of sourceIndexes) {
+    const source = sources[sourceIndex];
     for (let pageInDoc = 0; pageInDoc < source.doc.numPages; pageInDoc++) {
       const key = `${source.hash}:${DEFAULT_DPI}:${pageInDoc}`;
       let entry = FORCE_FRESH ? undefined : cache[key];
@@ -292,18 +345,21 @@ async function ocrEveryPage(sources, cache) {
         );
       }
 
-      pages.push({
+      const page = {
         source: sourceIndex,
+        sourceName: source.name,
         pageInDoc,
         index: pages.length, // the global page number every zone refers to
         width: entry.width,
         height: entry.height,
         lines: entry.lines,
-      });
+      };
+      pages.push(page);
+      added.push(page);
     }
   }
 
-  return pages;
+  return added;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,11 +374,9 @@ async function ocrEveryPage(sources, cache) {
 /** How much of a page classify sees. Headings live at the top; it slices to 400. */
 const HEAD_LINES = 12;
 
-async function classifyEverything(sources, pages) {
-  /** @type {Map<string, number[]>} docType -> global page indexes, in order */
-  const byType = new Map();
-
-  for (const [sourceIndex, source] of sources.entries()) {
+async function classifyEverything(sources, sourceIndexes, pages, byType) {
+  for (const sourceIndex of sourceIndexes) {
+    const source = sources[sourceIndex];
     const own = pages.filter((p) => p.source === sourceIndex);
     const heads = own.map((p, position) => ({
       index: position,
@@ -353,39 +407,318 @@ async function classifyEverything(sources, pages) {
 
 // ---------------------------------------------------------------------------
 // Planning: one zone per crop the docx needs.
+//
+// A search round is offered EVERY page it has, never a subset. `classify.ts`
+// still runs, and its spans still matter -- they decide the ORDER a slot's
+// pages are shown in, likeliest document first -- but they can no longer
+// remove a page from the pool. That is the 2026-08-31 corrections note's
+// central instruction (section 2, "The tool is DOCUMENT-AGNOSTIC"), and it is
+// what makes the same slot list work on a bundle whose documents arrive in a
+// different order, split across different files, or with a document type this
+// pipeline has never seen.
+//
+// The narrowing it replaces existed to fix a live wrong-and-quiet defect, so
+// the replacement has to carry that weight: read `SlotDef.hint` and
+// `Template.fieldHints` in src/lib/forms/template.ts before touching either.
 // ---------------------------------------------------------------------------
 
-function poolFor(byType, pages, docType) {
-  return (byType.get(docType) ?? []).map((index) => pages[index]);
+/**
+ * A round's pages as an array indexed by global page index -- the shape
+ * `poolForDocTypes` documents for its third argument. Sparse when the round
+ * holds only some of the run's pages, which is exactly the case from round 2
+ * on, so every read of it is filtered for holes.
+ */
+function pagesByIndex(pages) {
+  const byIndex = [];
+  for (const page of pages) byIndex[page.index] = page;
+  return byIndex;
 }
 
-async function planZones(template, byType, pages) {
+/**
+ * The pool a search is offered: EVERY candidate page, with the ones
+ * classify.ts labelled with a preferred docType moved to the front.
+ *
+ * Nothing is dropped, and that is the entire point -- this is the function
+ * that replaced `poolFor(byType, pages, slot.docType)`, which returned only
+ * the matching pages and so decided in advance which document could possibly
+ * answer a slot. Reintroducing a filter here (an early `return head`, a
+ * `.slice`, "the tail is only noise") re-narrows the pool and quietly
+ * restores the assumption the tool is supposed to have dropped.
+ */
+export function rankedPool(preferredDocTypes, byType, candidates) {
+  const preferred = new Set();
+  for (const docType of preferredDocTypes ?? []) {
+    if (!docType) continue;
+    for (const index of byType.get(docType) ?? []) preferred.add(index);
+  }
+  const head = [];
+  const tail = [];
+  for (const page of candidates) {
+    (preferred.has(page.index) ? head : tail).push(page);
+  }
+  return [...head, ...tail];
+}
+
+/**
+ * The name a slot is searched by: the document its section is about, then its
+ * own row label.
+ *
+ * The row label alone is what the docx prints, and on its own it is often
+ * meaningless as a question -- "Detail", "Nomor", "ToP". That was survivable
+ * while a slot only ever saw its own document's pages; on a whole-bundle pool
+ * it is not, because half a dozen documents have a Nomor and a Tanggal.
+ * Measured on the gate: asked as "ToP", the payment slot answered with the
+ * remittance-account page; asked as "KB / ToP" it answered with the payment
+ * clause, which is the page the sample's first capture comes from.
+ *
+ * The `(lanjutan)` suffix is dropped because it is a LAYOUT fact, not a
+ * document name: the sample splits the KB checklist across two tables and
+ * titles the second one "continued". Also measured: `KB (lanjutan) / Detail`
+ * returned the clause title but dropped the `Pasal 5` line above it that the
+ * human's crop starts at, where plain `KB / Detail` kept it. Anything else in
+ * a section title is part of the question and stays.
+ */
+export function slotSearchLabel(section, slot) {
+  const document = section.title.replace(/\s*\(lanjutan\)\s*$/i, "");
+  return `${document} / ${slot.label}`;
+}
+
+/** Every slot in the template, paired with the section that holds it. */
+export function templateSlots(template) {
+  return template.sections.flatMap((section) =>
+    section.slots.map((slot) => ({ section, slot })),
+  );
+}
+
+/** How many captures a slot needs before it counts as filled. See SlotDef.crops. */
+export function slotCropCount(slot) {
+  return slot.crops ?? 1;
+}
+
+/**
+ * The slot keys that already have every capture they need, so a further round
+ * can skip them.
+ *
+ * Counted against `crops` rather than "has at least one zone" because the
+ * sample's ToP row stacks two pictures cut from two different pages: one zone
+ * is a partly-filled slot, not a filled one, and treating it as filled is how
+ * a document that looks complete ships missing evidence.
+ */
+export function satisfiedSlotKeys(template, zones) {
+  const counts = new Map();
+  for (const zone of zones) {
+    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
+  }
+  const satisfied = new Set();
+  for (const { slot } of templateSlots(template)) {
+    if (!slot.fillable) continue;
+    if ((counts.get(slot.key) ?? 0) >= slotCropCount(slot)) satisfied.add(slot.key);
+  }
+  return satisfied;
+}
+
+/**
+ * Round N's zones folded into everything found so far.
+ *
+ * ADDITIVE, in the corrections note's sense (section 4): every earlier zone
+ * survives untouched, and a later round can only ever ADD -- fill a slot that
+ * was empty, or supply the second capture of a two-crop slot. A later round
+ * never replaces an earlier zone for the same key, so supplying one more
+ * document cannot cost the operator a zone they had already accepted.
+ */
+export function mergeZones(previous, next, template) {
+  const cap = new Map();
+  for (const { slot } of templateSlots(template)) {
+    cap.set(slot.key, slotCropCount(slot));
+  }
+
+  const counts = new Map();
+  const merged = [];
+  for (const zone of previous) {
+    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
+    merged.push(zone);
+  }
+  for (const zone of next) {
+    const used = counts.get(zone.key) ?? 0;
+    if (used >= (cap.get(zone.key) ?? 1)) continue;
+    counts.set(zone.key, used + 1);
+    merged.push(zone);
+  }
+  return merged;
+}
+
+/**
+ * Zones sorted into template order, ties broken by discovery order.
+ *
+ * `buildDocx` groups crops by key and renders a key's crops in the order it
+ * receives them, so the discovery-order tiebreak is what keeps a two-crop
+ * slot stacked round 1 first. The template-order sort keeps `cutCrops`'
+ * position bookkeeping legible when rounds interleave.
+ */
+export function inTemplateOrder(zones, template) {
+  const rank = new Map();
+  templateSlots(template).forEach(({ slot }, position) => rank.set(slot.key, position));
+  const last = rank.size;
+  return zones
+    .map((zone, discovered) => ({ zone, discovered }))
+    .sort(
+      (a, b) =>
+        (rank.get(a.zone.key) ?? last) - (rank.get(b.zone.key) ?? last) ||
+        a.discovered - b.discovered,
+    )
+    .map((entry) => entry.zone);
+}
+
+/**
+ * Every fillable slot that still lacks a capture, as structured data.
+ *
+ * Structured, not a log line, because section 4 of the corrections note turns
+ * "not found" into a decision the operator makes on the record: the caller
+ * writes this to disk, and a later UI reads it to ask "is there a dokumen
+ * tambahan for these?" and to offer manual zone selection for the ones the
+ * operator answers no to. A validation document with an unexplained empty
+ * cell is indistinguishable from one where the evidence does not exist.
+ */
+export function outstandingSlots(template, zones, reasons = new Map()) {
+  const counts = new Map();
+  for (const zone of zones) {
+    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
+  }
+
+  const outstanding = [];
+  for (const { section, slot } of templateSlots(template)) {
+    if (!slot.fillable) continue;
+    const found = counts.get(slot.key) ?? 0;
+    const required = slotCropCount(slot);
+    if (found >= required) continue;
+    // A partly-filled slot leads with its count, not with the last round's
+    // message. Measured on the two-round run: `kbLanjutan.top` held one of
+    // its two captures from round 1, round 2 searched the tambahan and found
+    // no second one, and the stored reason alone read "the model found no
+    // match" -- which says, wrongly, that the slot is empty. The counts were
+    // right beside it and the sentence still contradicted them.
+    const partial = `${found} of ${required} captures found`;
+    const last = reasons.get(slot.key);
+    outstanding.push({
+      kind: "slot",
+      key: slot.key,
+      label: slot.label,
+      section: section.title,
+      found,
+      required,
+      reason:
+        found === 0
+          ? (last ?? "searched, not found")
+          : last
+            ? `${partial}; the last search added none (${last})`
+            : partial,
+    });
+  }
+  return outstanding;
+}
+
+/**
+ * Every xlsx row a PDF is supposed to back that came back without a value.
+ *
+ * Same argument as `outstandingSlots`, one deliverable over: a blank cell in
+ * the workbook and a cell nobody tried to fill look identical to a reviewer.
+ */
+export function outstandingFields(template, values) {
+  const filled = new Set(
+    values
+      .filter((value) => String(value.value ?? "").trim() !== "")
+      .map((value) => value.fieldKey),
+  );
+
+  const outstanding = [];
+  const seen = new Set();
+  for (const row of template.xlsxRows) {
+    if (!row.fieldKey || seen.has(row.fieldKey)) continue;
+    seen.add(row.fieldKey);
+    if (filled.has(row.fieldKey)) continue;
+    outstanding.push({
+      kind: "field",
+      key: row.fieldKey,
+      label: row.itemII ?? row.itemI ?? row.fieldKey,
+      reason: "searched, not found",
+    });
+  }
+  return outstanding;
+}
+
+/**
+ * One search round: every unsatisfied slot, searched across every page this
+ * round supplies.
+ *
+ * `locate` is injected -- `(slot, pool) => Promise<LocateResult|null>` -- so
+ * the round's bookkeeping (what gets skipped, what is reported outstanding,
+ * how a failure is recorded) is testable without a model credential. The CLI
+ * passes an adapter over `locateSlot`.
+ */
+export async function searchRound({
+  template,
+  byType,
+  pages,
+  satisfied = new Set(),
+  locate,
+  log = () => {},
+}) {
   /** @type {{ key: string, pageIndex: number, box: object, lineRange: number[] }[]} */
   const zones = [];
-  const unfilled = [];
+  /** @type {Map<string, string>} slot key -> why it came back empty */
+  const reasons = new Map();
 
   for (const section of template.sections) {
-    const fillable = section.slots.filter((s) => s.fillable && s.docType);
+    // `s.fillable` alone, not `s.fillable && s.docType`: docType is a ranking
+    // preference now, and a slot without one is a slot with no preference,
+    // not a slot to skip.
+    const fillable = section.slots.filter((s) => s.fillable);
 
     if (section.layout === "images") {
       // Whole-page captures. No model call is made here at all -- see this
       // file's header comment for why that is the design and not a shortcut.
       // Consecutive slots in one section take consecutive pages of that
       // document, which is what "SP" and "SP (lanjutan)" mean.
+      //
+      // This branch is not a search, so there is no pool to widen: what it
+      // needs is "which of these pages IS the Surat Penunjukan", which is the
+      // question classify.ts answers, over every page of every supplied file.
+      // Ranking cannot help here and would actively hurt -- taking an
+      // arbitrary unclassified page when no page was classified as the wanted
+      // type is precisely the plausible-wrong-evidence failure this project
+      // is most afraid of. A slot with no candidate is reported outstanding
+      // instead, which is what hands it to the tambahan loop.
+      const byIndex = pagesByIndex(pages);
       const taken = new Map();
       for (const slot of fillable) {
-        const pool = poolFor(byType, pages, slot.docType);
+        if (satisfied.has(slot.key)) continue;
+
+        // `byType` is the whole run's classification, so this is filtered
+        // back down to the pages THIS round supplied.
+        const candidates = poolForDocTypes(
+          slot.docType ? [slot.docType] : [],
+          byType,
+          byIndex,
+        ).filter(Boolean);
         const position = taken.get(slot.docType) ?? 0;
-        taken.set(slot.docType, position + 1);
-        const page = pool[position];
+        const page = candidates[position];
 
         if (!page) {
-          unfilled.push(
-            `${slot.key}: no ${slot.docType} page ${position} was classified`,
+          reasons.set(
+            slot.key,
+            slot.docType
+              ? `no ${slot.docType} page ${position} among the ${pages.length} pages searched`
+              : "whole-page slot with no document type to identify its page",
           );
           continue;
         }
-        console.log(
+        // Advanced only on a real assignment, so a slot already filled by an
+        // earlier round does not consume a page of THIS round's pool: when
+        // round 1 filled sp.1 and left sp.2 outstanding, sp.2 must take the
+        // first SP page the tambahan supplies, not its second.
+        taken.set(slot.docType, position + 1);
+
+        log(
           `  ${slot.key}: whole page ${page.index} ` +
             `(${sourceLabel(page)}), no model call`,
         );
@@ -400,36 +733,38 @@ async function planZones(template, byType, pages) {
     }
 
     for (const slot of fillable) {
-      const pool = poolFor(byType, pages, slot.docType);
+      if (satisfied.has(slot.key)) continue;
+
+      const pool = rankedPool([slot.docType], byType, pages);
       if (pool.length === 0) {
-        unfilled.push(`${slot.key}: no ${slot.docType} page was classified`);
+        reasons.set(slot.key, "no pages were supplied to search");
         continue;
       }
 
-      console.log(`  ${slot.key}: locating in ${pool.length} ${slot.docType} pages...`);
+      log(`  ${slot.key}: locating in ${pool.length} pages...`);
 
       // One slot's failure costs that slot, not the run. By this point the
       // pass has spent minutes of OCR and tens of thousands of tokens on the
       // slots that already succeeded, and the deliverable is a document the
       // operator finishes by hand anyway -- throwing away nine good crops
       // because the tenth call exhausted its retries is the wrong trade. The
-      // slot is named in the summary instead.
+      // slot is named in the outstanding report instead.
       let found;
       try {
-        found = await locateSlot(slot.label, slot.hint, pool, ask);
+        found = await locate(slot, pool, section);
       } catch (error) {
-        console.warn(`  ${slot.key}: FAILED -- ${error.message}`);
-        unfilled.push(`${slot.key}: ${error.message}`);
+        log(`  ${slot.key}: FAILED -- ${error.message}`);
+        reasons.set(slot.key, error.message);
         continue;
       }
 
       if (!found) {
-        unfilled.push(`${slot.key}: the model found no match`);
+        reasons.set(slot.key, "the model found no match");
         continue;
       }
 
       const [from, to] = found.zone.lineRange;
-      console.log(
+      log(
         `  ${slot.key}: page ${found.zone.pageIndex} lines ${from}-${to} ` +
           `(${found.confidence} confidence)`,
       );
@@ -439,21 +774,14 @@ async function planZones(template, byType, pages) {
         box: found.zone.box,
         lineRange: found.zone.lineRange,
       });
-
-      // A slot may declare more crops than one located zone can supply -- the
-      // sample's ToP row stacks two pictures cut from two different pages, and
-      // this headless pass has one hint and makes one call per slot. Say so
-      // rather than shipping a document that silently looks complete.
-      if ((slot.crops ?? 1) > 1) {
-        unfilled.push(
-          `${slot.key}: the template declares ${slot.crops} crops and this pass ` +
-            "produced 1; the operator adds the rest",
-        );
-      }
     }
   }
 
-  return { zones, unfilled };
+  // Only this round's own zones and its own reasons. What is OUTSTANDING is
+  // deliberately not computed here: it is a property of everything found so
+  // far, not of one round, and a round that legitimately skipped a slot
+  // another round already filled must not report it missing.
+  return { zones, reasons };
 }
 
 // ---------------------------------------------------------------------------
@@ -496,25 +824,28 @@ async function cutCrops(zones, pages, sources) {
 // ---------------------------------------------------------------------------
 // Text extraction for the xlsx and the docx header.
 //
-// The default pool is the pages the `layout: "images"` sections capture --
-// the order paperwork (BA Permintaan, SP, the email thread). The KB contract
-// is deliberately excluded: it is a legal document whose addresses and party
-// names are the bank's head office, not this order's service site, and
-// offering it makes a confident wrong `alamat` more likely, not less.
+// HISTORY, because the shape here only makes sense with it. Each key's pool
+// used to be narrowed twice over: to the pages the `layout: "images"`
+// sections capture (the order paperwork -- BA Permintaan, SP, the email
+// thread -- with the KB contract dropped outright), and then again per key by
+// FIELD_DOC_TYPES. The second narrowing fixed a live defect: `cc` and
+// `alamat` both name the customer, and offering the printed email thread let
+// the model match the email's OWN "Cc:" header line instead of the customer
+// named on the BA Permintaan, so both deliverables shipped a wrong customer.
 //
-// Not every key may safely share that whole pool, though. `cc` and `alamat`
-// both name the customer, and offering the printed email thread let the
-// model match the email's OWN "Cc:" header line instead of the customer name
-// on the BA Permintaan -- both deliverables shipped a wrong customer.
-// `picContacts`, by contrast, came back exactly matching the sample off the
-// Email page and nowhere else. FIELD_DOC_TYPES narrows a key's pool instead
-// of dropping the Email page from the default pool outright, which would fix
-// `cc` and lose `picContacts` (task-11-report.md self-review #1). A key with
-// no entry here keeps the full order-paperwork pool. `namaProyek` needs
-// composing rather than sourcing from that pool at all -- see
-// NEVER_EXTRACTED below, where it is excluded outright rather than given a
-// FIELD_DOC_TYPES entry (task-11 finding 3, task-11-report.md self-review
-// #2).
+// Both narrowings are gone (2026-08-31 corrections note, section 2): every
+// key is now offered every page of every supplied document. FIELD_DOC_TYPES
+// survives with the same entries and a different job -- it now RANKS a key's
+// pages, putting its likeliest document first, and removes nothing. What
+// stops the wrong-customer bug coming back is `Template.fieldHints`, which
+// gives the model a definition of `cc` that rules out email headers and
+// distribution lists explicitly. That is the note's resolution in one line:
+// better disambiguation, not narrower pools.
+//
+// The cost is real and worth stating: three key groups times the whole
+// bundle's OCR text, instead of three small pools. Grouping is kept anyway,
+// because the groups now differ by ORDER and order is the only steer
+// classification is still allowed to give.
 //
 // Each group's pool is renumbered 0..n-1 before being handed to the model
 // and mapped back afterwards. extractFields numbers its listing by POSITION
@@ -530,8 +861,13 @@ async function cutCrops(zones, pages, sources) {
 // ---------------------------------------------------------------------------
 
 /**
- * docTypes a fieldKey's value and citation may come from. A key absent here
- * draws from every `layout: "images"` docType (orderPaperworkDocTypes below).
+ * The docTypes a fieldKey's value is MOST LIKELY to sit in -- the pages put
+ * at the front of its pool, never the only pages in it.
+ *
+ * The entries are unchanged from when this was a filter, and the name is kept
+ * for the same reason; what changed is that `rankedPool` consumes it instead
+ * of `poolForDocTypes`, so a key absent here simply gets an unranked pool
+ * rather than a different (smaller) one. Every key sees every page either way.
  */
 export const FIELD_DOC_TYPES = {
   cc: ["BAPermintaan"],
@@ -539,8 +875,8 @@ export const FIELD_DOC_TYPES = {
   picContacts: ["Email"],
 };
 
-/** The docTypes every `layout: "images"` fillable slot captures -- the pool a
- * key with no FIELD_DOC_TYPES entry draws from. */
+/** The docTypes every `layout: "images"` fillable slot captures -- the pages
+ * a key with no FIELD_DOC_TYPES entry is shown first. */
 export function orderPaperworkDocTypes(template) {
   const set = new Set();
   for (const section of template.sections) {
@@ -575,8 +911,43 @@ export function remapCitedPageIndex(poolPosition, pool) {
   return pool[poolPosition]?.index;
 }
 
-/** Groups fieldKeys by the docType set they may draw from, so keys sharing a
- * pool cost one extraction call instead of one apiece. */
+/**
+ * Wraps an `ask` so the extraction prompt carries each key's definition.
+ *
+ * `extractFields` is handed bare key names and builds its prompt from them,
+ * which makes "cc" the entire description of the field -- the thinnest hint
+ * in the pipeline, and the one that lost to the printed email's own `Cc:`
+ * header when the pool stopped being narrowed. The definitions live in
+ * `Template.fieldHints`; this is how they reach the model.
+ *
+ * It PREPENDS rather than splicing into the prompt on purpose. The prompt is
+ * `src/lib/pipeline/fields.ts`'s to build, and matching against its interior
+ * ("insert after the `Fields:` line") would make this quietly stop working
+ * the next time that file is reworded -- quietly, because the call would
+ * still succeed and the model would still answer, just without the
+ * disambiguation that keeps the customer name right.
+ *
+ * Returns `ask` unchanged when nothing is described, so a key with no entry
+ * costs no wrapper and no prompt text.
+ */
+export function withFieldHints(ask, keys, fieldHints) {
+  const described = keys.filter((key) => fieldHints?.[key]);
+  if (described.length === 0) return ask;
+
+  const block = [
+    "FIELD DEFINITIONS. These define the fields requested below. Where a",
+    "definition and the field's short name disagree, the definition wins, and",
+    "text a definition rules out is not an acceptable answer even when it",
+    "looks like a match.",
+    ...described.map((key) => `  ${key}: ${fieldHints[key]}`),
+    "",
+  ].join("\n");
+
+  return (prompt) => ask(`${block}\n${prompt}`);
+}
+
+/** Groups fieldKeys by the docType set that ranks their pool, so keys with the
+ * same ranking cost one extraction call instead of one apiece. */
 export function groupKeysByDocTypes(keys, defaultDocTypes) {
   const groups = new Map();
   for (const key of keys) {
@@ -589,22 +960,30 @@ export function groupKeysByDocTypes(keys, defaultDocTypes) {
   return [...groups.values()];
 }
 
-// namaProyek is never sent to the model. It has no FIELD_DOC_TYPES entry
-// above, so on the full order-paperwork pool it reliably picked the Surat
-// Penunjukan's subject line -- the master contract's scope title, not this
-// order's project name -- and that wrong value carried a citation that
-// *passed* validation, reading as sourced evidence rather than a guess
-// (task-11 finding 3, same defect class as the cc/alamat fix in c5ed15c).
-// The sample's value composes from BA Permintaan's `Tipe Permintaan` and
-// `Nama Lokasi`, but that composition isn't implemented reliably enough to
-// trust here, and restricting its pool to `["BAPermintaan"]` the way cc and
-// alamat were restricted would flip `groupKeysByDocTypes never gives
-// cc/alamat the Email pool...` from documenting a known, accepted gap to
-// contradicting it (that pre-existing test asserts namaProyek keeps the full
-// default pool). Excluding it from extraction entirely ships it blank
-// instead: a blank invites the operator to fill it in, and a plausible wrong
-// value does not.
-const NEVER_EXTRACTED = new Set(["namaProyek"]);
+/**
+ * Keys deliberately not sent to the model at all, whatever the template says.
+ *
+ * Empty, and kept as a named seam rather than deleted, because it is the
+ * honest escape hatch for a key that cannot be extracted safely. `namaProyek`
+ * lived here: on the old unhinted pool it reliably answered with the Surat
+ * Penunjukan's subject line -- the master contract's scope title, not this
+ * order's project name -- and that wrong value carried a citation that
+ * *passed* validation, so it read as sourced evidence rather than a guess
+ * (task-11 finding 3). It is extracted again now that
+ * `AO_TEMPLATE.fieldHints.namaProyek` says in as many words that the
+ * agreement's title and an appointment letter's subject are the wrong answer.
+ *
+ * MEASURED on the sample bundle after that change, and worth stating exactly
+ * because it is not a clean pass: it no longer answers with the master
+ * contract. It answers with the request email's own subject line -- the right
+ * order, the right site, the right kind of work, cited to a page a reviewer
+ * can open -- but not the wording the human-authored sample uses for the same
+ * field. That is a value the operator confirms and adjusts, not a value that
+ * sends them to the wrong document. If a later run shows it drifting back to
+ * the framework contract, put the key back in this set: a blank invites the
+ * operator to fill it in, and a plausible wrong value does not.
+ */
+const NEVER_EXTRACTED = new Set();
 
 async function extractTextFields(template, byType, pages) {
   const keys = [
@@ -618,22 +997,26 @@ async function extractTextFields(template, byType, pages) {
 
   const values = [];
   for (const group of groupKeysByDocTypes(keys, defaultDocTypes)) {
-    const pool = poolForDocTypes(group.docTypes, byType, pages);
+    // Every page, ranked -- see this section's header comment. `pages` is the
+    // whole run's page list, so a key can be answered by a document that
+    // arrived in a later round.
+    const pool = rankedPool(group.docTypes, byType, pages);
     if (pool.length === 0) {
-      console.log(
-        `  no ${group.docTypes.join("/")} pages were classified; skipping ` +
-          `${group.keys.join(", ")}`,
-      );
+      console.log(`  no pages to search; skipping ${group.keys.join(", ")}`);
       continue;
     }
 
     console.log(
-      `  extracting ${group.keys.join(", ")} from pages ` +
-        `${pool.map((p) => p.index).join(", ")}...`,
+      `  extracting ${group.keys.join(", ")} from ${pool.length} pages ` +
+        `(${group.docTypes.join("/")} first)...`,
     );
 
     const renumbered = pool.map((page, position) => ({ ...page, index: position }));
-    const found = await extractFields(group.keys, renumbered, ask);
+    const found = await extractFields(
+      group.keys,
+      renumbered,
+      withFieldHints(ask, group.keys, template.fieldHints),
+    );
 
     for (const value of found) {
       if (!value.source) {
@@ -672,37 +1055,107 @@ function sourceLabel(page) {
   return `${page.sourceName} p${page.pageInDoc}`;
 }
 
+/**
+ * Opens this round's PDFs, appends them to the run's source list and returns
+ * the indexes it added. Append-only for the same reason `pages` is: a zone
+ * remembers `pages[i].source`, so a later round must not renumber sources.
+ */
+async function openSources(paths, sources) {
+  const added = [];
+  for (const path of paths) {
+    const bytes = new Uint8Array(await readFile(path));
+    const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 32);
+    // pdf.js takes ownership of the buffer it is given, so hash first.
+    const doc = await getDocument({ data: bytes }).promise;
+    added.push(sources.length);
+    sources.push({ path, name: basename(path), hash, doc });
+    console.log(`${basename(path)}: ${doc.numPages} pages`);
+  }
+  return added;
+}
+
 async function main() {
-  const { pdfs, outDir } = parseArgs(process.argv.slice(2));
+  const { rounds, outDir } = parseArgs(process.argv.slice(2));
 
   console.log(`Model:  ${MODEL_TARGET}`);
   console.log(`OCR cache: ${OCR_CACHE_PATH}${FORCE_FRESH ? " (bypassed)" : ""}`);
   console.log();
 
-  const sources = [];
-  for (const path of pdfs) {
-    const bytes = new Uint8Array(await readFile(path));
-    const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 32);
-    // pdf.js takes ownership of the buffer it is given, so hash first.
-    const doc = await getDocument({ data: bytes }).promise;
-    sources.push({ path, name: basename(path), hash, doc });
-    console.log(`${basename(path)}: ${doc.numPages} pages`);
-  }
-  console.log();
-
-  console.log("OCR (cached pages are skipped)...");
   const cache = await loadCache();
-  const pages = await ocrEveryPage(sources, cache);
-  for (const page of pages) page.sourceName = sources[page.source].name;
-  console.log(`OCR complete: ${pages.length} pages.\n`);
+  /** Every source and page seen so far, across every round. Append-only. */
+  const sources = [];
+  const pages = [];
+  /** @type {Map<string, number[]>} docType -> global page indexes, in order */
+  const byType = new Map();
+  /** Everything found so far. Rounds add to this; nothing removes from it. */
+  let zones = [];
+  /** @type {Map<string, string>} slot key -> the newest reason it came back empty */
+  const reasons = new Map();
+  const roundReports = [];
 
-  console.log("Classifying...");
-  const byType = await classifyEverything(sources, pages);
-  console.log();
+  for (const [roundIndex, paths] of rounds.entries()) {
+    console.log("=".repeat(72));
+    console.log(
+      `ROUND ${roundIndex + 1} of ${rounds.length}` +
+        (roundIndex === 0 ? " (initial bundle)" : " (dokumen tambahan)"),
+    );
+    console.log("=".repeat(72));
 
-  console.log("Planning zones...");
-  const { zones, unfilled } = await planZones(AO_TEMPLATE, byType, pages);
-  console.log();
+    const sourceIndexes = await openSources(paths, sources);
+    console.log();
+
+    console.log("OCR (cached pages are skipped)...");
+    const roundPages = await ocrEveryPage(sources, sourceIndexes, cache, pages);
+    console.log(
+      `OCR complete: ${roundPages.length} new page(s), ${pages.length} in total.\n`,
+    );
+
+    console.log("Classifying...");
+    await classifyEverything(sources, sourceIndexes, pages, byType);
+    console.log();
+
+    // Only what is still missing. Round 1 has nothing satisfied and so
+    // searches every slot; a later round searches the new document for the
+    // outstanding slots alone -- which is both what the operator asked for
+    // ("search it for only the outstanding slots") and what keeps the cost of
+    // a fourth document proportional to what it can still answer.
+    const satisfied = satisfiedSlotKeys(AO_TEMPLATE, zones);
+    if (satisfied.size > 0) {
+      console.log(
+        `Skipping ${satisfied.size} slot(s) an earlier round already filled.`,
+      );
+    }
+
+    console.log("Planning zones...");
+    const round = await searchRound({
+      template: AO_TEMPLATE,
+      byType,
+      pages: roundPages,
+      satisfied,
+      locate: (slot, pool, section) =>
+        locateSlot(slotSearchLabel(section, slot), slot.hint, pool, ask),
+      log: (line) => console.log(line),
+    });
+    for (const [key, reason] of round.reasons) reasons.set(key, reason);
+    zones = mergeZones(zones, round.zones, AO_TEMPLATE);
+
+    const after = outstandingSlots(AO_TEMPLATE, zones, reasons);
+    roundReports.push({
+      round: roundIndex + 1,
+      documents: paths.map((p) => basename(p)),
+      pagesAdded: roundPages.length,
+      filledThisRound: round.zones.map((zone) => zone.key),
+      outstandingAfter: after.map((slot) => slot.key),
+    });
+    console.log(
+      `\nAfter round ${roundIndex + 1}: ${zones.length} zone(s) found, ` +
+        `${after.length} slot(s) outstanding.\n`,
+    );
+  }
+
+  // Rounds can interleave, so put the zones back into template order before
+  // cutting -- see inTemplateOrder for what depends on it.
+  zones = inTemplateOrder(zones, AO_TEMPLATE);
 
   console.log("Cutting crops...");
   const filled = await cutCrops(zones, pages, sources);
@@ -713,11 +1166,12 @@ async function main() {
   // both files are written below, so a failure here costs the xlsx's values and
   // the docx's header text, not the run. It is said plainly in the summary.
   let values = [];
+  let extractionError;
   try {
     values = await extractTextFields(AO_TEMPLATE, byType, pages);
   } catch (error) {
     console.warn(`  extraction FAILED -- ${error.message}`);
-    unfilled.push(`every xlsx value and header field: ${error.message}`);
+    extractionError = error.message;
   }
   for (const value of values) {
     const cite = value.source
@@ -750,16 +1204,48 @@ async function main() {
   };
 
   await mkdir(outDir, { recursive: true });
-  const stem = idEpic || basename(pdfs[0]).replace(/\.pdf$/i, "");
+  const stem = idEpic || basename(rounds[0][0]).replace(/\.pdf$/i, "");
   const docxPath = join(outDir, `${stem}_DOKUMEN_VALIDASI.docx`);
   const xlsxPath = join(outDir, `${stem}_ORDER_Config.xlsx`);
+  const reportPath = join(outDir, `${stem}_OUTSTANDING.json`);
 
   await writeFile(docxPath, await buildDocx(AO_TEMPLATE, header, filled));
   await writeFile(xlsxPath, await buildXlsx(AO_TEMPLATE, values));
 
+  // The structured outstanding report. Section 4 of the corrections note
+  // wants "not found" to be a decision the operator makes on the record
+  // rather than a silent gap, and a log line scrolls away: this file is what
+  // a later UI reads to ask "is there a dokumen tambahan for these?", and
+  // what a resumed run reads to know which zones it already has.
+  const slotsOutstanding = outstandingSlots(AO_TEMPLATE, zones, reasons);
+  const fieldsOutstanding = outstandingFields(AO_TEMPLATE, values).map((field) =>
+    extractionError ? { ...field, reason: extractionError } : field,
+  );
+  const report = {
+    template: AO_TEMPLATE.id,
+    generatedAt: new Date().toISOString(),
+    documents: sources.map((source, index) => ({
+      index,
+      name: source.name,
+      pages: source.doc.numPages,
+    })),
+    rounds: roundReports,
+    zones: zones.map((zone) => ({
+      key: zone.key,
+      pageIndex: zone.pageIndex,
+      sourceName: pages[zone.pageIndex].sourceName,
+      pageInDoc: pages[zone.pageIndex].pageInDoc,
+      lineRange: zone.lineRange,
+      box: zone.box,
+    })),
+    outstanding: [...slotsOutstanding, ...fieldsOutstanding],
+  };
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
   console.log("=".repeat(72));
   console.log(`docx: ${docxPath}`);
   console.log(`xlsx: ${xlsxPath}`);
+  console.log(`outstanding: ${reportPath}`);
   console.log();
   console.log("Page numbers cited above and in the xlsx comments are this run's");
   console.log("global page numbers:");
@@ -772,10 +1258,21 @@ async function main() {
   }
   console.log();
   console.log(`crops: ${filled.length} cut, ${values.length} text fields extracted`);
-  if (unfilled.length > 0) {
-    console.log(`left for the operator (${unfilled.length}):`);
-    for (const note of unfilled) console.log(`  - ${note}`);
+
+  if (report.outstanding.length > 0) {
+    console.log(
+      `OUTSTANDING (${report.outstanding.length}) -- each needs a dokumen tambahan ` +
+        "or a manual zone selection:",
+    );
+    for (const item of report.outstanding) {
+      console.log(`  - [${item.kind}] ${item.key} (${item.label}): ${item.reason}`);
+    }
+    console.log("Supply another document with --tambahan <file.pdf> to search it");
+    console.log("for these alone; zones already found are kept.");
+  } else {
+    console.log("Nothing outstanding: every backed slot and field was filled.");
   }
+
   console.log(
     `cost: ${cost.calls} model calls, in=${cost.in} out=${cost.out} ` +
       `thoughts=${cost.thoughts} total=${cost.total}`,
@@ -783,7 +1280,8 @@ async function main() {
 }
 
 /** An argument mistake deserves the usage text, not a stack trace. */
-const USAGE_ERRORS = /^(no PDF given|unknown option |--out needs|no such file: )/;
+const USAGE_ERRORS =
+  /^(no PDF given|unknown option |--out needs|--tambahan needs|no such file: )/;
 
 // Guarded so the test suite can import this file's pure helpers (e.g.
 // poolForDocTypes, remapCitedPageIndex) without running the whole CLI --
