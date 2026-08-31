@@ -74,5 +74,32 @@ export async function classifyPages(
       throw new Error(`span toPage ${span.toPage} exceeds last page ${last}`);
     }
   }
+
+  // Nothing downstream confirms these spans -- this pipeline is headless --
+  // so every page must land in exactly one span before spans are handed on.
+  // A page belonging to no real document still has a home: the prompt
+  // offers "Unknown". A gap or an overlap here is a classification bug, not
+  // a legitimate shape, and must fail loudly with the pages at fault named.
+  const coverage = new Array(pages.length).fill(0);
+  for (const span of parsed.spans) {
+    for (let p = span.fromPage; p <= span.toPage; p++) {
+      coverage[p]++;
+    }
+  }
+
+  const issues: string[] = [];
+  for (let i = 0; i < coverage.length; i++) {
+    if (coverage[i] === 0) {
+      issues.push(`page ${i} not covered`);
+    } else if (coverage[i] > 1) {
+      issues.push(`page ${i} covered ${coverage[i]} times`);
+    }
+  }
+  if (issues.length > 0) {
+    throw new Error(
+      `spans must cover every page exactly once: ${issues.join(", ")}`,
+    );
+  }
+
   return parsed.spans;
 }

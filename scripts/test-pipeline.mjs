@@ -348,3 +348,35 @@ test("classifyPages rejects a span outside the page range", async () => {
 test("classifyPages rejects an unparseable reply", async () => {
   await assert.rejects(() => classifyPages(pages, async () => "no idea"));
 });
+
+test("classifyPages rejects overlapping spans", async () => {
+  const ask = async () =>
+    '{"spans":[{"docType":"KB","fromPage":0,"toPage":1},' +
+    '{"docType":"SP","fromPage":1,"toPage":2}]}';
+  await assert.rejects(() => classifyPages(pages, ask), /page 1 covered 2 times/);
+});
+
+test("classifyPages rejects duplicate spans", async () => {
+  const ask = async () =>
+    '{"spans":[{"docType":"KB","fromPage":0,"toPage":1},' +
+    '{"docType":"KB","fromPage":0,"toPage":1}]}';
+  await assert.rejects(
+    () => classifyPages(pages, ask),
+    /page 0 covered 2 times, page 1 covered 2 times/,
+  );
+});
+
+test("classifyPages rejects a gap that orphans a page", async () => {
+  const ask = async () =>
+    '{"spans":[{"docType":"KB","fromPage":0,"toPage":0},' +
+    '{"docType":"SP","fromPage":2,"toPage":2}]}';
+  await assert.rejects(() => classifyPages(pages, ask), /page 1 not covered/);
+});
+
+test("classifyPages rejects an empty spans array", async () => {
+  const ask = async () => '{"spans":[]}';
+  await assert.rejects(
+    () => classifyPages(pages, ask),
+    /page 0 not covered, page 1 not covered, page 2 not covered/,
+  );
+});
