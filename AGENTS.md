@@ -10,64 +10,320 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # tv-helper
 
-Gemini vision inference proven through an assistant-ui chat front end. The chat
-UI is scaffolding; the real target is a scanned-document validator, which is why
-the model is vision-capable rather than the cheapest one that can chat.
+Turns a bundle of scanned Indonesian telecom order documents into two
+deliverables that reproduce a human-authored sample:
+
+1. `<ID EPIC>_DOKUMEN_VALIDASI.docx`, a validation packet whose evidence is
+   **cropped pictures** of the source pages, in the manner of a screen capture
+   rather than a text quote.
+2. `<ID EPIC>_ORDER_Config.xlsx`, the EPIC order-entry sheet, with column E
+   filled only where a source document backs the value and every filled cell
+   carrying a note naming the file, page, and line range it came from.
+
+The headless pipeline that produces both is built and merged. `pnpm generate`
+runs it end to end with no UI and no browser involved.
+
+**The assistant-ui chat under `src/app/` is leftover scaffolding.** It proved
+the inference path and that job is done. It is still in the tree, it is still
+the only thing `pnpm dev` serves, and it is the only part of the application
+that sends images to the model (`pnpm smoke`'s vision probes aside). Do not
+mistake it for the product, and do not read its cost profile as the
+pipeline's.
 
 **There is no local fallback.** Ollama is not deployed to production, so it is
 not kept as a code path either. `GOOGLE_GENERATIVE_AI_API_KEY` is required and
-the app fails loudly without it.
+every entry point fails loudly without it. OCR, by contrast, is entirely local
+and needs no credential.
+
+## The failure class this project cares about
+
+Wrong-and-quiet. A crash is cheap. A DOKUMEN VALIDASI that opens fine, looks
+complete, and carries a crop of the wrong page is expensive, because a human
+validator may sign it. Most rules below exist because some earlier version of
+this code produced a plausible wrong answer instead of an error.
+
+## How the pipeline works
+
+The central idea: **the model is never asked for a pixel coordinate.** OCR
+supplies every word with a real glyph box; the model is shown those words
+grouped into numbered lines, as text, and answers with a *line range*. The
+rectangle is then the union of those lines' own boxes. The model does only the
+semantic step, which is the part a language model is good at.
+
+| Stage | Module | Produces |
+| --- | --- | --- |
+| Render | `src/lib/pipeline/render.ts` | one upright RGBA page at 300 DPI (`DEFAULT_DPI`). `getViewport` applies the page's own `/Rotate` (these scans carry `/Rotate 270`), so every box downstream is upright pixels and no other module thinks about rotation. The 2D context is injected via `CanvasFactory`, so Node passes `@napi-rs/canvas` and a browser can pass an OffscreenCanvas without this module importing either. |
+| OCR | `src/lib/pipeline/ocr.ts` | every word with a pixel box, Indonesian (`ind`) by default |
+| Geometry | `src/lib/pipeline/geometry.ts` | `groupWordsIntoLines` (vertical-overlap grouping), `unionBoxes`, `padBox`, `boxForLineRange` |
+| Classify | `src/lib/pipeline/classify.ts` | doc-type spans (`KB`, `SP`, `BAPermintaan`, `Email`, `Unknown`) from OCR text. Rejects any reply that does not cover every page exactly once: nothing downstream confirms these spans, so a gap or an overlap must fail loudly. |
+| Locate | `src/lib/pipeline/locate.ts` | `{pageIndex, from, to, confidence}` for one slot. The box is the union of those lines' boxes padded by `CROP_PADDING_PX` (12px, about 1mm at 300 DPI). |
+| Extract | `src/lib/pipeline/fields.ts` | xlsx values, each with a citation that is **validated before it is trusted** (a hallucinated page, a reversed range, or a line the page does not have drops the citation but keeps the value: a false citation is worse than none) |
+| Crop | `src/lib/export/crop.ts`, `png.ts` | the rectangle cut out of a re-rendered page, PNG-encoded with no image dependency (no `sharp`, no `pngjs`) |
+| Export | `src/lib/export/docx.ts`, `xlsx.ts` | the two deliverables |
+
+`src/lib/forms/template.ts` (`AO_TEMPLATE`) declares the docx section list and
+the xlsx row list together, because they are two views of one order. It is a
+**transcription of the sample, not a redesign**: section names, row labels,
+order, the sections that ship empty, and the two-part KB table split all match
+the sample as it stands.
+
+### `pnpm generate` routes on `section.layout`, and that is load-bearing
+
+A `layout: "images"` section is a **whole-page capture**: a human filling the
+sample screenshots the entire page, so the page is taken directly and **no
+model call is made**. Asking the model to find a whole page inside that page is
+a category error, and it is exactly how those slots failed the first
+measurement run: a plausible-looking fragment every time. Only `layout:
+"table"` slots go through `locateSlot`.
+
+Two other things in `scripts/generate.mjs` that are easy to "simplify" back
+into bugs:
+
+- **Two passes, on purpose.** Pass 1 OCRs every page and keeps only the text
+  geometry; the pixels are dropped. A 300 DPI A4 page is about 35MB of RGBA and
+  the sample bundle is 29 pages, so holding them all costs a gigabyte to serve
+  a dozen crops. Pass 2 re-renders only the pages a zone landed on.
+- **OCR is cached, model replies are not.** OCR is keyed by the source file's
+  content hash plus page and DPI, in the system temp directory, because it is a
+  pure function of the pixels and takes minutes. A model reply is not a pure
+  function of its input, and a stale verdict served silently is worse than
+  paying again. `GENERATE_FORCE=1` bypasses the OCR cache;
+  `MEASURE_LOCATE_FORCE=1` does the same for the gate harness.
+
+## THE COMMON PATH SENDS TEXT, NOT IMAGES
+
+This is the single easiest thing to get wrong about this repo, and the cost
+tables below read backwards if you get it wrong.
+
+- **`pnpm generate` and `pnpm measure:locate` upload zero images.** Classify,
+  locate, and extract are all text-only; `Ask` is typed
+  `(prompt: string) => Promise<string>` and there is no image parameter
+  anywhere in `src/lib/pipeline/`.
+- **`GEMINI_MEDIA_RESOLUTION` therefore costs the validator nothing.** It only
+  affects `/api/chat` (the surviving chat scaffolding) and the vision probes in
+  `pnpm smoke`. Tuning it to save money on a `generate` run tunes the wrong
+  lever and changes no bill.
+- **What actually drives validator cost is the size of the OCR listing.** One
+  locate call carries every page of one document type as numbered lines: about
+  17k input tokens for this bundle's KB contract. More pages of one doc type,
+  or more `layout: "table"` slots, multiplies that directly.
+- The per-image numbers in the cost table are still correct **for images**. They
+  are kept because the chat route and the smoke test still send images and
+  because the design's signature-block vision fallback is still on the table
+  (see Not built yet).
+
+`pnpm generate` prints a `cost:` line with total calls and tokens, and every
+call logs `in= out= (thoughts=) total=` exactly as `/api/chat` does, so cost is
+visible in the run log rather than a month later on an invoice.
+
+## The measurement gate
+
+`pnpm measure:locate` (`scripts/measure-locate.mjs`) scores the locate step
+against the human-authored crops in the sample DOKUMEN VALIDASI docx. It reads
+gitignored client material from `documents/` and calls the real model, so it is
+run by hand, not in CI.
+
+Ground truth is not a hand-picked phrase: each of the twelve crop PNGs is
+OCR'd with the same `ocrToLines` pipeline used on the full pages, so the
+comparison is real text against real text from the same engine.
+
+**Recorded result.**
+
+- **Page selection: 12 / 12.** Every slot landed on the expected page across
+  the sample bundle.
+- **Extent: 11 / 12 by containment.** The one genuine miss is `KB / ToP (2)`.
+- It is twelve crops, not the eleven the original design names: `SP` and `KB /
+  ToP` each supply two crops on two *different* pages, so each needs its own
+  `locateSlot` call.
+
+**The pass rule is containment, and the old "at most 2 extra lines" tolerance
+is dead.** That absolute allowance was invented while writing the 2026-08-30
+design with no data behind it. The sample's twelve human crops run from 2 lines
+to 43, so +2 is a 100% overshoot budget on the smallest and 5% on the largest:
+it measures nothing consistent. The rule now (2026-08-31 corrections, §3) is
+that a proposal passes when it lands on an accepted page and its line range
+contains every line of the ground-truth crop, with overshoot capped
+*proportionally*: reject a range more than twice the required line count, or
+one that runs the full page when the crop does not. Before quoting a total from
+the harness, check which rule it is actually applying.
+
+**Never re-tune the locate prompt or a slot `hint` without re-running the
+gate.** It is the only thing that tells a gain from a regression, and the whole
+failure class here is a change that looks better and is worse.
+
+Read the model-located number on its own. The harness reports field slots and
+whole-document slots separately, because folding the deterministic full-page
+captures into one headline would flatter the design by counting work the model
+never did.
+
+## The tool must be document-agnostic
+
+The client's instruction, recorded 2026-08-31: *the tool is document-agnostic
+and looks for the same slots in any document.*
+
+- **The slot list does not vary by order type.** `JENIS ORDER` values are
+  workflow verbs, not billing periods or document variants: **AO** = Activation
+  Order, **MO** = Modify Order, **DO** = Delete Order, and more exist. An
+  earlier version of this design treated "varies by jenis order" as an axis;
+  that was wrong and the question was uninformed.
+- **Do not assume the sample bundle's structure**, page ordering, or which
+  document type carries which field.
+- **The tension is real, so know it before you touch the pools.** Narrowing a
+  field's search pool by `DocType` was introduced to fix a live defect:
+  searching everything made `cc` match the printed email's own `Cc:` header, so
+  both deliverables shipped a wrong customer name. The correction requires that
+  narrowing become an *ordering hint*, never a hard filter, and the replacement
+  is a better `hint` (for `cc`: the customer named as the subscriber on an
+  order request, explicitly not a name appearing in an email header or
+  distribution list), not a narrower pool. Whichever shape you find in the
+  tree, changing it means re-running the gate.
+- `namaProyek` is deliberately excluded from extraction entirely
+  (`NEVER_EXTRACTED` in `scripts/generate.mjs`) and ships blank. On the full
+  pool it reliably picked the Surat Penunjukan's subject line, the master
+  contract's scope title rather than this order's project name, and carried a
+  citation that *passed* validation. A blank invites the operator to fill it
+  in; a plausible wrong value does not.
 
 ## Gotchas that will cost you time
 
-- **Pick the model by measurement, not by version number.** The newest GA flash
-  tag is not automatically the right default. `gemini-3.7-flash` measured
-  99-190s on a trivial vision call with intermittent 503s, past the chat route's
-  `maxDuration` of 120. `gemini-3.5-flash` answers the same probe in about 2s.
-  Run `pnpm smoke` before moving the default in `src/lib/model.ts`.
-- **Image tokens are a flat rate per `mediaResolution` tier, not per pixel.** A
-  224x224 thumbnail and a 1700x2200 page both bill ~1110 prompt tokens at
-  `MEDIA_RESOLUTION_HIGH`. Two consequences: downscaling images saves upload and
-  IndexedDB space but not a single API token, and attaching several small images
-  is far more expensive than it looks.
-- **`DEFAULT_PAGE_LIMIT` is now a cost cap, not a context cap.** The old 8K
-  local context is gone and Gemini gives 1M, but 5 pages still costs ~5550
-  input tokens per request. Raising it multiplies per-request cost linearly.
-- **Cap thinking.** `thinkingLevel: "low"` is set in `src/lib/model.ts`.
-  Thought tokens bill at the output rate, and Gemini's own default is medium.
-  An uncapped budget can also spend the whole output allowance and return an
-  empty message that reads like a bug in the app.
-- **`MEDIA_RESOLUTION_HIGH` is load-bearing, not a tuning knob.** This project
-  exists to read small print off documents. `MEDIUM` halves input cost by
-  discarding exactly the detail that decides a verdict. Change it only with
-  accuracy measured on real scans.
-- **The API key lives in `.env.local`, which is gitignored.** `.env.example` is
-  the committed template, deliberately un-ignored by a `!.env.example` rule.
-  Never put a real key in it.
+### OCR and tesseract
+
+- **Self-host the tesseract wasm and traineddata.** No `.traineddata` ships
+  inside `tesseract.js` or `tesseract.js-core`; it comes from
+  `@tesseract.js-data/*` and the library fetches it from a CDN by default,
+  which puts an unapproved third party in the browser's request path. Same
+  rule, same reason, as pdf.js keeping its bundled worker.
+  `scripts/vendor-ocr.mjs` copies both into `public/tesseract`.
+- **`vendor-ocr.mjs` guards on asset CLASS (wasm and traineddata), not on a
+  file count.** A count-based guard passes while copying only JavaScript,
+  leaving the CDN fallback in place for exactly the two things the rule exists
+  to keep local. Paths are resolved through `createRequire`, never hard-coded:
+  under pnpm nothing is hoisted, so `node_modules/tesseract.js-core` does not
+  exist and a literal path silently copies nothing.
+- **`pretest` AND `prebuild` both run `vendor:ocr`.** `prebuild` alone is not
+  enough: without `pretest` a fresh clone gets two silent 30-second test
+  timeouts instead of a green suite, because two tests point at the real
+  `./public/tesseract`.
+- **tesseract.js has no raw-pixel path.** It writes the bytes to a virtual file
+  and calls `SetImageFile`, which needs a decodable header, so raw RGBA
+  silently becomes a zero-length buffer. Encode PNG first. That is why
+  `src/lib/export/png.ts` exists at all.
+- **tesseract.js@7 swallows a `loadLanguage` rejection with a bare `.catch`, so
+  a misconfigured asset path HANGS FOREVER** with no exception and no log line.
+  `ocr.ts` wraps worker init in a timeout (30s default) for that reason, and
+  the timeout message names `langPath`/`corePath`/`workerPath` and
+  `pnpm vendor:ocr` because that is nearly always the cause. The timeout wraps
+  **only init**, never recognition, which legitimately takes many seconds on a
+  300 DPI scan.
+- **Pass `cacheMethod: "none"` in Node.** Otherwise tesseract.js decompresses
+  the vendored `.traineddata.gz` into `process.cwd()` and leaves it there.
+  `gzip: true` must agree with what `vendor-ocr.mjs` writes, or the fetch 404s.
+
+### Prompting and model replies
+
+- **The prompt numbers pages BY POSITION in the listing, never by their true
+  document index.** A pool starting at page 23 made the model answer 22: its
+  chosen lines matched the intended page exactly, just under the wrong label,
+  consistent with treating a non-zero first label as a 1-based ordinal to
+  convert. Every other pool started at 0, where "convert to 0-based" and "echo
+  the label back" produce the same answer, which is why it stayed hidden until
+  the Surat Penunjukan pool. `buildLocatePrompt` and `extractFields` both
+  renumber locally from 0 and map the reply back to `pages[i].index`. Do not
+  "simplify" that by passing true indexes through.
+- **Detect a transient error from the error OBJECT, not from `String(error)`.**
+  A real Gemini 503 reads "This model is currently experiencing high demand.
+  Spikes in demand are usually temporary." with no status code and no
+  "unavailable" anywhere in `toString()`: the code lives on `statusCode` and
+  `isRetryable`. A message-matching version of `isTransient` let a 503 kill a
+  run that had already spent 100k tokens.
+- **Cap thinking.** `thinkingLevel: "low"` in `src/lib/model.ts`. Thought
+  tokens bill at the output rate and Gemini's own default is medium. An
+  uncapped budget can spend the whole output allowance and return an empty
+  message that reads like a bug in the app.
+- **Pick the model by measurement, not by version number.**
+  `gemini-3.7-flash` measured 99-190s on a trivial vision call with
+  intermittent 503s, past the chat route's `maxDuration` of 120.
+  `gemini-3.5-flash` answers the same probe in about 2s. Run `pnpm smoke`
+  before moving the default in `src/lib/model.ts`.
+
+### Exporters
+
+- **`docx` `ImageRun` REQUIRES `type: "png"`.** Omitting it names the part
+  `word/media/<hash>.undefined`, which has no content type, and Word refuses to
+  open the file.
+- **`docx`'s `transformation` is PIXELS AT 96 DPI, not points.** Crops are cut
+  at 300 DPI, so converting to points renders every image at 75% of its true
+  size, which looks plausible and is wrong. `toDocxPx` in `export/docx.ts` is
+  the conversion.
+- **Word does not shrink an oversized inline image to its column; it clips
+  it.** The exporter caps width at the usable column derived from the sample's
+  own `<w:sectPr>` and scales both dimensions together. Four of the fillable
+  slots are whole-page captures, so an uncapped width is most of the document's
+  visual content, not an edge case.
+- **A slot can hold more than one crop.** `SlotDef.crops` exists because the
+  sample's `KB (lanjutan)` ToP row stacks two pictures in one cell. A
+  `Map<string, FilledSlot>` keeps only the last and silently drops the other,
+  shipping a document that looks complete and is missing evidence.
+- **An empty section still emits its heading, and an unfilled table row still
+  emits its row.** The sample ships MOM, BASO, BA Splitting, SBR Pricing, and
+  BA Penjelasan Order empty, and the operator fills them by hand. A deliberately
+  empty cell is the deliverable. (A `<w:tbl>` with no `<w:tr>`, on the other
+  hand, is schema-invalid and Word refuses the file.)
+- **Use `Packer.toArrayBuffer`, not `toBuffer`.** `toBuffer` asks JSZip for a
+  "nodebuffer", which throws in a browser with no `Buffer` polyfill, and this
+  pipeline is meant to run in the browser.
+- **Never add `xlsx` (SheetJS) from npm.** Frozen at 0.18.5 with two unpatched
+  HIGH advisories; fixes ship only from the vendor's CDN. Use `exceljs`, which
+  is what `src/lib/export/xlsx.ts` and `src/lib/attachments/office.ts` import.
+- **An xlsx cell note must name the source file and its own page number**, not
+  this run's bundle-global page index. That global index is 0-based across
+  every PDF on the command line, so for every page after the first source file
+  it sent a reviewer to the wrong document.
+
+### Toolchain
+
+- **Every relative VALUE import between `.ts` modules needs an explicit `.ts`
+  extension.** Node 24 strips types without rewriting specifiers, so
+  extensionless throws `ERR_MODULE_NOT_FOUND`, and `tsconfig.json` carries
+  `allowImportingTsExtensions` for it. Type-only imports are erased and do not
+  need it, which is why a few `import type` lines look inconsistent.
+- **eslint must ignore both `public/tesseract` and `.claude`, recursively**
+  (`globalIgnores` in `eslint.config.mjs` holds the exact globs).
+  `public/tesseract` is regenerated build output written by `vendor:ocr`. Git
+  worktrees live in-repo at `.claude/worktrees/<name>/` and carry their own
+  `.next/` and `public/tesseract/`, which the root-anchored default globs do
+  not match, so without that ignore `pnpm lint` reports another worktree's
+  errors as this tree's.
+- **`canvas: null` in `page.render()` is required, not cosmetic.** In
+  pdfjs-dist 6.x `canvas` is a required `RenderParameters` property and the
+  library honors `canvasContext` only when `canvas` is falsy. Omitting it fails
+  `tsc`.
 - **Never name a script `setup` in `package.json`.** `pnpm setup` is a reserved
   built-in that modifies the shell PATH; it silently shadows the package script
   and your code never runs.
 - **`src/components/*` is vendored**, generated by `assistant-ui init` and
   overwritten on upgrade. Don't hand-edit it. Its lint rules are narrowed in
-  `eslint.config.mjs` for exactly this reason -- don't "fix" the components.
+  `eslint.config.mjs` for exactly this reason.
 - **`createLocalStorageAdapter`'s history adapter lacks `withFormat`**, which
   `useChatRuntime` hard-requires and throws without. `src/lib/threads/history.ts`
   supplies one and `store.tsx` patches it in. Replacing that with the stock
   adapter compiles fine and silently stops persisting messages.
-- **Never add `xlsx` (SheetJS) from npm.** It is frozen at 0.18.5 with two
-  unpatched HIGH advisories; fixes ship only from the vendor's CDN. Use
-  `exceljs`, which is what `src/lib/attachments/office.ts` imports.
 - **pdf.js must keep its bundled worker.** `GlobalWorkerOptions.workerSrc` is
   set from the installed package on purpose; the library's default fetches from
-  a CDN, which puts an unapproved third party in the browser's request path.
+  a CDN.
 - **The attachment `accept` list is load-bearing.** assistant-ui's composer
   filters on it before the adapter runs, so widening it re-introduces the
   original bug: files that attach fine and then fail after send with a bare
   "An error occurred."
+- **The API key lives in `.env.local`, which is gitignored.** `.env.example` is
+  the committed template, deliberately un-ignored by a `!.env.example` rule.
+  Never put a real key in it.
 
 ## What a request costs
 
-Measured against `gemini-3.5-flash`, per image and per request:
+Measured against `gemini-3.5-flash`. **These per-image numbers apply to
+`/api/chat` and `pnpm smoke`, not to the validator pipeline, which sends no
+images at all.**
 
 | `mediaResolution` | prompt tokens / image | | `thinkingLevel` | thought tokens |
 |---|---|---|---|---|
@@ -76,58 +332,139 @@ Measured against `gemini-3.5-flash`, per image and per request:
 | `MEDIA_RESOLUTION_HIGH` (default) | 1110 | | `medium` (Gemini default) | ~194 |
 | | | | `high` | ~324 |
 
+Image tokens are a flat rate per tier, not per pixel: a 224x224 thumbnail and a
+1700x2200 page both bill ~1110 at HIGH. Downscaling saves upload and IndexedDB
+space but not a single API token, and attaching several small images is far
+more expensive than it looks. `DEFAULT_PAGE_LIMIT` in
+`src/lib/attachments/pdf.ts` is a cost cap on the chat route, not a context
+cap.
+
+`MEDIA_RESOLUTION_HIGH` stays the default because anything that does send an
+image here is sending a dense scan, and `MEDIUM` halves the input cost by
+discarding exactly the detail that decides a verdict. Change it only with
+accuracy measured on real scans. It is still not the lever that moves a
+`pnpm generate` bill; see the section above.
+
 The three levers, all env-tunable so a deployment can trade accuracy for cost
-without editing code:
-
-- `GEMINI_MEDIA_RESOLUTION` -- the largest input cost. Defaults to HIGH because
-  dense scans need it.
-- `GEMINI_THINKING_LEVEL` -- defaults to `low`, which is the cheap win: it drops
-  most thought tokens against Gemini's default of medium with no measured loss
-  on field extraction. Thought tokens bill at the output rate.
-- `GEMINI_MAX_OUTPUT_TOKENS` -- defaults to 4096. A runaway guard, not a budget;
-  the model will otherwise emit up to 65536. A reply cut short logs a warning
-  naming the variable.
-
-`/api/chat` logs `in=`, `out=`, `thoughts=`, and `total=` for every request, so
-cost is visible in the server log rather than a month later on an invoice.
+without editing code: `GEMINI_MEDIA_RESOLUTION` (images only),
+`GEMINI_THINKING_LEVEL` (applies everywhere; `low` is the cheap win against
+Gemini's default of medium with no measured loss on field extraction), and
+`GEMINI_MAX_OUTPUT_TOKENS` (a runaway guard, not a budget: the model will
+otherwise emit up to 65536, and a reply cut short logs a warning naming the
+variable).
 
 ## The client constraint, as it now stands
 
 The original rule was third-party minimization: the data must not leave the
-machine. **The client has since approved Google as a processor**, which is what
-moved inference to the Gemini API. Most of the old rule still holds, so read
-this before assuming it is gone.
+machine. Two approvals have narrowed it, and neither is a general licence.
 
-- **Inference is the only thing that leaves.** Sessions still persist to
-  IndexedDB and every document conversion still runs in the browser. Neither was
-  re-opened, so don't "simplify" either one toward a hosted service.
-- **The browser still talks to nothing but this app.** `/api/chat` is a server
-  route, so the Gemini call is made server-side and the page itself contacts no
-  external host. With the page open,
-  `performance.getEntriesByType("resource")` should still show zero external
-  hosts. That check is still worth running; it now proves the browser adds no
-  third parties, not that the data stayed on the machine.
+- **Google is an approved processor for inference** (2026-08-28), which is what
+  moved inference to the Gemini API.
+- **Hosting on Google Cloud is approved** (2026-08-31), not only inference.
+  That question was open in the 2026-08-30 design and is now closed.
+
+What did not change:
+
+- **Documents still stay on the device.** Sessions persist to IndexedDB and
+  every document conversion, render, and OCR runs locally. Neither was
+  re-opened, so don't "simplify" either one toward a hosted service, and there
+  is deliberately no Cloud Storage bucket.
+- **The browser still talks to nothing but this app.** With the page open,
+  `performance.getEntriesByType("resource")` should show zero external hosts.
+  The self-hosted pdf.js worker and the vendored tesseract assets are what keep
+  that true; a CDN fallback in either breaks it silently.
 - **The key is server-side only.** It is read in `src/lib/model.ts`, which only
-  `/api/chat` imports, and it has no `NEXT_PUBLIC_` prefix, so it cannot reach
-  the browser bundle. Keep it that way.
+  `/api/chat` and `scripts/generate.mjs` import (`smoke.mjs` and
+  `measure-locate.mjs` read the env var themselves), and it has no
+  `NEXT_PUBLIC_` prefix, so it cannot reach the browser bundle. Keep it that
+  way.
 - **Real client documents still never get committed.** `/documents` and
-  `/test-docs` stay gitignored. Google being an approved processor did not make
-  the client's files publishable in a public repo.
+  `/test-docs` stay gitignored; you may read them, never stage them. This repo
+  is public, and Google being an approved processor did not make the client's
+  files publishable. **Never put a real LOP number, quote number, customer
+  name, or project name in a committed file.** The fictional set used
+  throughout the tests and this document is `LOP999001`, `1-70000000001`,
+  `BANK CONTOH NUSANTARA`, `PSB VPN IP KCP Contoh`.
 
 ## Where things live
 
-`src/lib/model.ts` is the only file that knows how the model is reached. It owns
-the model id, the cost settings, and the credential. Everything upstream
-receives an AI SDK `LanguageModel` and knows nothing about who serves it -- keep
-provider SDK imports out of app code.
+`src/lib/model.ts` is the only file that knows how the model is reached. It
+owns the model id, the cost settings, and the credential. Everything upstream
+receives an AI SDK `LanguageModel`, or an injected
+`Ask = (prompt: string) => Promise<string>`, and knows nothing about who serves
+it. Keep provider SDK imports out of app code, out of `src/lib/pipeline/`, and
+out of the scripts.
 
 The model is built lazily, on first request rather than at import time. A
 missing key would otherwise throw while Next collects routes and fail the build
 instead of the request that actually needs the credential.
 
-`pnpm smoke` (`scripts/smoke.mjs`) asserts reachability, text, streaming,
-vision, and per-page cost with no UI involved. Run it before debugging the
-browser; it tells you which side of the boundary is broken. It calls the same
-native Gemini REST surface `@ai-sdk/google` uses, with the same settings
-`src/lib/model.ts` sends -- driving the OpenAI compatibility endpoint instead
-would be less code and would pass while the app was failing.
+```
+src/lib/model.ts               the provider boundary: model id, cost, credential
+src/lib/forms/template.ts      AO_TEMPLATE: docx section list + xlsx row list
+src/lib/pipeline/render.ts     pdf.js, /Rotate, 300 DPI, injected canvas
+src/lib/pipeline/ocr.ts        tesseract worker, words with pixel boxes
+src/lib/pipeline/geometry.ts   words -> numbered lines, union, pad, line range -> box
+src/lib/pipeline/classify.ts   doc-type spans from OCR text
+src/lib/pipeline/locate.ts     slot -> line range -> box
+src/lib/pipeline/fields.ts     xlsx values with validated citations
+src/lib/export/png.ts          dependency-free PNG encoder
+src/lib/export/crop.ts         sub-rectangle out of a rendered page
+src/lib/export/docx.ts         the DOKUMEN VALIDASI packet
+src/lib/export/xlsx.ts         the EPIC order-config sheet (exceljs)
+
+scripts/generate.mjs           pnpm generate: the whole pipeline, one command
+scripts/measure-locate.mjs     pnpm measure:locate: the gate, real documents
+scripts/vendor-ocr.mjs         pnpm vendor:ocr: wasm + traineddata into public/
+scripts/smoke.mjs              pnpm smoke: reachability, text, streaming, vision, cost
+scripts/test-pipeline.mjs      the pipeline unit suite
+scripts/test-converters.mjs    xlsx/docx extraction
+
+src/app/                       the assistant-ui chat scaffolding (see above)
+```
+
+`pnpm smoke` asserts reachability, text, streaming, vision, and per-page image
+cost with no UI involved. Run it before debugging the browser; it tells you
+which side of the boundary is broken. It calls the same native Gemini REST
+surface `@ai-sdk/google` uses, with the same settings `src/lib/model.ts` sends.
+Driving the OpenAI compatibility endpoint instead would be less code and would
+pass while the app was failing, because the shim carries neither
+`thinkingConfig` nor `mediaResolution`.
+
+`pnpm test` runs both suites with `node --test` and makes no API calls.
+
+## Not built yet, and known gaps
+
+Recorded so nobody reads a design statement as a description of the code.
+
+- **There is no vision fallback for signature blocks.** The 2026-08-30 design
+  specifies sending the page image alongside the numbered lines for
+  `TTD Pejabat`, a signature and stamp block with little OCR text to anchor to.
+  `locate.ts` has no image parameter at all, so the gate scores all twelve
+  slots text-only. (The gate's one outstanding miss is a different slot,
+  `KB / ToP (2)`; do not assume the fallback would close it.)
+- **There is no UI for the pipeline.** No confirmation step, no contact sheet,
+  no manual zone selection, and no `/api/locate` route: `pnpm generate` writes
+  both files unreviewed. The design's "the app never emits an unreviewed zone"
+  describes the target, not the current command.
+- **The "dokumen tambahan" loop is not implemented** (2026-08-31 corrections,
+  §4): reporting unfilled slots by name, asking the operator for an additional
+  document, re-searching only the outstanding slots, and offering manual zone
+  selection as the terminal state. `generate.mjs` prints an `unfilled` list and
+  stops there.
+- **Deployment is not built.** No Dockerfile, no `output: "standalone"`, no
+  `proxy.ts`, no Auth.js, no Firestore allowlist.
+- **`measure-locate.mjs` does not go through `src/lib/model.ts`.** It calls the
+  Gemini REST surface with plain `fetch` (no provider SDK, so the boundary rule
+  is not broken) and reads its own env defaults, which is how the harness was
+  written on a branch that predated the Gemini migration. The consequence to
+  know: the gate can pass while `src/lib/model.ts` is broken, and its own
+  defaults can drift from the app's. Check both before reading a gate result as
+  a statement about the app.
+- **`ocr.ts` uses `typeof window === "undefined"` to mean "in Node".** That is
+  false inside a Web Worker, where `window` is undefined but the CDN is very
+  much reachable, so the vendored `BROWSER_ASSETS` paths would be skipped and
+  tesseract.js would silently fall back to its CDN defaults. Nothing runs in a
+  worker today, so it is latent. Fix it before any browser-side OCR.
+- Only two sample bundles exist. That is enough to test capture and not enough
+  to claim accuracy.
