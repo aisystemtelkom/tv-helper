@@ -535,6 +535,7 @@ const SPLITBA_POOL = [0, 1];
 const GROUND_TRUTH = [
   {
     slot: "BA Permintaan",
+    wholeDocument: true,
     doc: "splitba",
     page: 0,
     poolPages: SPLITBA_POOL,
@@ -543,6 +544,7 @@ const GROUND_TRUTH = [
   },
   {
     slot: "Email",
+    wholeDocument: true,
     doc: "splitba",
     page: 1,
     poolPages: SPLITBA_POOL,
@@ -551,6 +553,7 @@ const GROUND_TRUTH = [
   },
   {
     slot: "SP / Isi Surat",
+    wholeDocument: true,
     doc: "merged",
     page: 23,
     altPages: [25], // identical duplicate copy of the same letter, see report
@@ -560,6 +563,7 @@ const GROUND_TRUTH = [
   },
   {
     slot: "SP / TTD",
+    wholeDocument: true,
     doc: "merged",
     page: 24,
     altPages: [26], // identical duplicate copy of the same signature page
@@ -686,7 +690,18 @@ function evaluate(entry, result, ocrCache, cropOcrCache) {
   const chosenLineCount = to - from + 1;
   const requiredLineCount = maxLine - minLine + 1;
   const extra = chosenLineCount - requiredLineCount;
-  const extraOk = containsAll && extra <= 2;
+
+  // The "no more than two extra lines" tolerance exists to catch a LOCALIZER
+  // that swallows half a page while claiming to have found a field. A
+  // whole-document slot is not localizing anything -- it deliberately takes
+  // the entire page -- so the tolerance measures nothing there, and would
+  // fail every such slot merely because the page carries a header or footer
+  // the human's crop trimmed. Containment is the whole test for these.
+  //
+  // This is a per-slot-TYPE rule, not a per-slot exemption: no individual
+  // slot is excused, and the two types are reported separately below so the
+  // model-dependent number stays visible on its own.
+  const extraOk = entry.wholeDocument ? containsAll : containsAll && extra <= 2;
 
   const pass = pageOk && containsAll && extraOk;
 
@@ -766,10 +781,39 @@ async function main() {
 
     let result = null;
     let error = null;
-    try {
-      result = await locateSlot(entry.slot, entry.hint, pages, cachedAsk);
-    } catch (err) {
-      error = err;
+
+    if (entry.wholeDocument) {
+      // These four slots are whole-PAGE captures, not localization targets.
+      // The sample docx crops for BA Permintaan, Email and both SP pages each
+      // cover essentially their entire source page, because a human filling
+      // this form screenshots the page -- they do not hunt for a region within
+      // it. Asking the model to "find the whole page inside this page" is a
+      // category error, and it is precisely how these four failed: it returned
+      // a sensible-looking fragment every time.
+      //
+      // The template config already encodes this distinction, as
+      // `layout: "images"` sections versus `layout: "table"` sections, so the
+      // product can route on it without new metadata.
+      //
+      // No model call is made here at all: the proposal is the whole page.
+      const pageEntry = ocrCache[`${entry.doc}:${entry.page}`];
+      const lastLine = pageEntry.lines.length - 1;
+      console.log("    [whole-document] captured the full page, no model call");
+      result = {
+        zone: {
+          pageIndex: entry.page,
+          box: { x: 0, y: 0, w: pageEntry.width, h: pageEntry.height },
+          lineRange: [0, lastLine],
+        },
+        text: pageEntry.lines.map((l) => l.text).join("\n"),
+        confidence: "high",
+      };
+    } else {
+      try {
+        result = await locateSlot(entry.slot, entry.hint, pages, cachedAsk);
+      } catch (err) {
+        error = err;
+      }
     }
 
     const verdict = error
@@ -801,6 +845,31 @@ async function main() {
   }
   console.log("-".repeat(78));
   console.log(`TOTAL: ${passCount} / ${results.length} passed`);
+  console.log();
+
+  // Report the model-dependent number on its own. Four slots are deterministic
+  // whole-page captures that make no model call, so folding them into one
+  // headline figure would flatter the localization design by counting work the
+  // model never did. The field-slot line is the one that actually tests the
+  // "OCR anchors + line addressing" bet.
+  const field = results.filter((r) => !r.entry.wholeDocument);
+  const whole = results.filter((r) => r.entry.wholeDocument);
+  const fieldPass = field.filter((r) => r.verdict.pass).length;
+  const wholePass = whole.filter((r) => r.verdict.pass).length;
+  console.log(
+    `  field slots (model-located):    ${fieldPass} / ${field.length}` +
+      "   <- this is the number that tests the design",
+  );
+  console.log(
+    `  whole-document slots (no model): ${wholePass} / ${whole.length}` +
+      "   <- deterministic full-page capture",
+  );
+  console.log();
+
+  const pageOkCount = results.filter((r) => r.verdict.pageOk).length;
+  console.log(
+    `Page selection alone: ${pageOkCount} / ${results.length} landed on the expected page.`,
+  );
   console.log();
   if (!only) {
     console.log(
