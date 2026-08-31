@@ -50,3 +50,69 @@ test("renderPageUpright swaps the axes for a 270-rotated page", async () => {
   assert.ok(pixel(100, 390) < 40, "expected dark pixel near the bottom");
   assert.ok(pixel(100, 10) > 200, "expected light pixel near the top");
 });
+
+import {
+  groupWordsIntoLines,
+  unionBoxes,
+  padBox,
+  boxForLineRange,
+} from "../src/lib/pipeline/geometry.ts";
+
+const word = (text, x, y, w = 20, h = 10) => ({ text, box: { x, y, w, h } });
+
+test("groupWordsIntoLines groups by vertical overlap, orders by x", () => {
+  const lines = groupWordsIntoLines([
+    word("world", 40, 10),
+    word("Hello", 10, 12),
+    word("second", 10, 60),
+  ]);
+
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].text, "Hello world");
+  assert.equal(lines[0].i, 0);
+  assert.equal(lines[1].text, "second");
+  assert.equal(lines[1].i, 1);
+});
+
+test("groupWordsIntoLines keeps near-baseline jitter on one line", () => {
+  // Scanned text is never pixel-aligned; a 2px drift must not split a line.
+  const lines = groupWordsIntoLines([word("a", 10, 10), word("b", 40, 12)]);
+  assert.equal(lines.length, 1);
+});
+
+test("unionBoxes spans every input", () => {
+  assert.deepEqual(
+    unionBoxes([
+      { x: 10, y: 10, w: 10, h: 10 },
+      { x: 50, y: 30, w: 10, h: 10 },
+    ]),
+    { x: 10, y: 10, w: 50, h: 30 },
+  );
+});
+
+test("padBox never escapes its bounds", () => {
+  const bounds = { x: 0, y: 0, w: 100, h: 100 };
+  assert.deepEqual(padBox({ x: 5, y: 5, w: 10, h: 10 }, 20, bounds), {
+    x: 0,
+    y: 0,
+    w: 35,
+    h: 35,
+  });
+});
+
+test("boxForLineRange is inclusive of both endpoints", () => {
+  const lines = groupWordsIntoLines([
+    word("one", 10, 10),
+    word("two", 10, 40),
+    word("three", 10, 70),
+  ]);
+  const box = boxForLineRange(lines, 0, 1, 0, { x: 0, y: 0, w: 200, h: 200 });
+  assert.deepEqual(box, { x: 10, y: 10, w: 20, h: 40 });
+});
+
+test("boxForLineRange throws on a reversed or out-of-range span", () => {
+  const lines = groupWordsIntoLines([word("one", 10, 10)]);
+  const bounds = { x: 0, y: 0, w: 200, h: 200 };
+  assert.throws(() => boxForLineRange(lines, 1, 0, 0, bounds));
+  assert.throws(() => boxForLineRange(lines, 0, 9, 0, bounds));
+});
