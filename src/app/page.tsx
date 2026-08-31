@@ -21,9 +21,8 @@
 
 import { redirect } from "next/navigation";
 
+import { OperatorApp } from "@/components/operator/operator-app";
 import { authorize } from "@/lib/auth/require-user";
-
-import { Assistant } from "./assistant";
 
 // The gate reads the session cookie, so this page can never be prerendered.
 // Without this it builds as a static route (`○ /` in the build output), and a
@@ -59,5 +58,5 @@ export default async function Home() {
     );
   }
 
-  return <Assistant />;
+  return <OperatorApp />;
 }

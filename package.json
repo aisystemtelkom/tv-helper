@@ -9,7 +9,7 @@
     "lint": "eslint",
     "smoke": "node scripts/smoke.mjs",
     "generate": "node scripts/generate.mjs",
-    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs src/lib/auth/auth.test.mts src/lib/browser/browser.test.mts",
+    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs src/lib/auth/auth.test.mts src/lib/browser/browser.test.mts src/lib/ui/ui.test.mts",
     "measure:locate": "node scripts/measure-locate.mjs",
     "vendor:ocr": "node scripts/vendor-ocr.mjs",
     "pretest": "pnpm vendor:ocr",

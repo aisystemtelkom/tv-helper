@@ -1,0 +1,460 @@
+/**
+ * Operator-UI logic tests.
+ *
+ * No browser, no runtime, no model: every function under test is pure, which
+ * is why the citation, the snapping and the slot bookkeeping were written as
+ * pure functions in the first place. What they protect is the thing a human
+ * validator signs -- a crop cut from the wrong page, a transcript that does
+ * not match its picture, or a half-filled slot rendered as complete are all
+ * failures that LOOK fine in the deliverable.
+ */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { SectionDef, Template } from "../forms/template.ts";
+import type { Line, Word } from "../pipeline/geometry.ts";
+import type { Box } from "../pipeline/render.ts";
+import {
+  NO_LINE_CITATION,
+  citeZone,
+  hasLineCitation,
+  resolvePage,
+  sizeInInches,
+  textForLineRange,
+  zonePageRef,
+} from "./evidence.ts";
+import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
+import {
+  aggregateStatus,
+  describeOutstanding,
+  hasUnreviewedProposals,
+  outstandingIndexes,
+  progressOf,
+  sheetSections,
+  unmatchedStates,
+  type PlacedSlot,
+} from "./slots.ts";
+import {
+  clampBox,
+  drawZone,
+  isMeaningfulDrag,
+  linesInsideBox,
+  linesTouchedBy,
+  normalizeBox,
+} from "./snap.ts";
+
+/* ------------------------------------------------------------------ fixtures */
+
+function word(text: string, box: Box): Word {
+  return { text, box };
+}
+
+function line(i: number, text: string, box: Box): Line {
+  return { i, text, box, words: [word(text, box)] };
+}
+
+function page(
+  id: string,
+  sourceId: string,
+  index: number,
+  lines: Line[] = [],
+): StoredPage {
+  return { id, sourceId, index, widthPx: 1000, heightPx: 2000, lines };
+}
+
+/** Fictional identifiers only: this repo is public. */
+const RUN: BrowserRun = {
+  id: "run-1",
+  createdAt: 0,
+  sources: [
+    { id: "s1", name: "SPLITBA_LOP999001.pdf", pageCount: 2 },
+    { id: "s2", name: "LOP999001_merged.pdf", pageCount: 3 },
+  ],
+  pages: [
+    page("p0", "s1", 0),
+    page("p1", "s1", 1),
+    page("p2", "s2", 2),
+    page("p3", "s2", 3),
+    page("p4", "s2", 4),
+  ],
+  slots: [],
+};
+
+/* ----------------------------------------------------------------- evidence */
+
+test("resolvePage names the file a reviewer would open, and its own page number", () => {
+  const resolved = resolvePage(RUN, 3);
+  assert.ok(resolved);
+  assert.equal(resolved.sourceName, "LOP999001_merged.pdf");
+  // Global page 3 is the SECOND page of the second document. Reporting "3"
+  // here is the mistake the xlsx exporter already had to fix once.
+  assert.equal(resolved.pageInDoc, 1);
+  assert.equal(resolved.pagesInDoc, 3);
+  assert.equal(resolved.ambiguous, false);
+});
+
+test("resolvePage reports ambiguity instead of guessing when indexes repeat", () => {
+  // A runtime that numbers pages per source rather than per run: index 0
+  // names two different pages, so a Zone's pageIndex cannot identify one.
+  const perSource: BrowserRun = {
+    ...RUN,
+    pages: [
+      page("p0", "s1", 0),
+      page("p1", "s1", 1),
+      page("p2", "s2", 0),
+      page("p3", "s2", 1),
+    ],
+  };
+  const resolved = resolvePage(perSource, 2);
+  assert.ok(resolved);
+  assert.equal(resolved.ambiguous, true);
+  // Positional fallback, and the flag is what tells the operator not to trust it.
+  assert.equal(resolved.page.id, "p2");
+});
+
+test("resolvePage returns null for a page index the run does not have", () => {
+  assert.equal(resolvePage(RUN, 99), null);
+});
+
+test("a hand-drawn zone reads back to the page it was drawn on, either numbering", () => {
+  // Written by `zonePageRef`, read by `resolvePage`. If these two ever
+  // disagree the crop comes off a different page and still looks like a crop.
+  for (const run of [
+    RUN,
+    {
+      ...RUN,
+      pages: [
+        page("p0", "s1", 0),
+        page("p1", "s1", 1),
+        page("p2", "s2", 0),
+        page("p3", "s2", 1),
+      ],
+    },
+  ]) {
+    for (const target of run.pages) {
+      const resolved = resolvePage(run, zonePageRef(run, target));
+      assert.equal(resolved?.page.id, target.id);
+    }
+  }
+});
+
+test("citeZone cites the source file and line range, and sizes the crop", () => {
+  const cite = citeZone(RUN, {
+    pageIndex: 2,
+    box: { x: 100, y: 100, w: 1230, h: 390 },
+    lineRange: [31, 58],
+  });
+  assert.ok(cite);
+  assert.equal(cite.source, "LOP999001_merged.pdf");
+  assert.equal(cite.page, "p 1/3");
+  assert.equal(cite.lines, "L 31-58");
+  assert.equal(cite.lineCount, 28);
+  assert.equal(cite.size, "4.1 x 1.3 in");
+  assert.equal(cite.spansPage, false);
+});
+
+test("citeZone flags a crop that swallows most of the page", () => {
+  // The shape locate.ts's known footer defect produces: a signature block
+  // that ran on into the page footer and came back nine inches tall.
+  const cite = citeZone(RUN, {
+    pageIndex: 0,
+    box: { x: 0, y: 100, w: 900, h: 1800 },
+    lineRange: [1, 16],
+  });
+  assert.ok(cite);
+  assert.equal(cite.spansPage, true);
+  assert.ok(cite.heightShare >= 0.8);
+});
+
+test("a hand-drawn zone with no lines carries no line citation", () => {
+  const zone = {
+    pageIndex: 0,
+    box: { x: 0, y: 0, w: 100, h: 100 },
+    lineRange: [NO_LINE_CITATION, NO_LINE_CITATION] as [number, number],
+  };
+  assert.equal(hasLineCitation(zone), false);
+  const cite = citeZone(RUN, zone);
+  assert.ok(cite);
+  assert.equal(cite.lineCount, 0);
+  assert.match(cite.lines, /hand/);
+  // And it must never read as a citation of line 0.
+  assert.doesNotMatch(cite.lines, /L 0/);
+});
+
+test("sizeInInches converts pixels at the render DPI", () => {
+  assert.equal(sizeInInches({ x: 0, y: 0, w: 600, h: 300 }), "2.0 x 1.0 in");
+});
+
+test("textForLineRange reads the page in line order, not array order", () => {
+  const scrambled = page("p", "s", 0, [
+    line(2, "third", { x: 0, y: 200, w: 10, h: 10 }),
+    line(0, "first", { x: 0, y: 0, w: 10, h: 10 }),
+    line(1, "second", { x: 0, y: 100, w: 10, h: 10 }),
+  ]);
+  assert.equal(textForLineRange(scrambled, 0, 2), "first\nsecond\nthird");
+  assert.equal(textForLineRange(scrambled, NO_LINE_CITATION, 2), "");
+});
+
+/* --------------------------------------------------------------------- snap */
+
+const LINES: Line[] = [
+  line(0, "one", { x: 100, y: 100, w: 500, h: 40 }),
+  // A tall block (a stamp, say) a shallow drag will not touch.
+  line(1, "two", { x: 100, y: 145, w: 500, h: 300 }),
+  line(2, "three", { x: 100, y: 190, w: 500, h: 40 }),
+];
+const PAGE = page("pg", "s1", 0, LINES);
+
+test("normalizeBox turns a drag in any direction into a positive box", () => {
+  assert.deepEqual(normalizeBox({ x: 300, y: 400 }, { x: 100, y: 200 }), {
+    x: 100,
+    y: 200,
+    w: 200,
+    h: 200,
+  });
+});
+
+test("clampBox keeps a box inside the page, which is what stops cropToPng throwing", () => {
+  assert.deepEqual(
+    clampBox(
+      { x: -50, y: -50, w: 200, h: 200 },
+      { x: 0, y: 0, w: 1000, h: 2000 },
+    ),
+    { x: 0, y: 0, w: 150, h: 150 },
+  );
+});
+
+test("linesTouchedBy measures overlap against each line's own height", () => {
+  const touched = linesTouchedBy(LINES, { x: 0, y: 95, w: 1000, h: 140 });
+  // Line 1 is 300px tall and only 90px of it is covered: below the 40% bar.
+  assert.deepEqual(
+    touched.map((l) => l.i),
+    [0, 2],
+  );
+});
+
+test("a snapped drag returns a contiguous range and the box that range makes", () => {
+  const zone = drawZone({ x: 0, y: 95, w: 1000, h: 140 }, PAGE, true);
+  assert.equal(zone.mode, "snapped");
+  // Lines 0 and 2 were touched; line 1 sits between them, so the citation
+  // covers it and the rectangle must too -- otherwise re-deriving the box
+  // from the citation would not give these pixels back.
+  assert.deepEqual(zone.lineRange, [0, 2]);
+  assert.deepEqual(zone.box, { x: 88, y: 88, w: 524, h: 369 });
+});
+
+test("a snapped drag over blank paper falls back to free pixels", () => {
+  const zone = drawZone({ x: 700, y: 900, w: 200, h: 200 }, PAGE, true);
+  assert.equal(zone.mode, "free");
+  assert.deepEqual(zone.lineRange, [NO_LINE_CITATION, NO_LINE_CITATION]);
+  assert.deepEqual(zone.box, { x: 700, y: 900, w: 200, h: 200 });
+});
+
+test("a free drag cites only the lines it covers whole", () => {
+  // Covers line 0 entirely and clips line 1 and 2, so only line 0 is evidence
+  // this crop actually shows.
+  const zone = drawZone({ x: 50, y: 90, w: 900, h: 80 }, PAGE, false);
+  assert.equal(zone.mode, "free");
+  assert.deepEqual(zone.lineRange, [0, 0]);
+  assert.deepEqual(zone.box, { x: 50, y: 90, w: 900, h: 80 });
+});
+
+test("linesInsideBox ignores a line the box only partly covers", () => {
+  assert.deepEqual(
+    linesInsideBox(LINES, { x: 50, y: 90, w: 900, h: 80 }).map((l) => l.i),
+    [0],
+  );
+});
+
+test("a free drag is clamped to the page", () => {
+  const zone = drawZone({ x: 900, y: 1900, w: 400, h: 400 }, PAGE, false);
+  assert.deepEqual(zone.box, { x: 900, y: 1900, w: 100, h: 100 });
+});
+
+test("a mis-click is not a zone", () => {
+  assert.equal(isMeaningfulDrag({ x: 0, y: 0, w: 4, h: 200 }), false);
+  assert.equal(isMeaningfulDrag({ x: 0, y: 0, w: 200, h: 200 }), true);
+});
+
+/* -------------------------------------------------------------------- slots */
+
+function section(title: string, layout: SectionDef["layout"], slots: SectionDef["slots"]): SectionDef {
+  return { title, layout, slots };
+}
+
+const TEMPLATE: Template = {
+  id: "TEST",
+  label: "TEST",
+  sections: [
+    section("Evidence", "table", [
+      {
+        key: "one",
+        label: "One",
+        docType: null,
+        hint: "h",
+        fillable: true,
+      },
+      {
+        key: "two",
+        label: "Two",
+        docType: null,
+        hint: "h",
+        fillable: true,
+        crops: 2,
+      },
+      {
+        key: "manual",
+        label: "Pasted by hand",
+        docType: null,
+        hint: "h",
+        fillable: false,
+      },
+    ]),
+  ],
+  xlsxRows: [],
+  fieldHints: {},
+};
+
+function state(key: string, status: SlotState["status"], zoned = false): SlotState {
+  return {
+    key,
+    label: key,
+    status,
+    zone: zoned
+      ? { pageIndex: 0, box: { x: 0, y: 0, w: 10, h: 10 }, lineRange: [0, 0] }
+      : undefined,
+  };
+}
+
+/** `aggregateStatus` takes slots with their positions; the positions are moot here. */
+function placed(...states: SlotState[]): PlacedSlot[] {
+  return states.map((s, index) => ({ state: s, index }));
+}
+
+test("a two-capture slot holding one capture is partial, not confirmed", () => {
+  assert.equal(
+    aggregateStatus(placed(state("two", "confirmed", true)), 1, 2),
+    "partial",
+  );
+  assert.equal(
+    aggregateStatus(
+      placed(state("two", "confirmed", true), state("two", "confirmed", true)),
+      2,
+      2,
+    ),
+    "confirmed",
+  );
+});
+
+test("a proposal outranks everything: it is the thing waiting on a person", () => {
+  assert.equal(
+    aggregateStatus(
+      placed(state("two", "confirmed", true), state("two", "proposed", true)),
+      2,
+      2,
+    ),
+    "proposed",
+  );
+});
+
+test("an operator's decision to ship empty beats the search result behind it", () => {
+  assert.equal(aggregateStatus(placed(state("one", "unfilled")), 0, 1), "unfilled");
+  assert.equal(
+    aggregateStatus(placed(state("one", "outstanding")), 0, 1),
+    "outstanding",
+  );
+  assert.equal(aggregateStatus([], 0, 1), "pending");
+});
+
+test("each capture of a two-capture slot keeps its own position in the run", () => {
+  // Deliberately the SAME object twice, which is what a runtime that shares a
+  // template-derived state would produce. Recovering the position with
+  // `indexOf` would send both captures' buttons to index 0.
+  const shared = state("two", "proposed", true);
+  const run: BrowserRun = { ...RUN, slots: [state("one", "pending"), shared, shared] };
+  const [only] = sheetSections(run, TEMPLATE);
+  const two = only.entries.find((e) => e.def.key === "two");
+  assert.deepEqual(two?.states.map((s) => s.index), [1, 2]);
+});
+
+test("outstanding slots are located by identity, and by key when the runtime copies", () => {
+  const a = state("one", "outstanding");
+  const b = state("two", "outstanding");
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [state("two", "confirmed", true), a, b],
+  };
+
+  assert.deepEqual(outstandingIndexes(run, [a, b]), [1, 2]);
+
+  // A runtime that returns fresh objects rather than the run's own must not
+  // silently produce an empty list: the header would name three missing slots
+  // and the tambahan screen would offer nothing to decide about.
+  const copies = [{ ...a }, { ...b }];
+  assert.deepEqual(outstandingIndexes(run, copies), [1, 2]);
+});
+
+test("sheetSections accounts for every template slot, including untouched ones", () => {
+  const run: BrowserRun = { ...RUN, slots: [state("one", "proposed", true)] };
+  const [only] = sheetSections(run, TEMPLATE);
+  assert.deepEqual(
+    only.entries.map((e) => [e.def.key, e.status]),
+    [
+      ["one", "proposed"],
+      ["two", "pending"],
+      ["manual", "pending"],
+    ],
+  );
+});
+
+test("a stored slot the template no longer declares is surfaced, not dropped", () => {
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [state("one", "confirmed", true), state("ghost", "confirmed", true)],
+  };
+  assert.deepEqual(
+    unmatchedStates(run, TEMPLATE).map((s) => s.key),
+    ["ghost"],
+  );
+});
+
+test("progress counts fillable slots only, so hand-pasted cells never read as missing", () => {
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [
+      state("one", "confirmed", true),
+      state("two", "confirmed", true),
+      state("two", "outstanding"),
+    ],
+  };
+  const progress = progressOf(run, TEMPLATE);
+  assert.equal(progress.fillable, 2);
+  assert.equal(progress.confirmed, 1);
+  assert.equal(progress.partial, 0);
+  // `two` holds one of its two captures and its second came back outstanding.
+  assert.equal(progress.outstanding, 1);
+  assert.equal(progress.pending, 0);
+});
+
+test("export is blocked by an unreviewed proposal, not by an accepted gap", () => {
+  const reviewed: BrowserRun = {
+    ...RUN,
+    slots: [state("one", "confirmed", true), state("two", "unfilled")],
+  };
+  assert.equal(hasUnreviewedProposals(reviewed, TEMPLATE), false);
+
+  const waiting: BrowserRun = { ...RUN, slots: [state("one", "proposed", true)] };
+  assert.equal(hasUnreviewedProposals(waiting, TEMPLATE), true);
+});
+
+test("describeOutstanding names the section a missing slot belongs to", () => {
+  const [first, ghost] = describeOutstanding(
+    [state("two", "outstanding"), state("ghost", "outstanding")],
+    TEMPLATE,
+  );
+  assert.equal(first.sectionTitle, "Evidence");
+  assert.equal(first.def?.crops, 2);
+  assert.equal(ghost.sectionTitle, "Not in this template");
+  assert.equal(ghost.def, undefined);
+});
