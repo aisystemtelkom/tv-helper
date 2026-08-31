@@ -313,3 +313,38 @@ test("a timed-out init does not close a concurrent, healthy call's worker channe
     await rm(badDir, { recursive: true, force: true });
   }
 });
+
+import { classifyPages, buildClassifyPrompt } from "../src/lib/pipeline/classify.ts";
+
+const pages = [
+  { index: 0, head: "PERJANJIAN KERJASAMA BERLANGGANAN" },
+  { index: 1, head: "lanjutan pasal 2" },
+  { index: 2, head: "SURAT PENUNJUKAN (SP)" },
+];
+
+test("buildClassifyPrompt sends text only, never an image", () => {
+  const prompt = buildClassifyPrompt(pages);
+  assert.ok(prompt.includes("PERJANJIAN KERJASAMA"));
+  assert.ok(prompt.includes("page 0"));
+  assert.ok(!/base64|image|data:/i.test(prompt));
+});
+
+test("classifyPages parses spans from the model reply", async () => {
+  const ask = async () =>
+    '```json\n{"spans":[{"docType":"KB","fromPage":0,"toPage":1},' +
+    '{"docType":"SP","fromPage":2,"toPage":2}]}\n```';
+
+  assert.deepEqual(await classifyPages(pages, ask), [
+    { docType: "KB", fromPage: 0, toPage: 1 },
+    { docType: "SP", fromPage: 2, toPage: 2 },
+  ]);
+});
+
+test("classifyPages rejects a span outside the page range", async () => {
+  const ask = async () => '{"spans":[{"docType":"KB","fromPage":0,"toPage":99}]}';
+  await assert.rejects(() => classifyPages(pages, ask), /toPage/);
+});
+
+test("classifyPages rejects an unparseable reply", async () => {
+  await assert.rejects(() => classifyPages(pages, async () => "no idea"));
+});
