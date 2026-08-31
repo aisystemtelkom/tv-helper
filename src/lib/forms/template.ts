@@ -46,8 +46,8 @@ export type Template = {
 };
 
 /**
- * Transcribed from `Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx`
- * (word/document.xml) and `LOP285120_ORDER_Config_VPN_PSB_KCP_Slipi.xlsx`.
+ * Transcribed from `Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx`
+ * (word/document.xml) and `LOP999001_ORDER_Config_VPN_PSB_KCP_Contoh.xlsx`.
  * This is a transcription, not a redesign: section names, row labels, order,
  * the empty sections, and the KB table's two-part split all match the
  * sample as it stands.
@@ -186,7 +186,7 @@ export const AO_TEMPLATE: Template = {
       slots: [
         {
           // The sample labels this row with the quote number itself, e.g.
-          // "1-72989090591". The exporter substitutes the real quote for
+          // "1-70000000001". The exporter substitutes the real quote for
           // this literal token.
           key: "konfigurasi.quote",
           label: "{{quote}}",
@@ -316,6 +316,13 @@ export const AO_TEMPLATE: Template = {
   // EPIC-only rows below and duplicate occurrences of an already-backed
   // value -- stays undefined so it is blank by construction.
   xlsxRows: [
+    // generate.mjs's NEVER_EXTRACTED keeps this fieldKey from ever being
+    // sent to the model: on the full order-paperwork pool it reliably named
+    // the master contract's scope title, not this order's project name, and
+    // that wrong value carried a citation that passed validation (task-11
+    // finding 3). The row stays blank by construction until composing it
+    // reliably from BA Permintaan's `Tipe Permintaan` and `Nama Lokasi` is
+    // implemented.
     { nomor: 1, itemI: "Lead", itemII: "Description", keterangan: "Isi",
       fieldKey: "namaProyek" },
     { itemII: "Contact Last Name", keterangan: "Pilih", fieldKey: "picContacts" },

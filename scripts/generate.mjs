@@ -510,9 +510,11 @@ async function cutCrops(zones, pages, sources) {
 // Email page and nowhere else. FIELD_DOC_TYPES narrows a key's pool instead
 // of dropping the Email page from the default pool outright, which would fix
 // `cc` and lose `picContacts` (task-11-report.md self-review #1). A key with
-// no entry here keeps the full order-paperwork pool -- e.g. `namaProyek`,
-// which needs composing rather than sourcing and is a separate, known gap
-// (task-11-report.md self-review #2).
+// no entry here keeps the full order-paperwork pool. `namaProyek` needs
+// composing rather than sourcing from that pool at all -- see
+// NEVER_EXTRACTED below, where it is excluded outright rather than given a
+// FIELD_DOC_TYPES entry (task-11 finding 3, task-11-report.md self-review
+// #2).
 //
 // Each group's pool is renumbered 0..n-1 before being handed to the model
 // and mapped back afterwards. extractFields numbers its listing by POSITION
@@ -587,10 +589,29 @@ export function groupKeysByDocTypes(keys, defaultDocTypes) {
   return [...groups.values()];
 }
 
+// namaProyek is never sent to the model. It has no FIELD_DOC_TYPES entry
+// above, so on the full order-paperwork pool it reliably picked the Surat
+// Penunjukan's subject line -- the master contract's scope title, not this
+// order's project name -- and that wrong value carried a citation that
+// *passed* validation, reading as sourced evidence rather than a guess
+// (task-11 finding 3, same defect class as the cc/alamat fix in c5ed15c).
+// The sample's value composes from BA Permintaan's `Tipe Permintaan` and
+// `Nama Lokasi`, but that composition isn't implemented reliably enough to
+// trust here, and restricting its pool to `["BAPermintaan"]` the way cc and
+// alamat were restricted would flip `groupKeysByDocTypes never gives
+// cc/alamat the Email pool...` from documenting a known, accepted gap to
+// contradicting it (that pre-existing test asserts namaProyek keeps the full
+// default pool). Excluding it from extraction entirely ships it blank
+// instead: a blank invites the operator to fill it in, and a plausible wrong
+// value does not.
+const NEVER_EXTRACTED = new Set(["namaProyek"]);
+
 async function extractTextFields(template, byType, pages) {
   const keys = [
     ...new Set(
-      template.xlsxRows.map((row) => row.fieldKey).filter((key) => key),
+      template.xlsxRows
+        .map((row) => row.fieldKey)
+        .filter((key) => key && !NEVER_EXTRACTED.has(key)),
     ),
   ];
   const defaultDocTypes = orderPaperworkDocTypes(template);
@@ -619,11 +640,25 @@ async function extractTextFields(template, byType, pages) {
         values.push(value);
         continue;
       }
+      // Same lookup remapCitedPageIndex makes internally, kept here too so
+      // the xlsx note can name the page's own file and page number instead
+      // of this run's bundle-global index (task-11 finding 2) -- that global
+      // index sent a reviewer to the wrong document for every page after the
+      // first source file.
+      const page = pool[value.source.pageIndex];
       const pageIndex = remapCitedPageIndex(value.source.pageIndex, pool);
       values.push(
         pageIndex === undefined
           ? { fieldKey: value.fieldKey, value: value.value }
-          : { ...value, source: { ...value.source, pageIndex } },
+          : {
+              ...value,
+              source: {
+                ...value.source,
+                pageIndex,
+                sourceName: page.sourceName,
+                pageInDoc: page.pageInDoc,
+              },
+            },
       );
     }
   }

@@ -46,7 +46,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -63,12 +63,47 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS_DIR = join(REPO_ROOT, "documents");
 const TESSERACT_ASSETS = join(REPO_ROOT, "public", "tesseract");
 
-const PDFS = {
-  merged: join(DOCS_DIR, "LOP285120_EXISTING_20240126_PKS_BSI_II_merged.pdf"),
-  splitba: join(DOCS_DIR, "LOP285120_SPLITBA_BAP_C_Tel_17582_PSB_KCP_Slipi_REV3.pdf"),
-};
+/**
+ * `documents/` is gitignored real client material (task-11 finding 5), so
+ * its exact filenames -- revision suffix, work-order number and all -- must
+ * not be hardcoded into a committed file. Globbing the directory instead
+ * also means this script keeps working if the bundle is re-exported under a
+ * slightly different name, which the previous exact-match hardcoding did
+ * not survive.
+ *
+ * The bundle holds exactly two PDFs: the short SPLITBA scan (its own name
+ * always contains "splitba", case-insensitively) and the long merged scan
+ * (everything else). Throws with the directory listing on any other shape
+ * rather than guessing which PDF is which.
+ */
+function findBundlePdfs(dir) {
+  const pdfs = readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".pdf"));
+  const splitba = pdfs.find((f) => /splitba/i.test(f));
+  const merged = pdfs.find((f) => f !== splitba);
+  if (pdfs.length !== 2 || !splitba || !merged) {
+    throw new Error(
+      `expected exactly two PDFs under ${dir} -- one matching /splitba/i, ` +
+        `one other -- found: ${pdfs.join(", ") || "(none)"}`,
+    );
+  }
+  return { merged: join(dir, merged), splitba: join(dir, splitba) };
+}
 
-const DOCX_PATH = join(DOCS_DIR, "Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx");
+/** The one sample DOKUMEN VALIDASI docx the bundle's ground truth is scored
+ * against. See findBundlePdfs above for why this globs rather than names it. */
+function findSampleDocx(dir) {
+  const docxs = readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".docx"));
+  if (docxs.length !== 1) {
+    throw new Error(
+      `expected exactly one .docx under ${dir}, found ${docxs.length}: ` +
+        `${docxs.join(", ") || "(none)"}`,
+    );
+  }
+  return join(dir, docxs[0]);
+}
+
+const PDFS = findBundlePdfs(DOCS_DIR);
+const DOCX_PATH = findSampleDocx(DOCS_DIR);
 
 const nodeContext = (w, h) => createCanvas(w, h).getContext("2d");
 

@@ -1181,7 +1181,7 @@ const GROUND_TRUTH = [
     expect: "04/0044-PKS" },
   { slot: "KB / Para Pihak", doc: "merged", page: 0,
     hint: "the two parties entering the agreement",
-    expect: "BANK SYARIAH INDONESIA" },
+    expect: "BANK CONTOH NUSANTARA" },
   { slot: "KB / Tanggal", doc: "merged", page: 0,
     hint: "the date the agreement was signed",
     expect: "Pada hari ini" },
@@ -1191,7 +1191,7 @@ const GROUND_TRUTH = [
 
 - [ ] **Step 2: Complete the ground truth**
 
-Open `documents/Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx`, read each of the eleven PDF-sourced crops, and add a row per crop with a phrase unique to it. Provenance established during design:
+Open the sample DOKUMEN VALIDASI docx in `documents/`, read each of the eleven PDF-sourced crops, and add a row per crop with a phrase unique to it. Provenance established during design:
 
 | Slot | Source | Page (0-based) |
 | --- | --- | --- |
@@ -1492,8 +1492,8 @@ test("cropToPng extracts exactly the requested rectangle", async () => {
 test("buildDocx emits every section, including the empty ones", async () => {
   const bytes = await buildDocx(
     AO_TEMPLATE,
-    { idEpic: "LOP285120", namaProyek: "PSB VPN IP KCP Jakarta Slipi",
-      quote: "1-72989090591", cc: "BANK SYARIAH INDONESIA",
+    { idEpic: "LOP999001", namaProyek: "PSB VPN IP KCP Contoh",
+      quote: "1-70000000001", cc: "BANK CONTOH NUSANTARA",
       order: "", jenisOrder: "AO" },
     [],
   );
@@ -1505,9 +1505,9 @@ test("buildDocx emits every section, including the empty ones", async () => {
                        "BA Penjelasan Order"]) {
     assert.ok(xml.includes(title), `missing section: ${title}`);
   }
-  assert.ok(xml.includes("LOP285120"));
+  assert.ok(xml.includes("LOP999001"));
   // The quote number is a row label in the Konfigurasi table, not just header.
-  assert.ok(xml.includes("1-72989090591"));
+  assert.ok(xml.includes("1-70000000001"));
 });
 
 test("buildDocx writes real png media parts at their true size", async () => {
@@ -1525,7 +1525,7 @@ test("buildDocx writes real png media parts at their true size", async () => {
 
   const bytes = await buildDocx(
     AO_TEMPLATE,
-    { idEpic: "LOP285120", namaProyek: "P", quote: "1-72989090591",
+    { idEpic: "LOP999001", namaProyek: "P", quote: "1-70000000001",
       cc: "C", order: "", jenisOrder: "AO" },
     [{ key: "ba.permintaan", png, widthPx: 600, heightPx: 300 }],
   );
@@ -1768,10 +1768,10 @@ import { deriveIdsFromFilenames, extractFields } from "../src/lib/pipeline/field
 test("deriveIdsFromFilenames finds the LOP and quote ids", () => {
   assert.deepEqual(
     deriveIdsFromFilenames([
-      "LOP285120_EXISTING_20240126_PKS_BSI_II_merged.pdf",
-      "Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx",
+      "LOP999001_EXISTING_20240126_PKS_CONTOH_II_merged.pdf",
+      "Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx",
     ]),
-    { idEpic: "LOP285120", quote: "1-72989090591" },
+    { idEpic: "LOP999001", quote: "1-70000000001" },
   );
 });
 
@@ -1837,7 +1837,7 @@ export function deriveIdsFromFilenames(names: string[]): {
 } {
   const joined = names.join(" ");
   // No \b anchors: "_" is a word character, so \bLOP\d+\b never matches
-  // inside LOP285120_EXISTING_... which is exactly the shape of these names.
+  // inside LOP999001_EXISTING_... which is exactly the shape of these names.
   return {
     idEpic: joined.match(/LOP\d{4,}/)?.[0] ?? "",
     quote: joined.match(/\d-\d{9,}/)?.[0] ?? "",
@@ -2031,7 +2031,7 @@ Add to `package.json`:
 - [ ] **Step 5: Run it against the real bundle**
 
 ```bash
-pnpm generate documents/LOP285120_EXISTING_20240126_PKS_BSI_II_merged.pdf documents/LOP285120_SPLITBA_BAP_C_Tel_17582_PSB_KCP_Slipi_REV3.pdf
+pnpm generate documents/<the two real bundle PDFs>
 ```
 
 Open both outputs. Compare the docx against the sample side by side. This is the deliverable of the whole plan: the same document, generated.

@@ -5,7 +5,21 @@ import type { OcrPage } from "./locate.ts";
 export type FieldValue = {
   fieldKey: string;
   value: string;
-  source?: { pageIndex: number; lineRange: [number, number] };
+  source?: {
+    pageIndex: number;
+    lineRange: [number, number];
+    // The page's identity outside this run's bundle-global numbering: the
+    // source file it actually came from, and its 0-based page number within
+    // that file. Optional because `citedSource` below only knows the
+    // position within whatever pool it was given -- the caller
+    // (generate.mjs's extractTextFields) is the one that can resolve these,
+    // once it remaps that position back to the page's true identity. Without
+    // them, a citation naming only a bundle-global page number sends a
+    // reviewer to the wrong document for every page after the first source
+    // file (task-11 finding 2).
+    sourceName?: string;
+    pageInDoc?: number;
+  };
 };
 
 /**
@@ -20,7 +34,7 @@ export function deriveIdsFromFilenames(names: string[]): {
 } {
   const joined = names.join(" ");
   // No \b anchors: "_" is a word character, so \bLOP\d+\b never matches
-  // inside LOP285120_EXISTING_... which is exactly the shape of these names.
+  // inside LOP999001_EXISTING_... which is exactly the shape of these names.
   return {
     idEpic: joined.match(/LOP\d{4,}/)?.[0] ?? "",
     quote: joined.match(/\d-\d{9,}/)?.[0] ?? "",

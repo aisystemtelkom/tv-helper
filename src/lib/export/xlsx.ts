@@ -30,10 +30,20 @@ export async function buildXlsx(
 
     if (value?.source) {
       const [from, to] = value.source.lineRange;
+      const { sourceName, pageInDoc } = value.source;
+      // Name the actual file and its own (1-based) page number when they
+      // travelled with the value, not this run's bundle-global page index --
+      // that index is 0-based across every PDF on the command line, so for
+      // every page after the first source file it sent a reviewer to the
+      // wrong document (task-11 finding 2). Fall back to the bundle-global
+      // number only when a caller hasn't supplied the page's true identity.
+      const location =
+        sourceName !== undefined && pageInDoc !== undefined
+          ? `${sourceName} p${pageInDoc + 1}`
+          : `page ${value.source.pageIndex}`;
       // Provenance travels with the value, so a reviewer can check the claim
       // without rerunning anything.
-      added.getCell(5).note =
-        `page ${value.source.pageIndex}, lines ${from}-${to}`;
+      added.getCell(5).note = `${location}, lines ${from}-${to}`;
     }
   }
 

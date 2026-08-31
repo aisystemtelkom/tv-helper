@@ -554,10 +554,10 @@ import { cropToPng } from "../src/lib/export/crop.ts";
 import { buildDocx } from "../src/lib/export/docx.ts";
 
 const AO_HEADER = {
-  idEpic: "LOP285120",
-  namaProyek: "PSB VPN IP KCP Jakarta Slipi",
-  quote: "1-72989090591",
-  cc: "BANK SYARIAH INDONESIA",
+  idEpic: "LOP999001",
+  namaProyek: "PSB VPN IP KCP Contoh",
+  quote: "1-70000000001",
+  cc: "BANK CONTOH NUSANTARA",
   order: "",
   jenisOrder: "AO",
 };
@@ -605,6 +605,61 @@ test("cropToPng extracts exactly the requested rectangle", async () => {
   assert.equal(view.getUint32(20), 10);
 });
 
+test("cropToPng copies the requested pixels, not just the requested size", async () => {
+  // Proven regression: reading column 0 instead of column x for every row
+  // (i.e. `((y + row) * page.width) * 4` instead of `((y + row) *
+  // page.width + x) * 4`) leaves every other assertion in this file green
+  // -- the crop comes back correctly sized and completely wrong. Only
+  // decoding actual pixels catches it.
+  const canvas = createCanvas(100, 100);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 100, 100);
+  ctx.fillStyle = "black";
+  ctx.fillRect(20, 20, 10, 10);
+
+  const rendered = {
+    data: ctx.getImageData(0, 0, 100, 100).data,
+    width: 100,
+    height: 100,
+  };
+
+  const { inflateSync } = await import("node:zlib");
+  const redAt = (png, w, x, y) => {
+    let offset = 8;
+    let idat;
+    while (offset < png.length) {
+      const length = new DataView(
+        png.buffer,
+        png.byteOffset + offset,
+        4,
+      ).getUint32(0);
+      const type = String.fromCharCode(
+        ...png.slice(offset + 4, offset + 8),
+      );
+      const dataStart = offset + 8;
+      if (type === "IDAT") {
+        idat = png.slice(dataStart, dataStart + length);
+        break;
+      }
+      offset = dataStart + length + 4;
+    }
+    const raw = inflateSync(idat);
+    const stride = w * 4 + 1;
+    return raw[y * stride + 1 + x * 4];
+  };
+
+  // The crop of the black square must actually be black at its centre.
+  const blackCrop = await cropToPng(rendered, { x: 20, y: 20, w: 10, h: 10 });
+  assert.equal(redAt(blackCrop, 10, 5, 5), 0);
+
+  // A crop of a known blank region of the same fixture must come back
+  // white -- catches a crop that returns a fixed (e.g. column-0) rectangle
+  // regardless of which box was requested.
+  const whiteCrop = await cropToPng(rendered, { x: 60, y: 60, w: 10, h: 10 });
+  assert.equal(redAt(whiteCrop, 10, 5, 5), 255);
+});
+
 test("cropToPng throws on a box that escapes the page", async () => {
   // geometry.padBox already clamps, so an out-of-bounds box here means a
   // caller skipped it. Reading past the row end would silently wrap onto the
@@ -636,9 +691,9 @@ test("buildDocx emits every section, including the empty ones", async () => {
                        "BA Penjelasan Order"]) {
     assert.ok(xml.includes(title), `missing section: ${title}`);
   }
-  assert.ok(xml.includes("LOP285120"));
+  assert.ok(xml.includes("LOP999001"));
   // The quote number is a row label in the Konfigurasi table, not just header.
-  assert.ok(xml.includes("1-72989090591"));
+  assert.ok(xml.includes("1-70000000001"));
   // The literal token must not survive into the deliverable.
   assert.ok(!xml.includes("{{quote}}"));
 });
@@ -702,7 +757,7 @@ test("buildDocx writes real png media parts at their true size", async () => {
 
 test("buildDocx sets the sample's own page size and margins", async () => {
   // The sample's word/document.xml sectPr, read directly out of
-  // documents/Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx:
+  // documents/Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx:
   // <w:pgSz w:w="11901" w:h="16817"/>
   // <w:pgMar w:top="873" w:right="907" w:bottom="941" w:left="1026" .../>
   // Without this the section inherits docx's own A4 default instead of the
@@ -862,10 +917,10 @@ import {
 test("deriveIdsFromFilenames finds the LOP and quote ids", () => {
   assert.deepEqual(
     deriveIdsFromFilenames([
-      "LOP285120_EXISTING_20240126_PKS_BSI_II_merged.pdf",
-      "Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx",
+      "LOP999001_EXISTING_20240126_PKS_CONTOH_II_merged.pdf",
+      "Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx",
     ]),
-    { idEpic: "LOP285120", quote: "1-72989090591" },
+    { idEpic: "LOP999001", quote: "1-70000000001" },
   );
 });
 

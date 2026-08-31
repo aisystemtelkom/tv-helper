@@ -28,8 +28,8 @@ suggest.
 
 ### The output docx is a reused template
 
-`Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx` reports
-`dc:title = DOKUMEN VALIDASI`, `dc:creator = Maries Swendy`, `cp:revision = 256`,
+The sample DOKUMEN VALIDASI docx reports
+`dc:title = DOKUMEN VALIDASI`, `cp:revision = 256`,
 created 2025-05-07. It is a form that gets filled per order, not a layout
 invented for this order. Its skeleton:
 
@@ -41,7 +41,7 @@ invented for this order. Its skeleton:
 | KB | Nomor, Para Pihak, Tanggal, Jangka Waktu | filled |
 | KB continued | Detail, ToP, TTD Pejabat | filled |
 | Konfigurasi (Excel dari EPIC) | SID, Konfigurasi | one image |
-| Konfigurasi | 1-72989090591, Price & SA, BW, BA | filled |
+| Konfigurasi | 1-70000000001, Price & SA, BW, BA | filled |
 | Email | one image | filled |
 | MOM | none | empty |
 | BA Splitting | Nomor, Detail Kontrak, Detail Splitting, TTD Pejabat | empty |
@@ -81,7 +81,7 @@ vision model.
 
 ### The xlsx is an order-entry script, not a text dump
 
-`LOP285120_ORDER_Config_VPN_PSB_KCP_Slipi.xlsx` is a single sheet of 35 rows
+The sample order-config xlsx is a single sheet of 35 rows
 shaped `Nomor | Item I | Item II | Keterangan | value`, where Keterangan is one
 of `Isi`, `Pilih`, or `Klik`. It tells an operator what to type into EPIC and in
 what order.
@@ -190,8 +190,7 @@ The AO template ships as the only definition, expressed as data rather than
 markup, so bidang TV 1 can add order types without a code change.
 
 **The AO default transcribes the sample exactly.** Its section list, row labels,
-and ordering are copied from
-`Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx` as it stands, including
+and ordering are copied from the sample DOKUMEN VALIDASI docx as it stands, including
 the sections that arrive empty (MOM, BA Splitting, SBR Pricing, BASO, BA
 Penjelasan Order) and the two-part KB table split. A first run on that bundle
 should reproduce that document's skeleton with nothing added and nothing
@@ -243,10 +242,10 @@ one form before export:
 
 | Field | Sample value | Source |
 | --- | --- | --- |
-| ID EPIC | `LOP285120` | source file names, `LOP\d+` |
-| QUOTE | `1-72989090591` | source file names, and the EPIC screenshots when present |
-| CC | `BANK SYARIAH INDONESIA` | extracted from BA Permintaan, `Nama Pelanggan` |
-| NAMA Proyek | `PSB VPN IP KCP Jakarta Slipi` | composed from BA Permintaan `Tipe Permintaan` and `Nama Lokasi` |
+| ID EPIC | `LOP999001` | source file names, `LOP\d+` |
+| QUOTE | `1-70000000001` | source file names, and the EPIC screenshots when present |
+| CC | `BANK CONTOH NUSANTARA` | extracted from BA Permintaan, `Nama Pelanggan` |
+| NAMA Proyek | `PSB VPN IP KCP Contoh` | composed from BA Permintaan `Tipe Permintaan` and `Nama Lokasi` |
 | JENIS ORDER | `AO` | operator picks, and it selects the template |
 | ORDER | empty in the sample | operator, left blank by default |
 
