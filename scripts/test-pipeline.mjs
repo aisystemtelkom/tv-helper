@@ -459,3 +459,57 @@ test("locateSlot resolves a later list position to that page's true index", asyn
   assert.equal(result.zone.pageIndex, 24);
   assert.deepEqual(result.zone.lineRange, [1, 1]);
 });
+
+import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
+
+test("AO template lists the sample's sections in order", () => {
+  assert.deepEqual(
+    AO_TEMPLATE.sections.map((s) => s.title),
+    ["BA Permintaan", "SP", "KB", "KB (lanjutan)", "Konfigurasi (Excel dari EPIC)",
+     "Konfigurasi", "Email", "MOM", "BA Splitting", "SBR Pricing", "BASO",
+     "BA Penjelasan Order"],
+  );
+});
+
+test("AO template keeps the sample's empty sections", () => {
+  const splitting = AO_TEMPLATE.sections.find((s) => s.title === "BA Splitting");
+  assert.deepEqual(
+    splitting.slots.map((s) => s.label),
+    ["Nomor", "Detail Kontrak", "Detail Splitting", "TTD Pejabat"],
+  );
+  assert.ok(splitting.slots.every((s) => !s.fillable));
+});
+
+test("exactly eleven slots are fillable from PDFs in v1", () => {
+  const fillable = AO_TEMPLATE.sections.flatMap((s) =>
+    s.slots.filter((x) => x.fillable),
+  );
+  assert.equal(fillable.length, 11);
+});
+
+test("the KB table splits in two as the sample does", () => {
+  const kb = AO_TEMPLATE.sections.find((s) => s.title === "KB");
+  const cont = AO_TEMPLATE.sections.find((s) => s.title === "KB (lanjutan)");
+  assert.deepEqual(kb.slots.map((s) => s.label),
+    ["Nomor", "Para Pihak", "Tanggal", "Jangka Waktu"]);
+  assert.deepEqual(cont.slots.map((s) => s.label),
+    ["Detail", "ToP", "TTD Pejabat"]);
+});
+
+test("the xlsx row list holds the sample's 34 data rows", () => {
+  // The sample sheet is 35 rows: one header, then 34 data rows. The header is
+  // emitted by the exporter, so the template carries data rows only.
+  assert.equal(AO_TEMPLATE.xlsxRows.length, 34);
+  assert.equal(AO_TEMPLATE.xlsxRows[0].itemI, "Lead");
+  assert.equal(AO_TEMPLATE.xlsxRows[0].itemII, "Description");
+  assert.equal(AO_TEMPLATE.xlsxRows[0].keterangan, "Isi");
+});
+
+test("EPIC-only xlsx rows carry no fieldKey, so nothing can fill them", () => {
+  const byItemII = (name) =>
+    AO_TEMPLATE.xlsxRows.find((r) => r.itemII === name);
+  for (const name of ["Customer Account", "Billing Account", "Sales Team",
+                      "LatLong"]) {
+    assert.equal(byItemII(name).fieldKey, undefined, `${name} must stay blank`);
+  }
+});
