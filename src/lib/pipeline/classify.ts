@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractJson } from "./json.ts";
 
 export type DocType = "KB" | "SP" | "BAPermintaan" | "Email" | "Unknown";
 export type Span = { docType: DocType; fromPage: number; toPage: number };
@@ -45,18 +46,6 @@ export function buildClassifyPrompt(
     "",
     listing,
   ].join("\n");
-}
-
-/** Models wrap JSON in prose or fences often enough that this is not optional. */
-function extractJson(reply: string): unknown {
-  const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const body = fenced ? fenced[1] : reply;
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    throw new Error(`No JSON object in model reply: ${reply.slice(0, 200)}`);
-  }
-  return JSON.parse(body.slice(start, end + 1));
 }
 
 export async function classifyPages(
