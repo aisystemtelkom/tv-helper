@@ -790,3 +790,47 @@ test("buildDocx omits a slotless table section instead of emitting an empty tabl
   // Only the header table.
   assert.equal((xml.match(/<w:tbl>/g) ?? []).length, 1);
 });
+
+import {
+  deriveIdsFromFilenames,
+  extractFields,
+} from "../src/lib/pipeline/fields.ts";
+
+test("deriveIdsFromFilenames finds the LOP and quote ids", () => {
+  assert.deepEqual(
+    deriveIdsFromFilenames([
+      "LOP285120_EXISTING_20240126_PKS_BSI_II_merged.pdf",
+      "Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx",
+    ]),
+    { idEpic: "LOP285120", quote: "1-72989090591" },
+  );
+});
+
+test("deriveIdsFromFilenames returns blanks rather than guessing", () => {
+  assert.deepEqual(deriveIdsFromFilenames(["scan001.pdf"]), {
+    idEpic: "",
+    quote: "",
+  });
+});
+
+test("extractFields keeps provenance and drops unbacked keys", async () => {
+  const page = {
+    index: 0,
+    width: 500,
+    height: 500,
+    lines: groupWordsIntoLines([
+      { text: "Nama", box: { x: 10, y: 10, w: 40, h: 12 } },
+      { text: "Pelanggan", box: { x: 55, y: 10, w: 70, h: 12 } },
+      { text: "PT", box: { x: 200, y: 10, w: 20, h: 12 } },
+      { text: "BSI", box: { x: 225, y: 10, w: 30, h: 12 } },
+    ]),
+  };
+  const ask = async () =>
+    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":0}]}';
+
+  const values = await extractFields(["cc", "latLong"], [page], ask);
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].fieldKey, "cc");
+  assert.deepEqual(values[0].source, { pageIndex: 0, lineRange: [0, 0] });
+});
