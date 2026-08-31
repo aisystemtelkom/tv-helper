@@ -1,0 +1,51 @@
+# Keep the build context small and keep secrets and client data out of it.
+# Anything listed here is invisible to every COPY in the Dockerfile.
+
+# Rebuilt inside the image by the deps stage.
+node_modules
+.pnp
+.pnp.*
+
+# Rebuilt inside the image by `pnpm build`.
+.next
+out
+build
+*.tsbuildinfo
+next-env.d.ts
+
+# REAL CLIENT DOCUMENTS. These are gitignored for the same reason; the rule is
+# repeated here because a docker build reads the working tree, not the index,
+# so an uncommitted PDF would otherwise be baked into a pushed image layer.
+documents
+test-docs
+
+# Regenerated inside the image by `pnpm vendor:ocr` at prebuild. Excluding it
+# also stops a stale local copy from shadowing the vendored one.
+public/tesseract
+
+# Secrets. .env.local holds the real Gemini key; on Cloud Run every secret is
+# mounted from Secret Manager instead, so none of these belong in an image.
+.env
+.env.*
+!.env.example
+
+# Leftover Ollama weights from before inference moved to the Gemini API.
+models
+
+# Local tooling and history that would only bust the layer cache.
+.git
+.github
+.claude
+.vscode
+.idea
+.playwright-mcp
+*.log
+.DS_Store
+
+# Docs and specs. Nothing in the running image reads them.
+docs
+README.md
+AGENTS.md
+CLAUDE.md
+Dockerfile
+.dockerignore

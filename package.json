@@ -9,11 +9,11 @@
     "lint": "eslint",
     "smoke": "node scripts/smoke.mjs",
     "generate": "node scripts/generate.mjs",
-    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs",
+    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs src/lib/auth/auth.test.mts",
     "measure:locate": "node scripts/measure-locate.mjs",
     "vendor:ocr": "node scripts/vendor-ocr.mjs",
     "pretest": "pnpm vendor:ocr",
-  "prebuild": "pnpm vendor:ocr"
+    "prebuild": "pnpm vendor:ocr"
   },
   "dependencies": {
     "@ai-sdk/google": "4.0.56",
@@ -23,6 +23,7 @@
     "@assistant-ui/react-ai-sdk": "^1.4.6",
     "@assistant-ui/react-markdown": "^0.14.11",
     "@base-ui/react": "^1.7.0",
+    "@google-cloud/firestore": "9.0.0",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/ind": "^1.0.0",
     "ai": "^7.0.70",
@@ -33,6 +34,7 @@
     "lucide-react": "^1.33.0",
     "mammoth": "1.12.1",
     "next": "16.3.1",
+    "next-auth": "5.0.0-beta.32",
     "pdfjs-dist": "6.2.108",
     "react": "19.2.8",
     "react-dom": "19.2.8",
