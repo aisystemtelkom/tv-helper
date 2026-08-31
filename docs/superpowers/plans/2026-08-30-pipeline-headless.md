@@ -21,6 +21,8 @@
 - **Cross-platform.** Must run on macOS arm64 and Windows x64. `@napi-rs/canvas` ships prebuilds for both and is a devDependency only, so it never enters the production image.
 - **`src/components/*` is vendored** by `assistant-ui init`. Do not hand-edit. This plan does not touch it.
 - Boxes are always `{ x, y, w, h }` in **upright page pixels**. Rotation is resolved once, at render time, and never again.
+- **Every relative value import between `.ts` modules carries an explicit `.ts` extension**, and `tsconfig.json` sets `allowImportingTsExtensions: true`. Node 24 strips types but does not rewrite specifiers and does not guess extensions, so an extensionless value import throws `ERR_MODULE_NOT_FOUND` at link time. `.js` does not work either. Type-only imports are erased before resolution and would survive without it, which is exactly why this stays invisible until the first cross-module value import.
+- **Run `npx tsc --noEmit -p tsconfig.json` alongside the tests.** `node --test` strips types without checking them, so a type error passes every test in this plan and only surfaces at `pnpm build`.
 
 ---
 
@@ -191,9 +193,10 @@ test("renderPageUpright swaps the axes for a 270-rotated page", async () => {
   assert.equal(out.height, 400);
 
   const pixel = (x, y) => out.data[(y * out.width + x) * 4];
-  // The bar that ran up the left edge in PDF space is now along the top.
-  assert.ok(pixel(100, 10) < 40, "expected dark pixel near the top");
-  assert.ok(pixel(100, 390) > 200, "expected light pixel near the bottom");
+  // /Rotate 270 maps the PDF-space LEFT edge to the BOTTOM of the upright
+  // image. Measured: column x=100 is white for rows 0..359, black for 360..399.
+  assert.ok(pixel(100, 390) < 40, "expected dark pixel near the bottom");
+  assert.ok(pixel(100, 10) > 200, "expected light pixel near the top");
 });
 ```
 
@@ -250,7 +253,10 @@ export async function renderPageUpright(
   context.fillStyle = "white";
   context.fillRect(0, 0, width, height);
 
-  await page.render({ canvasContext: context, viewport }).promise;
+  // `canvas: null` is required, not cosmetic. In pdfjs-dist 6.x `canvas` is a
+  // required RenderParameters property, and the library only honors the
+  // supplied `canvasContext` when `canvas` is falsy. Omitting it fails tsc.
+  await page.render({ canvas: null, canvasContext: context, viewport }).promise;
 
   return { data: context.getImageData(0, 0, width, height).data, width, height };
 }
@@ -277,6 +283,7 @@ This is the arithmetic the spec calls out as the code most likely to be silently
 **Files:**
 - Create: `src/lib/pipeline/geometry.ts`
 - Modify: `scripts/test-pipeline.mjs`
+- Modify: `tsconfig.json` (`allowImportingTsExtensions`)
 
 **Interfaces:**
 - Consumes: `Box` from `src/lib/pipeline/render.ts`.
@@ -449,10 +456,35 @@ export function boxForLineRange(
 Run: `node --test scripts/test-pipeline.mjs`
 Expected: PASS, 8 tests
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Allow `.ts` import specifiers, before any module imports another**
+
+Tasks 1 to 3 pass without this because every cross-module import so far is `import type`, which is erased before resolution. Task 4 is the first module to import a *value* from another module, and it fails hard without both halves of this change.
+
+Node 24 strips types but does not rewrite specifiers, and its ESM resolver does no extension guessing, so an extensionless relative import throws `ERR_MODULE_NOT_FOUND` at link time. Writing `./geometry.js` does not work either. Every relative **value** import between these modules must carry an explicit `.ts`:
+
+```ts
+import { groupWordsIntoLines, type Line, type Word } from "./geometry.ts";
+```
+
+That alone then breaks `tsc`, because this repo's tsconfig uses `moduleResolution: "bundler"` without the matching flag. Add to `tsconfig.json` `compilerOptions`, which is legal here because `noEmit: true` is already set:
+
+```json
+"allowImportingTsExtensions": true
+```
+
+Verify both halves before moving on:
 
 ```bash
-git add src/lib/pipeline/geometry.ts scripts/test-pipeline.mjs
+npx tsc --noEmit -p tsconfig.json
+node --test scripts/test-pipeline.mjs
+```
+
+Expected: no type errors, and tests still pass.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/lib/pipeline/geometry.ts scripts/test-pipeline.mjs tsconfig.json
 git commit -m "feat: line grouping, box union, padding, and line-range crops"
 ```
 
@@ -462,8 +494,11 @@ git commit -m "feat: line grouping, box union, padding, and line-range crops"
 
 **Files:**
 - Create: `src/lib/pipeline/ocr.ts`
+- Create: `src/lib/export/png.ts` (moved forward from Task 9; OCR needs encoded images)
+- Create: `scripts/vendor-ocr.mjs`
+- Modify: `scripts/png.mjs` (import the shared encoder instead of duplicating it)
 - Modify: `scripts/test-pipeline.mjs`
-- Modify: `package.json`
+- Modify: `package.json`, `.gitignore`
 - Create: `public/tesseract/.gitkeep`
 
 **Interfaces:**
@@ -473,13 +508,23 @@ git commit -m "feat: line grouping, box union, padding, and line-range crops"
   - `async function ocrToWords(page: RenderedPage, lang: string, assets: OcrAssets): Promise<Word[]>`
   - `async function ocrToLines(page: RenderedPage, lang: string, assets: OcrAssets): Promise<Line[]>`
 
-- [ ] **Step 1: Add the dependency and vendor its assets**
+- [ ] **Step 1: Add the dependencies, including the language data**
 
 ```bash
-pnpm add tesseract.js@7.0.0
+pnpm add tesseract.js@7.0.0 @tesseract.js-data/ind @tesseract.js-data/eng
 ```
 
-The wasm core and `ind.traineddata` must be served from this app, not a CDN. Copy them out of the installed package into `public/tesseract/` as a `prebuild` step so an upgrade cannot silently revert to the CDN:
+**The language data packages are not optional.** No `.traineddata` ships inside `tesseract.js` or `tesseract.js-core`; the library downloads it from a CDN at runtime. Since this project forbids that, the data has to come from somewhere, and `@tesseract.js-data/*` is that somewhere. `ind` is what production uses; `eng` is what this task's test uses.
+
+The traineddata lives in a `4.0.0_best_int` subdirectory of each data package, which is the variant OEM 1 (`LSTM_ONLY`) loads, and it ships gzipped.
+
+- [ ] **Step 2: Create the PNG encoder, which OCR needs before Task 9 does**
+
+Create `src/lib/export/png.ts` exporting `encodePng(rgba: Uint8ClampedArray, width: number, height: number): Uint8Array`, using `node:zlib` `deflateSync` in Node and `CompressionStream("deflate")` in the browser. `scripts/png.mjs` already holds the CRC and chunk-writing helpers, so lift them here and have the script import from this module rather than keeping two copies. Do not add `sharp` or `pngjs`.
+
+This module was originally scheduled for Task 9. It moves here because `tesseract.js` cannot accept raw pixels, so OCR needs a PNG encoder before anything else does.
+
+Copy the wasm core and language data into `public/tesseract/` as a `prebuild` step so an upgrade cannot silently revert to the CDN:
 
 In `package.json`, add:
 
@@ -490,7 +535,7 @@ In `package.json`, add:
 
 Do **not** call this script `setup`. `pnpm setup` is a reserved built-in that silently shadows package scripts.
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 3: Write the failing test**
 
 Append to `scripts/test-pipeline.mjs`:
 
@@ -528,19 +573,20 @@ test("ocrToLines reads rendered text back with plausible boxes", async () => {
 
 This is the one loose test in the plan. It asserts that OCR runs and returns in-bounds geometry, not that it is accurate. Accuracy is measured against real documents in Task 7, because synthetic rendered text does not resemble a 300 DPI scan.
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 4: Run test to verify it fails**
 
 Run: `node --test scripts/test-pipeline.mjs`
 Expected: FAIL, cannot resolve `../src/lib/pipeline/ocr.ts`
 
-- [ ] **Step 4: Write minimal implementation**
+- [ ] **Step 5: Write minimal implementation**
 
 Create `src/lib/pipeline/ocr.ts`:
 
 ```ts
 import { createWorker } from "tesseract.js";
-import type { RenderedPage } from "./render";
-import { groupWordsIntoLines, type Line, type Word } from "./geometry";
+import type { RenderedPage } from "./render.ts";
+import { groupWordsIntoLines, type Line, type Word } from "./geometry.ts";
+import { encodePng } from "../export/png.ts";
 
 /**
  * Paths are explicit because tesseract.js defaults to a CDN for its wasm core
@@ -566,15 +612,23 @@ export async function ocrToWords(
   assets: OcrAssets = {},
 ): Promise<Word[]> {
   const worker = await createWorker(lang, 1, {
+    // Without this, a recognition failure is rethrown on a MessagePort tick
+    // with no handler, which kills the whole process instead of rejecting.
+    // The `finally` below would never run and the stack would not name this
+    // function, so debugging starts from nothing.
+    errorHandler: () => {},
+    // gzip:true because @tesseract.js-data ships .traineddata.gz and the
+    // vendoring step keeps it compressed. This must agree with what
+    // scripts/vendor-ocr.mjs writes, or the fetch 404s.
+    gzip: true,
     ...(typeof window === "undefined" ? {} : BROWSER_ASSETS),
     ...assets,
   });
   try {
-    const image = {
-      data: Buffer.from(page.data.buffer),
-      width: page.width,
-      height: page.height,
-    };
+    // tesseract.js has no raw-pixel path. It writes the bytes to a virtual
+    // file and calls SetImageFile, which needs a decodable header, so raw
+    // RGBA silently becomes a zero-length buffer and errors.
+    const image = Buffer.from(encodePng(page.data, page.width, page.height));
     const { data } = await worker.recognize(image, {}, { blocks: true });
 
     const words: Word[] = [];
@@ -611,61 +665,95 @@ export async function ocrToLines(
 }
 ```
 
-- [ ] **Step 5: Write the vendoring script**
+- [ ] **Step 6: Write the vendoring script**
 
 Create `scripts/vendor-ocr.mjs`:
 
 ```js
 /**
- * Copies the tesseract worker, wasm core, and Indonesian language data out of
+ * Copies the tesseract worker, wasm core, and language data out of
  * node_modules into public/, so the browser fetches them from this app rather
  * than from a CDN. Runs at prebuild so an upgrade cannot silently revert to
  * the CDN default.
+ *
+ * Paths are resolved, never assumed. Under pnpm nothing is hoisted to a flat
+ * node_modules/, so node_modules/tesseract.js-core does not exist and a
+ * hard-coded path silently copies nothing.
  */
 import { copyFile, mkdir, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { repoRoot } from "./env.mjs";
+
+const require = createRequire(import.meta.url);
+const pkgDir = (spec, from = require) =>
+  dirname(from.resolve(`${spec}/package.json`));
 
 const out = join(repoRoot, "public", "tesseract");
 await mkdir(out, { recursive: true });
 
-const sources = [
-  join(repoRoot, "node_modules", "tesseract.js", "dist"),
-  join(repoRoot, "node_modules", "tesseract.js-core"),
-];
+// tesseract.js-core is a dependency OF tesseract.js, so resolve it through
+// tesseract.js's own resolution root rather than from this script's.
+const tesseractDir = pkgDir("tesseract.js");
+const coreDir = pkgDir(
+  "tesseract.js-core",
+  createRequire(require.resolve("tesseract.js/package.json")),
+);
 
-let copied = 0;
-for (const dir of sources) {
-  if (!existsSync(dir)) continue;
+let wasm = 0;
+let data = 0;
+
+for (const dir of [join(tesseractDir, "dist"), coreDir]) {
   for (const name of await readdir(dir)) {
-    if (!/\.(js|wasm|traineddata|gz)$/.test(name)) continue;
+    if (!/\.(js|wasm)$/.test(name)) continue;
     await copyFile(join(dir, name), join(out, name));
-    copied += 1;
+    if (name.endsWith(".wasm")) wasm += 1;
   }
 }
 
-if (copied === 0) {
+// The traineddata ships only in @tesseract.js-data/*, under the variant that
+// OEM 1 (LSTM_ONLY) loads, and it ships gzipped. ocr.ts sets gzip:true to match.
+for (const lang of ["ind", "eng"]) {
+  const file = `${lang}.traineddata.gz`;
+  await copyFile(
+    join(pkgDir(`@tesseract.js-data/${lang}`), "4.0.0_best_int", file),
+    join(out, file),
+  );
+  data += 1;
+}
+
+// Guard on the asset CLASSES that matter, not on a total. A count-based guard
+// passes while copying only JavaScript, leaving the CDN fallback in place for
+// exactly the two things this rule exists to keep local.
+if (wasm === 0 || data === 0) {
   throw new Error(
-    "Vendored no OCR assets. The browser would fall back to the CDN, which " +
-      "breaks the zero-external-hosts guarantee. Check tesseract.js layout.",
+    `Vendored ${wasm} wasm and ${data} traineddata file(s). Both must be ` +
+      "non-zero or the browser falls back to the CDN, which breaks the " +
+      "zero-external-hosts guarantee.",
   );
 }
-console.log(`Vendored ${copied} OCR asset(s) into public/tesseract.`);
+console.log(`Vendored ${wasm} wasm and ${data} traineddata file(s).`);
 ```
 
-The thrown error is the point. Silently copying nothing would leave the CDN fallback in place and pass every test.
+The thrown error is the point, and so is what it counts. The original version of this script guarded on a total file count, which would have passed happily while copying nothing but JavaScript and leaving both the wasm and the language data coming from a CDN.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [ ] **Step 7: Run test to verify it passes**
 
 Run: `node --test scripts/test-pipeline.mjs`
-Expected: PASS, 9 tests. First run downloads `eng` data and is slow.
+Expected: PASS, 9 tests. Slower than the others, but it reads the vendored language data from disk rather than downloading anything.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/pipeline/ocr.ts scripts/vendor-ocr.mjs scripts/test-pipeline.mjs package.json pnpm-lock.yaml public/tesseract/.gitkeep
+git add src/lib/export/png.ts src/lib/pipeline/ocr.ts scripts/vendor-ocr.mjs scripts/png.mjs scripts/test-pipeline.mjs package.json pnpm-lock.yaml .gitignore public/tesseract/.gitkeep
 git commit -m "feat: OCR rendered pages to words and lines with self-hosted assets"
+```
+
+Gitignore the vendored payload itself. `public/tesseract/*` is build output regenerated by `prebuild`, and the wasm plus two language files are several megabytes of binary that would otherwise land in every diff:
+
+```gitignore
+/public/tesseract/*
+!/public/tesseract/.gitkeep
 ```
 
 ---
@@ -912,9 +1000,9 @@ Create `src/lib/pipeline/locate.ts`:
 
 ```ts
 import { z } from "zod";
-import type { Box } from "./render";
-import { boxForLineRange, type Line } from "./geometry";
-import type { Ask } from "./classify";
+import type { Box } from "./render.ts";
+import { boxForLineRange, type Line } from "./geometry.ts";
+import type { Ask } from "./classify.ts";
 
 export type OcrPage = {
   index: number;
@@ -1031,7 +1119,7 @@ export async function locateSlot(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `node --test scripts/test-pipeline.mjs`
-Expected: PASS, 18 tests
+Expected: PASS, 17 tests
 
 - [ ] **Step 5: Commit**
 
@@ -1233,7 +1321,9 @@ Sections and their rows, in document order:
 
 That is 1 + 2 + 4 + 3 + 1 = 11 fillable slots, matching the test.
 
-The 35 `xlsxRows` transcribe the sample workbook's `Nomor | Item I | Item II | Keterangan` columns. Give a `fieldKey` only to rows a PDF can back; leave it undefined on the EPIC-only rows (Customer Account, Billing Account, Sales Team, LatLong), which keeps them blank in the export by construction rather than by a later check.
+The 34 `xlsxRows` transcribe the sample workbook's 34 data rows, which are sheet rows 2 through 35; the header row is emitted by the exporter, not stored in the template. Give a `fieldKey` only to rows a PDF can back; leave it undefined on the EPIC-only rows (Customer Account, Billing Account, Sales Team, LatLong), which keeps them blank in the export by construction rather than by a later check.
+
+One trap the sample sets: the service address appears **twice**, on sheet row 7 (`Quote / Field Name`) and again on sheet row 12 (`Service Account`). Only the first carries `fieldKey: "alamat"`. Giving it to both makes Task 11's `assert.equal(filled, 1)` see 2, and more importantly double-fills a value the operator only confirmed once.
 
 Write it in this shape, so the types the later tasks import are unambiguous:
 
@@ -1321,7 +1411,7 @@ export const AO_TEMPLATE: Template = {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `node --test scripts/test-pipeline.mjs`
-Expected: PASS, 24 tests
+Expected: PASS, 23 tests
 
 - [ ] **Step 5: Commit**
 
@@ -1403,6 +1493,39 @@ test("buildDocx emits every section, including the empty ones", async () => {
   // The quote number is a row label in the Konfigurasi table, not just header.
   assert.ok(xml.includes("1-72989090591"));
 });
+
+test("buildDocx writes real png media parts at their true size", async () => {
+  // Guards two defects the section test cannot see: a missing ImageRun `type`
+  // silently produces word/media/<hash>.undefined, and a points-vs-pixels
+  // mixup silently shrinks every crop to 75%.
+  const canvas = createCanvas(600, 300);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 600, 300);
+  const png = cropToPng(
+    { data: ctx.getImageData(0, 0, 600, 300).data, width: 600, height: 300 },
+    { x: 0, y: 0, w: 600, h: 300 },
+  );
+
+  const bytes = await buildDocx(
+    AO_TEMPLATE,
+    { idEpic: "LOP285120", namaProyek: "P", quote: "1-72989090591",
+      cc: "C", order: "", jenisOrder: "AO" },
+    [{ key: "ba.permintaan", png, widthPx: 600, heightPx: 300 }],
+  );
+
+  const zip = await JSZip.loadAsync(bytes);
+  const media = Object.keys(zip.files).filter(
+    (f) => f.startsWith("word/media/") && !zip.files[f].dir,
+  );
+  assert.ok(media.length > 0, "no media part written");
+  assert.ok(media.every((f) => f.endsWith(".png")), `bad media: ${media}`);
+
+  const xml = await zip.file("word/document.xml").async("string");
+  const cx = Number(xml.match(/<wp:extent cx="(\d+)"/)[1]);
+  // 914400 EMU per inch. A 600px crop cut at 300 DPI is 2 inches wide.
+  assert.equal(Math.round((cx / 914400) * 1000), 2000);
+});
 ```
 
 `jszip` is already a devDependency, so reading the output back needs no new package.
@@ -1414,13 +1537,13 @@ Expected: FAIL, cannot resolve `../src/lib/export/crop.ts`
 
 - [ ] **Step 4: Implement the crop**
 
-Create `src/lib/export/png.ts` exporting `encodePng(rgba: Uint8ClampedArray, width: number, height: number): Uint8Array`, using `node:zlib` `deflateSync` in Node and `CompressionStream("deflate")` in the browser. Do not add `sharp` or `pngjs`; `scripts/png.mjs` already contains the chunk-writing and CRC helpers, so lift them here and have the script import from this module rather than keeping two copies.
+`src/lib/export/png.ts` already exists: it was created in Task 4, because `tesseract.js` needs encoded images and so needed it first.
 
 Create `src/lib/export/crop.ts`:
 
 ```ts
-import type { Box, RenderedPage } from "../pipeline/render";
-import { encodePng } from "./png";
+import type { Box, RenderedPage } from "../pipeline/render.ts";
+import { encodePng } from "./png.ts";
 
 /**
  * Copies the sub-rectangle out of the page's RGBA buffer row by row. Boxes
@@ -1472,18 +1595,26 @@ export type HeaderFields = {
   cc: string; order: string; jenisOrder: string;
 };
 
-/** Crops are cut at 300 DPI, so this puts them back at their true size. */
-const DPI = 300;
-const toPt = (px: number) => (px / DPI) * 72;
+/**
+ * docx sizes images in PIXELS AT 96 DPI (9525 EMU each), not points. Crops are
+ * cut at 300 DPI, so converting to points instead renders every image at 75%
+ * of its true size, which looks plausible and is wrong.
+ */
+const CROP_DPI = 300;
+const DOCX_PX_PER_INCH = 96;
+const toDocxPx = (px: number) => (px / CROP_DPI) * DOCX_PX_PER_INCH;
 
 function imageParagraph(slot: FilledSlot): Paragraph {
   return new Paragraph({
     children: [
       new ImageRun({
+        // Required in docx v9. Omitting it writes word/media/<hash>.undefined,
+        // which has no content type and makes Word refuse the file.
+        type: "png",
         data: slot.png,
         transformation: {
-          width: toPt(slot.widthPx),
-          height: toPt(slot.heightPx),
+          width: toDocxPx(slot.widthPx),
+          height: toDocxPx(slot.heightPx),
         },
       }),
     ],
@@ -1589,7 +1720,7 @@ Expected: PASS, 26 tests
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/export/png.ts src/lib/export/crop.ts src/lib/export/docx.ts scripts/png.mjs scripts/test-pipeline.mjs package.json pnpm-lock.yaml
+git add src/lib/export/crop.ts src/lib/export/docx.ts scripts/test-pipeline.mjs package.json pnpm-lock.yaml
 git commit -m "feat: crop zones to PNG and build the DOKUMEN VALIDASI docx"
 ```
 
@@ -1686,9 +1817,11 @@ export function deriveIdsFromFilenames(names: string[]): {
   quote: string;
 } {
   const joined = names.join(" ");
+  // No \b anchors: "_" is a word character, so \bLOP\d+\b never matches
+  // inside LOP285120_EXISTING_... which is exactly the shape of these names.
   return {
-    idEpic: joined.match(/\bLOP\d{4,}\b/)?.[0] ?? "",
-    quote: joined.match(/\b\d-\d{9,}\b/)?.[0] ?? "",
+    idEpic: joined.match(/LOP\d{4,}/)?.[0] ?? "",
+    quote: joined.match(/\d-\d{9,}/)?.[0] ?? "",
   };
 }
 
