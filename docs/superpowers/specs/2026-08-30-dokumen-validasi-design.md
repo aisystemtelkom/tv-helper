@@ -95,7 +95,8 @@ Team `700032, 846163`, and the LatLong pair.
 ## Scope for v1
 
 **In scope.** The eleven slots sourced from the two PDFs. The xlsx with column E
-filled only where a PDF backs the value.
+filled only where a PDF backs the value. Deployment to Cloud Run with Google
+sign-in and an admin-editable allowlist, as specified under Deployment and auth.
 
 **Out of scope, by decision.** The five EPIC screenshots and the config xlsx
 screenshot. Their slots are emitted as deliberately empty table cells, sized and
@@ -188,6 +189,15 @@ places would let them drift on the first new order type.
 The AO template ships as the only definition, expressed as data rather than
 markup, so bidang TV 1 can add order types without a code change.
 
+**The AO default transcribes the sample exactly.** Its section list, row labels,
+and ordering are copied from
+`Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx` as it stands, including
+the sections that arrive empty (MOM, BA Splitting, SBR Pricing, BASO, BA
+Penjelasan Order) and the two-part KB table split. A first run on that bundle
+should reproduce that document's skeleton with nothing added and nothing
+dropped. Config-driven describes how it is stored, not licence to redesign the
+form.
+
 ## Human in the loop
 
 The operator reviews a **contact sheet**: every proposed crop on one screen,
@@ -247,6 +257,96 @@ rows from config. Column E filled only where a PDF backs the value, each filled
 cell carrying a comment naming the page and line range. Unbacked rows stay
 visibly blank rather than guessed at.
 
+## Deployment and auth
+
+Target is Google Cloud, chosen by the user, with cost efficiency as the stated
+priority. The design below is built so that idle costs nothing.
+
+### Compute
+
+Cloud Run in `asia-southeast2` (Jakarta), `output: "standalone"` plus a
+Dockerfile. Cloud Run is the only GCP compute that bills nothing while idle,
+which is the normal state of an internal tool used by a handful of operators.
+Jakarta is also the region that disposes of any data residency question rather
+than leaving it open for a state telco.
+
+The service runs `--allow-unauthenticated` at the IAM layer, because operators
+signing in with ordinary gmail accounts cannot present IAM tokens. All gating is
+app-level. This is the correct trade here, not a shortcut.
+
+### Identity
+
+Auth.js with Google as the only provider and the OAuth exchange performed
+server-side. Sessions are signed JWTs, so there is no session store.
+
+Server-side OAuth is a deliberate choice over Firebase Auth's client SDK, which
+would put `identitytoolkit.googleapis.com` into the page's request path and
+break the `performance.getEntriesByType("resource")` check that this project
+treats as standing proof the browser talks to nothing but this app. With the
+server-side flow the only external hop is a top-level redirect during login, not
+a resource request on the working page.
+
+Operators use ordinary gmail accounts, so domain restriction is impossible and
+an explicit allowlist is load-bearing rather than optional.
+
+### The allowlist, the only thing persisted server-side
+
+One Firestore collection in the default database. Document id is the email;
+fields record role, who added it, and when. A login costs one read against a
+free-tier allowance of 50,000 reads per day.
+
+`aisystemtelkom@gmail.com` is hardcoded as the bootstrap owner and is admitted
+**even when Firestore is empty or unreachable**. Without that, an empty
+collection or a mis-scoped IAM binding locks the owner out of the very admin
+page that would fix it, and the only way back in is a redeploy.
+
+**Revocation lag is a real property and is handled explicitly.** JWT sessions
+mean removing someone from the allowlist does not by itself end their live
+session. Rather than papering over this with short expiry, the allowlist is
+cached in server memory with a 60 second TTL and re-checked in middleware.
+Revocation therefore takes effect within a minute, at a cost of one Firestore
+read per minute per instance instead of one per request.
+
+### Cost inventory
+
+| Piece | Purpose | Expected cost |
+| --- | --- | --- |
+| Cloud Run, asia-southeast2 | the app, scaling to zero | within free tier |
+| Artifact Registry | container image, about 400MB | about $0.05/month |
+| Firestore, default database | the allowlist, nothing else | free tier |
+| Secret Manager | Gemini key, `AUTH_SECRET`, OAuth client secret | free at three secrets |
+| IndexedDB, in the browser | every document, crop, and run | free |
+
+Keeping documents in IndexedDB rather than Cloud Storage is the single largest
+cost avoidance in this design. There is no bucket, no egress on 13MB PDFs, and
+no lifecycle policy to maintain.
+
+**Two options deliberately rejected on cost.** Cloud SQL is roughly $9 a month
+and never scales to zero. Identity-Aware Proxy requires a load balancer at
+roughly $18 a month. Both are the obvious-looking answers to "database" and
+"auth" respectively, and both cost more than everything else here combined.
+
+The tesseract wasm and `ind.traineddata` assets, roughly 15 to 20MB, ship inside
+the container and are served with immutable cache headers so each browser
+downloads them once.
+
+### Setup gotchas for the runbook
+
+- **The OAuth redirect URI is circular.** The OAuth client cannot be created
+  until the Cloud Run URL exists, and the app cannot authenticate until the
+  client exists. Deploy once with auth disabled to mint the URL, create the
+  client against it, then redeploy. This looks like a broken deploy the first
+  time it is encountered.
+- **The consent screen must be External.** Testing mode caps at 100 users and
+  expires refresh tokens after seven days. Basic email and profile scopes should
+  not require Google verification to publish to Production, but confirm that
+  during setup rather than discovering it when an operator is locked out
+  mid-week.
+- Secrets are mounted from Secret Manager, never baked into the image or set as
+  plain Cloud Run environment variables.
+- Firestore is reached through the service account and Application Default
+  Credentials, with the Cloud Datastore User role. No key file is downloaded.
+
 ## Testing
 
 Golden tests need documents and the real ones cannot be committed, so fixtures
@@ -295,7 +395,18 @@ all eleven are an approach problem, and they call for different responses.
   the only file that knows how the model is reached.
 - Real client documents stay out of the repo.
 - Everything must run on a teammate's Mac, so OCR is WASM rather than a native
-  binary.
+  binary. This applies to the container build too: the image must build and run
+  on arm64 as well as the amd64 that Cloud Run serves.
+- The browser still talks to nothing but this app. Serving from Cloud Run moves
+  the origin off localhost but adds no third party to the page, which is why
+  server-side OAuth was chosen over a client-side identity SDK.
+
+**One change of posture to record.** Hosting on Cloud Run puts the application
+itself on Google infrastructure. The documents still never leave the browser, so
+the substance of the constraint holds. But the client approved Google as a
+processor **for inference**, and this widens that to hosting. That is the same
+renegotiation that happened in 2026-08, so it needs a sentence to bidang TV 1
+rather than being assumed to be covered.
 
 ## New rules for AGENTS.md
 
@@ -308,6 +419,20 @@ all eleven are an approach problem, and they call for different responses.
   only crops.
 - **Page classification runs on OCR text, not vision.** Turning it into an image
   pass would cost about 30k prompt tokens per bundle for no accuracy gain.
+- **Auth stays server-side. Never swap in a client-side identity SDK.** Firebase
+  Auth's browser SDK is the tempting simplification and it puts
+  `identitytoolkit.googleapis.com` in the page's request path, which breaks the
+  zero-external-hosts check. The seam is the same one that keeps the Gemini key
+  server-side.
+- **The bootstrap owner stays hardcoded and stays exempt from the Firestore
+  lookup.** It reads like a smell and it is the only thing standing between an
+  empty allowlist and a locked-out owner whose fix requires a redeploy.
+- **No Cloud SQL, no Identity-Aware Proxy.** Both are the obvious answers to
+  "we need a database" and "we need auth", both cost more per month than the
+  entire rest of the deployment, and neither scales to zero.
+- **Documents stay in IndexedDB.** There is deliberately no Cloud Storage
+  bucket. Adding one re-opens a client constraint and adds egress on 13MB PDFs
+  for no gain.
 
 ## Open questions
 
@@ -318,6 +443,12 @@ all eleven are an approach problem, and they call for different responses.
   gate above covers it, since bad OCR shows up as bad line ranges.
 - Only two sample bundles exist. That is enough to test capture and not enough
   to claim accuracy.
+- Whether the client's approval of Google as a processor extends from inference
+  to hosting is unconfirmed. Does not block building, does block going live.
+- Whether publishing the OAuth consent screen to Production with only email and
+  profile scopes clears Google verification is unconfirmed. If it does not, the
+  Testing-mode cap of 100 users and seven-day refresh tokens becomes the
+  operating constraint.
 
 ## File layout
 
@@ -332,6 +463,15 @@ src/lib/export/docx.ts
 src/lib/export/xlsx.ts
 src/app/api/locate/route.ts    replaces api/chat
 src/app/api/extract/route.ts
+
+src/lib/auth/config.ts         Auth.js, Google provider, signIn allowlist check
+src/lib/auth/allowlist.ts      Firestore reads, 60s memory cache, bootstrap owner
+src/app/admin/page.tsx         allowlist management, admin role only
+src/middleware.ts              session check and allowlist re-check
+
+Dockerfile                     standalone build, multi-arch
+next.config.ts                 gains output: "standalone"
+docs/runbook-deploy.md         the circular OAuth URI, consent screen, secrets
 ```
 
 Deleted: the assistant-ui chat, `src/components/*`, and the thread history
