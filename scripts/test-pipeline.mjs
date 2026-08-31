@@ -1634,9 +1634,18 @@ test("AO_TEMPLATE.fieldHints tell cc apart from an email header, and namaProyek 
   assert.match(fieldHints.namaProyek, /Surat Penunjukan/);
 
   // And no real client identifier leaked into a committed file while writing
-  // them -- the repo is public.
+  // them -- the repo is public, and a hint is written while looking straight
+  // at the client's own paperwork, which is exactly when an example gets
+  // copied out of it.
+  //
+  // The checks are STRUCTURAL rather than a list of the client's own strings:
+  // spelling those out here would put them in the public repo itself, which
+  // is the thing being prevented. An EPIC id, a quote number, or any long run
+  // of digits (an account, a phone, a rekening) is what a leak looks like.
   for (const hint of Object.values(fieldHints)) {
-    assert.equal(/LOP\d|1-7\d{9}|SYARIAH|Slipi|Kemanggisan/i.test(hint), false);
+    assert.equal(/\bLOP\s*\d/i.test(hint), false, hint);
+    assert.equal(/\b\d-\d{9,}\b/.test(hint), false, hint);
+    assert.equal(/\d{6,}/.test(hint), false, hint);
   }
 });
 
