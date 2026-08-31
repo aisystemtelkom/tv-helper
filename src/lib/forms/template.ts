@@ -3,7 +3,34 @@ import type { DocType } from "../pipeline/classify.ts";
 export type SlotDef = {
   key: string;
   label: string;
+  /**
+   * The document type this slot's answer is MOST LIKELY to sit in -- a
+   * ranking preference handed to the search, never a filter on it.
+   *
+   * It used to be a filter: `generate.mjs` built each slot's pool out of
+   * only the pages `classify.ts` had labelled with this docType. The
+   * 2026-08-31 corrections note ("The tool is DOCUMENT-AGNOSTIC. The slot
+   * list does not vary.") retires that, because it assumes the sample
+   * bundle's structure -- which document carries which field -- and the
+   * tool must find the same slots in whatever documents are supplied.
+   *
+   * Narrowing was not arbitrary, and removing it without replacing it
+   * re-opens a real defect: on an unnarrowed pool the customer name matched
+   * the printed email thread's own `Cc:` header and both deliverables
+   * shipped a WRONG CUSTOMER. The replacement is the `hint` below, which
+   * must describe the thing well enough that the right region wins on merit
+   * anywhere in the bundle -- not a smaller haystack. Anything added here
+   * should assume the whole bundle is searched.
+   */
   docType: DocType | null;
+  /**
+   * What this slot means, in enough detail to beat a look-alike ELSEWHERE
+   * IN THE BUNDLE. Since the search is no longer narrowed by `docType`,
+   * every hint competes against every page of every supplied document, so
+   * a hint that only names the field ("the date the contract was signed")
+   * is now a defect: several documents carry a signing date. Say which
+   * document's, and say plainly what it is NOT.
+   */
   hint: string;
   fillable: boolean;
   /**
@@ -43,6 +70,22 @@ export type Template = {
   label: string;
   sections: SectionDef[];
   xlsxRows: XlsxRowDef[];
+  /**
+   * What each `xlsxRows[].fieldKey` means, keyed by that fieldKey.
+   *
+   * `SlotDef.hint` does this job for the crops; this does it for the text
+   * values, and for exactly the same reason. `extractFields` is given bare
+   * key names ("cc", "alamat"), and a bare key name is the thinnest hint in
+   * the pipeline: "cc" alone is what let the model answer with the printed
+   * email's own `Cc:` header. That was patched by narrowing `cc`'s pool to
+   * the BA Permintaan; the 2026-08-31 corrections note retires pool
+   * narrowing, so the description has to carry the disambiguation instead.
+   *
+   * A key with no entry here is sent to the model as its bare name, which
+   * is the behaviour these entries exist to avoid -- add one when you add a
+   * backed row.
+   */
+  fieldHints: Record<string, string>;
 };
 
 /**
@@ -104,28 +147,46 @@ export const AO_TEMPLATE: Template = {
           key: "kb.nomor",
           label: "Nomor",
           docType: "KB",
-          hint: "the contract number of the Perjanjian Kerjasama",
+          hint:
+            "the contract number of the Perjanjian Kerjasama itself, in the " +
+            "agreement's opening title block, above the parties. Not a " +
+            "reference number on a covering letter, an appointment letter " +
+            "(Surat Penunjukan), a memo, an order form or an email.",
           fillable: true,
         },
         {
           key: "kb.paraPihak",
           label: "Para Pihak",
           docType: "KB",
-          hint: "the parties named in the Perjanjian Kerjasama",
+          hint:
+            "the two parties entering the Perjanjian Kerjasama, in the block " +
+            "that introduces them (PIHAK PERTAMA and PIHAK KEDUA) with their " +
+            "names, addresses and representatives. Not an email header, a " +
+            "distribution list, a recipient block on a letter, or a " +
+            "signature block.",
           fillable: true,
         },
         {
           key: "kb.tanggal",
           label: "Tanggal",
           docType: "KB",
-          hint: "the date the contract was signed",
+          hint:
+            "the date the Perjanjian Kerjasama was signed, as its own " +
+            "opening states it (the hari/tanggal sentence). Not a letter " +
+            "date, an email date, a print or scan date, or a date inside a " +
+            "payment or delivery clause.",
           fillable: true,
         },
         {
           key: "kb.jangkaWaktu",
           label: "Jangka Waktu",
           docType: "KB",
-          hint: "the contract's term or duration",
+          hint:
+            "the duration or term of the Perjanjian Kerjasama (Jangka Waktu " +
+            "Perjanjian): when it takes effect and how long it runs. Not a " +
+            "payment period, a delivery deadline, or a service period on an " +
+            "order form. Start at the clause's own number line (the 'Pasal N' " +
+            "line), not at the title beneath it.",
           fillable: true,
         },
       ],
@@ -138,24 +199,47 @@ export const AO_TEMPLATE: Template = {
           key: "kbLanjutan.detail",
           label: "Detail",
           docType: "KB",
-          hint: "the contract's detail clause",
+          hint:
+            "the scope of work and its pricing in the Perjanjian Kerjasama " +
+            "(Ruang Lingkup dan Harga Pekerjaan), usually a table of items " +
+            "and amounts. Not a quotation, a price list, or a configuration " +
+            "table on an order form. Start at the clause's own number line " +
+            "(the 'Pasal N' line), not at the title beneath it.",
           fillable: true,
         },
         {
           key: "kbLanjutan.top",
           label: "ToP",
           docType: "KB",
-          hint: "the contract's terms of payment",
+          hint:
+            "the clause of the Perjanjian Kerjasama that sets the terms of " +
+            "payment for the work (Pembayaran Pekerjaan): when the invoice " +
+            "is raised and by when it is paid. Not a price table, and not a " +
+            "billing period on an order form. Start at the clause's own " +
+            "number line (the 'Pasal N' line), not at the title beneath it.",
           fillable: true,
           // The sample stacks two images in this one cell (rId17/image9.png
           // and rId18/image10.png). See the `crops` doc comment on SlotDef.
+          //
+          // The hint above describes the FIRST of those two -- the payment
+          // clause itself. It deliberately does not mention the remittance
+          // account block that the second capture holds: naming both in one
+          // hint made the single call this pass makes land on the account
+          // page and miss the clause, i.e. it answered the second capture
+          // and dropped the first. One call, one thing. The second capture
+          // is what the dokumen tambahan round and manual selection are for,
+          // and `outstandingSlots` reports it as "1 of 2 captures found".
           crops: 2,
         },
         {
           key: "kbLanjutan.ttdPejabat",
           label: "TTD Pejabat",
           docType: "KB",
-          hint: "the signing official's signature block",
+          hint:
+            "the signature block that closes the Perjanjian Kerjasama, " +
+            "where the officials of both parties sign, with their names and " +
+            "titles. Not the signature on an appointment letter (Surat " +
+            "Penunjukan), on a Berita Acara, or in an email footer.",
           fillable: true,
         },
       ],
@@ -367,4 +451,44 @@ export const AO_TEMPLATE: Template = {
     { itemII: "MPLS VPN IP City", keterangan: "Pilih" },
     { itemII: "LatLong", keterangan: "Pilih" },
   ],
+
+  // Every backed fieldKey above, described well enough to survive a search
+  // over the WHOLE bundle. See the `fieldHints` doc comment on `Template`
+  // for why these are not optional colour: `cc`'s pool used to be narrowed
+  // to the BA Permintaan precisely because the bare key name lost to the
+  // email thread's own `Cc:` header, and pool narrowing is gone.
+  //
+  // Deliberately free of any real customer name, address or contact: this
+  // file is committed to a public repo, and an example lifted from the
+  // sample bundle would both leak a client identifier and prime the model
+  // to answer with it.
+  fieldHints: {
+    namaProyek:
+      "The name of THIS order's work: the service being requested together " +
+      "with the specific site it is for, as the order request itself states " +
+      "it -- typically the request type plus the location or branch name. " +
+      "It is NOT the framework agreement's title, NOT the subject line or " +
+      "'perihal' of an appointment letter (Surat Penunjukan), and NOT the " +
+      "contract's Ruang Lingkup wording: those describe the whole " +
+      "multi-year contract, not this single order.",
+    picContacts:
+      "The person or people named as the contact (PIC) for this order, each " +
+      "with the phone number given for them, as the order request or the " +
+      "email thread that raised it lists them. People, not organisations; " +
+      "keep every contact listed, one per line.",
+    cc:
+      "The CUSTOMER organisation this order is for -- the subscriber named " +
+      "on the order request as the party being served, spelled as that " +
+      "request spells it. It is a company or institution, never a person. " +
+      "Do NOT take it from an email header line (From, To, Cc, Sent, " +
+      "Subject), from a distribution list, or from a mail signature, and do " +
+      "NOT answer with Telkom or any Telkom unit: Telkom is the provider " +
+      "raising the paperwork, not the customer.",
+    alamat:
+      "The service address of the site this order installs at: the street " +
+      "address of the customer location named on the order request, with " +
+      "its RT/RW, kelurahan, kecamatan, city and province as printed. NOT " +
+      "the customer's head-office address from the agreement's party block, " +
+      "NOT Telkom's address, and NOT a postal address in an email footer.",
+  },
 };
