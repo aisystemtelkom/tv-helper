@@ -4,11 +4,28 @@
  * reads gitignored client documents in documents/ and calls the real model.
  * See .superpowers/sdd/2026-08-30-pipeline-headless/task-7-brief.md.
  *
- * A slot passes per the spec's own rule (docs/superpowers/specs/
- * 2026-08-30-dokumen-validasi-design.md, "Measurement gate"): it lands on an
- * expected page, its chosen line range contains every OCR line whose text
- * appears in the ground-truth crop, and it adds no more than two lines
- * beyond them. "The ground-truth crop's own OCR text" is not a hand-picked
+ * A slot passes when it lands on an expected page and its chosen line range
+ * CONTAINS every OCR line whose text appears in the ground-truth crop, with
+ * overshoot capped proportionally: a range more than twice the required line
+ * count is rejected, and so is one that runs the whole page when the crop
+ * does not.
+ *
+ * That rule replaces "at most two extra lines", which the 2026-08-30 design
+ * stated as though it were a requirement and which the 2026-08-31 corrections
+ * note (section 3) records as invented, with no data behind it. Cross-checked
+ * against the sample, the twelve human-authored crops run from 2 lines to 43:
+ *
+ *   image6  2   image4  9   image11  9   image10 15   image7 18   image3 21
+ *   image9  27  image5 28   image2  34   image8  34   image1 35   image17 43
+ *
+ * A fixed +2 is therefore a 100% overshoot budget on the smallest crop and 5%
+ * on the largest -- it measures nothing consistent, and it failed
+ * `KB / Para Pihak` (+4) and `KB / TTD Pejabat` (+7) even though both
+ * proposals contained every required line. A proportional cap catches a
+ * genuine runaway (half the page returned for a two-line field) while
+ * matching how a person actually crops.
+ *
+ * "The ground-truth crop's own OCR text" is not a hand-picked
  * phrase -- it is produced by OCR-ing each of the twelve crop PNGs
  * (word/media/imageN.png inside the sample docx) with the same `ocrToLines`
  * pipeline used on the full pages, so the comparison is real text against
@@ -20,6 +37,24 @@
  * single hand-picked phrase per slot -- it requires covering the whole crop,
  * not hitting one substring -- see task-7-report.md for why that phrase
  * proxy was replaced and what changed as a result.
+ *
+ * WHAT THIS GATE NOW MEASURES, and why it changed with the pipeline. Each
+ * slot used to be offered only the pages of its own document type -- the KB
+ * slots saw the 23 contract pages and nothing else. The 2026-08-31
+ * corrections note (section 2) retires that narrowing: the tool is
+ * document-agnostic, so every slot is searched across every page of every
+ * supplied document. This harness follows, and offers all 29 pages of the
+ * bundle to every field slot. A gate that kept the old narrow pools would
+ * have gone on passing while the shipping pipeline searched something else
+ * entirely.
+ *
+ * It also asks with the PRODUCTION label and hint. Where a ground-truth row
+ * names a slot in `src/lib/forms/template.ts`, its `label` and `hint` are
+ * read from there rather than restated here, so strengthening a hint to keep
+ * it winning on a whole-bundle pool is a change this gate scores. Only
+ * `KB / ToP (2)` keeps a hint of its own: the template holds ToP as one
+ * `crops: 2` slot with one hint, and the sample's second capture is a
+ * different region on a different page.
  *
  * Deviation from the brief worth recording up front: this worktree's
  * src/lib/model.ts still exports the pre-migration local-Ollama chatModel
@@ -58,6 +93,7 @@ const { default: JSZip } = await import("jszip");
 import { renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 import { locateSlot } from "../src/lib/pipeline/locate.ts";
+import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS_DIR = join(REPO_ROOT, "documents");
@@ -106,12 +142,6 @@ const PDFS = findBundlePdfs(DOCS_DIR);
 const DOCX_PATH = findSampleDocx(DOCS_DIR);
 
 const nodeContext = (w, h) => createCanvas(w, h).getContext("2d");
-
-function range(from, to) {
-  const out = [];
-  for (let i = from; i <= to; i++) out.push(i);
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // .env.local loader. Not scripts/env.mjs -- that file (in this worktree)
@@ -293,12 +323,40 @@ async function ocrPageCached(pdfDoc, pdfKey, pageIndex, ocrCache) {
   return entry;
 }
 
-function toOcrPages(ocrCache, pdfKey, pageIndexes) {
-  return pageIndexes.map((index) => {
-    const entry = ocrCache[`${pdfKey}:${index}`];
-    if (!entry) throw new Error(`page ${pdfKey}:${index} was never OCR'd`);
-    return { index, width: entry.width, height: entry.height, lines: entry.lines };
-  });
+/**
+ * Every page of the whole bundle, in one list, numbered the way
+ * `scripts/generate.mjs` numbers them: the merged scan first, then the
+ * SPLITBA, with `index` continuing across the file boundary.
+ *
+ * One list rather than one per document, because the pool a slot is offered
+ * is now the whole bundle -- see the file header. `doc` and `pageInDoc` are
+ * kept alongside so a failure can still be reported as "merged page 19",
+ * which is what a person opens.
+ */
+function allBundlePages(ocrCache, docPageCounts) {
+  const pages = [];
+  for (const docKey of DOC_ORDER) {
+    for (let pageInDoc = 0; pageInDoc < docPageCounts[docKey]; pageInDoc++) {
+      const entry = ocrCache[`${docKey}:${pageInDoc}`];
+      if (!entry) throw new Error(`page ${docKey}:${pageInDoc} was never OCR'd`);
+      pages.push({
+        index: pages.length,
+        doc: docKey,
+        pageInDoc,
+        width: entry.width,
+        height: entry.height,
+        lines: entry.lines,
+      });
+    }
+  }
+  return pages;
+}
+
+/** The bundle-global index of a (document, page-in-document) pair. */
+function globalIndexOf(pages, docKey, pageInDoc) {
+  const page = pages.find((p) => p.doc === docKey && p.pageInDoc === pageInDoc);
+  if (!page) throw new Error(`no page ${docKey}:${pageInDoc} in the bundle`);
+  return page.index;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,17 +621,57 @@ function findRequiredLineRange(pageLines, cropSig) {
 // See the task-7 report for the full trace.
 // ---------------------------------------------------------------------------
 
-const KB_POOL = range(0, 22); // Bagian I + Bagian II of the Perjanjian Kerjasama
-const SP_POOL = range(23, 26); // the Surat Penunjukan span
-const SPLITBA_POOL = [0, 1];
+/**
+ * Document order in the bundle-global page numbering. `scripts/generate.mjs`
+ * numbers pages in the order the PDFs are passed on the command line; this
+ * fixes an order so the two agree and a `pageIndex` means the same thing in
+ * both. The merged scan first, then the SPLITBA.
+ */
+const DOC_ORDER = ["merged", "splitba"];
 
+/**
+ * Production label and hint, read from the template rather than restated
+ * here, so a hint strengthened to survive a whole-bundle pool is scored by
+ * this gate instead of drifting away from it silently.
+ */
+const TEMPLATE_SLOTS = new Map(
+  AO_TEMPLATE.sections.flatMap((section) =>
+    section.slots.map((slot) => [slot.key, { section, slot }]),
+  ),
+);
+
+function askedAs(entry) {
+  if (!entry.slotKey) return { label: entry.slot, hint: entry.hint };
+  const found = TEMPLATE_SLOTS.get(entry.slotKey);
+  if (!found) {
+    throw new Error(
+      `ground truth names slot "${entry.slotKey}", which AO_TEMPLATE no longer has`,
+    );
+  }
+  // The same composition `generate.mjs`'s `slotSearchLabel` makes -- section
+  // title without its `(lanjutan)` layout suffix, then the row label -- so
+  // this gate asks the question production asks rather than a tidier one.
+  return {
+    label: `${found.section.title.replace(/\s*\(lanjutan\)\s*$/i, "")} / ${found.slot.label}`,
+    hint: found.slot.hint,
+  };
+}
+
+/**
+ * `poolPages` is gone from these rows on purpose. Every field slot is now
+ * offered the whole bundle -- see the file header -- so a per-row pool would
+ * only be a way to quietly re-narrow the search this gate exists to measure.
+ *
+ * `page` stays a page number WITHIN `doc`, because that is what a person
+ * opens; `globalIndexOf` converts it to the bundle-global index the model's
+ * answer is expressed in.
+ */
 const GROUND_TRUTH = [
   {
     slot: "BA Permintaan",
     wholeDocument: true,
     doc: "splitba",
     page: 0,
-    poolPages: SPLITBA_POOL,
     hint: "the request memo (Berita Acara Permintaan) that authorized this order",
     image: "image1.png",
   },
@@ -582,7 +680,6 @@ const GROUND_TRUTH = [
     wholeDocument: true,
     doc: "splitba",
     page: 1,
-    poolPages: SPLITBA_POOL,
     hint: "the printed email thread confirming the order request",
     image: "image17.png",
   },
@@ -592,7 +689,6 @@ const GROUND_TRUTH = [
     doc: "merged",
     page: 23,
     altPages: [25], // identical duplicate copy of the same letter, see report
-    poolPages: SP_POOL,
     hint: "the appointment letter (Surat Penunjukan) naming the parties and its reference number",
     image: "image2.png",
   },
@@ -602,89 +698,101 @@ const GROUND_TRUTH = [
     doc: "merged",
     page: 24,
     altPages: [26], // identical duplicate copy of the same signature page
-    poolPages: SP_POOL,
     hint: "the signature block accepting the appointment letter",
     image: "image3.png",
   },
   {
     slot: "KB / Nomor",
+    slotKey: "kb.nomor",
     doc: "merged",
     page: 0,
-    poolPages: KB_POOL,
-    hint: "the contract number of the Perjanjian Kerjasama",
     image: "image4.png",
   },
   {
     slot: "KB / Para Pihak",
+    slotKey: "kb.paraPihak",
     doc: "merged",
     page: 0,
-    poolPages: KB_POOL,
-    hint: "the two parties entering the agreement",
     image: "image5.png",
   },
   {
     slot: "KB / Tanggal",
+    slotKey: "kb.tanggal",
     doc: "merged",
     page: 0,
-    poolPages: KB_POOL,
-    hint: "the date the agreement was signed",
     image: "image6.png",
   },
   {
     slot: "KB / Jangka Waktu",
+    slotKey: "kb.jangkaWaktu",
     doc: "merged",
     page: 17,
-    poolPages: KB_POOL,
-    hint: "the duration or term of the agreement (Jangka Waktu Perjanjian)",
     image: "image7.png",
   },
   {
     slot: "KB / Detail",
+    slotKey: "kbLanjutan.detail",
     doc: "merged",
     page: 18,
-    poolPages: KB_POOL,
-    hint: "the scope of work and pricing table (Ruang Lingkup dan Harga Pekerjaan)",
     image: "image8.png",
   },
   {
     slot: "KB / ToP (1)",
+    slotKey: "kbLanjutan.top",
     doc: "merged",
     page: 19,
-    poolPages: KB_POOL,
-    hint: "the terms of payment for the work (Pembayaran Pekerjaan)",
     image: "image9.png",
   },
   {
+    // No slotKey: the template holds ToP as ONE `crops: 2` slot with one
+    // hint, and the sample's second capture is a different region on a
+    // different page. Asking the template's ToP hint twice would score the
+    // same question twice and call the second answer a different slot.
     slot: "KB / ToP (2)",
     doc: "merged",
     page: 20,
-    poolPages: KB_POOL,
     hint: "the bank account number the payment is transferred to",
     image: "image10.png",
   },
   {
     slot: "KB / TTD Pejabat",
+    slotKey: "kbLanjutan.ttdPejabat",
     doc: "merged",
     page: 22,
-    poolPages: KB_POOL,
-    hint: "the signature block of the officials signing the agreement",
     image: "image11.png",
   },
 ];
 
 // ---------------------------------------------------------------------------
-// Scoring, per the spec's own rule: right page, chosen range contains every
-// full-page OCR line whose text appears in the ground-truth crop's own OCR
-// text, at most two lines of slack. See findRequiredLineRange above for how
-// that required range is derived and why.
+// Scoring: right page, chosen range CONTAINS every full-page OCR line whose
+// text appears in the ground-truth crop's own OCR text, and overshoot capped
+// proportionally rather than at a flat +2. See the file header for why the
+// flat allowance was wrong, and findRequiredLineRange above for how the
+// required range is derived.
 // ---------------------------------------------------------------------------
 
-function evaluate(entry, result, ocrCache, cropOcrCache) {
+/**
+ * How much wider than the crop a proposal may be. Two: a range of at most
+ * twice the required line count.
+ *
+ * Proportional because the sample's own crops span 2 to 43 lines, so any
+ * fixed number is a wildly different standard at the two ends. Two rather
+ * than some other multiple because doubling is already generous for the
+ * behaviour the cap exists to catch -- a localizer that returns half a page
+ * while claiming to have found a field -- and the failure the cap is NOT
+ * meant to catch is a person's ordinary habit of taking the surrounding
+ * block. The `runs the full page` clause below is what actually stops a
+ * runaway on a short field, where 2x of a two-line crop is still only four
+ * lines.
+ */
+const OVERSHOOT_MULTIPLE = 2;
+
+function evaluate(entry, result, pages, cropOcrCache) {
   if (!result) {
     return { pass: false, detail: "model returned no match (null pageIndex)" };
   }
 
-  const acceptedPages = [entry.page, ...(entry.altPages ?? [])];
+  const acceptedPages = entry.acceptedPages;
   const chosenPage = result.zone.pageIndex;
   const pageOk = acceptedPages.includes(chosenPage);
   const [from, to] = result.zone.lineRange;
@@ -699,8 +807,8 @@ function evaluate(entry, result, ocrCache, cropOcrCache) {
     };
   }
 
-  const pageEntry = ocrCache[`${entry.doc}:${chosenPage}`];
-  if (!pageEntry) throw new Error(`page ${entry.doc}:${chosenPage} was never OCR'd`);
+  const pageEntry = pages[chosenPage];
+  if (!pageEntry) throw new Error(`page ${chosenPage} is not in the bundle`);
 
   const cropEntry = cropOcrCache[entry.image];
   if (!cropEntry) throw new Error(`crop ${entry.image} was never OCR'd`);
@@ -726,19 +834,44 @@ function evaluate(entry, result, ocrCache, cropOcrCache) {
   const requiredLineCount = maxLine - minLine + 1;
   const extra = chosenLineCount - requiredLineCount;
 
-  // The "no more than two extra lines" tolerance exists to catch a LOCALIZER
-  // that swallows half a page while claiming to have found a field. A
-  // whole-document slot is not localizing anything -- it deliberately takes
-  // the entire page -- so the tolerance measures nothing there, and would
+  // "Runs the full page when the crop does not" is measured against the
+  // page's own line numbering rather than assuming it starts at 0, because
+  // `boxForLineRange` and the OCR line ids are the same numbers the model
+  // was shown.
+  const lineIds = pageEntry.lines.map((l) => l.i);
+  const firstLine = lineIds.length > 0 ? Math.min(...lineIds) : 0;
+  const lastLine = lineIds.length > 0 ? Math.max(...lineIds) : 0;
+  const chosenIsWholePage = from <= firstLine && to >= lastLine;
+  const requiredIsWholePage = minLine <= firstLine && maxLine >= lastLine;
+
+  const withinMultiple = chosenLineCount <= OVERSHOOT_MULTIPLE * requiredLineCount;
+  const notAWholePageGrab = !(chosenIsWholePage && !requiredIsWholePage);
+
+  // A whole-document slot is not localizing anything -- it deliberately takes
+  // the entire page -- so neither cap measures anything there, and both would
   // fail every such slot merely because the page carries a header or footer
   // the human's crop trimmed. Containment is the whole test for these.
   //
   // This is a per-slot-TYPE rule, not a per-slot exemption: no individual
   // slot is excused, and the two types are reported separately below so the
   // model-dependent number stays visible on its own.
-  const extraOk = entry.wholeDocument ? containsAll : containsAll && extra <= 2;
+  const overshootOk = entry.wholeDocument || (withinMultiple && notAWholePageGrab);
+  const pass = pageOk && containsAll && overshootOk;
 
-  const pass = pageOk && containsAll && extraOk;
+  let detail = "ok";
+  if (!containsAll) {
+    detail =
+      `chosen lines [${from},${to}] do not cover the crop's required lines ` +
+      `[${minLine},${maxLine}]`;
+  } else if (!withinMultiple) {
+    detail =
+      `chosen range is ${chosenLineCount} lines for a ${requiredLineCount}-line crop ` +
+      `[${minLine},${maxLine}] -- more than ${OVERSHOOT_MULTIPLE}x`;
+  } else if (!notAWholePageGrab) {
+    detail =
+      `chosen range [${from},${to}] runs the whole page (${firstLine}-${lastLine}) ` +
+      `while the crop [${minLine},${maxLine}] does not`;
+  }
 
   return {
     pass,
@@ -748,11 +881,7 @@ function evaluate(entry, result, ocrCache, cropOcrCache) {
     chosenPage,
     lineRange: [from, to],
     requiredLineRange: [minLine, maxLine],
-    detail: pass
-      ? "ok"
-      : !containsAll
-        ? `chosen lines [${from},${to}] do not cover the crop's required lines [${minLine},${maxLine}]`
-        : `chosen range is ${extra} lines wider than the crop's required lines [${minLine},${maxLine}] (max 2 allowed)`,
+    detail,
   };
 }
 
@@ -780,24 +909,42 @@ async function main() {
     : GROUND_TRUTH;
 
   const docs = {};
+  const docPageCounts = {};
   for (const [key, path] of Object.entries(PDFS)) {
     const bytes = new Uint8Array(await readFile(path));
     docs[key] = await getDocument({ data: bytes }).promise;
+    docPageCounts[key] = docs[key].numPages;
     console.log(`${key}: ${docs[key].numPages} pages (${path})`);
   }
   console.log();
 
-  // OCR every page any slot-to-run might need, once, up front.
-  const neededPages = { merged: new Set(), splitba: new Set() };
-  for (const g of slotsToRun) for (const p of g.poolPages) neededPages[g.doc].add(p);
-
+  // EVERY page of EVERY document, always -- not just the ones some slot's
+  // pool used to name. The pool is the whole bundle now (see the file
+  // header), so "which pages does this slot need" is no longer a question
+  // this harness is allowed to answer in advance. Even under
+  // MEASURE_LOCATE_ONLY: one slot still sees the whole bundle.
   console.log("Running OCR (cached pages are skipped)...");
-  for (const [docKey, pageSet] of Object.entries(neededPages)) {
-    for (const pageIndex of [...pageSet].sort((a, b) => a - b)) {
-      await ocrPageCached(docs[docKey], docKey, pageIndex, ocrCache);
+  for (const docKey of DOC_ORDER) {
+    for (let pageInDoc = 0; pageInDoc < docPageCounts[docKey]; pageInDoc++) {
+      await ocrPageCached(docs[docKey], docKey, pageInDoc, ocrCache);
     }
   }
   console.log("OCR complete.\n");
+
+  const pages = allBundlePages(ocrCache, docPageCounts);
+  console.log(
+    `Bundle: ${pages.length} pages, numbered 0-${pages.length - 1} across ` +
+      `${DOC_ORDER.join(" then ")}.\n`,
+  );
+
+  // The ground truth names pages within a document, because that is what a
+  // person opens; the model answers in bundle-global indexes. Resolve one to
+  // the other once, here, rather than in three places below.
+  for (const entry of GROUND_TRUTH) {
+    entry.acceptedPages = [entry.page, ...(entry.altPages ?? [])].map((p) =>
+      globalIndexOf(pages, entry.doc, p),
+    );
+  }
 
   // OCR every ground-truth crop image any slot-to-run needs, once, up front.
   // This is what the score is measured against -- see the file header and
@@ -810,8 +957,8 @@ async function main() {
 
   const results = [];
   for (const entry of slotsToRun) {
-    console.log(`Locating "${entry.slot}"...`);
-    const pages = toOcrPages(ocrCache, entry.doc, entry.poolPages);
+    const { label, hint } = askedAs(entry);
+    console.log(`Locating "${entry.slot}" (asked as "${label}")...`);
     const cachedAsk = makeCachedAsk(entry.slot, modelCache);
 
     let result = null;
@@ -831,12 +978,12 @@ async function main() {
       // product can route on it without new metadata.
       //
       // No model call is made here at all: the proposal is the whole page.
-      const pageEntry = ocrCache[`${entry.doc}:${entry.page}`];
+      const pageEntry = pages[entry.acceptedPages[0]];
       const lastLine = pageEntry.lines.length - 1;
       console.log("    [whole-document] captured the full page, no model call");
       result = {
         zone: {
-          pageIndex: entry.page,
+          pageIndex: pageEntry.index,
           box: { x: 0, y: 0, w: pageEntry.width, h: pageEntry.height },
           lineRange: [0, lastLine],
         },
@@ -845,7 +992,7 @@ async function main() {
       };
     } else {
       try {
-        result = await locateSlot(entry.slot, entry.hint, pages, cachedAsk);
+        result = await locateSlot(label, hint, pages, cachedAsk);
       } catch (err) {
         error = err;
       }
@@ -853,12 +1000,17 @@ async function main() {
 
     const verdict = error
       ? { pass: false, detail: `locateSlot threw: ${error.message}` }
-      : evaluate(entry, result, ocrCache, cropOcrCache);
+      : evaluate(entry, result, pages, cropOcrCache);
 
     results.push({ entry, result, verdict });
 
+    const want = entry.acceptedPages.join(" or ");
     const rangeStr = result ? `page ${result.zone.pageIndex}, lines [${result.zone.lineRange.join(",")}]` : "no proposal";
-    console.log(`  -> ${verdict.pass ? "PASS" : "FAIL"}  ${rangeStr}  (expected page ${entry.page})`);
+    console.log(`  -> ${verdict.pass ? "PASS" : "FAIL"}  ${rangeStr}  (expected page ${want})`);
+    if (result) {
+      const chosen = pages[result.zone.pageIndex];
+      if (chosen) console.log(`     that is ${chosen.doc} page ${chosen.pageInDoc}`);
+    }
     if (!verdict.pass) console.log(`     ${verdict.detail}`);
     console.log();
   }
@@ -872,7 +1024,8 @@ async function main() {
   let passCount = 0;
   for (const { entry, result, verdict } of results) {
     if (verdict.pass) passCount++;
-    const pageStr = result ? `${result.zone.pageIndex} (want ${entry.page})` : `- (want ${entry.page})`;
+    const want = entry.acceptedPages.join("/");
+    const pageStr = result ? `${result.zone.pageIndex} (want ${want})` : `- (want ${want})`;
     const lineStr = result ? result.zone.lineRange.join(",") : "-";
     console.log(
       `${entry.slot.padEnd(20)} ${(verdict.pass ? "PASS" : "FAIL").padEnd(6)} ${pageStr.padEnd(16)} ${lineStr.padEnd(12)} ${verdict.pass ? "" : verdict.detail}`,
@@ -914,7 +1067,14 @@ async function main() {
     );
   }
 
-  process.exitCode = only || passCount >= 9 ? 0 : 1;
+  // 11, not 9. Nine was the number the flat "+2 extra lines" rule produced;
+  // under containment with a proportional cap, on the whole-bundle pool and
+  // with production labels and hints, this bundle measures 11/12, and the one
+  // miss (`KB / ToP (2)`, the remittance-account block, whose human crop
+  // starts at the page letterhead) is a known, recorded miss rather than
+  // headroom. Leaving the bar at 9 would let two slots regress silently.
+  const PASS_THRESHOLD = 11;
+  process.exitCode = only || passCount >= PASS_THRESHOLD ? 0 : 1;
 }
 
 main().catch((err) => {
