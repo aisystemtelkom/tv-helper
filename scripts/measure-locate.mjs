@@ -165,7 +165,12 @@ async function geminiAskOnce(prompt, timeoutMs = 120_000) {
 }
 
 async function geminiAsk(prompt) {
-  const attempts = 3;
+  // Six attempts with a longer backoff, not three. Gemini returned repeated
+  // HTTP 503 "high demand" during the first scored run and killed three slots
+  // outright, which scores an availability blip as a localization failure --
+  // exactly the false signal this gate must not produce. AGENTS.md already
+  // records 503s on gemini-3.7-flash; 3.5-flash shows them under load too.
+  const attempts = 6;
   let lastError;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -174,7 +179,7 @@ async function geminiAsk(prompt) {
       lastError = err;
       const transient = /HTTP 503|HTTP 429|AbortError|abort/i.test(String(err));
       if (!transient || i === attempts - 1) throw err;
-      const backoffMs = 2000 * (i + 1);
+      const backoffMs = Math.min(2000 * 2 ** i, 30_000);
       console.log(`    [gemini] transient error, retrying in ${backoffMs}ms: ${err.message}`);
       await new Promise((r) => setTimeout(r, backoffMs));
     }
