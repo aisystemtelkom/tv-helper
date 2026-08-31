@@ -513,3 +513,38 @@ test("EPIC-only xlsx rows carry no fieldKey, so nothing can fill them", () => {
     assert.equal(byItemII(name).fieldKey, undefined, `${name} must stay blank`);
   }
 });
+
+// Task 8 fix round 1: the sample's KB (lanjutan) "ToP" row stacks two images
+// (rId17 -> image9.png, rId18 -> image10.png) in a single table cell. A
+// SlotDef with no crop count can only ever back one PNG per slot, so the
+// exporter would silently drop the second capture. `crops` makes that
+// multiplicity explicit and defaults to 1 so every other slot's meaning is
+// unchanged.
+
+const findSlot = (key) =>
+  AO_TEMPLATE.sections.flatMap((s) => s.slots).find((s) => s.key === key);
+
+test("kbLanjutan.top reports 2 crops, matching the sample's stacked images", () => {
+  assert.equal(findSlot("kbLanjutan.top").crops, 2);
+});
+
+test("every other fillable slot reports 1 crop", () => {
+  // crops is optional and defaults to 1 when absent -- reading through that
+  // default (crops ?? 1) is the contract, not a literal field on every slot.
+  const others = AO_TEMPLATE.sections
+    .flatMap((s) => s.slots)
+    .filter((s) => s.fillable && s.key !== "kbLanjutan.top");
+  assert.ok(others.length > 0);
+  for (const slot of others) {
+    assert.equal(slot.crops ?? 1, 1, `${slot.key} should report 1 crop`);
+  }
+});
+
+test("fillable slots total 12 crops across 11 slots", () => {
+  const fillable = AO_TEMPLATE.sections.flatMap((s) =>
+    s.slots.filter((x) => x.fillable),
+  );
+  assert.equal(fillable.length, 11);
+  const totalCrops = fillable.reduce((sum, s) => sum + (s.crops ?? 1), 0);
+  assert.equal(totalCrops, 12);
+});

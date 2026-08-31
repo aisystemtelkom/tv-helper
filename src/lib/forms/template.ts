@@ -6,6 +6,21 @@ export type SlotDef = {
   docType: DocType | null;
   hint: string;
   fillable: boolean;
+  /**
+   * How many images this slot holds. Defaults to 1 when absent, so every
+   * existing slot keeps its current meaning without being touched.
+   *
+   * This exists because a `layout: "table"` row in the source docx can
+   * stack more than one picture in a single cell -- unlike `layout:
+   * "images"`, where each picture is already its own paragraph and thus
+   * its own slot (e.g. `sp.1` / `sp.2`). The sample's `KB (lanjutan)`
+   * table's `ToP` row stacks two images (rId17 -> image9.png, rId18 ->
+   * image10.png) in one cell; that is one row with one label, so it stays
+   * one `SlotDef`, not two. Without an explicit count here, an exporter
+   * that takes one PNG per slot key would silently drop the second
+   * capture -- do not remove this field to "simplify" the type.
+   */
+  crops?: number;
 };
 
 export type SectionDef = {
@@ -132,6 +147,9 @@ export const AO_TEMPLATE: Template = {
           docType: "KB",
           hint: "the contract's terms of payment",
           fillable: true,
+          // The sample stacks two images in this one cell (rId17/image9.png
+          // and rId18/image10.png). See the `crops` doc comment on SlotDef.
+          crops: 2,
         },
         {
           key: "kbLanjutan.ttdPejabat",
