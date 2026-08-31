@@ -1206,15 +1206,14 @@ Expected output: one line per slot reading `PASS` or `FAIL` with the page and li
 
 Record the outcome either way. A gate whose result is not written down stops being a gate.
 
-- [ ] **Step 5: Remove the throwaway probe and commit**
-
-`scripts/_probe-extract.mjs` was a design-time probe that extracted page bitmaps without a canvas. Task 2 supersedes it.
+- [ ] **Step 5: Commit**
 
 ```bash
-git rm scripts/_probe-extract.mjs
 git add scripts/measure-locate.mjs package.json docs/superpowers/specs/2026-08-30-dokumen-validasi-design.md
 git commit -m "test: score locate against the eleven ground-truth crops"
 ```
+
+There was a design-time probe at `scripts/_probe-extract.mjs` that pulled page bitmaps out of a PDF without a canvas, which Task 2 supersedes. It was never committed, so in this worktree there is nothing to delete. If you are working in a checkout where it does exist, `git rm` it as part of this commit; otherwise ignore it. Do not create it in order to delete it.
 
 ---
 
