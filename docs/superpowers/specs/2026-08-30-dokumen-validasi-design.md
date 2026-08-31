@@ -1,7 +1,16 @@
 # DOKUMEN VALIDASI generator: design
 
 Date: 2026-08-30
-Status: approved, ready for implementation planning
+Status: approved, implemented in part, **superseded in part**.
+
+> **Amended 2026-08-31.** `2026-08-31-corrections-and-document-agnostic.md` is
+> authoritative wherever the two disagree. Three things below were wrong and
+> are marked inline where they appear: the measurement gate's "at most 2 extra
+> lines" tolerance (invented, replaced by containment), the per-order-type
+> framing of the template (the slot list does not vary by order type), and the
+> open question about hosting (now closed, approved). That note also adds a
+> requirement this design does not cover at all, the "dokumen tambahan" loop.
+> The history is left as written; only the superseded statements are annotated.
 
 ## Goal
 
@@ -191,6 +200,19 @@ places would let them drift on the first new order type.
 The AO template ships as the only definition, expressed as data rather than
 markup, so bidang TV 1 can add order types without a code change.
 
+> **Amended 2026-08-31: the per-order-type framing above is wrong.** See
+> `2026-08-31-corrections-and-document-agnostic.md` §1 and §2. `JENIS ORDER`
+> values are workflow verbs, not document variants: AO is Activation Order, MO
+> is Modify Order, DO is Delete Order, and more exist. **The slot list does not
+> vary by order type.** The tool is document-agnostic and looks for the same
+> slots in whatever documents are supplied, so "add order types without a code
+> change" is answering a question that turned out not to be the shape of the
+> problem. Expressing the template as data is still right; a per-order-type
+> template list is not what it buys. The corollary is stronger than it sounds:
+> narrowing a field's search pool by `DocType` must become an ordering hint
+> rather than a hard filter, and the disambiguation has to move into each
+> slot's `hint`.
+
 **The AO default transcribes the sample exactly.** Its section list, row labels,
 and ordering are copied from the sample DOKUMEN VALIDASI docx as it stands, including
 the sections that arrive empty (MOM, BA Splitting, SBR Pricing, BASO, BA
@@ -225,12 +247,12 @@ never as failures.
 Generated from the template config with the `docx` library, not by patching the
 sample file.
 
-Patching a fixture would give exact Word fidelity, but the sample is full of
-BSI's data and this project's rule keeps real client documents out of the repo.
-A scrubbed blank fixture would solve that and reintroduce the drift problem,
-because the fixture and the config would both describe the slot list. Generating
-keeps one source of truth. The document is structurally simple: a header, some
-headings, and two-column tables.
+Patching a fixture would give exact Word fidelity, but the sample is full of the
+customer's data and this project's rule keeps real client documents out of the
+repo. A scrubbed blank fixture would solve that and reintroduce the drift
+problem, because the fixture and the config would both describe the slot list.
+Generating keeps one source of truth. The document is structurally simple: a
+header, some headings, and two-column tables.
 
 **Advisory check, run 2026-08-30.** `npm audit` over `docx@9.7.1` (MIT),
 `tesseract.js@7.0.0` (Apache-2.0), and `@google-cloud/firestore@9.0.0`
@@ -423,10 +445,37 @@ two lines beyond them. That tolerates the padding differences between a human's
 drag and a computed union while still failing a crop that misses a line or
 swallows half a page.
 
+> **Amended 2026-08-31: the "no more than two lines" tolerance was invented and
+> is wrong.** See `2026-08-31-corrections-and-document-agnostic.md` §3. It was
+> written here with no data behind it and then applied as though it were a
+> requirement. Cross-checked against the sample, the twelve human-authored
+> crops range from **2 lines to 43**, so a fixed +2 allowance is a 100%
+> overshoot budget on the smallest crop and 5% on the largest: it measures
+> nothing consistent, and it is what failed `KB / Para Pihak` (+4) and
+> `KB / TTD Pejabat` (+7) even though both proposals contained every required
+> line.
+>
+> **The rule from now on.** A proposal passes when it lands on an accepted page
+> and its line range contains every line of the ground-truth crop. Overshoot is
+> capped proportionally, not absolutely: reject a range more than twice the
+> required line count, or one that runs the full page when the crop does not.
+> That catches a genuine runaway while matching how a person actually crops.
+>
+> Under containment the recorded gate result is **11/12**, not the 9/12 the
+> older rule produced, with page selection at **12/12**. The one genuine miss,
+> `KB / ToP (2)`, stays a miss. Anyone reading a total out of
+> `scripts/measure-locate.mjs` should first check which of the two rules it is
+> applying.
+
 - If nine or more of the eleven pass, the design holds and the UI is worth
   building.
 - If not, we learn it for the price of a script rather than after the app is
   finished, and the direct-box approach or a different split becomes the answer.
+
+> **Also amended 2026-08-31: it is twelve crops, not eleven.** `SP` and
+> `KB / ToP` each supply two crops on two *different* pages, so each needs its
+> own `locateSlot` call. The threshold above should be read proportionally
+> against twelve. The Results section below already scores all twelve.
 
 Recording the per-slot result matters as much as the verdict. A failure
 concentrated in one document type is a prompt problem; failures scattered across
@@ -472,6 +521,16 @@ not committed). Summary:
 Decision on whether Task 8 proceeds is deferred to the task owner; not made
 by this run.
 
+> **Superseded 2026-08-31 by two later changes. Read the numbers above as the
+> record of that run, not as the current standing.** First, the whole-page
+> slots were routed around the model entirely: a `layout: "images"` section is
+> a full-page capture, so asking the model to find a page inside that page was
+> a category error, and it returned a plausible-looking fragment every time.
+> Second, the pass rule became containment (see the amendment under
+> "Measurement gate" above). The standing result is **page selection 12/12,
+> extent 11/12 by containment**, with `KB / ToP (2)` the one genuine miss.
+> Task 8 did proceed; the pipeline through export is built and merged.
+
 ## Constraints preserved
 
 - Inference is the only thing that leaves the machine, and under this design it
@@ -493,6 +552,13 @@ the substance of the constraint holds. But the client approved Google as a
 processor **for inference**, and this widens that to hosting. That is the same
 renegotiation that happened in 2026-08, so it needs a sentence to bidang TV 1
 rather than being assumed to be covered.
+
+> **Amended 2026-08-31: that sentence was said, and the answer is yes.** The
+> client has approved hosting on Google Cloud, not only inference. See
+> `2026-08-31-corrections-and-document-agnostic.md` §5. The widening is
+> approved rather than assumed. Everything else in this list is unchanged: the
+> documents themselves still stay on the device, and none of the other
+> constraints were re-opened by that approval.
 
 ## New rules for AGENTS.md
 
@@ -526,19 +592,36 @@ rather than being assumed to be covered.
 
 ## Open questions
 
-- Whether the slot list varies by jenis order remains unconfirmed with bidang
+- ~~Whether the slot list varies by jenis order remains unconfirmed with bidang
   TV 1. The config-driven design absorbs a change without a rewrite, so this
-  does not block implementation.
+  does not block implementation.~~ **Closed 2026-08-31: it does not vary.** The
+  tool is document-agnostic and looks for the same slots in any document. AO,
+  MO, and DO are Activation, Modify, and Delete Order, workflow verbs rather
+  than document variants. See `2026-08-31-corrections-and-document-agnostic.md`
+  §1 and §2, and the amendment under "Template configuration" above.
 - OCR accuracy on Indonesian scanned contracts is unmeasured. The measurement
   gate above covers it, since bad OCR shows up as bad line ranges.
 - Only two sample bundles exist. That is enough to test capture and not enough
   to claim accuracy.
-- Whether the client's approval of Google as a processor extends from inference
-  to hosting is unconfirmed. Does not block building, does block going live.
+- ~~Whether the client's approval of Google as a processor extends from inference
+  to hosting is unconfirmed. Does not block building, does block going live.~~
+  **Closed 2026-08-31: approved.** Hosting on Google Cloud is approved, not
+  only inference. See `2026-08-31-corrections-and-document-agnostic.md` §5.
 - Whether publishing the OAuth consent screen to Production with only email and
   profile scopes clears Google verification is unconfirmed. If it does not, the
   Testing-mode cap of 100 users and seven-day refresh tokens becomes the
   operating constraint.
+
+**Added 2026-08-31, and not covered anywhere in this design: the "dokumen
+tambahan" loop.** Slots the supplied documents cannot fill must not silently
+ship empty. The flow is: search everything for every slot, report the
+outstanding slots by name, ask the operator whether an additional document
+exists, search only the outstanding slots in whatever arrives, and repeat until
+the operator says no, at which point each remaining slot offers manual zone
+selection. A run is therefore resumable and additive, and confirmed slots are
+never re-searched. See `2026-08-31-corrections-and-document-agnostic.md` §4 for
+why this is a correctness requirement rather than a convenience: it converts
+"not found" from a silent gap into a decision the operator makes on the record.
 
 ## File layout
 
