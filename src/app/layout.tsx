@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "tv-helper",
-  description: "Chat harness proving Gemini vision inference",
+  description:
+    "Turns scanned order documents into a DOKUMEN VALIDASI packet, one confirmed crop at a time",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
