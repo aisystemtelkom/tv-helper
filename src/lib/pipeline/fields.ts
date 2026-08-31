@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractJson } from "./json.ts";
 import type { Ask } from "./classify.ts";
 import type { OcrPage } from "./locate.ts";
 
@@ -52,17 +53,6 @@ const Reply = z.object({
     }),
   ),
 });
-
-function extractJson(reply: string): unknown {
-  const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const body = fenced ? fenced[1] : reply;
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start === -1 || end === -1) {
-    throw new Error(`No JSON object in model reply: ${reply.slice(0, 200)}`);
-  }
-  return JSON.parse(body.slice(start, end + 1));
-}
 
 /**
  * Page headers are numbered by their *position in this listing* (0, 1, 2...

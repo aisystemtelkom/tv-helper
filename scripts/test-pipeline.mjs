@@ -1138,3 +1138,116 @@ test("orderPaperworkDocTypes lists every layout:images fillable slot's docType",
     ["BAPermintaan", "Email", "SP"].sort(),
   );
 });
+
+import { extractJson } from "../src/lib/pipeline/json.ts";
+
+// extractJson was three byte-for-byte copies -- one private to classify.ts,
+// one to locate.ts, one to fields.ts -- because the first was never exported.
+// Hoisting it is only safe if the behaviour is pinned, because the failure it
+// guards is silent: a copy that got fractionally more tolerant would hand a
+// half-understood object to a Zod schema, which fills in what it can, and the
+// run ships a plausible wrong rectangle or field value instead of throwing.
+
+test("extractJson recovers JSON from the packaging models actually emit", () => {
+  assert.deepEqual(extractJson('{"a":1}'), { a: 1 });
+
+  // Prose on either side, which is the common case this exists for at all.
+  assert.deepEqual(extractJson('Sure! Here it is: {"a":1} Hope that helps.'), {
+    a: 1,
+  });
+
+  // A fenced block wins over the surrounding text, even when that text has
+  // braces of its own -- with and without the `json` tag.
+  assert.deepEqual(
+    extractJson('note {ignored}\n```json\n{"a":1}\n```\ntrailing {junk}'),
+    { a: 1 },
+  );
+  assert.deepEqual(extractJson('```\n{"a":1}\n```'), { a: 1 });
+
+  // Nested braces: the span runs to the LAST `}`, not the first.
+  assert.deepEqual(extractJson('{"a":{"b":2}}'), { a: { b: 2 } });
+
+  // A brace inside a string value is not a delimiter. A first-balanced-object
+  // scan stops at the `}` inside the string and silently truncates this one.
+  assert.deepEqual(extractJson('{"a":"}{","b":1}'), { a: "}{", b: 1 });
+});
+
+test("extractJson throws rather than guessing on an ambiguous or truncated reply", () => {
+  // Two objects side by side. Returning the first would be a guess about which
+  // one the model meant; the whole span goes to JSON.parse, which rejects it.
+  assert.throws(() => extractJson('{"a":1}\n{"b":2}'), SyntaxError);
+
+  // Truncated mid-object: an opening brace and no closing one.
+  assert.throws(() => extractJson('{"a":1'), /No JSON object in model reply/);
+
+  // Nothing brace-shaped at all.
+  assert.throws(
+    () => extractJson("I could not find it."),
+    /No JSON object in model reply/,
+  );
+  assert.throws(() => extractJson(""), /No JSON object in model reply/);
+
+  // A closing brace before the opening one: the slice is empty, and an empty
+  // string is not valid JSON either. Still a throw, never a silent `undefined`.
+  assert.throws(() => extractJson('} {"a":1'), SyntaxError);
+});
+
+test("classifyPages, locateSlot and extractFields reject the same bad replies identically", async () => {
+  // The drift guard the hoist exists for: one shared copy means a tolerance
+  // cannot be loosened in one caller and not the others. Each of these three
+  // entry points guards a different Zod schema, so this is the only place the
+  // shared behaviour is observable from outside.
+  const badReplies = [
+    '{"spans":[', // truncated
+    '{"a":1}\n{"b":2}', // two objects
+    "I could not find it.", // no JSON
+    '} {"a":1', // closing brace first
+  ];
+
+  for (const reply of badReplies) {
+    const ask = async () => reply;
+    await assert.rejects(() => classifyPages(pages, ask), `classifyPages: ${reply}`);
+    await assert.rejects(
+      () => locateSlot("Tanggal", "the signing date", [kbPage], ask),
+      `locateSlot: ${reply}`,
+    );
+    await assert.rejects(
+      () => extractFields(["cc"], [kbPage], ask),
+      `extractFields: ${reply}`,
+    );
+  }
+});
+
+test("locateSlot orders the evidence text by line number, whatever order page.lines arrives in", async () => {
+  // OcrPage.lines is a plain Line[] the caller supplies. groupWordsIntoLines
+  // is the only producer today and emits them in `i` order, so filter-then-join
+  // reads correctly by luck rather than by contract. A page assembled anywhere
+  // else -- from a cache, a merge, a re-ordered subset -- breaks that luck
+  // silently: the crop is still the right rectangle and the evidence text
+  // beside it is scrambled, with nothing thrown to say so.
+  const ordered = ocrPage(0, ["first line", "second line", "third line"]);
+  const shuffledLines = [ordered.lines[2], ordered.lines[0], ordered.lines[1]];
+  const shuffled = { ...ordered, lines: shuffledLines };
+
+  const ask = async () => '{"pageIndex":0,"from":0,"to":2,"confidence":"high"}';
+  const result = await locateSlot("Detail", "the block", [shuffled], ask);
+
+  assert.equal(result.text, "first line\nsecond line\nthird line");
+
+  // The rectangle was always order-independent (unionBoxes takes a min/max),
+  // and must stay that way.
+  const fromOrdered = await locateSlot("Detail", "the block", [ordered], ask);
+  assert.deepEqual(result.zone.box, fromOrdered.zone.box);
+
+  // Sorting a filtered copy, never the caller's own array.
+  assert.deepEqual(shuffled.lines, shuffledLines);
+  assert.deepEqual(
+    shuffled.lines.map((l) => l.i),
+    [2, 0, 1],
+  );
+});
+
+// The compile-time half of this suite: type claims node cannot check, verified
+// by `npx tsc --noEmit -p tsconfig.json`. Imported here so `pnpm test` runs its
+// assertions too and the file cannot rot unnoticed.
+import "./test-pipeline-types.ts";
