@@ -3,16 +3,37 @@ import type { RenderedPage } from "./render.ts";
 import { groupWordsIntoLines, type Line, type Word } from "./geometry.ts";
 import { encodePng } from "../export/png.ts";
 
+/** tesseract.js's own `Partial<WorkerOptions>`, taken off `createWorker`'s
+ * signature rather than imported: the interface lives inside a `declare
+ * namespace Tesseract` block that the package does not re-export by name. */
+type TesseractWorkerOptions = NonNullable<Parameters<typeof createWorker>[2]>;
+
 /**
- * Paths are explicit because tesseract.js defaults to a CDN for its wasm core
- * and language data. That would put an unapproved third party in the
- * browser's request path, the same reason pdf.js keeps its bundled worker.
- * `scripts/vendor-ocr.mjs` copies these into public/tesseract at prebuild.
+ * Everything `ocrToWords` hands to `createWorker`, plus this module's own
+ * `initTimeoutMs`.
+ *
+ * Paths are the reason this type exists: tesseract.js defaults to a CDN for
+ * its wasm core and language data, which would put an unapproved third party
+ * in the browser's request path -- the same reason pdf.js keeps its bundled
+ * worker. `scripts/vendor-ocr.mjs` copies those assets into public/tesseract
+ * at prebuild, and `langPath`/`corePath`/`workerPath` point at them.
+ *
+ * But paths were never all this accepted. `ocrToWords` spreads the whole
+ * object into the worker options, so `gzip`, `cacheMethod` and the rest have
+ * always been forwarded -- every .mjs caller in scripts/ passes
+ * `gzip: true, cacheMethod: "none"` and always has. Declaring only the three
+ * paths made this type a lie that only a *typed* caller could trip over,
+ * which is the worst way round: the untyped callers worked and a TypeScript
+ * one would have been told, wrongly, that the option does not exist.
+ *
+ * `errorHandler` is the one option deliberately withheld. ocr.ts installs its
+ * own (see the call site) because tesseract.js otherwise rethrows a
+ * recognition failure on a MessagePort tick with no handler and takes the
+ * whole process down; the caller's value would win the spread and silently
+ * re-arm that. Nothing in this repo passes one, so nothing loses a capability
+ * it was using.
  */
-export type OcrAssets = {
-  workerPath?: string;
-  corePath?: string;
-  langPath?: string;
+export type OcrAssets = Omit<TesseractWorkerOptions, "errorHandler"> & {
   /**
    * Milliseconds to wait for worker initialisation (spawn, wasm core load,
    * language load, init) before giving up. See createWorkerWithTimeout for
