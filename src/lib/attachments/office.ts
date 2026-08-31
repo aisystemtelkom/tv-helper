@@ -3,8 +3,9 @@
 /**
  * Extracts plain text from Office documents.
  *
- * Gemma has no way to open a spreadsheet -- it reads images and text. Both
- * converters here run in the browser, so the file never leaves the machine.
+ * A vision model has no way to open a spreadsheet -- it reads images and
+ * text. Both converters here run in the browser, so only extracted text is
+ * uploaded, never the original file.
  *
  * Note on the spreadsheet library: the obvious choice, `xlsx` (SheetJS), is
  * frozen on npm at 0.18.5 with two unpatched HIGH advisories (prototype

@@ -11,16 +11,16 @@ import { DEFAULT_PAGE_LIMIT, renderPdfToImages } from "./pdf";
 import { extractDocumentText, extractSpreadsheetText } from "./office";
 
 /**
- * Turns a dropped file into parts Gemma can actually read.
+ * Turns a dropped file into parts the model can actually read.
  *
  * The default assistant-ui adapter advertises `accept: "*"` and forwards
  * every file verbatim. Against this stack that produces failures only after
  * the message is sent -- a spreadsheet dies inside the AI SDK provider
- * ("file part media type ... not supported") and a PDF dies inside Ollama
- * ("invalid message format"). Both surface in the UI as "An error occurred."
+ * ("file part media type ... not supported"). Those surface in the UI as a
+ * bare "An error occurred."
  *
  * So the composer accepts only what this adapter can convert, and conversion
- * happens at send time. Everything runs locally.
+ * happens at send time, in the browser.
  */
 
 const SPREADSHEET =

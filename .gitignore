@@ -30,8 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files. Real values are secret; the template is not, and a fresh clone
+# needs it to know a Gemini key is required before the app will start.
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -40,14 +42,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Local model weights -- 3.3GB, fetched by `pnpm setup`, never committed
+# Leftover Ollama weights from before inference moved to the Gemini API. The
+# rule stays so a stale 3.3GB ./models cannot be staged by accident; the
+# directory itself is safe to delete.
 /models
 
 # Playwright MCP scratch output
 /.playwright-mcp
 
 # Real client documents used for testing the validator. These must NEVER be
-# committed -- the client requires third-party minimization, and this repo is
-# public. Keep test material here; it stays on the machine.
+# committed -- this repo is public. The client approving Google as a processor
+# did not make their documents publishable. Keep test material here.
 /documents
 /test-docs

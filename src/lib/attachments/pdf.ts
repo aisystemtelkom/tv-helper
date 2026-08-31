@@ -3,24 +3,26 @@
 /**
  * Renders PDF pages to PNG images.
  *
- * Ollama's OpenAI-compatible endpoint rejects PDF file parts outright
- * ("invalid message format"), and Gemma 3 is an image model regardless. So a
- * PDF only reaches the model as pictures of its pages.
+ * A PDF reaches the model as pictures of its pages. Gemini can accept PDF
+ * parts directly, but rasterizing here keeps conversion in the browser and
+ * keeps one code path for every attachment type.
  *
- * Everything here runs in the browser: the document never leaves the machine.
+ * Everything here runs in the browser: only the rendered pages are uploaded.
  */
 
 /**
- * Gemma 3 spends ~256 tokens per image against our 8192-token context
- * (`OLLAMA_CONTEXT_LENGTH`). Twenty pages would exhaust the window before the
- * question was even read, so pages are capped and the caller is told.
+ * Now a cost cap rather than a context cap: Gemini 3.5 Flash has a 1M-token
+ * context, but every page costs ~1110 prompt tokens at MEDIA_RESOLUTION_HIGH,
+ * so an uncapped 40-page scan is a bill. Pages are capped and the caller is
+ * told. Raising this multiplies per-request cost linearly.
  */
 export const DEFAULT_PAGE_LIMIT = 5;
 
 /**
- * Gemma 3's vision tower sees 896x896. Rendering far above that costs base64
- * payload and IndexedDB space without giving the model more detail, but a
- * little headroom helps small print survive the downscale.
+ * Sized for Gemma 3's 896x896 vision tower, which no longer serves this app.
+ * Gemini bills a flat rate per image tier, so raising this costs upload and
+ * IndexedDB space but no extra API tokens, and may recover detail on dense
+ * scans. Measure against real documents before changing it.
  */
 const TARGET_EDGE = 1024;
 
