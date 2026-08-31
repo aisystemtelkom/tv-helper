@@ -1966,3 +1966,357 @@ test("every fillable AO slot declares a crop count a round can report against", 
     assert.ok(slotCropCount(slot) >= 1, `${slot.key} has a crop count below 1`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Abbreviations.
+//
+// These documents abbreviate constantly and inconsistently: one organisation
+// appears in full, shortened, and as initials inside a single bundle, and a
+// document type is headed in full on one page and cited by its initials on
+// the next. A tool that compares those as plain strings reports a field
+// missing that it actually found, and reports two documents in conflict when
+// they agree.
+//
+// THE TEST THAT MATTERS MOST IN THIS SECTION IS THE NEGATIVE ONE. An
+// over-eager matcher that fuses two customers is worse than no matcher at
+// all: the deliverable still opens, still looks complete, and now carries
+// somebody else's name. Every widening of these rules has to leave
+// "similar but distinct entities do not match" passing.
+// ---------------------------------------------------------------------------
+
+import {
+  DOMAIN_ABBREVIATIONS,
+  acronymOf,
+  canonicalEntity,
+  sameEntity,
+  stripCorporateForms,
+} from "../src/lib/pipeline/abbrev.ts";
+
+test("stripCorporateForms drops the designators the scans wrap a name in", () => {
+  // The two wrappers the bundle actually prints, in the casing it prints them.
+  assert.equal(
+    stripCorporateForms("PT BANK CONTOH NUSANTARA TBK"),
+    "bank contoh nusantara",
+  );
+  assert.equal(
+    stripCorporateForms(
+      "PERUSAHAAN PERSEROAN (PERSERO) PT TELEKOMUNIKASI CONTOH TBK",
+    ),
+    "telekomunikasi contoh",
+  );
+  // Punctuated and mixed-case forms are the same designators.
+  assert.equal(
+    stripCorporateForms("PT. Bank Contoh Nusantara, Tbk."),
+    "bank contoh nusantara",
+  );
+  assert.equal(stripCorporateForms("CV Contoh Nusantara"), "contoh nusantara");
+  assert.equal(stripCorporateForms("UD Contoh Nusantara"), "contoh nusantara");
+});
+
+test("stripCorporateForms leaves a name that only looks like a designator alone", () => {
+  // `Perusahaan` and `Perseroan` are ordinary words that begin real names.
+  // Only the fixed pair is a designator, so a name starting with one of them
+  // keeps it -- otherwise acronymOf would return the wrong initials for it.
+  assert.equal(
+    stripCorporateForms("Perusahaan Listrik Contoh"),
+    "perusahaan listrik contoh",
+  );
+  // A designator in the MIDDLE is part of the name, not a wrapper on it.
+  assert.equal(stripCorporateForms("Anak PT Contoh"), "anak pt contoh");
+  // And a value made of nothing but designators keeps its own text rather
+  // than collapsing to "", which would make every such value compare equal
+  // to every other one.
+  assert.equal(stripCorporateForms("PT Tbk"), "pt tbk");
+});
+
+test("acronymOf takes the initials of the words that carry identity", () => {
+  assert.equal(acronymOf("Bank Contoh Nusantara"), "BCN");
+  // The corporate wrapper contributes no letter: the same organisation must
+  // yield the same initials however the page that names it dressed it up.
+  assert.equal(acronymOf("PT Bank Contoh Nusantara Tbk"), "BCN");
+  assert.equal(acronymOf("PT. BANK CONTOH NUSANTARA, TBK."), "BCN");
+  // Stopwords carry no identity either.
+  assert.equal(acronymOf("Perjanjian Kerja Sama"), "PKS");
+  assert.equal(acronymOf("Kantor Contoh dan Nusantara"), "KCN");
+  assert.equal(acronymOf(""), "");
+});
+
+test("sameEntity matches through all three equivalence routes", () => {
+  // 1. Equal once case, spacing and punctuation are folded.
+  assert.ok(
+    sameEntity("PT. Bank Contoh Nusantara, Tbk.", "PT BANK CONTOH NUSANTARA TBK"),
+  );
+  assert.ok(sameEntity("Bank  Contoh   Nusantara", "bank contoh nusantara"));
+  // ...including across the corporate wrapper, which is the form the
+  // human-authored validation form writes and the scans do not.
+  assert.ok(sameEntity("BANK CONTOH NUSANTARA", "PT BANK CONTOH NUSANTARA TBK"));
+
+  // 2. One side written as the other's initials.
+  assert.ok(sameEntity("BCN", "Bank Contoh Nusantara"));
+  assert.ok(sameEntity("PT Bank Contoh Nusantara Tbk", "BCN"));
+
+  // 3. One contains the other, once the designators are stripped.
+  assert.ok(
+    sameEntity("Bank Contoh Nusantara", "PT Bank Contoh Nusantara Kantor Pusat Tbk"),
+  );
+});
+
+test("sameEntity resolves a domain abbreviation to its expansion, both ways", () => {
+  assert.ok(sameEntity("PKS", "Perjanjian Kerja Sama"));
+  assert.ok(sameEntity("Perjanjian Kerja Sama", "PKS"));
+  // The scans write the agreement as one word on its own cover page and as
+  // two words elsewhere. Both name the same document type.
+  assert.ok(sameEntity("PKS", "PERJANJIAN KERJASAMA"));
+  assert.ok(sameEntity("SP", "Surat Penunjukan"));
+  assert.ok(sameEntity("BA", "Berita Acara"));
+  // Not derivable from the letters, which is why the table exists at all.
+  assert.ok(sameEntity("PSB", "Pasang Baru"));
+  assert.ok(sameEntity("TTD", "Tanda Tangan"));
+  assert.ok(sameEntity("ToP", "Term of Payment"));
+});
+
+test("sameEntity refuses two similar but distinct entities", () => {
+  // THE CASE THIS WHOLE MODULE IS JUDGED ON. Two different organisations
+  // sharing a generic first word are not one organisation, and fusing them
+  // would put the wrong customer in a document a validator signs.
+  assert.equal(
+    sameEntity("PT Bank Contoh Nusantara Tbk", "PT Bank Contoh Sejahtera Tbk"),
+    false,
+  );
+  assert.equal(sameEntity("Bank Contoh Nusantara", "Bank Contoh Sejahtera"), false);
+  // Nor does one's acronym match the other.
+  assert.equal(sameEntity("BCN", "PT Bank Contoh Sejahtera Tbk"), false);
+
+  // The shared head alone stands for neither of them: a single generic word
+  // must never be treated as the whole name.
+  assert.equal(sameEntity("Bank", "Bank Contoh Nusantara"), false);
+  assert.equal(sameEntity("PT", "PT Bank Contoh Nusantara Tbk"), false);
+
+  // Two DIFFERENT full names that happen to share initials stay different.
+  // Neither is written as an abbreviation, so neither is an acronym of the
+  // other -- the coincidence is invisible and must stay that way.
+  assert.equal(sameEntity("Bank Contoh Nusantara", "Badan Cadangan Nasional"), false);
+
+  // A word that is short and happens to equal the initials of a phrase it is
+  // part of is that word, not an abbreviation of the phrase.
+  assert.equal(sameEntity("BANK", "Bank Anak Nusantara Kontraktor"), false);
+
+  // Contained words must line up as a contiguous run, not merely appear.
+  assert.equal(sameEntity("Bank Nusantara", "Bank Contoh Nusantara"), false);
+
+  // A blank matches nothing, including another blank: finding nothing twice
+  // is not agreement, and treating it as agreement would settle a field as
+  // though it had been confirmed.
+  assert.equal(sameEntity("", "Bank Contoh Nusantara"), false);
+  assert.equal(sameEntity("", ""), false);
+  assert.equal(sameEntity("   ", "  "), false);
+});
+
+test("canonicalEntity ships the fullest spelling, never the initials", () => {
+  // An operator reading the finished document can shorten a complete name;
+  // they cannot restore words the tool dropped without reopening the scan.
+  assert.equal(
+    canonicalEntity(["BCN", "Bank Contoh Nusantara"]),
+    "Bank Contoh Nusantara",
+  );
+  assert.equal(
+    canonicalEntity(["Bank Contoh Nusantara", "PT Bank Contoh Nusantara Tbk"]),
+    "PT Bank Contoh Nusantara Tbk",
+  );
+  // Order does not decide it; how much of the name survives does.
+  assert.equal(
+    canonicalEntity(["PT Bank Contoh Nusantara Tbk", "BCN"]),
+    "PT Bank Contoh Nusantara Tbk",
+  );
+  // A tie on significant words falls to raw length, then to the first value
+  // given, so the caller's own ordering (round 1 before round 2) decides when
+  // nothing else does.
+  assert.equal(canonicalEntity(["Contoh Satu", "Contoh Satuan"]), "Contoh Satuan");
+  assert.equal(canonicalEntity(["Contoh Satu", "Contoh Dua"]), "Contoh Satu");
+  // Blanks are not candidates.
+  assert.equal(
+    canonicalEntity(["", "  ", "Bank Contoh Nusantara"]),
+    "Bank Contoh Nusantara",
+  );
+  assert.equal(canonicalEntity([]), "");
+  assert.equal(canonicalEntity(["", "   "]), "");
+});
+
+test("DOMAIN_ABBREVIATIONS covers the bundle's vocabulary and carries no identifiers", () => {
+  // The vocabulary the brief names, all of it generic to the domain.
+  for (const key of [
+    "PKS", "BA", "BAP", "SP", "SPH", "TTD", "TOP", "MRC", "NRC", "OTC",
+    "PSB", "KCP", "SID", "LOP", "VPN", "MPLS", "AO", "MO", "DO",
+  ]) {
+    assert.ok(DOMAIN_ABBREVIATIONS[key], `${key} has no expansion`);
+  }
+
+  // The order verbs are workflow verbs, not billing periods -- the error the
+  // 2026-08-31 corrections note exists to correct.
+  assert.equal(DOMAIN_ABBREVIATIONS.AO, "Activation Order");
+  assert.equal(DOMAIN_ABBREVIATIONS.MO, "Modify Order");
+  assert.equal(DOMAIN_ABBREVIATIONS.DO, "Delete Order");
+
+  // NOTHING CUSTOMER-SPECIFIC MAY ENTER THIS TABLE. A customer's initials are
+  // derived at runtime by acronymOf from whatever the document prints; this
+  // repo is public and has leaked a real identifier before. The checks are
+  // structural for the same reason the fieldHints leak test's are: listing
+  // the client's own strings here would put them in the public repo.
+  for (const [key, expansion] of Object.entries(DOMAIN_ABBREVIATIONS)) {
+    assert.match(key, /^[A-Z]{2,6}$/, `${key} is not a plain uppercase acronym`);
+    assert.equal(/\d/.test(expansion), false, `${key} expands to digits: ${expansion}`);
+    assert.equal(/\bLOP\s*\d/i.test(expansion), false, expansion);
+    // An expansion is a few words of vocabulary, not a name and address.
+    assert.ok(expansion.split(" ").length <= 5, `${key} expands too far: ${expansion}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Duplicate fieldKeys, and the conflict that must not be settled silently.
+// ---------------------------------------------------------------------------
+
+import { reconcileFieldValues } from "../src/lib/pipeline/fields.ts";
+
+test("reconcileFieldValues collapses two spellings of one answer into the fullest", () => {
+  // The recorded finding: nothing upstream promised one entry per fieldKey,
+  // both entries survived, and the exporters' `new Map(...)` then kept
+  // whichever came last -- silently, with the other spelling never mentioned.
+  const reconciled = reconcileFieldValues([
+    { fieldKey: "cc", value: "BCN", source: { pageIndex: 0, lineRange: [1, 1] } },
+    {
+      fieldKey: "cc",
+      value: "PT BANK CONTOH NUSANTARA TBK",
+      source: { pageIndex: 4, lineRange: [7, 9] },
+    },
+  ]);
+
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0].value, "PT BANK CONTOH NUSANTARA TBK");
+  assert.equal(reconciled[0].conflict, undefined);
+  // The citation follows the spelling that ships. Keeping the first entry's
+  // citation would produce a note naming lines that spell the name a
+  // different way: valid on every check, and no support for the cell.
+  assert.deepEqual(reconciled[0].source, { pageIndex: 4, lineRange: [7, 9] });
+});
+
+test("reconcileFieldValues keeps one entry per key, in first-seen order", () => {
+  const reconciled = reconcileFieldValues([
+    { fieldKey: "cc", value: "Bank Contoh Nusantara" },
+    { fieldKey: "alamat", value: "Jalan Contoh No.1" },
+    { fieldKey: "cc", value: "Bank Contoh Nusantara" },
+  ]);
+
+  assert.deepEqual(
+    reconciled.map((v) => v.fieldKey),
+    ["cc", "alamat"],
+  );
+});
+
+test("reconcileFieldValues blanks a real disagreement instead of picking one", () => {
+  // Two different customers is not a spelling difference. Shipping either
+  // would be a coin toss printed as evidence, so the cell goes blank and both
+  // candidates are named for the operator.
+  const reconciled = reconcileFieldValues([
+    {
+      fieldKey: "cc",
+      value: "Bank Contoh Nusantara",
+      source: { pageIndex: 0, lineRange: [1, 1] },
+    },
+    {
+      fieldKey: "cc",
+      value: "Bank Contoh Sejahtera",
+      source: { pageIndex: 9, lineRange: [2, 2] },
+    },
+  ]);
+
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0].value, "");
+  assert.deepEqual(reconciled[0].conflict, [
+    "Bank Contoh Nusantara",
+    "Bank Contoh Sejahtera",
+  ]);
+  // No citation either: there is nothing to cite for a value that is not
+  // being shipped, and a note here would read as evidence for a blank.
+  assert.equal(reconciled[0].source, undefined);
+});
+
+test("reconcileFieldValues keeps an unanswered key, so it still reports outstanding", () => {
+  const reconciled = reconcileFieldValues([{ fieldKey: "cc", value: "" }]);
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0].value, "");
+  assert.equal(reconciled[0].conflict, undefined);
+});
+
+test("outstandingFields says a conflicted key was found twice, not 'not found'", () => {
+  // "searched, not found" would be a false statement about a key that was
+  // found twice, and false in the direction that hides work the operator
+  // needs to do.
+  const outstanding = outstandingFields(AO_TEMPLATE, [
+    {
+      fieldKey: "cc",
+      value: "",
+      conflict: ["Bank Contoh Nusantara", "Bank Contoh Sejahtera"],
+    },
+  ]);
+
+  const cc = outstanding.find((o) => o.key === "cc");
+  assert.ok(cc, "a blanked conflict must still be reported outstanding");
+  assert.match(cc.reason, /disagree/);
+  assert.match(cc.reason, /Bank Contoh Nusantara/);
+  assert.match(cc.reason, /Bank Contoh Sejahtera/);
+
+  // Every other blank key keeps the reason it had.
+  assert.equal(
+    outstanding.find((o) => o.key === "alamat").reason,
+    "searched, not found",
+  );
+});
+
+test("extractTextFields reconciles, so a model answering cc twice cannot ship both", async () => {
+  // The production path. A model reply is free to cite the same field twice,
+  // and this is the single point where every answer to a key converges --
+  // across key groups and across every tambahan round, since extraction runs
+  // once over the whole run's pages after the last round. Drop
+  // reconcileFieldValues from it and the duplicates reach the exporters, to
+  // be settled by array order inside whichever builds its Map last.
+  const pages = [fakePage(0), fakePage(1)];
+  const byType = new Map([["BAPermintaan", [0, 1]]]);
+  const ask = async () =>
+    '{"values":[' +
+    '{"fieldKey":"cc","value":"BCN","pageIndex":0,"from":0,"to":0},' +
+    '{"fieldKey":"cc","value":"PT Bank Contoh Nusantara Tbk","pageIndex":1,"from":0,"to":0}' +
+    "]}";
+
+  const values = await extractTextFields(
+    { ...TINY_TEMPLATE, xlsxRows: [{ itemII: "Account", fieldKey: "cc" }] },
+    byType,
+    pages,
+    ask,
+  );
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].value, "PT Bank Contoh Nusantara Tbk");
+  // And the citation belongs to the page that prints the spelling that ships.
+  assert.equal(values[0].source.pageIndex, 1);
+});
+
+test("the extraction prompt tells the model these documents abbreviate", async () => {
+  // A real accuracy win that costs a handful of tokens: told nothing, a model
+  // treats a short form and its expansion as different answers and returns
+  // whichever it saw first. The last clause is the load-bearing one -- "give
+  // the fullest form" alone invites expanding an abbreviation the text never
+  // expands, which would put an unsourced name in a cell that carries a
+  // citation.
+  let sent;
+  const ask = async (prompt) => {
+    sent = prompt;
+    return '{"values":[]}';
+  };
+
+  await extractFields(["cc"], [twoLinePage()], ask);
+
+  assert.match(sent, /abbreviate/i);
+  assert.match(sent, /FULLEST form/);
+  // The prompt is hard-wrapped, so the sentence spans a newline.
+  assert.match(sent, /Never expand an abbreviation the text\s+does not expand/);
+});

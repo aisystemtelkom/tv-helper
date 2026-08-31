@@ -83,6 +83,7 @@ import { classifyPages } from "../src/lib/pipeline/classify.ts";
 import {
   deriveIdsFromFilenames,
   extractFields,
+  reconcileFieldValues,
 } from "../src/lib/pipeline/fields.ts";
 import { locateSlot } from "../src/lib/pipeline/locate.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
@@ -630,19 +631,35 @@ export function outstandingFields(template, values) {
       .map((value) => value.fieldKey),
   );
 
+  // A key `reconcileFieldValues` blanked because two documents disagreed is
+  // outstanding for a reason nobody could guess from "searched, not found" --
+  // it was found twice, and the answers were not the same thing. Naming both
+  // spellings here is what lets the operator settle it without rerunning the
+  // pipeline.
+  const conflicts = new Map(
+    values
+      .filter((value) => value.conflict?.length)
+      .map((value) => [value.fieldKey, value.conflict]),
+  );
+
   const outstanding = [];
   const seen = new Set();
   for (const row of template.xlsxRows) {
     if (!row.fieldKey || seen.has(row.fieldKey)) continue;
     seen.add(row.fieldKey);
     if (filled.has(row.fieldKey)) continue;
+    const conflict = conflicts.get(row.fieldKey);
     outstanding.push({
       kind: "field",
       key: row.fieldKey,
       label: row.itemII ?? row.itemI ?? row.fieldKey,
       reason: NEVER_EXTRACTED.has(row.fieldKey)
         ? NEVER_EXTRACTED_REASON
-        : "searched, not found",
+        : conflict
+          ? `found more than once and the answers disagree (${conflict
+              .map((value) => JSON.stringify(value))
+              .join(" vs ")}); ships blank until the operator picks one`
+          : "searched, not found",
     });
   }
   return outstanding;
@@ -1020,6 +1037,17 @@ export function extractableFieldKeys(template) {
  * credential. The wrong-customer regression lived in this wiring, not in
  * `extractFields`, so a test that composes the pieces itself would not have
  * caught it.
+ *
+ * THE RETURNED LIST HOLDS AT MOST ONE ENTRY PER fieldKey. This is the one
+ * point where every answer to a key converges -- a model reply that cites the
+ * same field twice, two key groups that both answer it, and the documents of
+ * every round, since extraction runs once over the whole run's pages after
+ * the last tambahan round rather than per round. `reconcileFieldValues` is
+ * therefore applied here and nowhere else, and it is what makes two spellings
+ * of one answer stop counting as a disagreement (`Bank Contoh Nusantara` and
+ * `PT Bank Contoh Nusantara Tbk` are one answer, not two). Drop the call and
+ * the duplicates come back, to be resolved by array order inside whichever
+ * exporter builds its Map last.
  */
 export async function extractTextFields(template, byType, pages, askFn = ask) {
   const keys = extractableFieldKeys(template);
@@ -1076,7 +1104,7 @@ export async function extractTextFields(template, byType, pages, askFn = ask) {
     }
   }
 
-  return values;
+  return reconcileFieldValues(values);
 }
 
 // ---------------------------------------------------------------------------
@@ -1204,6 +1232,17 @@ async function main() {
     extractionError = error.message;
   }
   for (const value of values) {
+    // A key the documents answered two incompatible ways ships blank with the
+    // rejected spellings named, so the operator sees a decision that was NOT
+    // made rather than an arbitrary winner. See reconcileFieldValues.
+    if (value.conflict?.length) {
+      console.log(
+        `  ${value.fieldKey} = "" -- CONFLICT between ` +
+          `${value.conflict.map((v) => JSON.stringify(v)).join(" and ")}; ` +
+          "shipping blank",
+      );
+      continue;
+    }
     const cite = value.source
       ? ` [page ${value.source.pageIndex}, lines ${value.source.lineRange.join("-")}]`
       : " [no citation]";
@@ -1214,13 +1253,22 @@ async function main() {
   // hallucinated page, a reversed range, a line the cited page doesn't have)
   // -- either way the operator should see the count, since an uncited value
   // in the xlsx has nothing to check it against.
-  const uncited = values.filter((v) => !v.source).length;
+  // A blanked conflict is not an uncited value -- it has nothing to cite --
+  // and counting it as one would overstate how much of the workbook is
+  // unchecked while understating the conflict, which was already reported
+  // above on its own line.
+  const shipped = values.filter((v) => !v.conflict?.length);
+  const uncited = shipped.filter((v) => !v.source).length;
   if (uncited > 0) {
-    console.log(`  ${uncited} of ${values.length} extracted value(s) carry no citation`);
+    console.log(`  ${uncited} of ${shipped.length} extracted value(s) carry no citation`);
   }
   console.log();
 
   const { idEpic, quote } = deriveIdsFromFilenames(sources.map((s) => s.name));
+  // Safe as a Map only because `extractTextFields` reconciled the list first:
+  // a Map keeps the LAST entry per key, so on a list that still held two
+  // spellings of one answer this line would pick between them by array
+  // position and say nothing about it.
   const byKey = new Map(values.map((v) => [v.fieldKey, v.value]));
   const header = {
     idEpic,
