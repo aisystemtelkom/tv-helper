@@ -26,6 +26,7 @@
     "ai": "^7.0.70",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "docx": "9.7.1",
     "exceljs": "4.4.0",
     "lucide-react": "^1.33.0",
     "mammoth": "1.12.1",

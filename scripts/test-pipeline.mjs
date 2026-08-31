@@ -548,3 +548,245 @@ test("fillable slots total 12 crops across 11 slots", () => {
   const totalCrops = fillable.reduce((sum, s) => sum + (s.crops ?? 1), 0);
   assert.equal(totalCrops, 12);
 });
+
+import JSZip from "jszip";
+import { cropToPng } from "../src/lib/export/crop.ts";
+import { buildDocx } from "../src/lib/export/docx.ts";
+
+const AO_HEADER = {
+  idEpic: "LOP285120",
+  namaProyek: "PSB VPN IP KCP Jakarta Slipi",
+  quote: "1-72989090591",
+  cc: "BANK SYARIAH INDONESIA",
+  order: "",
+  jenisOrder: "AO",
+};
+
+const documentXml = async (bytes) => {
+  const zip = await JSZip.loadAsync(bytes);
+  return await zip.file("word/document.xml").async("string");
+};
+
+/**
+ * Splits on the row start tag only: `<w:trPr>` shares the `<w:tr` prefix, so
+ * the delimiter has to demand a space or `>` after it.
+ */
+const tableRows = (xml) =>
+  xml
+    .split(/<w:tr[\s>]/)
+    .slice(1)
+    .map((chunk) => chunk.split("</w:tr>")[0]);
+
+test("cropToPng extracts exactly the requested rectangle", async () => {
+  const canvas = createCanvas(100, 100);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 100, 100);
+  ctx.fillStyle = "black";
+  ctx.fillRect(20, 20, 10, 10);
+
+  const rendered = {
+    data: ctx.getImageData(0, 0, 100, 100).data,
+    width: 100,
+    height: 100,
+  };
+
+  const png = await cropToPng(rendered, { x: 20, y: 20, w: 10, h: 10 });
+  assert.ok(png.length > 0);
+  // PNG magic, so a caller cannot mistake raw pixels for an encoded image.
+  assert.deepEqual([...png.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+
+  // IHDR carries width then height at bytes 16-23, so the encoded size is
+  // checkable without a PNG decoder. Without this the test name's promise --
+  // "exactly the requested rectangle" -- is not actually asserted, and a crop
+  // that returned the whole page would still pass.
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  assert.equal(view.getUint32(16), 10);
+  assert.equal(view.getUint32(20), 10);
+});
+
+test("cropToPng throws on a box that escapes the page", async () => {
+  // geometry.padBox already clamps, so an out-of-bounds box here means a
+  // caller skipped it. Reading past the row end would silently wrap onto the
+  // next scanline and produce a sheared image instead of an error.
+  const canvas = createCanvas(20, 20);
+  const ctx = canvas.getContext("2d");
+  const rendered = {
+    data: ctx.getImageData(0, 0, 20, 20).data,
+    width: 20,
+    height: 20,
+  };
+
+  await assert.rejects(
+    () => cropToPng(rendered, { x: 15, y: 0, w: 10, h: 10 }),
+    /escapes page/,
+  );
+  await assert.rejects(
+    () => cropToPng(rendered, { x: 0, y: 0, w: 0, h: 10 }),
+    /empty crop/,
+  );
+});
+
+test("buildDocx emits every section, including the empty ones", async () => {
+  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
+
+  const xml = await documentXml(bytes);
+
+  for (const title of ["BA Permintaan", "SP", "KB", "MOM", "BASO",
+                       "BA Penjelasan Order"]) {
+    assert.ok(xml.includes(title), `missing section: ${title}`);
+  }
+  assert.ok(xml.includes("LOP285120"));
+  // The quote number is a row label in the Konfigurasi table, not just header.
+  assert.ok(xml.includes("1-72989090591"));
+  // The literal token must not survive into the deliverable.
+  assert.ok(!xml.includes("{{quote}}"));
+});
+
+test("buildDocx keeps a row for every unfilled table slot", async () => {
+  // The six EPIC/spreadsheet slots and the BA Splitting / SBR Pricing rows
+  // ship with an EMPTY right cell on purpose: that cell is where the operator
+  // pastes. Dropping the row would ship a document that looks finished.
+  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
+  const xml = await documentXml(bytes);
+
+  for (const label of ["SID", "Konfigurasi", "Price &amp; SA", "BW", "BA",
+                       "Detail Kontrak", "Detail Splitting",
+                       "Nomor dan tanggal (tidak ada)", "Diskon ke CC"]) {
+    assert.ok(
+      tableRows(xml).some((row) => row.includes(label)),
+      `missing row: ${label}`,
+    );
+  }
+
+  const tableSlots = AO_TEMPLATE.sections
+    .filter((s) => s.layout === "table")
+    .flatMap((s) => s.slots).length;
+  // Three header rows plus one row per table slot, and nothing else.
+  assert.equal(tableRows(xml).length, 3 + tableSlots);
+  // Nothing was filled, so no picture may appear anywhere.
+  assert.equal(xml.includes("<w:drawing>"), false);
+});
+
+test("buildDocx writes real png media parts at their true size", async () => {
+  // Guards two defects the section test cannot see: a missing ImageRun `type`
+  // silently produces word/media/<hash>.undefined, and a points-vs-pixels
+  // mixup silently shrinks every crop to 75%.
+  const canvas = createCanvas(600, 300);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 600, 300);
+  const png = await cropToPng(
+    { data: ctx.getImageData(0, 0, 600, 300).data, width: 600, height: 300 },
+    { x: 0, y: 0, w: 600, h: 300 },
+  );
+
+  const bytes = await buildDocx(
+    AO_TEMPLATE,
+    { ...AO_HEADER, namaProyek: "P", cc: "C" },
+    [{ key: "ba.permintaan", png, widthPx: 600, heightPx: 300 }],
+  );
+
+  const zip = await JSZip.loadAsync(bytes);
+  const media = Object.keys(zip.files).filter(
+    (f) => f.startsWith("word/media/") && !zip.files[f].dir,
+  );
+  assert.ok(media.length > 0, "no media part written");
+  assert.ok(media.every((f) => f.endsWith(".png")), `bad media: ${media}`);
+
+  const xml = await zip.file("word/document.xml").async("string");
+  const cx = Number(xml.match(/<wp:extent cx="(\d+)"/)[1]);
+  // 914400 EMU per inch. A 600px crop cut at 300 DPI is 2 inches wide.
+  assert.equal(Math.round((cx / 914400) * 1000), 2000);
+});
+
+test("buildDocx stacks both of a slot's crops in that one cell", async () => {
+  // kbLanjutan.top declares crops: 2 because the sample's ToP row stacks two
+  // pictures in a single cell. Keying filled slots by name alone keeps only
+  // one of them, which ships a document that looks complete and is missing
+  // evidence.
+  const solid = async (w, h) => {
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = h === 300 ? "white" : "black";
+    ctx.fillRect(0, 0, w, h);
+    return await cropToPng(
+      { data: ctx.getImageData(0, 0, w, h).data, width: w, height: h },
+      { x: 0, y: 0, w, h },
+    );
+  };
+
+  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, [
+    { key: "kbLanjutan.top", png: await solid(600, 300),
+      widthPx: 600, heightPx: 300 },
+    { key: "kbLanjutan.top", png: await solid(600, 150),
+      widthPx: 600, heightPx: 150 },
+  ]);
+
+  const xml = await documentXml(bytes);
+  const topRow = tableRows(xml).find((row) => row.includes(">ToP<"));
+  assert.ok(topRow, "no ToP row in the document");
+
+  assert.equal((topRow.match(/<w:drawing>/g) ?? []).length, 2);
+  // Both crops, in the order they were supplied: 300px and 150px cut at
+  // 300 DPI are one inch and half an inch.
+  const heights = [...topRow.matchAll(/<wp:extent[^>]*cy="(\d+)"/g)].map((m) =>
+    Number(m[1]),
+  );
+  assert.deepEqual(heights, [914400, 457200]);
+
+  const zip = await JSZip.loadAsync(bytes);
+  const media = Object.keys(zip.files).filter(
+    (f) => f.startsWith("word/media/") && !zip.files[f].dir,
+  );
+  assert.equal(media.length, 2, `expected two media parts, got ${media}`);
+});
+
+test("buildDocx emits both SP pages as separate pictures", async () => {
+  // An "images" section is one picture per slot, unlike the ToP cell, and SP
+  // has two of them.
+  const canvas = createCanvas(400, 200);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 400, 200);
+  const png = await cropToPng(
+    { data: ctx.getImageData(0, 0, 400, 200).data, width: 400, height: 200 },
+    { x: 0, y: 0, w: 400, h: 200 },
+  );
+
+  const xml = await documentXml(
+    await buildDocx(AO_TEMPLATE, AO_HEADER, [
+      { key: "sp.1", png, widthPx: 400, heightPx: 200 },
+      { key: "sp.2", png, widthPx: 400, heightPx: 200 },
+    ]),
+  );
+
+  // Both pictures land outside every table row: "images" sections are
+  // paragraphs, not cells.
+  assert.equal((xml.match(/<w:drawing>/g) ?? []).length, 2);
+  for (const row of tableRows(xml)) {
+    assert.equal(row.includes("<w:drawing>"), false);
+  }
+});
+
+test("buildDocx omits a slotless table section instead of emitting an empty table", async () => {
+  // A <w:tbl> with zero <w:tr> is schema-invalid and Word refuses the file.
+  // The shipped AO template has no such section, but buildDocx takes a
+  // Template, not this one template.
+  const xml = await documentXml(
+    await buildDocx(
+      {
+        id: "T",
+        label: "T",
+        sections: [{ title: "Kosong", layout: "table", slots: [] }],
+        xlsxRows: [],
+      },
+      AO_HEADER,
+      [],
+    ),
+  );
+
+  assert.ok(xml.includes("Kosong"), "the heading still has to be emitted");
+  // Only the header table.
+  assert.equal((xml.match(/<w:tbl>/g) ?? []).length, 1);
+});
