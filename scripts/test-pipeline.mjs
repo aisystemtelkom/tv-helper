@@ -116,3 +116,41 @@ test("boxForLineRange throws on a reversed or out-of-range span", () => {
   assert.throws(() => boxForLineRange(lines, 1, 0, 0, bounds));
   assert.throws(() => boxForLineRange(lines, 0, 9, 0, bounds));
 });
+
+test("groupWordsIntoLines does not chain non-overlapping lines through a bridging word", () => {
+  // A (y0-10) and C (y16-26) do not overlap at all; B (y8-18) overlaps both
+  // by only 2px, well under half of any of their 10px heights. A tolerance
+  // that compounds as a row grows would fuse all three into one line.
+  const lines = groupWordsIntoLines([
+    word("A", 10, 0, 20, 10),
+    word("B", 40, 8, 20, 10),
+    word("C", 70, 16, 20, 10),
+  ]);
+  assert.equal(lines.length, 3);
+});
+
+test("groupWordsIntoLines joins a tall ascender that half-overlaps the line band", () => {
+  const lines = groupWordsIntoLines([
+    word("T", 10, 95, 20, 20), // y95-115
+    word("rest", 40, 100, 20, 10), // y100-110 band; overlap 10 >= 0.5*10
+  ]);
+  assert.equal(lines.length, 1);
+});
+
+test("groupWordsIntoLines joins a small comma sitting inside the line band", () => {
+  const lines = groupWordsIntoLines([
+    word("word", 10, 100, 20, 10), // y100-110 band
+    word(",", 40, 106, 20, 4), // y106-110; overlap 4 >= 0.5*4
+  ]);
+  assert.equal(lines.length, 1);
+});
+
+test("padBox clamps a negative pad to a zero-size box instead of going negative", () => {
+  const bounds = { x: 0, y: 0, w: 100, h: 100 };
+  assert.deepEqual(padBox({ x: 10, y: 10, w: 4, h: 4 }, -10, bounds), {
+    x: 20,
+    y: 20,
+    w: 0,
+    h: 0,
+  });
+});
