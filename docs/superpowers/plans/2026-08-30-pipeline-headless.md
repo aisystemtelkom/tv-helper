@@ -1788,12 +1788,13 @@ test("extractFields keeps provenance and drops unbacked keys", async () => {
     lines: groupWordsIntoLines([
       { text: "Nama", box: { x: 10, y: 10, w: 40, h: 12 } },
       { text: "Pelanggan", box: { x: 55, y: 10, w: 70, h: 12 } },
-      { text: "PT", box: { x: 200, y: 10, w: 20, h: 12 } },
-      { text: "BSI", box: { x: 225, y: 10, w: 30, h: 12 } },
+      { text: "BANK", box: { x: 200, y: 10, w: 40, h: 12 } },
+      { text: "CONTOH", box: { x: 245, y: 10, w: 55, h: 12 } },
+      { text: "NUSANTARA", box: { x: 305, y: 10, w: 80, h: 12 } },
     ]),
   };
   const ask = async () =>
-    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":0}]}';
+    '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":0,"from":0,"to":0}]}';
 
   const values = await extractFields(["cc", "latLong"], [page], ask);
 
@@ -1942,7 +1943,7 @@ import exceljs from "exceljs";
 
 test("buildXlsx fills only backed rows and cites their provenance", async () => {
   const bytes = await buildXlsx(AO_TEMPLATE, [
-    { fieldKey: "alamat", value: "Jalan Kemanggisan Utama Raya No.49A",
+    { fieldKey: "alamat", value: "Jalan Contoh Nusantara Raya No.1",
       source: { pageIndex: 0, lineRange: [7, 9] } },
   ]);
 
@@ -1960,7 +1961,7 @@ test("buildXlsx fills only backed rows and cites their provenance", async () => 
   assert.equal(filled, 1);
 
   const cell = sheet.getCell("E7");
-  assert.ok(String(cell.value).includes("Kemanggisan"));
+  assert.ok(String(cell.value).includes("Contoh Nusantara"));
   assert.ok(JSON.stringify(cell.note ?? "").includes("lines 7-9"));
 });
 ```
@@ -2053,4 +2054,5 @@ git commit -m "feat: build the EPIC config xlsx and wire the end-to-end generato
 - **The operator UI.** Contact sheet, zone editor, IndexedDB persistence. Plan B, and it depends on Task 7 passing.
 - **Deployment and auth.** Cloud Run, Auth.js, the Firestore allowlist, the Dockerfile. Plan C, independent of this plan and doable in parallel.
 - **The signature-block vision fallback.** `TTD Pejabat` is the one slot the spec expects OCR line-picking to struggle with. Task 7 will show whether it does. If it fails there and the other ten pass, add the fallback in Plan B alongside the manual-draw path, since a human drawing one box per run is an acceptable v1 answer.
+  - **Outcome, 2026-09-01: the premise did not hold, and the fallback is still not built.** Under the containment rule the gate records 12/12 on page selection and 11/12 on extent, with `TTD Pejabat` PASSING text-only. The single miss is `KB / ToP (2)`, the Terms of Payment slot's second capture -- a text-heavy region a vision fallback would not address. Do not carry "the fallback would fix the gate" forward from this bullet.
 - **`AGENTS.md` updates.** The spec lists seven rules to add. Land them with Plan C, when the deployment facts they describe are real.

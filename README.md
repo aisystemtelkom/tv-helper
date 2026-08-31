@@ -48,11 +48,20 @@ without either.
 
 ```bash
 pnpm generate documents/<bundle>.pdf documents/<splitba>.pdf
+pnpm generate documents/<bundle>.pdf --tambahan documents/<extra>.pdf
 ```
 
-Writes both files into `out/` (override with `--out <dir>`). The whole run is
-one command with no browser involved: render, OCR, classify, locate, crop,
-extract, export. Expect several minutes on a first run, most of it OCR.
+Writes three files into `out/` (override with `--out <dir>`): the docx, the
+xlsx, and `<ID EPIC>_OUTSTANDING.json` naming every slot and field it could
+not fill. The whole run is one command with no browser involved: render, OCR,
+classify, locate, crop, extract, export. Expect several minutes on a first
+run, most of it OCR.
+
+Every positional PDF is round 1 and the whole slot list is searched across all
+of them, with no assumption about which document carries what. Each
+`--tambahan` opens a further round that searches the new document for **only
+the slots still outstanding**; zones found earlier are never re-searched and
+never discarded.
 
 Useful environment switches:
 
@@ -68,15 +77,17 @@ takes minutes. Model replies are deliberately **not** cached: a stale verdict
 served silently is worse than paying for a fresh one.
 
 The run prints, for every slot, the page and line range it chose and its
-confidence; a `left for the operator` list naming anything it could not fill;
-and a `cost:` line with total calls and tokens.
+confidence; an `OUTSTANDING (n)` block naming anything it could not fill and
+why; and a `cost:` line with total calls and tokens. The same list is written
+to `<ID EPIC>_OUTSTANDING.json`.
 
 ### What it does not do yet
 
-`pnpm generate` writes both files unreviewed. There is no confirmation UI, no
-manual zone selection, and no prompt for an additional document when a slot
-comes up empty. Read the output's `left for the operator` list before handing
-the deliverables to anyone.
+`pnpm generate` writes all three files unreviewed. There is no confirmation
+UI, no manual zone selection, and nothing prompts you for a *dokumen
+tambahan*: the loop is you reading the `OUTSTANDING` block and re-running the
+command with `--tambahan`. Read that block before handing the deliverables to
+anyone.
 
 ## Measuring the locate step
 
@@ -86,11 +97,24 @@ pnpm measure:locate
 
 Scores the locate step against the twelve human-authored crops in the sample
 DOKUMEN VALIDASI docx. It reads real client documents and calls the real model,
-so it is run by hand rather than in CI. `MEASURE_LOCATE_FORCE=1` re-asks instead
-of reusing cached replies.
+so it is run by hand rather than in CI.
 
-Recorded result: **page selection 12/12**, and **11/12 on extent by
-containment**, the one genuine miss being `KB / ToP (2)`.
+**The three caches are not symmetric, and only one has a switch.**
+`MEASURE_LOCATE_FORCE=1` re-asks the model instead of reusing cached replies.
+The OCR caches have no bypass at all: they are keyed by the document's role
+(`merged`, `splitba`) plus page index, and by image name for the sample docx's
+crops, and they return a hit unconditionally. **Re-export a document and the
+harness silently scores its new pages against the old OCR**, whatever you
+rename the file to. Delete the temp cache file by hand in that case; the
+harness prints all three paths when it starts.
+
+Recorded result of one such run: **page selection 12/12**, and **11/12 on
+extent by containment**, the one genuine miss being `KB / ToP (2)`. It is a
+transcript, not something the tree recomputes -- re-run the command above to
+tell a fresh number from a stale one, and see
+`git log --oneline --grep "Record what the measured run found"` for when this
+one was taken. The bundle it is measured over is 29 pages: 27 in the merged
+contract scan plus 2 in the SPLITBA scan.
 
 **Re-run this before and after any change to a locate prompt or a slot hint.**
 It is the only thing that separates an improvement from a regression, and a
@@ -236,19 +260,30 @@ stops working.
 
 - **Neither deliverable is reviewed before it is written.** The confirmation
   step, the contact sheet, and manual zone selection are designed and not built.
-- **There is no vision fallback for signature blocks.** It is in the design;
-  `locate.ts` has no image parameter. `KB / ToP (2)` is the slot it would help.
-- **A slot that needs two crops gets one.** `KB / ToP` stacks two pictures cut
-  from two different pages in the sample; the headless pass makes one call per
-  slot and says so in its `left for the operator` list.
+- **There is no vision fallback for signature blocks: designed, not built.**
+  `locate.ts` takes no image parameter and `Ask` is
+  `(prompt: string) => Promise<string>`, so there is nowhere to put an image.
+  It would not close the gate's one miss either: that miss is `KB / ToP (2)`,
+  Terms of Payment, a different and text-heavy slot from the `TTD Pejabat`
+  signature block the fallback was designed for.
+- **A slot that needs two crops gets one per round.** `KB / ToP` stacks two
+  pictures cut from two different pages in the sample; each round makes one
+  locate call per slot, so the slot comes back reported as `1 of 2 captures
+  found` in the `OUTSTANDING` block. A `--tambahan` round can supply the
+  second.
 - **`namaProyek` ships blank on purpose.** Extracted from the full document
-  pool it reliably picked the wrong title and carried a citation that passed
-  validation. A blank invites the operator to fill it in; a plausible wrong
-  value does not.
+  pool it reliably picked the master contract's title and carried a citation
+  that *passed* validation, in the two most-read cells of the deliverables. A
+  blank invites the operator to fill it in; a plausible wrong value does not.
+  It was briefly re-enabled behind a stronger hint and reverted: the run that
+  justified it recorded a different wrong answer, not a right one. See
+  `NEVER_EXTRACTED` in `scripts/generate.mjs`.
 - **Only two sample bundles exist.** Enough to test capture, not enough to
   claim accuracy. OCR quality on Indonesian scanned contracts is measured only
   indirectly, through the locate gate.
-- **Deployment is not built.** No Dockerfile, no auth, no allowlist.
+- **Deployment is built; see `docs/runbook-deploy.md`.** Dockerfile,
+  `output: "standalone"`, `src/proxy.ts`, Auth.js and the Firestore allowlist
+  are all in the tree. This line used to say the opposite.
 - **Chat sessions are per-browser-profile.** IndexedDB is scoped to the origin.
 - **Rate limits are the API's.** Bursts return 503 "high demand"; the pipeline
   retries six times with backoff and says so in the log.
