@@ -46,6 +46,23 @@ function extractJson(reply: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
+/**
+ * Page headers are numbered by their *position in this listing* (0, 1, 2...
+ * in the order shown), never by the page's true index in the source
+ * document. A pool like the Surat Penunjukan's `[23, 24, 25, 26]` would
+ * otherwise be the only pool whose first page is not labeled "page 0" --
+ * measured behaviour (see task-7-report.md) is that the model then answers
+ * with a `pageIndex` one below the true page it clearly meant (its chosen
+ * `from`/`to` lines matched the intended page's content exactly, just under
+ * the wrong label), consistent with treating a non-zero first label as a
+ * 1-based ordinal to be converted to 0-based rather than an opaque id to
+ * echo back. Every other pool offered so far happens to start at 0, which
+ * hides this: a "-1 conversion" and "copy the label verbatim" habit produce
+ * the same answer when the first label is already 0. Local, always-0-based
+ * position numbering removes the ambiguity outright instead of trying to
+ * out-word it, and costs nothing -- `locateSlot` maps the reply straight
+ * back to `pages[reply.pageIndex].index` for the true page identity.
+ */
 export function buildLocatePrompt(
   slotLabel: string,
   hint: string,
@@ -53,8 +70,8 @@ export function buildLocatePrompt(
 ): string {
   const listing = pages
     .map(
-      (p) =>
-        `--- page ${p.index} ---\n` +
+      (p, position) =>
+        `--- page ${position} ---\n` +
         p.lines.map((l) => `${l.i}: ${l.text}`).join("\n"),
     )
     .join("\n\n");
@@ -68,7 +85,12 @@ export function buildLocatePrompt(
     "this field. Include the label line when there is one. Do not include",
     "unrelated paragraphs above or below.",
     "",
+    "Pages are numbered by their position in this list: the first page shown",
+    "is page 0, the second is page 1, and so on, regardless of where each",
+    "page sits in the original document.",
+    "",
     'Reply with JSON only: {"pageIndex":0,"from":7,"to":8,"confidence":"high"}',
+    "(pageIndex is that position number, not a document page number.)",
     'If no page contains it, reply {"pageIndex":null,"from":null,"to":null,',
     '"confidence":"low"}.',
     "",
@@ -90,9 +112,16 @@ export async function locateSlot(
     return null;
   }
 
-  const page = pages.find((p) => p.index === reply.pageIndex);
+  // reply.pageIndex is a position in `pages` (see buildLocatePrompt's header
+  // comment), not the page's own true index -- look it up by array position,
+  // then use the page's real `.index` below for anything that leaves this
+  // function.
+  const page = pages[reply.pageIndex];
   if (!page) {
-    throw new Error(`model returned pageIndex ${reply.pageIndex}, not offered`);
+    throw new Error(
+      `model returned pageIndex ${reply.pageIndex}, which is not a position in the ` +
+        `${pages.length} pages offered (0-${pages.length - 1})`,
+    );
   }
 
   const bounds: Box = { x: 0, y: 0, w: page.width, h: page.height };

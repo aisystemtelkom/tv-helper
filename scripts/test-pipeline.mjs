@@ -429,3 +429,33 @@ test("locateSlot rejects a page index it was never given", async () => {
   const ask = async () => '{"pageIndex":7,"from":0,"to":0,"confidence":"high"}';
   await assert.rejects(() => locateSlot("Tanggal", "x", [kbPage], ask), /pageIndex/);
 });
+
+// Regression coverage for the task-7 finding: a pool whose first page is not
+// page 0 (e.g. the Surat Penunjukan's [23, 24, 25, 26]) must still be
+// labeled starting from "page 0" in the prompt, and a reply's pageIndex must
+// map back to the page's true index, never be compared against it directly.
+
+const farPage1 = ocrPage(23, ["SURAT PENUNJUKAN", "Nomor : 03/1802-3/PFA"]);
+const farPage2 = ocrPage(24, ["Menerima dan menyetujui", "Dedy Mardhianto"]);
+
+test("buildLocatePrompt numbers pages by position in the list, not by their true index", () => {
+  const prompt = buildLocatePrompt("SP", "the appointment letter", [farPage1, farPage2]);
+  assert.ok(prompt.includes("--- page 0 ---"));
+  assert.ok(prompt.includes("--- page 1 ---"));
+  assert.ok(!prompt.includes("--- page 23 ---"));
+  assert.ok(!prompt.includes("--- page 24 ---"));
+});
+
+test("locateSlot maps a reply's list-position pageIndex back to the page's true index", async () => {
+  const ask = async () => '{"pageIndex":0,"from":1,"to":1,"confidence":"high"}';
+  const result = await locateSlot("SP", "the reference number", [farPage1, farPage2], ask);
+  assert.equal(result.zone.pageIndex, 23);
+  assert.deepEqual(result.zone.lineRange, [1, 1]);
+});
+
+test("locateSlot resolves a later list position to that page's true index", async () => {
+  const ask = async () => '{"pageIndex":1,"from":1,"to":1,"confidence":"high"}';
+  const result = await locateSlot("SP TTD", "the signature block", [farPage1, farPage2], ask);
+  assert.equal(result.zone.pageIndex, 24);
+  assert.deepEqual(result.zone.lineRange, [1, 1]);
+});
