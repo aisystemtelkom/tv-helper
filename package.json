@@ -10,7 +10,7 @@
     "model:pull": "node scripts/setup-model.mjs",
     "ollama:serve": "node scripts/ollama-serve.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test": "node --test scripts/test-converters.mjs"
+    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.32",
