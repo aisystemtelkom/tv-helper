@@ -640,7 +640,9 @@ export function outstandingFields(template, values) {
       kind: "field",
       key: row.fieldKey,
       label: row.itemII ?? row.itemI ?? row.fieldKey,
-      reason: "searched, not found",
+      reason: NEVER_EXTRACTED.has(row.fieldKey)
+        ? NEVER_EXTRACTED_REASON
+        : "searched, not found",
     });
   }
   return outstanding;
@@ -963,36 +965,64 @@ export function groupKeysByDocTypes(keys, defaultDocTypes) {
 /**
  * Keys deliberately not sent to the model at all, whatever the template says.
  *
- * Empty, and kept as a named seam rather than deleted, because it is the
- * honest escape hatch for a key that cannot be extracted safely. `namaProyek`
- * lived here: on the old unhinted pool it reliably answered with the Surat
- * Penunjukan's subject line -- the master contract's scope title, not this
- * order's project name -- and that wrong value carried a citation that
+ * `namaProyek` is in this set and ships BLANK. It reaches the two most-read
+ * cells in the deliverables -- the `NAMA Proyek :` cell in the docx header
+ * table and its xlsx row -- and on the full pool it reliably answered with
+ * the Surat Penunjukan's subject line: the master contract's scope title, not
+ * this order's project name. That wrong value carried a citation that
  * *passed* validation, so it read as sourced evidence rather than a guess
- * (task-11 finding 3). It is extracted again now that
- * `AO_TEMPLATE.fieldHints.namaProyek` says in as many words that the
- * agreement's title and an appointment letter's subject are the wrong answer.
+ * (task-11 finding 3).
  *
- * MEASURED on the sample bundle after that change, and worth stating exactly
- * because it is not a clean pass: it no longer answers with the master
- * contract. It answers with the request email's own subject line -- the right
- * order, the right site, the right kind of work, cited to a page a reviewer
- * can open -- but not the wording the human-authored sample uses for the same
- * field. That is a value the operator confirms and adjusts, not a value that
- * sends them to the wrong document. If a later run shows it drifting back to
- * the framework contract, put the key back in this set: a blank invites the
- * operator to fill it in, and a plausible wrong value does not.
+ * IT WAS BRIEFLY RE-ENABLED and is reverted here. The case for re-enabling
+ * was that `AO_TEMPLATE.fieldHints.namaProyek` now rules out the agreement
+ * title and the appointment letter's subject by name, and one manual run on
+ * the sample bundle showed it no longer answering with the master contract.
+ * That same run recorded the answer as the request email's own subject line,
+ * "not the wording the human-authored sample uses for the same field" -- by
+ * its own account not the right value. A key whose best recorded evidence is
+ * "differently wrong" does not clear the bar for a cell a validator signs.
+ *
+ * The bar for taking it back out of this set is a reproducible run that
+ * yields the sample's own project name, not an argument that the hint is
+ * better. Until then a blank invites the operator to fill it in, and a
+ * plausible wrong value does not. `outstandingFields` reports it by name
+ * with the reason below, so blank is never silent.
  */
-const NEVER_EXTRACTED = new Set();
+export const NEVER_EXTRACTED = new Set(["namaProyek"]);
 
-async function extractTextFields(template, byType, pages) {
-  const keys = [
+/** Why a NEVER_EXTRACTED key is blank, for the run's outstanding list. The
+ * generic "searched, not found" would be a false statement about it: nothing
+ * searched for it at all. */
+const NEVER_EXTRACTED_REASON =
+  "deliberately not extracted; the operator fills this in (see NEVER_EXTRACTED)";
+
+/**
+ * The backed xlsx keys a run actually asks the model for: every fieldKey the
+ * template declares, minus `NEVER_EXTRACTED`. Exported so the exclusion is
+ * testable end of chain rather than asserted about a Set nothing reads --
+ * silently dropping this filter is exactly how the blank cell would turn back
+ * into a plausible wrong one.
+ */
+export function extractableFieldKeys(template) {
+  return [
     ...new Set(
       template.xlsxRows
         .map((row) => row.fieldKey)
         .filter((key) => key && !NEVER_EXTRACTED.has(key)),
     ),
   ];
+}
+
+/**
+ * `askFn` is injected, defaulting to the real model, for the same reason
+ * `searchRound` injects `locate`: it makes the whole wiring -- ranking,
+ * grouping, hint prepending, citation remapping -- exercisable without a
+ * credential. The wrong-customer regression lived in this wiring, not in
+ * `extractFields`, so a test that composes the pieces itself would not have
+ * caught it.
+ */
+export async function extractTextFields(template, byType, pages, askFn = ask) {
+  const keys = extractableFieldKeys(template);
   const defaultDocTypes = orderPaperworkDocTypes(template);
 
   const values = [];
@@ -1015,7 +1045,7 @@ async function extractTextFields(template, byType, pages) {
     const found = await extractFields(
       group.keys,
       renumbered,
-      withFieldHints(ask, group.keys, template.fieldHints),
+      withFieldHints(askFn, group.keys, template.fieldHints),
     );
 
     for (const value of found) {
