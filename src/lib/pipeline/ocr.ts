@@ -43,11 +43,133 @@ export type OcrAssets = Omit<TesseractWorkerOptions, "errorHandler"> & {
   initTimeoutMs?: number;
 };
 
-const BROWSER_ASSETS: Required<Pick<OcrAssets, "workerPath" | "corePath" | "langPath">> = {
-  workerPath: "/tesseract/worker.min.js",
-  corePath: "/tesseract/",
-  langPath: "/tesseract/",
+/**
+ * The globals this module inspects to decide which runtime it is in.
+ *
+ * Taken as an argument rather than read straight off `globalThis` so the
+ * decision is a pure function a test can pin against a SYNTHETIC Web Worker
+ * scope. `node --test` cannot conjure a real one, and the distinction below
+ * is precisely the one this file used to get wrong, so "it is only checkable
+ * in a browser" would have meant "it is not checked".
+ */
+export type RuntimeScope = {
+  process?: { versions?: { node?: string } };
+  document?: unknown;
+  window?: unknown;
+  importScripts?: unknown;
+  WorkerGlobalScope?: unknown;
+  location?: { origin?: string };
 };
+
+/**
+ * NEVER INFER THE RUNTIME FROM `window`.
+ *
+ * `typeof window === "undefined"` used to stand in for "I am in Node" here.
+ * It is false inside a browser Web Worker, where `window` is also undefined,
+ * and a Web Worker is exactly where this project runs OCR in the browser
+ * (`src/lib/browser/pipeline.worker.ts`). What it put at risk:
+ *
+ *   a. the Node-only leak guard below reached for a BARE `process`, which a
+ *      worker need not define at all -- and a bare undefined identifier
+ *      throws a ReferenceError rather than evaluating to undefined. It now
+ *      goes through `globalThis` and demands a real `versions.node`.
+ *   b. the vendored asset paths were meant to be skipped under Node and
+ *      applied in a browser. Skipping them leaves tesseract.js on its OWN
+ *      defaults, which are `https://cdn.jsdelivr.net/...` for the worker
+ *      script, the wasm core AND the language data -- the unapproved third
+ *      party in the browser's request path that this project forbids, and one
+ *      that ships looking perfectly correct because OCR still works when the
+ *      CDN answers.
+ *
+ * BE PRECISE ABOUT (b), because it is worth less alarm and more care than the
+ * note that recorded it. Built and read back out of the emitted worker chunk,
+ * Turbopack FOLDS `typeof window === "undefined"` to false for a browser
+ * target and inlines the browser branch, so under this bundler the vendored
+ * paths would in fact have been passed and no CDN fetch would have happened.
+ * The old code was correct BY BUNDLER CONSTANT-FOLDING rather than by
+ * construction -- true only while whatever builds this keeps folding it, and
+ * silently a CDN fetch the moment it does not. What was genuinely broken in a
+ * worker regardless of the bundler is the SHAPE of those paths; see
+ * `vendoredAssets` below.
+ *
+ * Positive detection, in this order:
+ *   - anything browser-shaped -- a DOM `document`, or a worker's
+ *     `importScripts`/`WorkerGlobalScope` -- is a browser, main thread and
+ *     worker alike;
+ *   - otherwise a real `process.versions.node` string is Node (a bundler's
+ *     `process` shim defines `versions` as `{}`, so it does not qualify);
+ *   - otherwise "browser", deliberately, because that is the SAFE default: it
+ *     pins the local asset paths, so an unrecognised runtime fails loudly on
+ *     a 404 rather than quietly reaching a CDN.
+ */
+export function detectRuntime(
+  scope: RuntimeScope = globalThis as RuntimeScope,
+): "node" | "browser" {
+  if (
+    typeof scope.document !== "undefined" ||
+    typeof scope.importScripts === "function" ||
+    typeof scope.WorkerGlobalScope !== "undefined"
+  ) {
+    return "browser";
+  }
+  return typeof scope.process?.versions?.node === "string" ? "node" : "browser";
+}
+
+type VendoredAssets = Required<
+  Pick<OcrAssets, "workerPath" | "corePath" | "langPath">
+>;
+
+/**
+ * The vendored OCR assets, written into `public/tesseract` by
+ * `scripts/vendor-ocr.mjs` at prebuild and served by this app.
+ *
+ * ABSOLUTE where an origin is available, and that is load-bearing rather than
+ * tidiness -- it is the half of the Web Worker problem that no bundler
+ * happens to paper over.
+ *
+ * tesseract.js resolves a relative path to an absolute URL only when its own
+ * `getEnvironment('type') === 'browser'`, which is to say only when
+ * `document` exists (read `src/utils/resolvePaths.js` in the package). Inside
+ * a Web Worker its environment is `'webworker'` and that resolution is
+ * SKIPPED, so the raw string travels on to `spawnWorker`, which by default
+ * builds a Blob-URL worker whose entire body is
+ * `importScripts("<workerPath>")`. A `blob:` URL has an opaque path, and the
+ * WHATWG URL parser rejects resolving a root-relative specifier against one
+ * outright -- `new URL("/tesseract/worker.min.js", "blob:https://host/uuid")`
+ * throws, which the test suite pins. Whether a particular browser applies
+ * that to `importScripts` inside a blob worker is not something a Node test
+ * can settle, and that is the point: an absolute URL removes the question
+ * instead of betting on the answer. It is also exactly what tesseract.js
+ * would have computed for us on the main thread.
+ */
+function vendoredAssets(scope: RuntimeScope): VendoredAssets {
+  const origin = scope.location?.origin ?? "";
+  // An opaque origin serialises as the literal string "null", and a
+  // "null/tesseract/..." URL is worse than the relative path it replaced, so
+  // only a real http(s) origin is used.
+  const prefix = /^https?:\/\//.test(origin)
+    ? `${origin}/tesseract/`
+    : "/tesseract/";
+  return {
+    workerPath: `${prefix}worker.min.js`,
+    corePath: prefix,
+    langPath: prefix,
+  };
+}
+
+/**
+ * The asset paths for the current runtime: none under Node (callers there
+ * pass their own local paths, and `scripts/vendor-ocr.mjs` output is read off
+ * disk), the vendored URLs in any browser context.
+ *
+ * Exported so a test can assert what a Web Worker scope gets, which is the
+ * only way to prove the CDN fallback is shut.
+ */
+export function ocrAssetsFor(
+  scope: RuntimeScope = globalThis as RuntimeScope,
+): Partial<VendoredAssets> {
+  return detectRuntime(scope) === "node" ? {} : vendoredAssets(scope);
+}
 
 /**
  * Reading ~3MB of gzipped traineddata and ~2.8MB of wasm core off local disk
@@ -68,9 +190,28 @@ type HandleLike = {
   close?: () => void;
   unref?: () => void;
 };
+
+/**
+ * Reached through `globalThis`, never as a bare `process` identifier: in a
+ * browser Web Worker there may be no such binding at all, and a bare
+ * reference would throw a ReferenceError rather than evaluating to
+ * `undefined`. Returns nothing unless `process.versions.node` is a real
+ * string, so a bundler's `process` shim (which defines `versions` as `{}`)
+ * cannot smuggle a browser into the Node-only branch.
+ */
+function nodeProcess(
+  scope: RuntimeScope = globalThis as RuntimeScope,
+): { _getActiveHandles?: () => HandleLike[] } | undefined {
+  const proc = scope.process as
+    | ({ versions?: { node?: string } } & {
+        _getActiveHandles?: () => HandleLike[];
+      })
+    | undefined;
+  return typeof proc?.versions?.node === "string" ? proc : undefined;
+}
+
 function activeHandles(): HandleLike[] {
-  const proc = process as unknown as { _getActiveHandles?: () => HandleLike[] };
-  return proc._getActiveHandles?.() ?? [];
+  return nodeProcess()?._getActiveHandles?.() ?? [];
 }
 
 /**
@@ -141,7 +282,10 @@ async function createWorkerInitAttempt(
   options: Parameters<typeof createWorker>[2],
   timeoutMs: number,
 ): ReturnType<typeof createWorker> {
-  const isNode = typeof window === "undefined";
+  // `detectRuntime()`, never `typeof window` -- see its comment. A Web
+  // Worker has no `window` either, and diffing handles there would have meant
+  // touching `process` in a runtime that need not define it.
+  const isNode = detectRuntime() === "node";
   // Snapshot taken on every call, not only ones that end up timing out --
   // at this point we do not yet know whether this call will time out, and
   // the diff below only means anything if it spans exactly this call's own
@@ -217,6 +361,54 @@ async function createWorkerInitAttempt(
   }
 }
 
+/**
+ * Turns rendered RGBA pixels into something `worker.recognize` accepts.
+ *
+ * tesseract.js has no raw-pixel entry point: it writes the bytes to a virtual
+ * file and calls `SetImageFile`, which needs a decodable image header, so raw
+ * RGBA silently becomes a zero-length buffer and errors.
+ *
+ * Node encodes the PNG in-process with `src/lib/export/png.ts` and wraps it
+ * in a `Buffer`, which is the type tesseract.js's Node `loadImage` expects.
+ *
+ * The browser hands tesseract.js an `OffscreenCanvas` instead, which its
+ * browser `loadImage` special-cases by calling `convertToBlob()` (see that
+ * library's `src/worker/browser/loadImage.js`). That is the browser's own
+ * native PNG encoder, so no JavaScript encoder runs at all -- against a
+ * 2480x3507 page, `encodePng` otherwise means a pure-JS CRC32 and row-filter
+ * pass over 35MB, per page, on top of the compression.
+ *
+ * NOT because the Node branch would crash here: checked against the built
+ * worker chunk, Turbopack resolves `Buffer` to its polyfill rather than
+ * leaving a bare global, so that line would have run. It is the wrong tool in
+ * the browser, not a landmine.
+ */
+async function toRecognizableImage(page: RenderedPage): Promise<Buffer | OffscreenCanvas> {
+  if (detectRuntime() === "node") {
+    return Buffer.from(await encodePng(page.data, page.width, page.height));
+  }
+
+  if (typeof OffscreenCanvas === "undefined") {
+    throw new Error(
+      "OCR in the browser needs OffscreenCanvas, which this browser does not " +
+        "expose. Rendering and recognition both run in a Web Worker, where a " +
+        "DOM <canvas> is unreachable.",
+    );
+  }
+
+  const canvas = new OffscreenCanvas(page.width, page.height);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("OffscreenCanvas gave no 2D context.");
+  // `RenderedPage.data` is declared as a bare `Uint8ClampedArray`, which TS
+  // widens to `ArrayBufferLike`, while `ImageData` insists on `ArrayBuffer`.
+  // Every RenderedPage in this codebase comes from `getImageData().data`,
+  // which is always ArrayBuffer-backed, so this narrows a fact that already
+  // holds rather than asserting a new one.
+  const pixels = page.data as Uint8ClampedArray<ArrayBuffer>;
+  context.putImageData(new ImageData(pixels, page.width, page.height), 0, 0);
+  return canvas;
+}
+
 export async function ocrToWords(
   page: RenderedPage,
   lang = "ind",
@@ -235,16 +427,13 @@ export async function ocrToWords(
       // vendoring step keeps it compressed. This must agree with what
       // scripts/vendor-ocr.mjs writes, or the fetch 404s.
       gzip: true,
-      ...(typeof window === "undefined" ? {} : BROWSER_ASSETS),
+      ...ocrAssetsFor(),
       ...assetPaths,
     },
     initTimeoutMs,
   );
   try {
-    // tesseract.js has no raw-pixel path. It writes the bytes to a virtual
-    // file and calls SetImageFile, which needs a decodable header, so raw
-    // RGBA silently becomes a zero-length buffer and errors.
-    const image = Buffer.from(await encodePng(page.data, page.width, page.height));
+    const image = await toRecognizableImage(page);
     const { data } = await worker.recognize(image, {}, { blocks: true });
 
     const words: Word[] = [];

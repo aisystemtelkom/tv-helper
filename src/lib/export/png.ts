@@ -56,17 +56,35 @@ export function chunk(type: string, data: Uint8Array): Uint8Array {
 }
 
 /**
- * `CompressionStream` (the browser path) has no synchronous API -- it is a
- * WHATWG transform stream, which can only be consumed by awaiting its
- * output. `zlib.deflateSync` (the Node path) is synchronous, but this helper
- * stays async throughout so `encodePng` does not need an environment-specific
- * return type.
+ * One code path, `CompressionStream`, in every runtime. It is a WHATWG
+ * transform stream with no synchronous API, which is why this helper is async
+ * and why `encodePng` and `cropToPng` above it are too.
+ *
+ * IT USED TO BRANCH on `typeof window === "undefined"`, meaning "I am in
+ * Node", and then `await import("node:zlib")`. That test is wrong for the
+ * same reason it was wrong in `src/lib/pipeline/ocr.ts` (see `detectRuntime`
+ * there, which documents it at length): a browser Web Worker has no `window`
+ * either, and a Web Worker is where this project now renders and OCRs pages.
+ *
+ * BE PRECISE ABOUT WHAT THAT COST, because it is less than it looks and the
+ * next person deserves the measured version. Under Turbopack it cost nothing:
+ * building the worker with the old code and reading the emitted chunk shows
+ * the bundler folding `typeof window` for a browser target and deleting the
+ * `node:zlib` branch outright, leaving exactly the code below. The old branch
+ * was therefore CORRECT BY BUNDLER CONSTANT-FOLDING, not by construction --
+ * true only as long as whatever builds this keeps folding it, and a runtime
+ * `ReferenceError`-free path only by luck. Removing the branch makes it true
+ * by construction instead, which is the whole point of the ocr.ts fix.
+ *
+ * `CompressionStream("deflate")` emits zlib-wrapped deflate (RFC 1950),
+ * exactly what a PNG IDAT chunk holds, and it is a global in Node 18+ as well
+ * as in every browser this app supports. Measured on the same input,
+ * `zlib.deflateSync` and this produce byte streams of identical length, and
+ * the Node suite (`pnpm test`, which encodes and OCRs real PNGs) is green on
+ * it. The Node path lost nothing by going away, and there is no environment
+ * check left here to get wrong again.
  */
 async function deflate(raw: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-  if (typeof window === "undefined") {
-    const { deflateSync } = await import("node:zlib");
-    return new Uint8Array(deflateSync(raw));
-  }
   const stream = new CompressionStream("deflate");
   const writer = stream.writable.getWriter();
   void writer.write(raw);
