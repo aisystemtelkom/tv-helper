@@ -248,3 +248,68 @@ test("ocrToWords times out with an actionable error instead of hanging when work
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a timed-out init does not close a concurrent, healthy call's worker channel", async () => {
+  // Regression test for a real bug: the leak guard above diffs
+  // process._getActiveHandles() before/after ONE createWorker() call to
+  // find the handle that call spawned. Without serialising worker init
+  // (see initQueue/serialize in ocr.ts), a second call's worker can spawn
+  // its own MessagePort while a first call's diff window is still open --
+  // so a timing-out first call sees the second call's healthy handle as
+  // "new" and closes it, hanging the second call forever even though
+  // nothing was wrong with it.
+  //
+  // This is deterministic, not a timing race: ocrToWords() is called
+  // synchronously here, back to back, with no await between the two calls.
+  // ocr.ts's module-level init queue is a plain promise chain updated
+  // synchronously on each call, so which call enters the queue first is
+  // fixed by JS's single-threaded execution order, not by how fast either
+  // worker actually spawns. The bad call is queued first and always
+  // finishes (by timing out) before the good call's own init begins.
+  const badDir = await mkdtemp(join(tmpdir(), "ocr-concurrent-bad-langpath-"));
+
+  const tinyImage = { data: new Uint8ClampedArray(4 * 4 * 4), width: 4, height: 4 };
+
+  const canvas = createCanvas(300, 100);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 300, 100);
+  ctx.fillStyle = "black";
+  ctx.font = "32px sans-serif";
+  ctx.fillText("HELLO", 10, 60);
+  const goodRendered = {
+    data: ctx.getImageData(0, 0, 300, 100).data,
+    width: 300,
+    height: 100,
+  };
+
+  try {
+    const badCall = ocrToWords(tinyImage, "eng", {
+      langPath: badDir,
+      gzip: true,
+      cacheMethod: "none",
+      initTimeoutMs: 50,
+    });
+    // Fired immediately, with no await in between: this call's init is
+    // queued directly behind the bad call's, not run concurrently with it.
+    const goodCall = ocrToWords(goodRendered, "eng", {
+      langPath: "./public/tesseract",
+      gzip: true,
+      cacheMethod: "none",
+    });
+
+    const [badResult, goodResult] = await Promise.allSettled([badCall, goodCall]);
+
+    assert.equal(badResult.status, "rejected");
+    assert.match(badResult.reason.message, /did not settle within 50ms/);
+
+    // The regression this guards against: if the bad call's timeout closed
+    // the good call's MessagePort instead of its own, this would either
+    // fail (goodResult rejected) or never get here at all (the process
+    // would hang, per the original report).
+    assert.equal(goodResult.status, "fulfilled");
+    assert.ok(goodResult.value.length > 0, "expected the healthy call to recognize at least one word");
+  } finally {
+    await rm(badDir, { recursive: true, force: true });
+  }
+});

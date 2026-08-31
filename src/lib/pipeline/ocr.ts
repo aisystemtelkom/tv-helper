@@ -40,13 +40,48 @@ const DEFAULT_INIT_TIMEOUT_MS = 30_000;
  * `process._getActiveHandles` is an undocumented Node internal (no
  * `@types/node` declaration), used below purely as a last-resort leak guard.
  * Reproducing the hang and inspecting this list is how the fix was verified
- * at all: it showed exactly one leaked handle (a `MessagePort`), and nothing
- * else in this codebase depends on it.
+ * at all: it showed exactly one leaked handle, a `MessagePort`.
  */
-type HandleLike = { close?: () => void; unref?: () => void };
+type HandleLike = {
+  constructor?: { name?: string };
+  close?: () => void;
+  unref?: () => void;
+};
 function activeHandles(): HandleLike[] {
   const proc = process as unknown as { _getActiveHandles?: () => HandleLike[] };
   return proc._getActiveHandles?.() ?? [];
+}
+
+/**
+ * Serializes worker initialisation: at most one createWorker() call is ever
+ * in flight at a time.
+ *
+ * This is required for the leak guard in createWorkerInitAttempt to be
+ * safe, not just tidy. That guard diffs process._getActiveHandles() before
+ * and after a single createWorker() call to find the specific handle that
+ * call spawned. Without serialisation, a second call's worker can spawn its
+ * own MessagePort while a first call's diff window is still open; the first
+ * call then sees that unrelated, healthy MessagePort as "new," and if the
+ * first call times out, it closes the second call's channel instead of its
+ * own -- hanging a perfectly healthy concurrent call forever. Reproduced and
+ * confirmed by review: a bad-langPath call with a short initTimeoutMs
+ * running concurrently with a good call against the real vendored assets
+ * made the good call hang too.
+ *
+ * Bounded, not a deadlock risk: a stuck call still releases the queue on its
+ * own timeoutMs, so the worst case is queued delay, never an infinite wait.
+ * Cost: measured init time is 143-187ms, so serialising even Task 7's 28
+ * pages adds roughly five seconds against per-page recognition, which
+ * dominates total runtime regardless.
+ */
+let initQueue: Promise<void> = Promise.resolve();
+function serialize<T>(fn: () => Promise<T>): Promise<T> {
+  const result = initQueue.then(fn, fn);
+  initQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 /**
@@ -64,25 +99,40 @@ function activeHandles(): HandleLike[] {
  * tesseract.js's source and by reproducing the hang against a langPath
  * pointing at an empty directory.
  *
- * This wraps ONLY worker initialisation, not recognition. Page recognition
- * on a 300 DPI scan can legitimately take many seconds, so a timeout there
- * would be a different tradeoff; this timeout exists solely to turn the
- * specific init-hang above into an actionable error instead of a stall.
+ * Wraps ONLY worker initialisation, not recognition. Page recognition on a
+ * 300 DPI scan can legitimately take many seconds, so a timeout there would
+ * be a different tradeoff; this timeout exists solely to turn the specific
+ * init-hang above into an actionable error instead of a stall.
+ *
+ * Runs through serialize() -- see its comment for why running concurrently
+ * with another call is not safe here.
  */
 async function createWorkerWithTimeout(
   lang: string,
   options: Parameters<typeof createWorker>[2],
   timeoutMs: number,
 ): ReturnType<typeof createWorker> {
+  return serialize(() => createWorkerInitAttempt(lang, options, timeoutMs));
+}
+
+async function createWorkerInitAttempt(
+  lang: string,
+  options: Parameters<typeof createWorker>[2],
+  timeoutMs: number,
+): ReturnType<typeof createWorker> {
   const isNode = typeof window === "undefined";
+  // Snapshot taken on every call, not only ones that end up timing out --
+  // at this point we do not yet know whether this call will time out, and
+  // the diff below only means anything if it spans exactly this call's own
+  // spawn.
   const handlesBeforeSpawn = isNode ? new Set(activeHandles()) : null;
 
   const pending = createWorker(lang, 1, options);
 
-  // Best-effort leak guard for the case where createWorker() merely takes
-  // longer than our timeout rather than being genuinely stuck: if it
-  // resolves later anyway, terminate the now-unwanted worker instead of
-  // leaking it for the rest of the process's life.
+  // Best-effort guard for the case where createWorker() merely takes longer
+  // than our timeout rather than being genuinely stuck: if it resolves
+  // later anyway, terminate the now-unwanted worker instead of leaking it
+  // for the rest of the process's life.
   let timedOut = false;
   pending.then(
     (worker) => {
@@ -101,16 +151,20 @@ async function createWorkerWithTimeout(
       // tesseract.js's own `.terminate()` is unreachable here -- but the
       // spawned worker thread's communication channel is a real Node handle
       // that keeps this process's event loop alive on its own, even after we
-      // reject below. Diffing the handle list before/after isolates just
-      // what this specific call spawned (nothing else in the process is
-      // touched), and closing it (not merely unref-ing -- verified by
-      // reproduction that unref alone was NOT enough to let the process
-      // exit, close was) lets this process exit normally. Node tears down
-      // worker threads along with their parent on exit, so this does not
-      // leave an orphaned OS thread outliving this process.
+      // reject below. Diffing the handle list before/after (made safe only
+      // by serialize() above) isolates just what THIS call spawned.
+      //
+      // Only ever close a MessagePort, never any other handle type.
+      // process._getActiveHandles() returns every active handle in the
+      // process -- sockets, file streams, anything else the app has open --
+      // and closing one of those instead would be a far worse bug than the
+      // leak this guards against. MessagePort is the specific type this fix
+      // was verified against (unref() alone was tried first and was NOT
+      // enough to let the process exit; close() was).
       if (handlesBeforeSpawn) {
         for (const handle of activeHandles()) {
           if (handlesBeforeSpawn.has(handle)) continue;
+          if (handle?.constructor?.name !== "MessagePort") continue;
           try {
             if (handle.close) handle.close();
             else handle.unref?.();
