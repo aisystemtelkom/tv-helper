@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "tv-helper — local Gemma",
-  description: "Chat harness proving local Gemma 3 inference",
+  title: "tv-helper",
+  description: "Chat harness proving Gemini vision inference",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

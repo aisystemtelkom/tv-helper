@@ -7,8 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "model:pull": "node scripts/setup-model.mjs",
-    "ollama:serve": "node scripts/ollama-serve.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs",
     "measure:locate": "node scripts/measure-locate.mjs",
@@ -16,7 +14,7 @@
     "prebuild": "pnpm vendor:ocr"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.32",
+    "@ai-sdk/google": "4.0.56",
     "@ai-sdk/react": "^4.0.73",
     "@assistant-ui/core": "0.3.14",
     "@assistant-ui/react": "^0.15.15",
