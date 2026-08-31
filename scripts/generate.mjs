@@ -40,6 +40,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 
 // First, and deliberately: importing this loads .env.local into process.env,
@@ -495,18 +496,96 @@ async function cutCrops(zones, pages, sources) {
 // ---------------------------------------------------------------------------
 // Text extraction for the xlsx and the docx header.
 //
-// The pages offered are the ones the `layout: "images"` sections capture --
+// The default pool is the pages the `layout: "images"` sections capture --
 // the order paperwork (BA Permintaan, SP, the email thread). The KB contract
 // is deliberately excluded: it is a legal document whose addresses and party
 // names are the bank's head office, not this order's service site, and
 // offering it makes a confident wrong `alamat` more likely, not less.
 //
-// The pages are renumbered 0..n-1 before being handed over and mapped back
-// afterwards. locate.ts documents the measured reason (a non-zero first page
-// label gets treated as a 1-based ordinal); extractFields numbers its listing
-// by each page's own `index`, so feeding it global indexes like 23 and 27
-// walks straight into that. Positions in, true indexes out.
+// Not every key may safely share that whole pool, though. `cc` and `alamat`
+// both name the customer, and offering the printed email thread let the
+// model match the email's OWN "Cc:" header line instead of the customer name
+// on the BA Permintaan -- both deliverables shipped a wrong customer.
+// `picContacts`, by contrast, came back exactly matching the sample off the
+// Email page and nowhere else. FIELD_DOC_TYPES narrows a key's pool instead
+// of dropping the Email page from the default pool outright, which would fix
+// `cc` and lose `picContacts` (task-11-report.md self-review #1). A key with
+// no entry here keeps the full order-paperwork pool -- e.g. `namaProyek`,
+// which needs composing rather than sourcing and is a separate, known gap
+// (task-11-report.md self-review #2).
+//
+// Each group's pool is renumbered 0..n-1 before being handed to the model
+// and mapped back afterwards. extractFields numbers its listing by POSITION
+// in what it was given, never by a page's true index (its own header comment
+// documents the measured reason, the same one locate.ts documents): a
+// citation's `pageIndex` is therefore that pool's position, not a
+// bundle-global page number. remapCitedPageIndex maps it back to the page's
+// true `.index` -- and drops the citation outright, rather than falling back
+// to the raw local position, when the model cites a position the pool
+// doesn't hold. A silent fallback there would write that local number into
+// the workbook as if it were a true page number: a citation that looks valid
+// and points at the wrong page.
 // ---------------------------------------------------------------------------
+
+/**
+ * docTypes a fieldKey's value and citation may come from. A key absent here
+ * draws from every `layout: "images"` docType (orderPaperworkDocTypes below).
+ */
+export const FIELD_DOC_TYPES = {
+  cc: ["BAPermintaan"],
+  alamat: ["BAPermintaan"],
+  picContacts: ["Email"],
+};
+
+/** The docTypes every `layout: "images"` fillable slot captures -- the pool a
+ * key with no FIELD_DOC_TYPES entry draws from. */
+export function orderPaperworkDocTypes(template) {
+  const set = new Set();
+  for (const section of template.sections) {
+    if (section.layout !== "images") continue;
+    for (const slot of section.slots) {
+      if (slot.fillable && slot.docType) set.add(slot.docType);
+    }
+  }
+  return [...set];
+}
+
+/**
+ * The classified pages for a set of docTypes, ascending by global index. Pure
+ * and side-effect free, so it is testable without a model call.
+ */
+export function poolForDocTypes(docTypes, byType, pages) {
+  const wanted = new Set();
+  for (const docType of docTypes) {
+    for (const index of byType.get(docType) ?? []) wanted.add(index);
+  }
+  return [...wanted].sort((a, b) => a - b).map((i) => pages[i]);
+}
+
+/**
+ * Maps a citation's pool POSITION back to that page's true document index.
+ * Returns undefined -- drop the citation -- when the position is not one the
+ * pool actually holds, instead of the old `pool[i]?.index ?? i` fallback,
+ * which wrote the raw local position into the workbook as a bundle-global
+ * page number whenever the model cited a position outside the pool.
+ */
+export function remapCitedPageIndex(poolPosition, pool) {
+  return pool[poolPosition]?.index;
+}
+
+/** Groups fieldKeys by the docType set they may draw from, so keys sharing a
+ * pool cost one extraction call instead of one apiece. */
+export function groupKeysByDocTypes(keys, defaultDocTypes) {
+  const groups = new Map();
+  for (const key of keys) {
+    const docTypes = FIELD_DOC_TYPES[key] ?? defaultDocTypes;
+    const signature = docTypes.join("|");
+    const group = groups.get(signature);
+    if (group) group.keys.push(key);
+    else groups.set(signature, { docTypes, keys: [key] });
+  }
+  return [...groups.values()];
+}
 
 async function extractTextFields(template, byType, pages) {
   const keys = [
@@ -514,41 +593,42 @@ async function extractTextFields(template, byType, pages) {
       template.xlsxRows.map((row) => row.fieldKey).filter((key) => key),
     ),
   ];
+  const defaultDocTypes = orderPaperworkDocTypes(template);
 
-  const wanted = new Set();
-  for (const section of template.sections) {
-    if (section.layout !== "images") continue;
-    for (const slot of section.slots) {
-      if (!slot.fillable || !slot.docType) continue;
-      for (const index of byType.get(slot.docType) ?? []) wanted.add(index);
+  const values = [];
+  for (const group of groupKeysByDocTypes(keys, defaultDocTypes)) {
+    const pool = poolForDocTypes(group.docTypes, byType, pages);
+    if (pool.length === 0) {
+      console.log(
+        `  no ${group.docTypes.join("/")} pages were classified; skipping ` +
+          `${group.keys.join(", ")}`,
+      );
+      continue;
+    }
+
+    console.log(
+      `  extracting ${group.keys.join(", ")} from pages ` +
+        `${pool.map((p) => p.index).join(", ")}...`,
+    );
+
+    const renumbered = pool.map((page, position) => ({ ...page, index: position }));
+    const found = await extractFields(group.keys, renumbered, ask);
+
+    for (const value of found) {
+      if (!value.source) {
+        values.push(value);
+        continue;
+      }
+      const pageIndex = remapCitedPageIndex(value.source.pageIndex, pool);
+      values.push(
+        pageIndex === undefined
+          ? { fieldKey: value.fieldKey, value: value.value }
+          : { ...value, source: { ...value.source, pageIndex } },
+      );
     }
   }
 
-  const pool = [...wanted].sort((a, b) => a - b).map((i) => pages[i]);
-  if (pool.length === 0) {
-    console.log("  no order-paperwork pages were classified; skipping extraction");
-    return [];
-  }
-
-  console.log(
-    `  extracting ${keys.length} fields from pages ` +
-      `${pool.map((p) => p.index).join(", ")}...`,
-  );
-
-  const renumbered = pool.map((page, position) => ({ ...page, index: position }));
-  const values = await extractFields(keys, renumbered, ask);
-
-  return values.map((value) =>
-    value.source
-      ? {
-          ...value,
-          source: {
-            ...value.source,
-            pageIndex: pool[value.source.pageIndex]?.index ?? value.source.pageIndex,
-          },
-        }
-      : value,
-  );
+  return values;
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +690,15 @@ async function main() {
       : " [no citation]";
     console.log(`  ${value.fieldKey} = ${JSON.stringify(value.value)}${cite}`);
   }
+  // A value can arrive uncited either because the model never offered a
+  // citation or because extractFields dropped one that failed validation (a
+  // hallucinated page, a reversed range, a line the cited page doesn't have)
+  // -- either way the operator should see the count, since an uncited value
+  // in the xlsx has nothing to check it against.
+  const uncited = values.filter((v) => !v.source).length;
+  if (uncited > 0) {
+    console.log(`  ${uncited} of ${values.length} extracted value(s) carry no citation`);
+  }
   console.log();
 
   const { idEpic, quote } = deriveIdsFromFilenames(sources.map((s) => s.name));
@@ -661,12 +750,22 @@ async function main() {
 /** An argument mistake deserves the usage text, not a stack trace. */
 const USAGE_ERRORS = /^(no PDF given|unknown option |--out needs|no such file: )/;
 
-main().catch((error) => {
-  if (USAGE_ERRORS.test(error.message)) {
-    console.error(`\n${error.message}\n\n${USAGE}`);
-  } else {
-    console.error(`\n${MODEL_TARGET} pipeline failed:`);
-    console.error(error);
-  }
-  process.exitCode = 1;
-});
+// Guarded so the test suite can import this file's pure helpers (e.g.
+// poolForDocTypes, remapCitedPageIndex) without running the whole CLI --
+// `main()` needs a PDF argument and a live model credential, neither of
+// which a unit test has.
+const isEntryPoint =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isEntryPoint) {
+  main().catch((error) => {
+    if (USAGE_ERRORS.test(error.message)) {
+      console.error(`\n${error.message}\n\n${USAGE}`);
+    } else {
+      console.error(`\n${MODEL_TARGET} pipeline failed:`);
+      console.error(error);
+    }
+    process.exitCode = 1;
+  });
+}

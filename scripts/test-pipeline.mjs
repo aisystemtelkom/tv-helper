@@ -700,6 +700,69 @@ test("buildDocx writes real png media parts at their true size", async () => {
   assert.equal(Math.round((cx / 914400) * 1000), 2000);
 });
 
+test("buildDocx sets the sample's own page size and margins", async () => {
+  // The sample's word/document.xml sectPr, read directly out of
+  // documents/Form_Validasi_LOP285120_1-72989090591-bsivpn (2).docx:
+  // <w:pgSz w:w="11901" w:h="16817"/>
+  // <w:pgMar w:top="873" w:right="907" w:bottom="941" w:left="1026" .../>
+  // Without this the section inherits docx's own A4 default instead of the
+  // document being reproduced.
+  const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+
+  assert.match(xml, /<w:pgSz[^>]*\bw:w="11901"[^>]*\bw:h="16817"/);
+  assert.match(
+    xml,
+    /<w:pgMar[^>]*\bw:top="873"[^>]*\bw:right="907"[^>]*\bw:bottom="941"[^>]*\bw:left="1026"/,
+  );
+});
+
+test("buildDocx shrinks a crop wider than the usable column instead of letting Word clip it", async () => {
+  // A whole-page capture at 300 DPI (2481x3507, true A4) renders past the
+  // usable column -- 8.267in cut from an 8.267in-wide page, into a column
+  // the sample's own 1026/907-twip margins narrow to about 6.92in. docx does
+  // not shrink an oversized inline image, so the excess used to run off the
+  // page. This asserts the fix rather than eyeballing a screenshot: the
+  // extent must land at or under the usable column, and the crop's aspect
+  // ratio must survive the scale-down.
+  const canvas = createCanvas(10, 10);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 10, 10);
+  const png = await cropToPng(
+    { data: ctx.getImageData(0, 0, 10, 10).data, width: 10, height: 10 },
+    { x: 0, y: 0, w: 10, h: 10 },
+  );
+
+  const widthPx = 2481;
+  const heightPx = 3507;
+  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, [
+    { key: "ba.permintaan", png, widthPx, heightPx },
+  ]);
+
+  const xml = await documentXml(bytes);
+  const cx = Number(xml.match(/<wp:extent cx="(\d+)"/)[1]);
+  const cy = Number(xml.match(/<wp:extent[^>]*cy="(\d+)"/)[1]);
+
+  // 11901 - 1026 - 907 = 9968 twips = 6.9222...in usable column.
+  const usableInches = (11901 - 1026 - 907) / 1440;
+  assert.ok(
+    cx / 914400 <= usableInches + 0.001,
+    `cx ${cx} (${(cx / 914400).toFixed(3)}in) exceeds the ${usableInches.toFixed(3)}in usable column`,
+  );
+  // Scaled down, not just clamped to some arbitrary cap: a page this size at
+  // 300 DPI would be 8.267in unscaled, well past the column, so the fix must
+  // actually have fired.
+  assert.ok(cx / 914400 < 8.267);
+  // Aspect ratio preserved: cy/cx must still equal the crop's own
+  // heightPx/widthPx, not an independently clamped height.
+  const ratio = cy / cx;
+  const expectedRatio = heightPx / widthPx;
+  assert.ok(
+    Math.abs(ratio - expectedRatio) < 1e-6,
+    `aspect ratio drifted: got ${ratio}, expected ${expectedRatio}`,
+  );
+});
+
 test("buildDocx stacks both of a slot's crops in that one cell", async () => {
   // kbLanjutan.top declares crops: 2 because the sample's ToP row stacks two
   // pictures in a single cell. Keying filled slots by name alone keeps only
@@ -835,6 +898,80 @@ test("extractFields keeps provenance and drops unbacked keys", async () => {
   assert.deepEqual(values[0].source, { pageIndex: 0, lineRange: [0, 0] });
 });
 
+/** Two distinct OCR lines, so a reversed or out-of-range citation is
+ * distinguishable from "the page doesn't have that many lines at all". */
+function twoLinePage(index = 0) {
+  return {
+    index,
+    width: 500,
+    height: 500,
+    lines: groupWordsIntoLines([
+      { text: "Nama", box: { x: 10, y: 10, w: 40, h: 12 } },
+      { text: "Pelanggan", box: { x: 55, y: 10, w: 70, h: 12 } },
+      { text: "PT", box: { x: 10, y: 40, w: 20, h: 12 } },
+      { text: "BSI", box: { x: 35, y: 40, w: 30, h: 12 } },
+    ]),
+  };
+}
+
+test("extractFields drops a citation to a page that was never offered, but keeps the value", async () => {
+  // Only one page (position 0) is offered; the model cites position 5.
+  const ask = async () =>
+    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":5,"from":0,"to":0}]}';
+
+  const values = await extractFields(["cc"], [twoLinePage()], ask);
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].source, undefined);
+});
+
+test("extractFields drops a reversed line range, but keeps the value", async () => {
+  const ask = async () =>
+    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":1,"to":0}]}';
+
+  const values = await extractFields(["cc"], [twoLinePage()], ask);
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].source, undefined);
+});
+
+test("extractFields drops a citation whose line range doesn't exist on the page, but keeps the value", async () => {
+  // The page only has lines 0-1; the model cites up to line 5.
+  const ask = async () =>
+    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":5}]}';
+
+  const values = await extractFields(["cc"], [twoLinePage()], ask);
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].source, undefined);
+});
+
+test("extractFields numbers its listing by position, not by the page's true document index", async () => {
+  // page.index is the page's true index in the source bundle -- deep into a
+  // multi-document pool, e.g. 23. The listing label for the only page
+  // offered must still be "page 0", exactly locate.ts's convention: echoing
+  // a caller-supplied true index back as the label is the precise ambiguity
+  // that made the model answer one position off in an earlier task.
+  const page = twoLinePage(23);
+  let capturedPrompt;
+  const ask = async (prompt) => {
+    capturedPrompt = prompt;
+    return '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":0}]}';
+  };
+
+  const values = await extractFields(["cc"], [page], ask);
+
+  assert.ok(capturedPrompt.includes("--- page 0 ---"), capturedPrompt);
+  assert.ok(!capturedPrompt.includes("--- page 23 ---"), capturedPrompt);
+  // The returned citation stays position-based too: mapping position 0 back
+  // to the page's true index (23) is the consumer's job, not this
+  // function's -- see generate.mjs's extractTextFields.
+  assert.deepEqual(values[0].source, { pageIndex: 0, lineRange: [0, 0] });
+});
+
 import { buildXlsx } from "../src/lib/export/xlsx.ts";
 import exceljs from "exceljs";
 
@@ -860,4 +997,90 @@ test("buildXlsx fills only backed rows and cites their provenance", async () => 
   const cell = sheet.getCell("E7");
   assert.ok(String(cell.value).includes("Kemanggisan"));
   assert.ok(JSON.stringify(cell.note ?? "").includes("lines 7-9"));
+});
+
+import {
+  FIELD_DOC_TYPES,
+  groupKeysByDocTypes,
+  orderPaperworkDocTypes,
+  poolForDocTypes,
+  remapCitedPageIndex,
+} from "./generate.mjs";
+
+test("remapCitedPageIndex drops a citation to a pool position that was never offered", () => {
+  const pool = [{ index: 23 }, { index: 24 }];
+
+  // A position the pool actually holds maps back to that page's true index.
+  assert.equal(remapCitedPageIndex(0, pool), 23);
+  assert.equal(remapCitedPageIndex(1, pool), 24);
+
+  // Position 5 doesn't exist in a two-element pool. The old
+  // `pool[i]?.index ?? i` fallback returned 5 here -- the raw LOCAL position,
+  // written into the workbook as if it were a bundle-global page number.
+  assert.equal(remapCitedPageIndex(5, pool), undefined);
+});
+
+test("poolForDocTypes returns only the pages classified under the requested docTypes", () => {
+  const byType = new Map([
+    ["BAPermintaan", [3]],
+    ["Email", [7]],
+    ["SP", [1, 2]],
+  ]);
+  const pages = [];
+  pages[1] = { index: 1 };
+  pages[2] = { index: 2 };
+  pages[3] = { index: 3 };
+  pages[7] = { index: 7 };
+
+  assert.deepEqual(
+    poolForDocTypes(["BAPermintaan"], byType, pages).map((p) => p.index),
+    [3],
+  );
+  assert.deepEqual(
+    poolForDocTypes(["Email"], byType, pages).map((p) => p.index),
+    [7],
+  );
+  // A union of docTypes merges and sorts by global index.
+  assert.deepEqual(
+    poolForDocTypes(["Email", "SP"], byType, pages).map((p) => p.index),
+    [1, 2, 7],
+  );
+});
+
+test("cc and alamat are restricted to BA Permintaan, and picContacts to Email", () => {
+  // The wrong-customer bug: offering the printed Email thread's pages to
+  // `cc`/`alamat` let the model match the email's own "Cc:" header line
+  // instead of the customer name on the BA Permintaan.
+  assert.deepEqual(FIELD_DOC_TYPES.cc, ["BAPermintaan"]);
+  assert.deepEqual(FIELD_DOC_TYPES.alamat, ["BAPermintaan"]);
+  assert.deepEqual(FIELD_DOC_TYPES.picContacts, ["Email"]);
+});
+
+test("groupKeysByDocTypes never gives cc/alamat the Email pool, or picContacts the BA Permintaan pool", () => {
+  const defaultDocTypes = ["BAPermintaan", "SP", "Email"];
+  const groups = groupKeysByDocTypes(
+    ["namaProyek", "picContacts", "cc", "alamat"],
+    defaultDocTypes,
+  );
+  const groupFor = (key) => groups.find((g) => g.keys.includes(key));
+
+  assert.deepEqual(groupFor("cc").docTypes, ["BAPermintaan"]);
+  assert.deepEqual(groupFor("alamat").docTypes, ["BAPermintaan"]);
+  assert.deepEqual(groupFor("picContacts").docTypes, ["Email"]);
+  assert.ok(!groupFor("cc").docTypes.includes("Email"));
+  assert.ok(!groupFor("alamat").docTypes.includes("Email"));
+  assert.ok(!groupFor("picContacts").docTypes.includes("BAPermintaan"));
+
+  // namaProyek has no FIELD_DOC_TYPES entry and keeps the full default pool
+  // -- a separate, known gap (it needs composing, not sourcing), not this
+  // fix's scope. Dropping the Email page from its pool entirely would also
+  // lose picContacts, which the sample confirms is exactly right off Email.
+  assert.deepEqual(groupFor("namaProyek").docTypes, defaultDocTypes);
+});
+
+test("orderPaperworkDocTypes lists every layout:images fillable slot's docType", () => {
+  assert.deepEqual(
+    [...orderPaperworkDocTypes(AO_TEMPLATE)].sort(),
+    ["BAPermintaan", "Email", "SP"].sort(),
+  );
 });

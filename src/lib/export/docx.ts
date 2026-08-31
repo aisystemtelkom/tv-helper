@@ -36,7 +36,43 @@ const CROP_DPI = 300;
 const DOCX_PX_PER_INCH = 96;
 const toDocxPx = (px: number) => (px / CROP_DPI) * DOCX_PX_PER_INCH;
 
+/**
+ * Transcribed from the sample's own `word/document.xml` `<w:sectPr>`:
+ * `<w:pgSz w:w="11901" w:h="16817"/>` and
+ * `<w:pgMar w:top="873" w:right="907" w:bottom="941" w:left="1026" .../>`.
+ * Twips, 1440 per inch. This exporter reproduces that document, so its page
+ * geometry should match it rather than silently inherit docx's own A4
+ * default (11906 x 16838, 1-inch margins).
+ */
+const TWIPS_PER_INCH = 1440;
+const PAGE_SIZE = { width: 11901, height: 16817 };
+const PAGE_MARGIN = { top: 873, right: 907, bottom: 941, left: 1026 };
+
+/**
+ * The widest an image can render before Word clips it. A crop is cut at its
+ * true physical size at `CROP_DPI` and docx does not shrink an oversized
+ * inline image to fit its column -- the excess just runs off the page. A
+ * rendered A4 page at 300 DPI is 8.267in wide; the margins above leave only
+ * about 6.92in of that. Four of the eleven fillable slots are whole-page
+ * captures, so an uncapped width is most of the document's visual content,
+ * not an edge case.
+ */
+const USABLE_WIDTH_PX =
+  ((PAGE_SIZE.width - PAGE_MARGIN.left - PAGE_MARGIN.right) /
+    TWIPS_PER_INCH) *
+  DOCX_PX_PER_INCH;
+
 function imageParagraph(slot: FilledSlot): Paragraph {
+  const width = toDocxPx(slot.widthPx);
+  const height = toDocxPx(slot.heightPx);
+  // Word does not shrink an oversized inline image to its column; the excess
+  // is simply clipped. When the rendered width would exceed the usable page
+  // width, scale both dimensions down by the same factor so the crop fits
+  // and keeps its aspect ratio. A crop already inside the column (the
+  // mandated 600px-at-300DPI test is 2in, far below the ~6.92in column) is
+  // untouched: this only ever shrinks, never grows, an image.
+  const scale = width > USABLE_WIDTH_PX ? USABLE_WIDTH_PX / width : 1;
+
   return new Paragraph({
     children: [
       new ImageRun({
@@ -46,8 +82,8 @@ function imageParagraph(slot: FilledSlot): Paragraph {
         type: "png",
         data: slot.png,
         transformation: {
-          width: toDocxPx(slot.widthPx),
-          height: toDocxPx(slot.heightPx),
+          width: width * scale,
+          height: height * scale,
         },
       }),
     ],
@@ -154,6 +190,12 @@ export async function buildDocx(
     title: template.label,
     sections: [
       {
+        properties: {
+          page: {
+            size: { width: PAGE_SIZE.width, height: PAGE_SIZE.height },
+            margin: { ...PAGE_MARGIN },
+          },
+        },
         children: [
           headerTable,
           ...template.sections.flatMap((section) =>
