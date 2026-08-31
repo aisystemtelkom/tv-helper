@@ -1415,6 +1415,33 @@ test("outstandingSlots names a half-filled two-crop slot instead of calling it d
   assert.match(outstanding[0].reason, /1 of 2/);
 });
 
+test("a partly-filled slot's reason leads with its count, not the last round's message", () => {
+  // Measured on the real two-round run: kbLanjutan.top held one of its two
+  // captures from round 1, round 2 searched the tambahan for the second and
+  // found none, and the reason read "the model found no match" -- which says
+  // the slot is empty, next to a found:1 that says it is not.
+  const zones = [
+    { key: "field.one", pageIndex: 0 },
+    { key: "field.two", pageIndex: 1 },
+    { key: "whole.1", pageIndex: 2 },
+    { key: "whole.2", pageIndex: 3 },
+  ];
+  const reasons = new Map([["field.two", "the model found no match"]]);
+
+  const [item] = outstandingSlots(TINY_TEMPLATE, zones, reasons);
+
+  assert.equal(item.found, 1);
+  assert.match(item.reason, /^1 of 2 captures found/);
+  // The round's own message is kept, but as the tail rather than the claim.
+  assert.match(item.reason, /the model found no match/);
+
+  // A slot with nothing at all still leads with what went wrong.
+  const empty = outstandingSlots(TINY_TEMPLATE, [], reasons).find(
+    (o) => o.key === "field.two",
+  );
+  assert.equal(empty.reason, "the model found no match");
+});
+
 test("outstandingFields names every backed xlsx row that came back blank", () => {
   const outstanding = outstandingFields(TINY_TEMPLATE, [
     { fieldKey: "cc", value: "BANK CONTOH NUSANTARA" },

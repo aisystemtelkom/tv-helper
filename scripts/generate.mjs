@@ -591,6 +591,14 @@ export function outstandingSlots(template, zones, reasons = new Map()) {
     const found = counts.get(slot.key) ?? 0;
     const required = slotCropCount(slot);
     if (found >= required) continue;
+    // A partly-filled slot leads with its count, not with the last round's
+    // message. Measured on the two-round run: `kbLanjutan.top` held one of
+    // its two captures from round 1, round 2 searched the tambahan and found
+    // no second one, and the stored reason alone read "the model found no
+    // match" -- which says, wrongly, that the slot is empty. The counts were
+    // right beside it and the sentence still contradicted them.
+    const partial = `${found} of ${required} captures found`;
+    const last = reasons.get(slot.key);
     outstanding.push({
       kind: "slot",
       key: slot.key,
@@ -599,10 +607,11 @@ export function outstandingSlots(template, zones, reasons = new Map()) {
       found,
       required,
       reason:
-        reasons.get(slot.key) ??
-        (found === 0
-          ? "searched, not found"
-          : `${found} of ${required} captures found`),
+        found === 0
+          ? (last ?? "searched, not found")
+          : last
+            ? `${partial}; the last search added none (${last})`
+            : partial,
     });
   }
   return outstanding;
@@ -963,8 +972,16 @@ export function groupKeysByDocTypes(keys, defaultDocTypes) {
  * (task-11 finding 3). It is extracted again now that
  * `AO_TEMPLATE.fieldHints.namaProyek` says in as many words that the
  * agreement's title and an appointment letter's subject are the wrong answer.
- * If a measured run shows it guessing again, put it back here: a blank
- * invites the operator to fill it in, and a plausible wrong value does not.
+ *
+ * MEASURED on the sample bundle after that change, and worth stating exactly
+ * because it is not a clean pass: it no longer answers with the master
+ * contract. It answers with the request email's own subject line -- the right
+ * order, the right site, the right kind of work, cited to a page a reviewer
+ * can open -- but not the wording the human-authored sample uses for the same
+ * field. That is a value the operator confirms and adjusts, not a value that
+ * sends them to the wrong document. If a later run shows it drifting back to
+ * the framework contract, put the key back in this set: a blank invites the
+ * operator to fill it in, and a plausible wrong value does not.
  */
 const NEVER_EXTRACTED = new Set();
 
