@@ -380,3 +380,52 @@ test("classifyPages rejects an empty spans array", async () => {
     /page 0 not covered, page 1 not covered, page 2 not covered/,
   );
 });
+
+import { locateSlot, buildLocatePrompt, CROP_PADDING_PX } from "../src/lib/pipeline/locate.ts";
+
+const ocrPage = (index, texts) => ({
+  index,
+  width: 500,
+  height: 500,
+  lines: groupWordsIntoLines(
+    texts.map((t, n) => ({ text: t, box: { x: 10, y: 10 + n * 30, w: 200, h: 20 } })),
+  ),
+});
+
+const kbPage = ocrPage(0, [
+  "PERJANJIAN KERJASAMA BERLANGGANAN",
+  "Nomor : 04/0044-PKS/PFA-PM1",
+  "Pada hari ini Jumat tanggal Dua Puluh Enam",
+]);
+
+test("buildLocatePrompt numbers every line and names the slot", () => {
+  const prompt = buildLocatePrompt("Tanggal", "the date the contract was signed", [kbPage]);
+  assert.ok(prompt.includes("Tanggal"));
+  assert.ok(prompt.includes("the date the contract was signed"));
+  assert.ok(prompt.includes("0: PERJANJIAN KERJASAMA BERLANGGANAN"));
+  assert.ok(prompt.includes("2: Pada hari ini Jumat"));
+});
+
+test("locateSlot turns a line range into a padded box", async () => {
+  const ask = async () =>
+    '{"pageIndex":0,"from":2,"to":2,"confidence":"high"}';
+
+  const result = await locateSlot("Tanggal", "the signing date", [kbPage], ask);
+
+  assert.equal(result.zone.pageIndex, 0);
+  assert.deepEqual(result.zone.lineRange, [2, 2]);
+  assert.ok(result.text.includes("Pada hari ini Jumat"));
+  // Line 2 sits at y=70 h=20; padding expands it symmetrically.
+  assert.equal(result.zone.box.y, 70 - CROP_PADDING_PX);
+  assert.equal(result.zone.box.h, 20 + CROP_PADDING_PX * 2);
+});
+
+test("locateSlot returns null when the model finds nothing", async () => {
+  const ask = async () => '{"pageIndex":null,"from":null,"to":null,"confidence":"low"}';
+  assert.equal(await locateSlot("MOM", "meeting minutes", [kbPage], ask), null);
+});
+
+test("locateSlot rejects a page index it was never given", async () => {
+  const ask = async () => '{"pageIndex":7,"from":0,"to":0,"confidence":"high"}';
+  await assert.rejects(() => locateSlot("Tanggal", "x", [kbPage], ask), /pageIndex/);
+});
