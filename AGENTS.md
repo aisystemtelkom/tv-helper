@@ -84,11 +84,12 @@ into bugs:
   the sample bundle is 29 pages, so holding them all costs a gigabyte to serve
   a dozen crops. Pass 2 re-renders only the pages a zone landed on.
 - **OCR is cached, model replies are not.** OCR is keyed by the source file's
-  content hash plus page and DPI, in the system temp directory, because it is a
-  pure function of the pixels and takes minutes. A model reply is not a pure
-  function of its input, and a stale verdict served silently is worse than
-  paying again. `GENERATE_FORCE=1` bypasses the OCR cache;
-  `MEASURE_LOCATE_FORCE=1` does the same for the gate harness.
+  content **hash** plus page and DPI, in the system temp directory, because it
+  is a pure function of the pixels and takes minutes. Content-addressed, so a
+  re-export cannot serve stale text: different pixels, different key. A model
+  reply is not a pure function of its input, and a stale verdict served
+  silently is worse than paying again. `GENERATE_FORCE=1` bypasses the OCR
+  cache. **The gate harness caches the opposite way round; see below.**
 
 ## THE COMMON PATH SENDS TEXT, NOT IMAGES
 
@@ -127,14 +128,25 @@ Ground truth is not a hand-picked phrase: each of the twelve crop PNGs is
 OCR'd with the same `ocrToLines` pipeline used on the full pages, so the
 comparison is real text against real text from the same engine.
 
-**Recorded result.**
+**Recorded result: a transcript, not a computation.** These numbers come from
+one `pnpm measure:locate` run against `documents/`, landed by the commit
+"Record what the measured run found, and stop a half-filled slot reading
+empty" (`git log --oneline --grep "Record what the measured run found"` dates
+it). Nothing in the tree recomputes them, so the only way to tell them from
+stale ones is to run the command again.
 
 - **Page selection: 12 / 12.** Every slot landed on the expected page across
   the sample bundle.
-- **Extent: 11 / 12 by containment.** The one genuine miss is `KB / ToP (2)`.
+- **Extent: 11 / 12 by containment.** The one genuine miss is `KB / ToP (2)`,
+  the Terms of Payment slot's second capture.
 - It is twelve crops, not the eleven the original design names: `SP` and `KB /
   ToP` each supply two crops on two *different* pages, so each needs its own
   `locateSlot` call.
+
+The bundle those numbers are measured over is **29 pages**: the merged
+contract scan is 27 and the SPLITBA scan is 2. 27 is the merged PDF alone,
+never the bundle. Confirm with pdf.js against `documents/` rather than
+quoting either number from here.
 
 **The pass rule is containment, and the old "at most 2 extra lines" tolerance
 is dead.** That absolute allowance was invented while writing the 2026-08-30
@@ -150,6 +162,32 @@ the harness, check which rule it is actually applying.
 **Never re-tune the locate prompt or a slot `hint` without re-running the
 gate.** It is the only thing that tells a gain from a regression, and the whole
 failure class here is a change that looks better and is worse.
+
+### The gate harness caches the opposite way round from `pnpm generate`
+
+Verify this in `scripts/measure-locate.mjs` before trusting a gate number;
+it is the one place a stale result can look like a fresh one.
+
+- **Model replies ARE cached to disk**, keyed by the slot name plus a sha256
+  of the exact prompt sent (`makeCachedAsk`). Re-running to tweak the scoring
+  math therefore re-spends nothing, and a changed prompt or hint misses the
+  cache by construction.
+- **`MEASURE_LOCATE_FORCE=1` bypasses THAT cache only**, the model-reply one.
+  It is the only bypass the harness has.
+- **The OCR caches have NO bypass at all.** `ocrPageCached` is keyed by the
+  document's *role* plus the 0-based page index -- `merged:0`, `splitba:1` --
+  and returns a hit unconditionally, `FORCE_FRESH` unread. It does not depend
+  on the filename or on the bytes. `ocrCropCached` is the same, keyed by the
+  image name inside the sample docx. So **re-exporting a document silently
+  scores the new pages against the old OCR**, under any filename, and the run
+  looks entirely normal.
+- **The fix is to delete the temp cache file by hand.** The harness prints all
+  three paths at startup (`OCR cache:`, `Crop OCR cache:`, `Model-reply
+  cache:`); delete `tv-helper-measure-locate-ocr-cache.json`, and
+  `tv-helper-measure-locate-crop-ocr-cache.json` if the sample docx changed.
+
+`pnpm generate` does not share this hazard: its OCR key is the file's content
+hash, and `GENERATE_FORCE=1` bypasses it as well.
 
 Read the model-located number on its own. The harness reports field slots and
 whole-document slots separately, because folding the deterministic full-page
@@ -181,8 +219,20 @@ and looks for the same slots in any document.*
   (`NEVER_EXTRACTED` in `scripts/generate.mjs`) and ships blank. On the full
   pool it reliably picked the Surat Penunjukan's subject line, the master
   contract's scope title rather than this order's project name, and carried a
-  citation that *passed* validation. A blank invites the operator to fill it
-  in; a plausible wrong value does not.
+  citation that *passed* validation, in the docx header's `NAMA Proyek :` cell
+  and its xlsx row. A blank invites the operator to fill it in; a plausible
+  wrong value does not. Verify the current state with
+  `git grep -n "NEVER_EXTRACTED = " scripts/generate.mjs`, which as the tree
+  stands prints
+  `scripts/generate.mjs:991:export const NEVER_EXTRACTED = new Set(["namaProyek"]);`.
+
+  **This was re-enabled once and reverted.** The hint now rules the agreement
+  title out by name, and one manual run showed it no longer answering with the
+  master contract -- but that same run recorded the answer as the request
+  email's subject line, which the run itself described as not the wording the
+  sample uses. Differently wrong is still wrong for a cell a validator signs.
+  The bar for removing it from the set is a reproducible run that yields the
+  right value, not a better-sounding hint.
 
 ## Gotchas that will cost you time
 
@@ -437,23 +487,33 @@ pass while the app was failing, because the shim carries neither
 
 Recorded so nobody reads a design statement as a description of the code.
 
-- **There is no vision fallback for signature blocks.** The 2026-08-30 design
-  specifies sending the page image alongside the numbered lines for
-  `TTD Pejabat`, a signature and stamp block with little OCR text to anchor to.
-  `locate.ts` has no image parameter at all, so the gate scores all twelve
-  slots text-only. (The gate's one outstanding miss is a different slot,
-  `KB / ToP (2)`; do not assume the fallback would close it.)
+- **There is no vision fallback for signature blocks. It is DESIGNED, NOT
+  BUILT.** The 2026-08-30 design specifies sending the page image alongside the
+  numbered lines for `TTD Pejabat`, a signature and stamp block with little OCR
+  text to anchor to. Nothing implements it: `locate.ts` takes no image
+  parameter, and `Ask` is typed `(prompt: string) => Promise<string>`, so
+  there is nowhere for an image to go. The gate scores all twelve slots
+  text-only. Never describe it as the current path.
+  (**And do not claim it would close the gate's one miss.** That miss is
+  `KB / ToP (2)` -- Terms of Payment -- a different slot from `TTD Pejabat`,
+  and text-heavy. The recorded 11/12 names `KB / ToP (2)` as the only miss,
+  which means `TTD Pejabat` is currently passing text-only.)
 - **There is no UI for the pipeline.** No confirmation step, no contact sheet,
   no manual zone selection, and no `/api/locate` route: `pnpm generate` writes
-  both files unreviewed. The design's "the app never emits an unreviewed zone"
-  describes the target, not the current command.
-- **The "dokumen tambahan" loop is not implemented** (2026-08-31 corrections,
-  §4): reporting unfilled slots by name, asking the operator for an additional
-  document, re-searching only the outstanding slots, and offering manual zone
-  selection as the terminal state. `generate.mjs` prints an `unfilled` list and
-  stops there.
-- **Deployment is not built.** No Dockerfile, no `output: "standalone"`, no
-  `proxy.ts`, no Auth.js, no Firestore allowlist.
+  its three output files unreviewed. The design's "the app never emits an
+  unreviewed zone" describes the target, not the current command.
+- **The "dokumen tambahan" loop is half built** (2026-08-31 corrections, §4).
+  Built: `generate.mjs` searches every supplied document for every slot,
+  reports the outstanding ones by name and reason in an `OUTSTANDING (n)` log
+  block and an `<ID EPIC>_OUTSTANDING.json` report, accepts further documents
+  through `--tambahan <file.pdf>`, and re-searches only the outstanding slots
+  while keeping earlier zones (`searchRound`, `mergeZones`). Not built: anything
+  that *asks* the operator -- the loop is the operator re-running the command
+  -- and the manual zone selection that is the designed terminal state.
+- **Deployment is built, and its own doc is `docs/runbook-deploy.md`.**
+  `Dockerfile`, `output: "standalone"` in `next.config.ts`, `src/proxy.ts`,
+  Auth.js under `src/lib/auth/`, and the Firestore allowlist all exist. This
+  bullet used to claim none of them did; check the tree before repeating it.
 - **`measure-locate.mjs` does not go through `src/lib/model.ts`.** It calls the
   Gemini REST surface with plain `fetch` (no provider SDK, so the boundary rule
   is not broken) and reads its own env defaults, which is how the harness was

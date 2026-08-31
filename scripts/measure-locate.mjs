@@ -56,28 +56,39 @@
  * `crops: 2` slot with one hint, and the sample's second capture is a
  * different region on a different page.
  *
- * Deviation from the brief worth recording up front: this worktree's
- * src/lib/model.ts still exports the pre-migration local-Ollama chatModel
- * (openai-compatible pointed at http://127.0.0.1:11435/v1), not a
- * Gemini-backed `ask`. The brief assumed the Gemini migration described in
- * AGENTS.md/.env.local had already landed here; it has not (this branch
- * forked before that work). No local Ollama server or model is available in
- * this environment either (no ./models directory). Rather than block the
- * gate on that gap, this script talks to the Gemini REST API directly with
- * plain fetch -- no provider SDK import, matching the spirit of the
- * instruction to avoid pulling in an SDK here, and the same posture
- * scripts/smoke.mjs takes on the sibling branch (it also talks to Gemini
- * directly, independent of src/lib/model.ts, specifically so a broken
- * model.ts doesn't invalidate the check). This is flagged again in the
- * task-7 report.
+ * THIS SCRIPT DOES NOT GO THROUGH src/lib/model.ts, and that is a known gap
+ * rather than a design choice. It was written on a branch that predated the
+ * Gemini migration, when model.ts still exported a local-Ollama chatModel and
+ * there was no Ollama server to reach; it therefore calls the Gemini REST
+ * surface directly with plain fetch. (An earlier version of this comment
+ * still described that pre-migration model.ts as the current state. It has
+ * not been true since the Gemini migration merged: model.ts exports a
+ * Gemini-backed `chatModel()` now, and scripts/generate.mjs uses it.)
  *
- * Two on-disk caches make iteration cheap:
+ * No provider SDK is imported here, so the boundary rule is not broken, and
+ * scripts/smoke.mjs takes the same posture deliberately -- a broken model.ts
+ * must not invalidate the check. The consequence to know is the other
+ * direction: THIS GATE CAN PASS WHILE src/lib/model.ts IS BROKEN, and this
+ * script's own env defaults can drift from the app's. Check both before
+ * reading a gate result as a statement about the app.
+ *
+ * Three on-disk caches make iteration cheap, and they are NOT symmetric.
+ * Read this before trusting a score:
+ *  - Model-reply cache (tmpdir): keyed by slot name plus a sha256 of the
+ *    exact prompt sent, so it only ever serves a reply to the identical
+ *    question. Re-running to tweak scoring math re-spends nothing.
+ *    MEASURE_LOCATE_FORCE=1 bypasses THIS ONE, and only this one.
  *  - OCR cache (tmpdir): rendering+OCR-ing 29 full 300 DPI pages is slow
- *    (many minutes). Keyed by pdf+page, reused across runs.
- *  - Model-reply cache (tmpdir): each slot's prompt is a deterministic
- *    function of (slot, hint, OCR'd pages), so it's hashed and the reply
- *    cached. Re-running this script to tweak scoring math does not re-spend
- *    real API calls. Set MEASURE_LOCATE_FORCE=1 to bypass and re-ask.
+ *    (many minutes). Keyed by the document's ROLE plus 0-based page index --
+ *    "merged:0", "splitba:1" -- not by filename and not by content. It
+ *    returns a hit unconditionally; FORCE_FRESH is not consulted.
+ *  - Crop OCR cache (tmpdir): the same, keyed by the image name inside the
+ *    sample docx.
+ *
+ * So RE-EXPORTING A DOCUMENT SILENTLY SCORES ITS NEW PAGES AGAINST THE OLD
+ * OCR, under any filename, and the run looks entirely normal. There is no
+ * bypass for that: delete the temp cache file by hand. All three paths are
+ * printed when the run starts.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -289,9 +300,15 @@ function makeCachedAsk(slotName, modelCache) {
 }
 
 // ---------------------------------------------------------------------------
-// OCR cache: keyed by pdf name + 0-based page index. Rendering and OCR-ing a
-// 3507x2480 scan is slow -- this is a real necessity, not a nicety, per the
-// task brief: 27 + 2 = 29 pages must be OCR'd once for the whole run.
+// OCR cache: keyed by the document's ROLE ("merged"/"splitba") + 0-based page
+// index. Rendering and OCR-ing a 3507x2480 scan is slow -- this is a real
+// necessity, not a nicety: the merged contract scan is 27 pages and the
+// SPLITBA scan is 2, so 29 pages must be OCR'd once for the whole run.
+//
+// The key depends on neither the filename nor the bytes, and the lookup below
+// ignores FORCE_FRESH, so a re-exported document scores its new pages against
+// this cache's old text with nothing in the log to say so. Deleting
+// OCR_CACHE_PATH by hand is the only way out. See the file header.
 // ---------------------------------------------------------------------------
 
 const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-measure-locate-ocr-cache.json");

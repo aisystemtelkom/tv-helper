@@ -938,12 +938,13 @@ test("extractFields keeps provenance and drops unbacked keys", async () => {
     lines: groupWordsIntoLines([
       { text: "Nama", box: { x: 10, y: 10, w: 40, h: 12 } },
       { text: "Pelanggan", box: { x: 55, y: 10, w: 70, h: 12 } },
-      { text: "PT", box: { x: 200, y: 10, w: 20, h: 12 } },
-      { text: "BSI", box: { x: 225, y: 10, w: 30, h: 12 } },
+      { text: "BANK", box: { x: 200, y: 10, w: 40, h: 12 } },
+      { text: "CONTOH", box: { x: 245, y: 10, w: 55, h: 12 } },
+      { text: "NUSANTARA", box: { x: 305, y: 10, w: 80, h: 12 } },
     ]),
   };
   const ask = async () =>
-    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":0}]}';
+    '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":0,"from":0,"to":0}]}';
 
   const values = await extractFields(["cc", "latLong"], [page], ask);
 
@@ -962,8 +963,9 @@ function twoLinePage(index = 0) {
     lines: groupWordsIntoLines([
       { text: "Nama", box: { x: 10, y: 10, w: 40, h: 12 } },
       { text: "Pelanggan", box: { x: 55, y: 10, w: 70, h: 12 } },
-      { text: "PT", box: { x: 10, y: 40, w: 20, h: 12 } },
-      { text: "BSI", box: { x: 35, y: 40, w: 30, h: 12 } },
+      { text: "BANK", box: { x: 10, y: 40, w: 40, h: 12 } },
+      { text: "CONTOH", box: { x: 55, y: 40, w: 55, h: 12 } },
+      { text: "NUSANTARA", box: { x: 115, y: 40, w: 80, h: 12 } },
     ]),
   };
 }
@@ -971,35 +973,35 @@ function twoLinePage(index = 0) {
 test("extractFields drops a citation to a page that was never offered, but keeps the value", async () => {
   // Only one page (position 0) is offered; the model cites position 5.
   const ask = async () =>
-    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":5,"from":0,"to":0}]}';
+    '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":5,"from":0,"to":0}]}';
 
   const values = await extractFields(["cc"], [twoLinePage()], ask);
 
   assert.equal(values.length, 1);
-  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].value, "BANK CONTOH NUSANTARA");
   assert.equal(values[0].source, undefined);
 });
 
 test("extractFields drops a reversed line range, but keeps the value", async () => {
   const ask = async () =>
-    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":1,"to":0}]}';
+    '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":0,"from":1,"to":0}]}';
 
   const values = await extractFields(["cc"], [twoLinePage()], ask);
 
   assert.equal(values.length, 1);
-  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].value, "BANK CONTOH NUSANTARA");
   assert.equal(values[0].source, undefined);
 });
 
 test("extractFields drops a citation whose line range doesn't exist on the page, but keeps the value", async () => {
   // The page only has lines 0-1; the model cites up to line 5.
   const ask = async () =>
-    '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":5}]}';
+    '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":0,"from":0,"to":5}]}';
 
   const values = await extractFields(["cc"], [twoLinePage()], ask);
 
   assert.equal(values.length, 1);
-  assert.equal(values[0].value, "PT BSI");
+  assert.equal(values[0].value, "BANK CONTOH NUSANTARA");
   assert.equal(values[0].source, undefined);
 });
 
@@ -1013,7 +1015,7 @@ test("extractFields numbers its listing by position, not by the page's true docu
   let capturedPrompt;
   const ask = async (prompt) => {
     capturedPrompt = prompt;
-    return '{"values":[{"fieldKey":"cc","value":"PT BSI","pageIndex":0,"from":0,"to":0}]}';
+    return '{"values":[{"fieldKey":"cc","value":"BANK CONTOH NUSANTARA","pageIndex":0,"from":0,"to":0}]}';
   };
 
   const values = await extractFields(["cc"], [page], ask);
@@ -1031,7 +1033,7 @@ import exceljs from "exceljs";
 
 test("buildXlsx fills only backed rows and cites their provenance", async () => {
   const bytes = await buildXlsx(AO_TEMPLATE, [
-    { fieldKey: "alamat", value: "Jalan Kemanggisan Utama Raya No.49A",
+    { fieldKey: "alamat", value: "Jalan Contoh Nusantara Raya No.1",
       source: { pageIndex: 0, lineRange: [7, 9] } },
   ]);
 
@@ -1049,7 +1051,7 @@ test("buildXlsx fills only backed rows and cites their provenance", async () => 
   assert.equal(filled, 1);
 
   const cell = sheet.getCell("E7");
-  assert.ok(String(cell.value).includes("Kemanggisan"));
+  assert.ok(String(cell.value).includes("Contoh Nusantara"));
   assert.ok(JSON.stringify(cell.note ?? "").includes("lines 7-9"));
 });
 
@@ -1258,6 +1260,9 @@ import "./test-pipeline-types.ts";
 // ---------------------------------------------------------------------------
 
 import {
+  NEVER_EXTRACTED,
+  extractTextFields,
+  extractableFieldKeys,
   inTemplateOrder,
   mergeZones,
   outstandingFields,
@@ -1675,6 +1680,201 @@ test("withFieldHints puts each key's definition in front of the prompt", async (
   // Nothing described means the original ask is handed back untouched, so an
   // undescribed group costs no wrapper and no prompt text.
   assert.equal(withFieldHints(ask, ["unknownKey"], TINY_TEMPLATE.fieldHints), ask);
+});
+
+// ---------------------------------------------------------------------------
+// The wrong-customer regression, made repeatable.
+//
+// WHAT HAPPENED. `cc` was offered a pool that included the printed email
+// thread, and the model answered with the organisation on the email's own
+// `Cc:` header instead of the subscriber named on the order request. A wrong
+// customer name shipped in both deliverables. The mitigation at the time was
+// to narrow `cc`'s pool to the BA Permintaan pages. The document-agnostic
+// correction (2026-08-31, §2) removed that narrowing on purpose and replaced
+// it with a `fieldHints.cc` definition that rules email headers out -- a
+// replacement evidenced by one manual run, which is not a guard.
+//
+// WHAT THESE TWO TESTS PROVE. That both candidates still reach the model in
+// ONE pool, and that the same prompt still tells it the email-header
+// candidate is not an acceptable answer. Delete `withFieldHints` from the
+// extraction path, empty `AO_TEMPLATE.fieldHints.cc`, or weaken it until it
+// no longer rules the header out, and the first test fails.
+//
+// WHAT THEY CANNOT PROVE. That the real model obeys the definition. Only
+// `pnpm measure:locate` and a real `pnpm generate` run say that. The thing
+// that regressed silently was the disambiguation reaching the prompt at all,
+// and that is what is guarded here -- for free, and without a flake.
+//
+// The names are fictional, per the repo rule: this file is public.
+// ---------------------------------------------------------------------------
+
+/** The subscriber named on the order request. The right answer. */
+const RIGHT_CUSTOMER = "BANK CONTOH NUSANTARA";
+/** The organisation on the printed email's own `Cc:` header. The wrong one. */
+const WRONG_CUSTOMER = "PT CONTOH DISTRIBUSI NUSANTARA";
+
+/** An order request naming its subscriber, and a printed email whose `Cc:`
+ * header names somebody else. Both in one pool, which is the condition that
+ * produced the bug. */
+function wrongCustomerPool() {
+  const page = (index, docName, texts) => ({
+    index,
+    source: 0,
+    sourceName: docName,
+    pageInDoc: index,
+    width: 1000,
+    height: 1000,
+    lines: texts.map((text, i) => ({
+      i,
+      text,
+      box: { x: 10, y: 10 + i * 20, w: 900, h: 14 },
+      words: [{ text, box: { x: 10, y: 10 + i * 20, w: 900, h: 14 } }],
+    })),
+  });
+
+  return [
+    page(0, "splitba.pdf", [
+      "BERITA ACARA PERMINTAAN ORDER",
+      `Nama Pelanggan : ${RIGHT_CUSTOMER}`,
+      "Tipe Permintaan : PSB VPN IP KCP Contoh",
+    ]),
+    page(1, "splitba.pdf", [
+      "From: Rina Contoh <rina@contoh.example>",
+      "To: Panitia Pengadaan",
+      `Cc: ${WRONG_CUSTOMER}`,
+      "Subject: Permintaan PSB VPN IP KCP Contoh",
+    ]),
+  ];
+}
+
+/** Both pages classified, so `rankedPool` reorders rather than filters -- the
+ * document-agnostic shape, where the Email page is still in `cc`'s pool. */
+const WRONG_CUSTOMER_BY_TYPE = new Map([
+  ["BAPermintaan", [0]],
+  ["Email", [1]],
+]);
+
+/** A template with exactly one backed field, `cc`, carrying the production
+ * hint, so the run asks one question and the answer is unambiguous. */
+const CC_ONLY_TEMPLATE = {
+  sections: [
+    {
+      title: "BA Permintaan",
+      layout: "images",
+      slots: [{ key: "ba.1", label: "BA", fillable: true, docType: "BAPermintaan" }],
+    },
+  ],
+  xlsxRows: [{ nomor: 1, itemI: "Customer", itemII: "Name", fieldKey: "cc" }],
+  fieldHints: { cc: AO_TEMPLATE.fieldHints.cc },
+};
+
+/**
+ * A stand-in for the model that fails the way the real one failed: given
+ * nothing but the key name `cc`, the line literally labelled `Cc:` is the
+ * best match in the pool, and that is the answer that shipped. It reads the
+ * prompt instead of ignoring it, and picks the subscriber line instead once
+ * the prompt carries a definition of `cc` that rules an email header out.
+ *
+ * `withFieldHints` emits one `  <key>: <definition>` line per described key,
+ * so the definition is matched as a single line here.
+ */
+function ccStub(record) {
+  return async (prompt) => {
+    record.prompt = prompt;
+    const definition = prompt.match(/^ {2}cc: (.*)$/m)?.[1] ?? "";
+    const rulesOutEmailHeaders =
+      /\b(not|never)\b/i.test(definition) && /email header/i.test(definition);
+    record.rulesOutEmailHeaders = rulesOutEmailHeaders;
+
+    return rulesOutEmailHeaders
+      ? `{"values":[{"fieldKey":"cc","value":"${RIGHT_CUSTOMER}","pageIndex":0,"from":1,"to":1}]}`
+      : `{"values":[{"fieldKey":"cc","value":"${WRONG_CUSTOMER}","pageIndex":1,"from":2,"to":2}]}`;
+  };
+}
+
+test("cc extraction does not return the email Cc: header when both candidates share a pool", async () => {
+  const pages = wrongCustomerPool();
+  const record = {};
+
+  // The production path, not a hand-composed one: extractTextFields ranks the
+  // pool, groups the keys, prepends the hints and remaps the citation.
+  const values = await extractTextFields(
+    CC_ONLY_TEMPLATE,
+    WRONG_CUSTOMER_BY_TYPE,
+    pages,
+    ccStub(record),
+  );
+
+  // Both candidates were genuinely offered: the wrong one is in the listing,
+  // so this is the pool that produced the bug and not a narrowed one.
+  assert.ok(
+    record.prompt.includes(`Cc: ${WRONG_CUSTOMER}`),
+    "the email Cc: header must be in the pool for this to be the real case",
+  );
+  assert.ok(record.prompt.includes(`Nama Pelanggan : ${RIGHT_CUSTOMER}`));
+
+  // And the definition that rules it out travelled in the same prompt.
+  assert.ok(record.rulesOutEmailHeaders, record.prompt.slice(0, 400));
+
+  assert.equal(values.length, 1);
+  assert.equal(values[0].value, RIGHT_CUSTOMER);
+  assert.notEqual(values[0].value, WRONG_CUSTOMER);
+  // Cited to the order request page, not to the email page, and named by the
+  // file a reviewer opens.
+  assert.equal(values[0].source.pageIndex, 0);
+  assert.deepEqual(values[0].source.lineRange, [1, 1]);
+  assert.equal(values[0].source.sourceName, "splitba.pdf");
+  assert.equal(values[0].source.pageInDoc, 0);
+});
+
+test("without the cc definition the same pool yields the email header value", async () => {
+  // The negative control. A guard that cannot fail is not a guard: this is
+  // the pre-fix state -- the bare key name `cc` and nothing else -- and it
+  // reproduces the wrong customer, which is what makes the test above mean
+  // something.
+  const pages = wrongCustomerPool();
+  const record = {};
+
+  const values = await extractTextFields(
+    { ...CC_ONLY_TEMPLATE, fieldHints: {} },
+    WRONG_CUSTOMER_BY_TYPE,
+    pages,
+    ccStub(record),
+  );
+
+  assert.equal(record.rulesOutEmailHeaders, false);
+  assert.equal(values[0].value, WRONG_CUSTOMER);
+  assert.equal(values[0].source.pageIndex, 1);
+  assert.deepEqual(values[0].source.lineRange, [2, 2]);
+});
+
+test("namaProyek is never sent to the model, and its blank says why", () => {
+  // Reverted mitigation (task brief item 1). On the full pool it answered
+  // with the master contract's scope title, carrying a citation that PASSED
+  // validation, in the docx header's `NAMA Proyek :` cell and its xlsx row.
+  // A blank invites the operator to fill it in; a plausible wrong value does
+  // not. Re-enabling needs a reproducible run that yields the right value.
+  assert.ok(NEVER_EXTRACTED.has("namaProyek"));
+
+  // The exclusion has to reach the key list a run actually asks for, not just
+  // sit in a Set.
+  const asked = extractableFieldKeys(AO_TEMPLATE);
+  assert.equal(asked.includes("namaProyek"), false);
+  // Every other backed key is still asked for: this excludes one key, not the
+  // extraction step.
+  assert.ok(asked.includes("cc"));
+  assert.ok(asked.length > 1);
+
+  // And the operator's outstanding list gives a reason that is true of it.
+  // "searched, not found" would be a false statement: nothing searched.
+  const outstanding = outstandingFields(AO_TEMPLATE, []);
+  const namaProyek = outstanding.find((o) => o.key === "namaProyek");
+  assert.ok(namaProyek, "namaProyek must be reported outstanding, not silently blank");
+  assert.match(namaProyek.reason, /deliberately not extracted/);
+  assert.equal(
+    outstanding.find((o) => o.key === "cc").reason,
+    "searched, not found",
+  );
 });
 
 test("parseArgs opens a new round per --tambahan and keeps the initial bundle together", () => {

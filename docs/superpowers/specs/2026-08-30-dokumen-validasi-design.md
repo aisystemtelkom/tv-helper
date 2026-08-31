@@ -11,6 +11,11 @@ Status: approved, implemented in part, **superseded in part**.
 > open question about hosting (now closed, approved). That note also adds a
 > requirement this design does not cover at all, the "dokumen tambahan" loop.
 > The history is left as written; only the superseded statements are annotated.
+>
+> **A fourth annotation, added 2026-09-01:** the signature-block vision
+> fallback is designed here and is *not built*. It is marked inline under
+> "Fallback for regions without text". Nothing in this document should be read
+> as a description of the code.
 
 ## Goal
 
@@ -138,6 +143,11 @@ single `TTD Pejabat` slot. So the common path uploads no images at all, which is
 a stronger privacy posture than the chat route it replaces, where every page
 went up as an image.
 
+> **Amended 2026-09-01.** The signature-block fallback was never built, so as
+> the tree stands Locate sends text alone for *every* slot and the pipeline
+> uploads no images at all. See the status note under "Fallback for regions
+> without text" below. Extract, which this table predates, is text-only too.
+
 ### Localization: OCR anchors, model picks lines
 
 The core problem is producing a pixel rectangle for a slot such as
@@ -157,6 +167,18 @@ block with little OCR text to anchor to. For those slots the page image is sent
 alongside the numbered lines so the model can express a region relative to
 nearby lines, for instance from line 58 to the bottom margin. Where that also
 fails, the operator draws the box, which the confirmation UI supports anyway.
+
+> **Status note, 2026-09-01: this fallback is DESIGNED, NOT BUILT.** Nothing
+> in the tree sends an image to the model on the locate path.
+> `src/lib/pipeline/locate.ts` takes no image parameter, and `Ask` is typed
+> `(prompt: string) => Promise<string>`, so there is nowhere for one to go.
+> The measurement gate scores all twelve slots text-only. Read the paragraph
+> above as a design intention, never as a description of the code.
+>
+> It would also not close the gate's one outstanding miss. That miss is
+> `KB / ToP (2)` -- the Terms of Payment slot's second capture, a text-heavy
+> region -- and not `TTD Pejabat`, which the recorded 11/12 result shows
+> passing text-only. Do not carry "the fallback would fix the gate" forward.
 
 **Rejected: asking Gemini for normalized boxes directly.** One call per slot and
 no OCR dependency, but it stakes the product on the capability least likely to
