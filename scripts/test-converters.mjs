@@ -3,8 +3,8 @@
  *
  * These run in Node against the real libraries, so a breaking upgrade of
  * exceljs or mammoth fails here rather than in the browser. PDF rasterization
- * is deliberately not covered -- it needs a canvas, so it is verified in the
- * browser instead.
+ * is covered in scripts/test-pipeline.mjs instead, using @napi-rs/canvas as
+ * the Node-side canvas.
  */
 import assert from "node:assert/strict";
 import test from "node:test";

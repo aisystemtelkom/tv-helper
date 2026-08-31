@@ -39,6 +39,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@napi-rs/canvas": "1.0.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
