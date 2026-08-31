@@ -12,7 +12,8 @@
     "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs",
     "measure:locate": "node scripts/measure-locate.mjs",
     "vendor:ocr": "node scripts/vendor-ocr.mjs",
-    "prebuild": "pnpm vendor:ocr"
+    "pretest": "pnpm vendor:ocr",
+  "prebuild": "pnpm vendor:ocr"
   },
   "dependencies": {
     "@ai-sdk/google": "4.0.56",

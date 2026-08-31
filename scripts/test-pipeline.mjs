@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pathToFileURL } from "node:url";
 import { makePdf } from "./fixtures/pdf.mjs";
 
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
