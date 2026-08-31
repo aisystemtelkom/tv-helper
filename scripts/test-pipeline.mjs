@@ -834,3 +834,30 @@ test("extractFields keeps provenance and drops unbacked keys", async () => {
   assert.equal(values[0].fieldKey, "cc");
   assert.deepEqual(values[0].source, { pageIndex: 0, lineRange: [0, 0] });
 });
+
+import { buildXlsx } from "../src/lib/export/xlsx.ts";
+import exceljs from "exceljs";
+
+test("buildXlsx fills only backed rows and cites their provenance", async () => {
+  const bytes = await buildXlsx(AO_TEMPLATE, [
+    { fieldKey: "alamat", value: "Jalan Kemanggisan Utama Raya No.49A",
+      source: { pageIndex: 0, lineRange: [7, 9] } },
+  ]);
+
+  const wb = new exceljs.Workbook();
+  await wb.xlsx.load(bytes);
+  const sheet = wb.worksheets[0];
+
+  // One header row plus the template's 34 data rows.
+  assert.equal(sheet.rowCount, 35);
+
+  let filled = 0;
+  sheet.eachRow((row) => { if (row.getCell(5).value) filled += 1; });
+  // Exactly the one backed value. Every other row, including the EPIC-only
+  // ones, stays blank.
+  assert.equal(filled, 1);
+
+  const cell = sheet.getCell("E7");
+  assert.ok(String(cell.value).includes("Kemanggisan"));
+  assert.ok(JSON.stringify(cell.note ?? "").includes("lines 7-9"));
+});
