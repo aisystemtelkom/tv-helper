@@ -12,13 +12,19 @@
  *   Admin-only                         : `await requireAdmin()` (throws)
  */
 
-import { createGuard, type AuthorizeResult, type AuthorizedUser } from "./guard.ts";
+import {
+  createGuard,
+  type ApiGate,
+  type AuthorizeResult,
+  type AuthorizedUser,
+} from "./guard.ts";
 import { allowlist } from "./instance.ts";
 import { auth } from "./index.ts";
 
 export {
   AuthorizationError,
   isAuthDisabled,
+  type ApiGate,
   type AuthorizedUser,
   type AuthorizeResult,
   type DenialReason,
@@ -45,22 +51,16 @@ export function requireAdmin(): Promise<AuthorizedUser> {
 }
 
 /**
- * Convenience for route handlers:
+ * The gate for route handlers:
  *
  *   const gate = await requireApiUser();
  *   if (gate.response) return gate.response;
  *   // gate.user is allowlisted
+ *
+ * This is `guard.apiUser()` bound to the production session and allowlist, so
+ * the 401/403 mapping a route sends is the same code path
+ * `src/lib/auth/auth.test.mts` drives with no Next runtime.
  */
-export async function requireApiUser(): Promise<
-  { user: AuthorizedUser; response: null } | { user: null; response: Response }
-> {
-  const result = await authorize();
-  if (result.ok) return { user: result.user, response: null };
-  return {
-    user: null,
-    response: Response.json(
-      { error: result.reason, message: result.message },
-      { status: result.status },
-    ),
-  };
+export function requireApiUser(): Promise<ApiGate> {
+  return guard.apiUser();
 }

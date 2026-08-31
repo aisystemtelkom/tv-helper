@@ -1,10 +1,20 @@
+/**
+ * The chat route.
+ *
+ * IT GATES ITSELF. `src/proxy.ts` also refuses an unauthenticated `/api/*`
+ * request, but proxy is an optimization, not the boundary: Next's own reference
+ * warns that a matcher change or a refactor that moves work to a different
+ * route silently removes proxy coverage. `requireApiUser()` below is the check
+ * that decides, and `src/lib/auth/auth.test.mts` proves it holds when proxy
+ * never ran.
+ *
+ * The control flow lives in `./handler.ts` so that test can execute it. This
+ * file is the production binding and nothing else.
+ */
+
 import { frontendTools } from "@assistant-ui/react-ai-sdk";
-import {
-  streamText,
-  convertToModelMessages,
-  type UIMessage,
-  type JSONSchema7,
-} from "ai";
+import { streamText, convertToModelMessages } from "ai";
+
 import {
   chatModel,
   providerOptions,
@@ -12,58 +22,47 @@ import {
   MODEL_ID,
   MODEL_TARGET,
 } from "@/lib/model";
+import { requireApiUser } from "@/lib/auth/require-user";
+
+import { createChatHandler, type ChatBody } from "./handler.ts";
 
 // A multi-page scan is a large upload followed by a vision pass over every
 // page. Warm text turns land in a couple of seconds; this is the ceiling for
 // the slow end, not the expected case.
 export const maxDuration = 120;
 
-export async function POST(req: Request) {
-  const {
-    messages,
-    system,
-    tools,
-  }: {
-    messages: UIMessage[];
-    system?: string;
-    tools?: Record<string, { description?: string; parameters: JSONSchema7 }>;
-  } = await req.json();
+async function stream(body: ChatBody): Promise<Response> {
+  const frontend = frontendTools(body.tools ?? {});
 
-  const frontend = frontendTools(tools ?? {});
+  const result = streamText({
+    model: chatModel(),
+    messages: await convertToModelMessages(body.messages),
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    providerOptions,
+    // Only send a `tools` field when the client actually registered one.
+    ...(Object.keys(frontend).length > 0 ? { tools: frontend } : {}),
+    ...(body.system === undefined ? {} : { system: body.system }),
 
-  try {
-    const result = streamText({
-      model: chatModel(),
-      messages: await convertToModelMessages(messages),
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      providerOptions,
-      // Only send a `tools` field when the client actually registered one.
-      ...(Object.keys(frontend).length > 0 ? { tools: frontend } : {}),
-      ...(system === undefined ? {} : { system }),
-
-      // Every request now costs money, so make that visible in the server log
-      // rather than only on a billing page a month later. Thought tokens bill
-      // at the output rate, which is why they are broken out.
-      onFinish({ usage, finishReason }) {
-        const thoughts = usage.outputTokenDetails?.reasoningTokens ?? 0;
-        console.log(
-          `[chat] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
-            `out=${usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
-            `total=${usage.totalTokens ?? "?"} finish=${finishReason}`,
+    // Every request now costs money, so make that visible in the server log
+    // rather than only on a billing page a month later. Thought tokens bill
+    // at the output rate, which is why they are broken out.
+    onFinish({ usage, finishReason }) {
+      const thoughts = usage.outputTokenDetails?.reasoningTokens ?? 0;
+      console.log(
+        `[chat] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
+          `out=${usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
+          `total=${usage.totalTokens ?? "?"} finish=${finishReason}`,
+      );
+      if (finishReason === "length") {
+        console.warn(
+          `[chat] hit the ${MAX_OUTPUT_TOKENS}-token output cap; the reply is ` +
+            "truncated. Raise GEMINI_MAX_OUTPUT_TOKENS if this is legitimate.",
         );
-        if (finishReason === "length") {
-          console.warn(
-            `[chat] hit the ${MAX_OUTPUT_TOKENS}-token output cap; the reply is ` +
-              "truncated. Raise GEMINI_MAX_OUTPUT_TOKENS if this is legitimate.",
-          );
-        }
-      },
-    });
+      }
+    },
+  });
 
-    return result.toUIMessageStreamResponse();
-  } catch (error) {
-    return unreachable(error);
-  }
+  return result.toUIMessageStreamResponse();
 }
 
 /**
@@ -86,3 +85,9 @@ function unreachable(error: unknown) {
     { status: 503 },
   );
 }
+
+export const POST = createChatHandler({
+  gate: requireApiUser,
+  stream,
+  unreachable,
+});

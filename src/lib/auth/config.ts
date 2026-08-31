@@ -24,6 +24,30 @@ import { allowlist } from "./instance.ts";
 const SESSION_MAX_AGE_SECONDS = 12 * 60 * 60;
 
 export const authConfig: NextAuthConfig = {
+  /**
+   * OUR OWN SIGN-IN PAGE, AND THIS IS NOT COSMETIC.
+   *
+   * Auth.js's built-in sign-in page renders each OAuth provider's logo from
+   * `https://authjs.dev/img/providers/<id>.svg` (see
+   * `@auth/core/lib/pages/signin.js`, which hardcodes that host and falls back
+   * to it because the bundled Google provider sets only `brandColor`). That is
+   * a third-party host in the request path of a page this app serves, which is
+   * the exact defect Firebase Auth was rejected for a few lines above. Shipping
+   * the default page would have made that rejection incoherent.
+   *
+   * `src/app/signin/page.tsx` serves the same flow with no external reference.
+   * `error` points at it too, so the whole signed-out surface is ours: an
+   * account refused by the `signIn` callback below lands there as
+   * `?error=AccessDenied` and is told it is not on the allowlist.
+   *
+   * `src/proxy.ts` must keep `signin` in its negative matcher, or this page
+   * redirects to itself.
+   */
+  pages: {
+    signIn: "/signin",
+    error: "/signin",
+  },
+
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,

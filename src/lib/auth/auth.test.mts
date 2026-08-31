@@ -27,6 +27,7 @@ import {
 import {
   AuthorizationError,
   createGuard,
+  denialResponse,
   isAuthDisabled,
   type SessionLike,
 } from "./guard.ts";
@@ -430,5 +431,185 @@ test("isAuthDisabled needs the flag AND an unconfigured OAuth client", async () 
   assert.equal(
     isAuthDisabled({ AUTH_DISABLED: "true", AUTH_GOOGLE_ID: "123.apps" }),
     false,
+  );
+});
+
+// --- the boundary is IN THE ROUTE, not in proxy ----------------------------
+//
+// `src/proxy.ts` also refuses an unauthenticated `/api/*` request, and Next's
+// own reference says not to trust it: a matcher change, or a refactor that
+// moves work to another route, silently removes proxy coverage. These tests
+// therefore drive the chat route's own control flow with NO PROXY ANYWHERE,
+// which is exactly the request proxy-only coverage misses.
+//
+// They live in this file rather than beside the route because `pnpm test` runs
+// a fixed list of suites. `src/app/api/chat/handler.ts` is written with no
+// runtime imports precisely so it loads here under plain `node --test`.
+
+import { createChatHandler } from "../../app/api/chat/handler.ts";
+import { safeCallbackUrl, signInErrorMessage } from "../../app/signin/query.ts";
+
+/** A POST shaped like the one assistant-ui sends. */
+function chatRequest(body = '{"messages":[],"system":"be brief"}'): Request {
+  return new Request("http://localhost/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+}
+
+/**
+ * The real handler, wired to a real guard over the given session. Only
+ * `stream` is a fake, and it records whether it was reached at all: "returned
+ * 401" and "never spent the credential" are two different claims and this
+ * suite makes both.
+ */
+function chatHandlerFor(
+  session: SessionLike,
+  seed: AllowlistEntry[] = [],
+  options: { fail?: boolean; authDisabled?: boolean } = {},
+) {
+  const guard = guardFor(session, seed, options);
+  const calls: unknown[] = [];
+  const handler = createChatHandler({
+    gate: () => guard.apiUser(),
+    stream: (body) => {
+      calls.push(body);
+      return new Response("stream", { status: 200 });
+    },
+    unreachable: () => new Response("unreachable", { status: 503 }),
+  });
+  return { handler, calls };
+}
+
+test("an unauthenticated POST to the chat route is refused even though proxy never ran", async () => {
+  const { handler, calls } = chatHandlerFor(null);
+  const request = chatRequest();
+
+  const response = await handler(request);
+
+  assert.equal(response.status, 401);
+  // JSON, not a redirect to an HTML sign-in page: an API caller following a
+  // 307 to markup gets a confusing 200 full of markup instead of an error.
+  assert.match(response.headers.get("content-type") ?? "", /application\/json/);
+  assert.deepEqual(await response.json(), {
+    error: "unauthenticated",
+    message: "Sign in with Google to continue.",
+  });
+
+  assert.equal(calls.length, 0, "the model must not be reached");
+  assert.equal(
+    request.bodyUsed,
+    false,
+    "the gate must run before the body is read",
+  );
+});
+
+test("a signed-in stranger is refused by the chat route with 403 not-listed", async () => {
+  const { handler, calls } = chatHandlerFor(sessionFor("stranger@gmail.com"));
+
+  const response = await handler(chatRequest());
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "not-listed");
+  assert.equal(calls.length, 0);
+});
+
+test("an unreachable allowlist denies the chat route rather than admitting", async () => {
+  // Note the seed: this caller IS on the list. The store just cannot say so,
+  // and the route must fail closed rather than fall back to the JWT.
+  const { handler, calls } = chatHandlerFor(
+    sessionFor("op@gmail.com"),
+    [entry("op@gmail.com")],
+    { fail: true },
+  );
+
+  const response = await handler(chatRequest());
+
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "lookup-failed");
+  assert.equal(calls.length, 0);
+});
+
+test("an allowlisted caller reaches the model with the parsed body", async () => {
+  const { handler, calls } = chatHandlerFor(sessionFor("op@gmail.com"), [
+    entry("op@gmail.com"),
+  ]);
+
+  const response = await handler(chatRequest());
+
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { messages: [], system: "be brief" });
+});
+
+test("a malformed chat body is the caller's fault, not the provider's", async () => {
+  // Distinguishable from the 503 `unreachable` sends, so a 503 in the log
+  // always means the credential or the provider and never a bad request.
+  const { handler, calls } = chatHandlerFor(sessionFor("op@gmail.com"), [
+    entry("op@gmail.com"),
+  ]);
+
+  const response = await handler(chatRequest("{ not json"));
+
+  assert.equal(response.status, 400);
+  assert.equal(calls.length, 0);
+});
+
+test("denialResponse carries the guard's own status and reason", async () => {
+  assert.equal(
+    denialResponse({
+      ok: true,
+      user: {
+        email: "op@gmail.com",
+        name: null,
+        image: null,
+        role: "member",
+        isAdmin: false,
+        via: "allowlist",
+      },
+    }),
+    null,
+  );
+
+  const forbidden = denialResponse({
+    ok: false,
+    status: 403,
+    reason: "not-admin",
+    message: "This page is for admins only.",
+  });
+  assert.equal(forbidden?.status, 403);
+  assert.equal((await forbidden?.json()).error, "not-admin");
+});
+
+// --- the sign-in page's query string --------------------------------------
+
+test("safeCallbackUrl accepts only a same-origin path", () => {
+  assert.equal(safeCallbackUrl("/admin"), "/admin");
+  assert.equal(safeCallbackUrl("/?a=1&b=2"), "/?a=1&b=2");
+
+  // Every one of these would be an open redirect wearing this app's hostname,
+  // which is worth more to a phisher than a redirect from anywhere else.
+  assert.equal(safeCallbackUrl("https://evil.example"), "/");
+  assert.equal(safeCallbackUrl("//evil.example"), "/");
+  assert.equal(safeCallbackUrl("/\\evil.example"), "/");
+  assert.equal(safeCallbackUrl("javascript:alert(1)"), "/");
+  assert.equal(safeCallbackUrl(""), "/");
+  assert.equal(safeCallbackUrl(undefined), "/");
+  // A repeated query parameter arrives as an array; only the first is read,
+  // so appending a second one does not smuggle a destination past this.
+  assert.equal(safeCallbackUrl(["/admin", "https://evil.example"]), "/admin");
+  assert.equal(safeCallbackUrl(["https://evil.example", "/admin"]), "/");
+});
+
+test("signInErrorMessage explains an allowlist refusal and never swallows a code", () => {
+  assert.equal(signInErrorMessage(undefined), null);
+  assert.match(signInErrorMessage("AccessDenied") ?? "", /not on the allowlist/);
+  assert.match(signInErrorMessage("Configuration") ?? "", /AUTH_GOOGLE_ID/);
+  // An unrecognised code stays visible: it is the only searchable string an
+  // operator has.
+  assert.match(
+    signInErrorMessage("OAuthCallbackError") ?? "",
+    /OAuthCallbackError/,
   );
 });

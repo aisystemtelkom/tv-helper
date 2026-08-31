@@ -75,7 +75,11 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  const signIn = new URL("/api/auth/signin", request.url);
+  // `/signin`, this app's own page, not Auth.js's `/api/auth/signin`. The
+  // built-in one renders the provider logo from `https://authjs.dev/img/...`,
+  // which would put a third party in the request path of a page this app
+  // serves. See src/app/signin/page.tsx and `pages` in src/lib/auth/config.ts.
+  const signIn = new URL("/signin", request.url);
   signIn.searchParams.set(
     "callbackUrl",
     request.nextUrl.pathname + request.nextUrl.search,
@@ -93,14 +97,17 @@ export const config = {
    * session cookie the way a document request does, and a redirect there is an
    * OCR failure with no obvious cause.
    *
-   * `api/auth` is excluded because the sign-in flow itself must be reachable
-   * while signed out; excluding it is what stops the redirect loop.
+   * `api/auth` and `signin` are excluded because the sign-in flow itself must
+   * be reachable while signed out; excluding both is what stops the redirect
+   * loop. `signin` is this app's own page (src/app/signin/page.tsx) and it is
+   * where the redirect above points, so dropping it from this list turns every
+   * signed-out visit into a redirect to itself.
    *
    * Adding a route that must be public means editing this line -- and per the
    * warning at the top of the file, editing this line is exactly what cannot be
    * allowed to decide whether that route is protected. It is not; the guard is.
    */
   matcher: [
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|tesseract/).*)",
+    "/((?!api/auth|signin|_next/static|_next/image|favicon.ico|tesseract/).*)",
   ],
 };

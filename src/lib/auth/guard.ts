@@ -97,6 +97,15 @@ export type GuardDeps = {
   warn?: (message: string) => void;
 };
 
+/**
+ * What a route handler gets back from `apiUser()`. Exactly one side is
+ * populated, so `if (gate.response) return gate.response;` is the whole
+ * calling convention and TypeScript narrows `gate.user` after it.
+ */
+export type ApiGate =
+  | { user: AuthorizedUser; response: null }
+  | { user: null; response: Response };
+
 export type Guard = {
   /** Non-throwing. Route handlers and pages that render their own denial. */
   authorize(): Promise<AuthorizeResult>;
@@ -104,7 +113,23 @@ export type Guard = {
   requireUser(): Promise<AuthorizedUser>;
   /** Throws `AuthorizationError` unless the caller is an admin or the owner. */
   requireAdmin(): Promise<AuthorizedUser>;
+  /** Non-throwing, for route handlers: the caller, or the Response to send. */
+  apiUser(): Promise<ApiGate>;
 };
+
+/**
+ * The denial a route handler sends. JSON rather than an HTML sign-in page,
+ * because an API caller following a redirect to markup gets a confusing 200
+ * instead of an error. `src/proxy.ts` sends the same shape for the same reason,
+ * so a caller sees one answer whether or not proxy ran.
+ */
+export function denialResponse(result: AuthorizeResult): Response | null {
+  if (result.ok) return null;
+  return Response.json(
+    { error: result.reason, message: result.message },
+    { status: result.status },
+  );
+}
 
 /** Thrown by `requireUser` / `requireAdmin`. Carries the HTTP status to send. */
 export class AuthorizationError extends Error {
@@ -191,5 +216,13 @@ export function createGuard(deps: GuardDeps): Guard {
     return user;
   }
 
-  return { authorize, requireUser, requireAdmin };
+  async function apiUser(): Promise<ApiGate> {
+    const result = await authorize();
+    if (result.ok) return { user: result.user, response: null };
+    // `denialResponse` returns null only for an ok result, which this branch
+    // has already excluded.
+    return { user: null, response: denialResponse(result) as Response };
+  }
+
+  return { authorize, requireUser, requireAdmin, apiUser };
 }
