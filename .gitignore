@@ -51,3 +51,9 @@ next-env.d.ts
 # public. Keep test material here; it stays on the machine.
 /documents
 /test-docs
+
+# OCR worker/core/language-data assets, vendored from node_modules by
+# `pnpm vendor:ocr` (runs at prebuild). Regenerated build output -- several
+# megabytes of binary that would otherwise land in every diff.
+/public/tesseract/*
+!/public/tesseract/.gitkeep

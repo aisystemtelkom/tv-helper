@@ -154,3 +154,49 @@ test("padBox clamps a negative pad to a zero-size box instead of going negative"
     h: 0,
   });
 });
+
+import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
+
+test("ocrToLines reads rendered text back with plausible boxes", async () => {
+  const canvas = createCanvas(600, 200);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 600, 200);
+  ctx.fillStyle = "black";
+  ctx.font = "48px sans-serif";
+  ctx.fillText("PERJANJIAN", 20, 80);
+  ctx.fillText("KERJASAMA", 20, 150);
+
+  const rendered = {
+    data: ctx.getImageData(0, 0, 600, 200).data,
+    width: 600,
+    height: 200,
+  };
+
+  // Explicit local paths, because BROWSER_ASSETS in ocr.ts is only applied
+  // when `typeof window !== "undefined"`. An empty assets object under Node
+  // would leave tesseract.js on its CDN defaults, which is exactly the
+  // third-party fetch this project forbids -- and would make this test
+  // silently depend on network access. `pnpm vendor:ocr` must have already
+  // populated public/tesseract for this to read anything.
+  //
+  // cacheMethod: "none" because tesseract.js otherwise decompresses
+  // eng.traineddata.gz once and writes the ~5MB result to process.cwd() as
+  // eng.traineddata, then reads THAT on every later run. Without disabling
+  // it, a second test run passes from that stray cache even if the vendored
+  // langPath is broken or missing, which defeats the point of this test.
+  const lines = await ocrToLines(rendered, "eng", {
+    langPath: "./public/tesseract",
+    gzip: true,
+    cacheMethod: "none",
+  });
+
+  assert.ok(lines.length >= 2, `expected 2+ lines, got ${lines.length}`);
+  const text = lines.map((l) => l.text).join(" ").toUpperCase();
+  assert.ok(text.includes("PERJANJIAN"), `missing word in: ${text}`);
+  // Boxes must be inside the image, or every downstream crop is wrong.
+  for (const line of lines) {
+    assert.ok(line.box.x >= 0 && line.box.x + line.box.w <= 600);
+    assert.ok(line.box.y >= 0 && line.box.y + line.box.h <= 200);
+  }
+});
