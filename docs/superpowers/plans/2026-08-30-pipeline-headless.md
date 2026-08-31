@@ -535,7 +535,7 @@ The traineddata lives in a `4.0.0_best_int` subdirectory of each data package, w
 
 - [ ] **Step 2: Create the PNG encoder, which OCR needs before Task 9 does**
 
-Create `src/lib/export/png.ts` exporting `encodePng(rgba: Uint8ClampedArray, width: number, height: number): Uint8Array`, using `node:zlib` `deflateSync` in Node and `CompressionStream("deflate")` in the browser. `scripts/png.mjs` already holds the CRC and chunk-writing helpers, so lift them here and have the script import from this module rather than keeping two copies. Do not add `sharp` or `pngjs`.
+Create `src/lib/export/png.ts` exporting `async function encodePng(rgba: Uint8ClampedArray, width: number, height: number): Promise<Uint8Array>`, using `node:zlib` `deflateSync` in Node and `CompressionStream("deflate")` in the browser. **It has to be async**: `CompressionStream` exposes no synchronous API, so a universal encoder cannot be sync even though the Node half could be. `scripts/png.mjs` already holds the CRC and chunk-writing helpers, so lift them here and have the script import from this module rather than keeping two copies. Do not add `sharp` or `pngjs`.
 
 This module was originally scheduled for Task 9. It moves here because `tesseract.js` cannot accept raw pixels, so OCR needs a PNG encoder before anything else does.
 
@@ -643,7 +643,9 @@ export async function ocrToWords(
     // tesseract.js has no raw-pixel path. It writes the bytes to a virtual
     // file and calls SetImageFile, which needs a decodable header, so raw
     // RGBA silently becomes a zero-length buffer and errors.
-    const image = Buffer.from(encodePng(page.data, page.width, page.height));
+    const image = Buffer.from(
+      await encodePng(page.data, page.width, page.height),
+    );
     const { data } = await worker.recognize(image, {}, { blocks: true });
 
     const words: Word[] = [];
@@ -1447,7 +1449,7 @@ git commit -m "feat: transcribe the AO DOKUMEN VALIDASI template as config"
 **Interfaces:**
 - Consumes: `RenderedPage` and `Box` from Task 2, `Zone` from Task 6, `Template` from Task 8.
 - Produces:
-  - `function cropToPng(page: RenderedPage, box: Box): Uint8Array`
+  - `async function cropToPng(page: RenderedPage, box: Box): Promise<Uint8Array>` (async because `encodePng` is: the browser path uses `CompressionStream`, which has no synchronous API)
   - `type FilledSlot = { key: string; png: Uint8Array; widthPx: number; heightPx: number }`
   - `type HeaderFields = { idEpic: string; namaProyek: string; quote: string; cc: string; order: string; jenisOrder: string }`
   - `async function buildDocx(template, header: HeaderFields, filled: FilledSlot[]): Promise<Uint8Array>`
@@ -1467,7 +1469,7 @@ import { cropToPng } from "../src/lib/export/crop.ts";
 import { buildDocx } from "../src/lib/export/docx.ts";
 import JSZip from "jszip";
 
-test("cropToPng extracts exactly the requested rectangle", () => {
+test("cropToPng extracts exactly the requested rectangle", async () => {
   const canvas = createCanvas(100, 100);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "white";
@@ -1481,7 +1483,7 @@ test("cropToPng extracts exactly the requested rectangle", () => {
     height: 100,
   };
 
-  const png = cropToPng(rendered, { x: 20, y: 20, w: 10, h: 10 });
+  const png = await cropToPng(rendered, { x: 20, y: 20, w: 10, h: 10 });
   assert.ok(png.length > 0);
   // PNG magic, so a caller cannot mistake raw pixels for an encoded image.
   assert.deepEqual([...png.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
@@ -1516,7 +1518,7 @@ test("buildDocx writes real png media parts at their true size", async () => {
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, 600, 300);
-  const png = cropToPng(
+  const png = await cropToPng(
     { data: ctx.getImageData(0, 0, 600, 300).data, width: 600, height: 300 },
     { x: 0, y: 0, w: 600, h: 300 },
   );
@@ -1564,7 +1566,10 @@ import { encodePng } from "./png.ts";
  * arrive from geometry.ts already clamped to the page, so an out-of-bounds
  * box here means a caller skipped padBox and is a bug worth throwing on.
  */
-export function cropToPng(page: RenderedPage, box: Box): Uint8Array {
+export async function cropToPng(
+  page: RenderedPage,
+  box: Box,
+): Promise<Uint8Array> {
   const x = Math.round(box.x);
   const y = Math.round(box.y);
   const w = Math.round(box.w);
@@ -1582,7 +1587,7 @@ export function cropToPng(page: RenderedPage, box: Box): Uint8Array {
     const from = ((y + row) * page.width + x) * 4;
     out.set(page.data.subarray(from, from + w * 4), row * w * 4);
   }
-  return encodePng(out, w, h);
+  return await encodePng(out, w, h);
 }
 ```
 
