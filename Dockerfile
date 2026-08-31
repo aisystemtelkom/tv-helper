@@ -43,6 +43,52 @@ COPY . .
 # so a missing credential fails the request that needs it and not the build.
 RUN pnpm build
 
+# REPAIR THE TRACED node_modules. Without this the image builds, pushes, and
+# then the container dies on the first line of `node server.js` with
+#
+#   Cannot find module '.../@swc/helpers/esm/_interop_require_default.js'
+#
+# Next traces `@swc/helpers` with the `require` condition and copies
+# `cjs/_interop_require_default.cjs`. Node 24 resolves the very same specifier
+# (`next/dist/shared/lib/constants.js` does
+# `require("@swc/helpers/_/_interop_require_default")`) through the
+# `module-sync` condition instead, which that package maps to `esm/*.js` -- a
+# file the tracer therefore never copied. The tracer and the runtime disagree
+# about the same `exports` map, and the loser is the deployed container.
+#
+# NOTE THAT `node .next/standalone/server.js` RUN IN PLACE DOES NOT CATCH THIS.
+# The standalone tree sits inside the project, so Node walks up into the real
+# `node_modules` and finds the missing file there. Only an isolated root -- this
+# image, or Cloud Run -- exposes it. Test the container, not the directory.
+#
+# `@swc/helpers` is the only package in the traced tree whose `exports` mention
+# `module-sync`, which is why this repairs that package rather than everything:
+#
+#   grep -rl module-sync .next/standalone/node_modules/.pnpm/*/node_modules/*/package.json
+#
+# Version-agnostic, and loud if the assumption ever stops holding: an empty
+# glob or a missing source fails the build rather than shipping a broken image.
+RUN set -eu; \
+    repaired=0; \
+    for traced in .next/standalone/node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers; do \
+      [ -d "$traced" ] || continue; \
+      full="${traced#.next/standalone/}"; \
+      if [ ! -d "$full" ]; then \
+        echo "Dockerfile: no full copy of $full to repair from" >&2; exit 1; \
+      fi; \
+      cp -R "$full/." "$traced/"; \
+      if [ ! -f "$traced/esm/_interop_require_default.js" ]; then \
+        echo "Dockerfile: repaired $traced but esm/ is still missing" >&2; exit 1; \
+      fi; \
+      repaired=$((repaired + 1)); \
+    done; \
+    if [ "$repaired" -eq 0 ]; then \
+      echo "Dockerfile: found no @swc/helpers in the standalone tree. The pnpm" >&2; \
+      echo "layout or Next's tracing changed; re-check before deleting this." >&2; \
+      exit 1; \
+    fi; \
+    echo "repaired $repaired traced @swc/helpers copy/copies"
+
 
 # --- runtime ---------------------------------------------------------------
 FROM base AS runner
@@ -70,6 +116,22 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 # cares most about, so it is spelled out here rather than trusted to memory.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Prove the assembled tree can actually load, HERE, where /app is the whole
+# world and nothing can be borrowed from a parent node_modules. This is the
+# require chain that fails when the tracing repair above is missing
+# (next.js -> config.js -> constants.js -> @swc/helpers), so a broken image now
+# fails `docker build` instead of Cloud Run's first request. It costs about a
+# second and it is the only check in this file that runs the code.
+#
+# The two asset copies get the same treatment: a missing `ind.traineddata.gz`
+# breaks OCR in production only, silently, while `next dev` serves it from disk
+# and looks perfect.
+RUN node -e "require('next/dist/server/next')" \
+ && test -d ./.next/static \
+ && test -s ./public/tesseract/ind.traineddata.gz \
+ && test -s ./public/tesseract/tesseract-core-simd-lstm.wasm \
+ && echo "standalone tree loads; static and vendored OCR assets present"
 
 USER nextjs
 EXPOSE 8080

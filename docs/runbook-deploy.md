@@ -6,7 +6,7 @@ that bills nothing while idle, which is the normal state of an internal tool
 used by a handful of operators, and Jakarta disposes of the data residency
 question rather than leaving it open for a state telco.
 
-Read the three traps first. Each one costs an afternoon if you meet it as a
+Read the four traps first. Each one costs an afternoon if you meet it as a
 symptom instead of as a step.
 
 ---
@@ -99,6 +99,56 @@ Cache-Control: public, max-age=604800, must-revalidate
 filenames carry no content hash, so `immutable` would pin every browser to the
 wasm it first saw and a tesseract upgrade would reach nobody, silently.)
 
+## Trap 4: the traced `node_modules` is incomplete, and only a container shows it
+
+**Found by building the image, 2026-09-01. Before the fix, the image built
+clean, pushed clean, and the container died on the first line of
+`node server.js`:**
+
+```
+Error: Cannot find module
+  '/app/node_modules/.pnpm/next@16.3.1_.../node_modules/@swc/helpers/esm/_interop_require_default.js'
+```
+
+`next/dist/shared/lib/constants.js` does
+`require("@swc/helpers/_/_interop_require_default")`. That package's `exports`
+map lists its conditions in the order `module-sync`, `webpack`, `import`,
+`default`, where the first three resolve to `esm/*.js` and only `default`
+resolves to `cjs/*.cjs`.
+
+- **Next's file tracer** resolves it with the `require` conditions, matches
+  `default`, and copies `cjs/_interop_require_default.cjs`.
+- **Node 24 at runtime** honours `module-sync` (it can `require()` ESM
+  synchronously), matches the *first* condition, and asks for
+  `esm/_interop_require_default.js` -- which the tracer therefore never copied.
+
+The tracer and the runtime read the same `exports` map and disagree. The
+`Dockerfile` repairs it by copying the full `@swc/helpers` over the traced
+partial one, version-agnostically, and fails the build loudly if the glob ever
+stops matching.
+
+**The part that makes this a trap rather than a bug: `node
+.next/standalone/server.js` run in place DOES NOT REPRODUCE IT.** The standalone
+tree sits inside the project, so Node's resolution walks up into the real
+`node_modules` and silently finds the missing file there. It starts, it serves,
+it looks like proof. The failure only appears where `/app` is the whole world:
+this image, and Cloud Run.
+
+> **So: an unbuilt Dockerfile is not a verified one, and neither is one you only
+> smoke-tested by running the standalone directory.** Run the container.
+
+`@swc/helpers` is currently the only package in the traced tree whose `exports`
+mention `module-sync`, which is why the repair is targeted. Re-check after any
+Next or pnpm upgrade:
+
+```bash
+grep -rl module-sync .next/standalone/node_modules/.pnpm/*/node_modules/*/package.json
+```
+
+The runner stage now ends with `RUN node -e "require('next/dist/server/next')"`
+plus asset existence checks, so a regression fails `docker build` rather than
+Cloud Run's first request.
+
 ---
 
 ## Prerequisites
@@ -172,6 +222,23 @@ gcloud builds submit --tag "$IMAGE" .
 The `Dockerfile` pins no `--platform` on any `FROM`, so a plain `docker build`
 on either machine produces a working image for **that** machine, which is what
 you want for local testing and not what you want for Cloud Run.
+
+**Run the container before you push it.** Building is not verifying: Trap 4 was
+an image that built and pushed clean and then died at boot. In bootstrap mode it
+needs no credential at all:
+
+```bash
+docker run --rm -p 8080:8080 -e AUTH_DISABLED=true "$IMAGE"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/                       # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/tesseract/ind.traineddata.gz  # 200
+```
+
+Verified this way on 2026-09-01 (amd64, Docker 29.2.1): the container boots,
+`/` renders, `/api/chat` answers 401 unauthenticated and 403 for a signed-in
+account that is not allowlisted, `/tesseract/ind.traineddata.gz` serves
+1,194,182 bytes with its `Cache-Control`, and the served HTML of both `/` and
+`/signin` contains no external host. Not verified: an actual `docker push`, an
+actual Cloud Run revision, a real Google OAuth round trip, or an arm64 build.
 
 ## Step 2: secrets
 
@@ -260,15 +327,38 @@ gcloud run deploy "$SERVICE" \
   --service-account="$SA" \
   --allow-unauthenticated \
   --memory=512Mi --min-instances=0 --port=8080 \
-  --clear-env-vars \
   --set-env-vars="AUTH_URL=${SERVICE_URL},AUTH_GOOGLE_ID=${OAUTH_CLIENT_ID}" \
   --set-secrets="AUTH_SECRET=auth-secret:latest,AUTH_GOOGLE_SECRET=auth-google-secret:latest,GOOGLE_GENERATIVE_AI_API_KEY=gemini-api-key:latest"
 ```
 
-`--clear-env-vars` is there to drop `AUTH_DISABLED` from step 4. The interlock
-would neutralise it anyway once `AUTH_GOOGLE_ID` is set, but leaving a dead
-switch in the service config invites someone to "clean up" the wrong half of it
-later.
+**`--set-env-vars` on its own is what drops `AUTH_DISABLED` from step 4.** Do
+not add `--clear-env-vars` alongside it: gcloud puts them in a mutually
+exclusive group and rejects the command outright, at the exact step that closes
+the bootstrap window. From `gcloud run deploy --help`:
+
+> At most one of these can be specified:
+> `--clear-env-vars` [...] `--set-env-vars=[KEY=VALUE,...]` List of key-value
+> pairs to set as environment variables. **All existing environment variables
+> will be removed first.**
+
+So `--set-env-vars` already replaces the whole set, which is exactly the intent:
+the deployed revision ends up with `AUTH_URL` and `AUTH_GOOGLE_ID` and nothing
+else. The interlock would neutralise a leftover `AUTH_DISABLED` anyway once
+`AUTH_GOOGLE_ID` is set, but leaving a dead switch in the service config invites
+someone to "clean up" the wrong half of it later.
+
+(`--set-secrets` is a separate group and is unaffected. If you ever need to keep
+some existing variables, the combination that *is* legal is
+`--remove-env-vars=AUTH_DISABLED --update-env-vars="..."`.)
+
+Confirm the flag landed, rather than assuming it:
+
+```bash
+gcloud run services describe "$SERVICE" --region="$REGION" \
+  --format='value(spec.template.spec.containers[0].env)'
+```
+
+`AUTH_DISABLED` must not appear.
 
 `--allow-unauthenticated` at the IAM layer is correct here, not a shortcut:
 operators signing in with ordinary gmail accounts cannot present IAM tokens, so
@@ -295,17 +385,17 @@ operators.
 | `ALLOWLIST_TIMEOUT_MS` | env | no | Defaults to 5000. Ceiling on one Firestore read. |
 | `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_LEVEL`, `GEMINI_MAX_OUTPUT_TOKENS` | env | no | Cost levers. See AGENTS.md. |
 
-For local development, add the Auth.js variables to your `.env.local` alongside
-the Gemini key. `.env.example` does not list them yet; the block to add is:
+**`next-auth` is pinned to the exact prerelease `5.0.0-beta.32`.** There is no
+stable v5: as of 2026-09-01 `npm view next-auth dist-tags` reports
+`latest 4.24.15` and `beta 5.0.0-beta.32`. So `pnpm up next-auth` is a
+*downgrade* to a 4.x API this code does not compile against, and `^5.0.0-beta.32`
+is not a pin because it also matches every later beta in a line that ships
+breaking changes between them. The full note is in `src/lib/auth/index.ts`,
+where someone about to bump it will actually be looking.
 
-```sh
-# Auth.js. Only needed once you are working on sign-in; `pnpm dev` without
-# these redirects to a sign-in page that cannot complete.
-AUTH_SECRET=
-AUTH_GOOGLE_ID=
-AUTH_GOOGLE_SECRET=
-AUTH_URL=http://localhost:3000
-```
+For local development, copy `.env.example` to `.env.local` and fill it in. It
+lists all four `AUTH_*` variables with empty values, so a fresh clone can see
+what is missing instead of reaching a sign-in page that cannot complete.
 
 A separate OAuth client with `http://localhost:3000/api/auth/callback/google` as
 its redirect URI is the usual way to do this. Firestore locally needs
@@ -334,13 +424,19 @@ unreliable or simply absent.
 So `src/proxy.ts` verifies the session JWT signature and nothing else, turning
 "not signed in" into a redirect (or a 401 for `/api/*`). It never reads
 Firestore. Its matcher is negative so it does not gate `_next/static`,
-`_next/image`, `favicon.ico`, `/tesseract/` or `/api/auth`.
+`_next/image`, `favicon.ico`, `/tesseract/`, `/api/auth` or `/signin`.
 
-**Not yet enforced, and this is the one thing to finish.** The pipeline UI and
-`/api/chat` are owned by other tracks and were not edited here, so they do not
-call the guard yet. Until they do, `/` and `/api/chat` are protected only by
-proxy's signature check, which is weaker than the design intends. Each route
-handler, server component and Server Function that touches a run needs one line:
+**Every route that touches a run now calls the guard itself.** As of
+2026-09-01:
+
+| Entry point | Call | Denial |
+| --- | --- | --- |
+| `src/app/page.tsx` | `authorize()` | redirect to `/signin`, or a sentence for a signed-in stranger |
+| `src/app/api/chat/route.ts` | `requireApiUser()` | 401 / 403 JSON |
+| `src/app/admin/page.tsx` | `authorize()` then `isAdmin` | a sentence, rendered in place |
+| `src/app/admin/actions.ts` | `requireAdmin()` per action | the thrown message, shown in the form |
+
+Anything added later needs one line:
 
 ```ts
 // server component or Server Function
@@ -352,6 +448,32 @@ import { requireApiUser } from "@/lib/auth/require-user";
 const gate = await requireApiUser();
 if (gate.response) return gate.response;   // 401 or 403 JSON
 ```
+
+`src/lib/auth/auth.test.mts` holds the regression test for this: it drives the
+real chat handler through a real guard with **no proxy anywhere** and asserts
+an anonymous POST gets 401, that the model is never reached, and that the
+request body is never even read. Deleting the gate from the route fails three
+tests. Do not "de-duplicate" the guard call back into proxy to make them pass.
+
+Two things proxy structurally could not do here, worth knowing before someone
+proposes exactly that:
+
+- Proxy verifies a JWT signature. It never reads Firestore, so it cannot tell a
+  currently-allowlisted operator from one removed this morning who still holds a
+  valid twelve-hour token. Only the guard asks that question.
+- A Server Function is a POST to whatever route it is used from, so no matcher
+  reliably covers it. `src/app/admin/actions.ts` is gated by its own
+  `requireAdmin()` calls, not by the matcher that happens to cover `/admin`.
+
+**The sign-in page is ours, and that is a constraint, not a preference.**
+Auth.js's built-in sign-in page renders each provider's logo from
+`https://authjs.dev/img/providers/<id>.svg`; the host is hardcoded in
+`@auth/core/lib/pages/signin.js` and the bundled Google provider sets only
+`brandColor`, so nothing overrides it. That is a third party in the request path
+of a page this app serves, which is the same objection that ruled out Firebase
+Auth. `pages.signIn` and `pages.error` in `src/lib/auth/config.ts` both point at
+`src/app/signin/page.tsx`, which has no external reference of any kind. Check 5
+under "Verifying a deploy" has to pass on `/signin` too, not only on the app.
 
 **Revocation lag is a designed property, not a bug.** JWT sessions mean removing
 someone from the allowlist does not by itself end their live session. Rather
@@ -384,18 +506,40 @@ Both are the obvious-looking answers to "database" and "auth" respectively.
 
 ## Verifying a deploy
 
-1. `curl -sI "$SERVICE_URL/" ` returns **307** to `/api/auth/signin`.
+1. `curl -sI "$SERVICE_URL/" ` returns **307** to `/signin?callbackUrl=%2F`.
+   Note `/signin`, this app's own page, not Auth.js's `/api/auth/signin`.
 2. `curl -s "$SERVICE_URL/api/chat" -X POST` returns **401** with
    `{"error":"unauthenticated",...}` rather than an HTML sign-in page.
-3. `curl -sI "$SERVICE_URL/tesseract/ind.traineddata.gz"` returns **200** with
+3. The same 401 with proxy out of the picture. Proxy is not the boundary, so
+   verify the route refuses on its own:
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+     -H 'content-type: application/json' -d '{"messages":[]}' \
+     "$SERVICE_URL/api/chat"
+   ```
+
+   401 here comes from `requireApiUser()` in the handler, and the same
+   assertion runs offline in `pnpm test`.
+4. **No third-party host in the sign-in HTML.** This is the check that would
+   have caught the Auth.js default page:
+
+   ```bash
+   curl -s "$SERVICE_URL/signin" | grep -oE 'https?://[^"'"'"' )]+' | sort -u
+   ```
+
+   Every line must be this service's own host or nothing at all. `authjs.dev`
+   appearing here means `pages.signIn` was dropped from
+   `src/lib/auth/config.ts`.
+5. `curl -sI "$SERVICE_URL/tesseract/ind.traineddata.gz"` returns **200** with
    about 1.19MB and a `Cache-Control` header. A 404 here is Trap 3.
-4. Sign in as the bootstrap owner. `/admin` renders the allowlist and shows
+6. Sign in as the bootstrap owner. `/admin` renders the allowlist and shows
    `via bootstrap`.
-5. In the browser console on the working page,
+7. In the browser console, on the working page **and on `/signin`**,
    `performance.getEntriesByType("resource").map(r => new URL(r.name).host)`
-   shows only the service's own host. Sign-in is a top-level redirect, not a
-   resource request, so it does not appear here. This check is the standing
-   proof that the browser talks to nothing but this app.
+   shows only the service's own host. The OAuth hop itself is a top-level
+   redirect, not a resource request, so it does not appear here. This check is
+   the standing proof that the browser talks to nothing but this app.
 
 ## Troubleshooting
 
@@ -409,3 +553,6 @@ Both are the obvious-looking answers to "database" and "auth" respectively.
 | Signed in, then denied with `not-listed` | Not in the allowlist, or removed within the last 60 seconds by another instance. |
 | Signed out every seventh day | Consent screen still in Testing mode. Trap 2. |
 | Redirect loop at `/api/auth/signin` | The `api/auth` exclusion is missing from the proxy matcher. |
+| Redirect loop at `/signin` | The `signin` exclusion is missing from the proxy matcher. Proxy redirects the sign-in page to itself. |
+| `/signin` requests `authjs.dev` | `pages.signIn` was dropped from `src/lib/auth/config.ts`, so Auth.js's built-in page is serving. Verification step 4. |
+| `argument --clear-env-vars: At most one of ...` | Step 6 was run with both `--clear-env-vars` and `--set-env-vars`. `--set-env-vars` alone already replaces the whole set. |
