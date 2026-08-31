@@ -200,3 +200,51 @@ test("ocrToLines reads rendered text back with plausible boxes", async () => {
     assert.ok(line.box.y >= 0 && line.box.y + line.box.h <= 200);
   }
 });
+
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ocrToWords } from "../src/lib/pipeline/ocr.ts";
+
+test("ocrToWords times out with an actionable error instead of hanging when worker init cannot complete", async () => {
+  // tesseract.js@7.0.0's own createWorker() swallows a loadLanguage failure
+  // in a bare `.catch(() => {})` deep inside its init chain, so a bad
+  // langPath does not reject -- it hangs forever with no error and no
+  // exception. Reproduce that exact failure mode against a fresh, empty temp
+  // directory rather than public/tesseract: a test that empties or mutates
+  // the real vendored assets is fragile and could leave the repo broken if
+  // it failed partway through.
+  const dir = await mkdtemp(join(tmpdir(), "ocr-bad-langpath-"));
+  const rendered = {
+    data: new Uint8ClampedArray(4 * 4 * 4),
+    width: 4,
+    height: 4,
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        ocrToWords(rendered, "eng", {
+          langPath: dir,
+          gzip: true,
+          // Without this, a stray decompressed cache from an earlier test
+          // run (see the cacheMethod note above) could satisfy the load
+          // from process.cwd() and this bad langPath would never be
+          // consulted at all, silently defeating the test.
+          cacheMethod: "none",
+          initTimeoutMs: 300,
+        }),
+      (err) => {
+        assert.ok(err instanceof Error);
+        // Actionable, not a bare "timeout": names the configured timeout,
+        // that OCR assets/langPath are the likely cause, and the fix.
+        assert.match(err.message, /300ms/);
+        assert.match(err.message, /langPath/);
+        assert.match(err.message, /pnpm vendor:ocr/);
+        return true;
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
