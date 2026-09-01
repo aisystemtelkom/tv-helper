@@ -386,6 +386,7 @@ import {
   CROP_PADDING_PX,
   trimRunningFooter,
   FOOTER_GAP_MULTIPLE,
+  MAX_FOOTER_LINES,
 } from "../src/lib/pipeline/locate.ts";
 
 const ocrPage = (index, texts) => ({
@@ -584,6 +585,82 @@ test("trimRunningFooter reads lines by number, not by array order", () => {
   assert.deepEqual(
     shuffled.map((l) => l.i),
     [4, 1, 3, 0, 2],
+  );
+});
+
+test("trimRunningFooter refuses to delete a whole block below a wide gap", () => {
+  // The defect this guards: the gap test says "something separate starts
+  // here", not "a footer starts here". Below the gap is a price total, a
+  // heading and five lines of conditions -- the shape of the sample bundle's
+  // own page 23, whose widest gap has SEVEN lines under it. Trimming there
+  // would drop the total a validator is signing off, and would look like a
+  // clean trim: a shorter crop with a matching line range and transcript.
+  //
+  // The figures and references below are fictional. This file is tracked and
+  // the bundle these shapes were measured on is not publishable.
+  const blockBelowGap = [
+    lineAt(0, 100),
+    lineAt(1, 150),
+    lineAt(2, 200),
+    lineAt(3, 250),
+    // 2600px below the last body line, on a 50px pitch: 52x, far past the
+    // threshold. The gap is not what makes this safe -- the size is.
+    lineAt(4, 2850, "TOTAL 999.000.000"),
+    lineAt(5, 2900, "Ketentuan:"),
+    lineAt(6, 2950, "a. Harga sudah termasuk PPN"),
+    lineAt(7, 3000, "b. Harga instalasi one time charge"),
+    lineAt(8, 3050, "c. Masa berlaku 30 hari"),
+    lineAt(9, 3100, "d. Pembayaran sesuai ketentuan"),
+    lineAt(10, 3150, "e. Harga belum termasuk perangkat"),
+  ];
+  assert.equal(blockBelowGap.length - 4, 7, "seven lines below the gap");
+  assert.deepEqual(trimRunningFooter(blockBelowGap, 0, 10), [0, 10]);
+});
+
+test("trimRunningFooter's bound is on how much it deletes, not on the gap", () => {
+  // Same gap, same ratio, same everything except the number of lines under
+  // it: at the cap it still trims, one line past the cap it declines. That
+  // boundary is the whole content of MAX_FOOTER_LINES, so it is asserted
+  // rather than inferred from the two shapes above.
+  const withTail = (tailLines) => {
+    const lines = [lineAt(0, 0), lineAt(1, 50), lineAt(2, 100), lineAt(3, 150)];
+    for (let n = 0; n < tailLines; n++) {
+      lines.push(lineAt(4 + n, 3000 + n * 50, `tail ${n}`));
+    }
+    return lines;
+  };
+
+  const atCap = withTail(MAX_FOOTER_LINES);
+  assert.deepEqual(
+    trimRunningFooter(atCap, 0, atCap.length - 1),
+    [0, 3],
+    `${MAX_FOOTER_LINES} trailing lines is still a footer`,
+  );
+
+  const overCap = withTail(MAX_FOOTER_LINES + 1);
+  assert.deepEqual(
+    trimRunningFooter(overCap, 0, overCap.length - 1),
+    [0, overCap.length - 1],
+    `${MAX_FOOTER_LINES + 1} trailing lines is no longer a footer`,
+  );
+});
+
+test("trimRunningFooter still cuts the footer sizes actually measured", () => {
+  // One line (the contract pages' initialling strip) and two (the letter
+  // pages' reference line plus "Page 2 of 2") are the only footer sizes this
+  // bundle demonstrates. The cap must not have moved either of them.
+  const body = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 200), lineAt(3, 250)];
+  assert.deepEqual(
+    trimRunningFooter([...body, lineAt(4, 3216, "Penyedia | Page 20 of 23")], 0, 4),
+    [0, 3],
+  );
+  assert.deepEqual(
+    trimRunningFooter(
+      [...body, lineAt(4, 3357, "SP No. LOP999001"), lineAt(5, 3401, "Page 2 of 2")],
+      0,
+      5,
+    ),
+    [0, 3],
   );
 });
 
