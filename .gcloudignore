@@ -1,0 +1,17 @@
+# Cloud Build upload context. Without this file gcloud falls back to
+# .gitignore, which excludes public/tesseract/* -- the vendored OCR wasm and
+# language data. The Dockerfile regenerates them with `pnpm vendor:ocr`, so
+# excluding them is correct AND keeps the upload small, but relying on a
+# fallback for something load-bearing is how it silently changes later.
+.git
+.gitignore
+node_modules
+.next
+out
+documents
+test-docs
+.claude
+.superpowers
+public/tesseract
+*.log
+tsconfig.tsbuildinfo
