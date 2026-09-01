@@ -225,6 +225,38 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
     data: new Uint8Array(source.bytes),
     CanvasFactory: OffscreenCanvasFactory,
     FilterFactory: NoFilterFactory,
+    /*
+     * RASTERIZE GLYPHS INSTEAD OF INSTALLING WEB FONTS. This one option is the
+     * difference between readable evidence and a page of empty boxes, and
+     * getting it wrong is silent.
+     *
+     * pdf.js defaults it to `isNodeJS`:
+     *   `typeof src.disableFontFace === "boolean" ? src.disableFontFace : isNodeJS`
+     * In Node that is true and pdf.js draws glyph outlines itself. In a
+     * browser it is false and pdf.js builds a `FontFace` from the embedded
+     * font and adds it to `document.fonts`. A Web Worker has NO `document`
+     * and no CSS font loading, so the face is never installed, the canvas
+     * falls back to a family that is not there, and every run of text using an
+     * embedded font paints as TOFU -- one empty box per character.
+     *
+     * MEASURED, on the real bundle. The two-page SPLITBA's second page is a
+     * printed email thread: a digital page, not a scan. Rendered in this
+     * worker it came out as boxes with only its one raster table legible;
+     * rendered by `pnpm generate` in Node, byte-identical input, it is a
+     * perfectly readable email. OCR of the tofu produced 46 lines of noise
+     * ("BENIBNIN BBB BNI TIDDD DD DED..."), which is exactly the shape that
+     * gets past every check: the page renders, it is page-shaped, it yields
+     * plausible line boxes, and the crop lands in a document a validator
+     * signs with nothing readable on it.
+     *
+     * The bundle's other 28 pages are scans -- pure images, no text objects --
+     * which is why this hid behind a run that otherwise looked healthy. Any
+     * bundle carrying digital pages loses all of them at once.
+     *
+     * Matching Node is also what the geometry requires: zones are measured in
+     * the pixels the headless pipeline produces.
+     */
+    disableFontFace: true,
   });
   open = { sourceId, task };
   return task.promise;
