@@ -59,6 +59,52 @@ export const FOOTER_GAP_MULTIPLE = 16;
  */
 const MIN_LINES_FOR_GAP_TRIM = 4;
 
+/**
+ * The most trailing lines the footer trim is allowed to delete. Past this it
+ * declines and hands the range back untouched, because whatever sits below
+ * that gap is too big to be a running footer.
+ *
+ * `FOOTER_GAP_MULTIPLE` decides WHETHER a gap looks like the one above a
+ * footer. Nothing decided HOW MUCH was below it, so the trim would delete an
+ * arbitrarily large block on the strength of a single gap measurement, and
+ * delete it quietly: a shorter crop and a matching line range look exactly
+ * like a correct trim.
+ *
+ * Measured, on all 29 pages of the sample bundle, taking each whole page as
+ * the block. Three pages have a gap at or above `FOOTER_GAP_MULTIPLE`, and
+ * what sits below it is:
+ *
+ *   contract page 22   1 line    initialling strip and page number, 32.1x
+ *   letter page 24     2 lines   letter reference, then "Page 2 of 2", 27.8x
+ *   letter page 26     2 lines   the same footer on the duplicate copy, 28.1x
+ *
+ * So a running footer in this bundle is one or two OCR lines. Four is double
+ * the largest measured, the same order of clearance `FOOTER_GAP_MULTIPLE`
+ * keeps on its own threshold.
+ *
+ * The failure it exists to stop is measured too, on the same pages. Lower the
+ * threshold to 8x and letter page 23's last oversized gap (8.6x) has SEVEN
+ * lines below it, and they are not a footer: the price total, a "Ketentuan:"
+ * heading, two lines of conditions, and only then the footer strip. Deleting
+ * those is deleting the evidence a validator signs. At the shipping 16x that
+ * gap does not fire, so this cap changes no crop on this bundle -- it is the
+ * second line of defence, so that a threshold which ever fires one gap too
+ * early (a different scan, a wider leading, a future retune) costs a footer
+ * rather than a block.
+ *
+ * A count rather than a proportion, because a page footer's size does not
+ * scale with how much of the page the block covers. "At most a quarter of the
+ * block" would refuse to cut a 2-line footer off a 4-line block and allow ten
+ * lines off a forty-line one, which is backwards at both ends.
+ *
+ * Over the cap it declines rather than looking for an earlier gap to cut at.
+ * The rule already cuts at the LAST oversized gap, which is the smallest cut
+ * on offer; an earlier one can only delete more. Declining keeps the whole
+ * proposed range, which is the direction the prompt already asks for: a few
+ * lines too many beats cutting the block short.
+ */
+export const MAX_FOOTER_LINES = 4;
+
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
@@ -115,6 +161,14 @@ function median(values: number[]): number {
  * because a footer can OCR as more than one line; those lines sit close to
  * each other, so the oversized gap is the one above the first of them.
  *
+ * It deletes at most `MAX_FOOTER_LINES` lines. The gap test alone says only
+ * that something separate begins below the gap; it cannot tell a two-line
+ * footer from a whole block of evidence that happens to sit under a wide one,
+ * and without a bound the trim would silently take either. See that constant
+ * for the measured footer sizes it is drawn from, and for the seven-line
+ * block on this bundle's own letter page 23 that a slightly lower threshold
+ * would otherwise have erased.
+ *
  * It refuses to fire when too few lines remain to have measured anything, and
  * it returns the range untouched -- never a reversed or empty one -- in every
  * case it declines, so `boxForLineRange` still raises the same errors it did
@@ -149,6 +203,11 @@ export function trimRunningFooter(
     if (pitches[k] >= FOOTER_GAP_MULTIPLE * typical) cutAfter = k;
   }
   if (cutAfter < 0) return [from, to];
+
+  // Too much below the gap to be a footer. See MAX_FOOTER_LINES: the gap says
+  // "something separate starts here", not "a footer starts here", and the
+  // difference between those two only shows up in how much follows.
+  if (picked.length - (cutAfter + 1) > MAX_FOOTER_LINES) return [from, to];
 
   const kept = picked.slice(0, cutAfter + 1);
   if (kept.length < MIN_LINES_FOR_GAP_TRIM) return [from, to];

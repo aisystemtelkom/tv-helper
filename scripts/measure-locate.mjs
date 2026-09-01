@@ -107,6 +107,7 @@ import {
   locateSlot,
   CROP_PADDING_PX,
   FOOTER_GAP_MULTIPLE,
+  MAX_FOOTER_LINES,
 } from "../src/lib/pipeline/locate.ts";
 import { boxForLineRange } from "../src/lib/pipeline/geometry.ts";
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
@@ -826,6 +827,31 @@ const GROUND_TRUTH = [
     // letterhead. A rule that reproduced this crop would inflate those two and
     // contradict the human on 7 of 8 field slots.
     //
+    // That used to be the argument. It is now a measurement, run offline
+    // against the required ranges this gate already prints, giving the
+    // hypothesis its BEST case: every field slot keeps the end it answers
+    // today and starts at line 0 instead.
+    //
+    //   KB / Nomor          PASS -> PASS
+    //   KB / Para Pihak     PASS -> PASS
+    //   KB / Tanggal        PASS -> FAIL  13 lines for a 2-line crop
+    //   KB / Jangka Waktu   PASS -> FAIL  43 lines for an 18-line crop
+    //   KB / Detail         PASS -> FAIL  runs the whole page (0-28)
+    //   KB / ToP (1)        PASS -> FAIL  runs the whole page (0-37)
+    //   KB / ToP (2)        FAIL -> PASS
+    //   KB / TTD Pejabat    PASS -> PASS
+    //
+    // Fixes one, breaks four: 11/12 -> 8/12, and that is the ceiling for the
+    // idea, not a sample of it. No model call was spent finding this out.
+    //
+    // Worth knowing before trying to close the gap semantically instead:
+    // rewriting the hint cannot pass this row either. The required range
+    // starts at line 1, which IS the letterhead (line 0 of this page is a
+    // stray mark). Clause 4 and clause 5 are both payment terms, so the best
+    // defensible semantic answer for "Terms of Payment" here is lines 2-15 --
+    // and 2 > 1, so `containsAll` still fails. The only answers that pass this
+    // row start on the letterhead.
+    //
     // Worth knowing before treating this row as a product defect: PRODUCTION
     // NEVER ASKS THIS QUESTION. `kbLanjutan.top` is one slot with one hint and
     // `crops: 2`, so `generate.mjs` makes a single locate call per round (the
@@ -1043,13 +1069,63 @@ function maxGapRatio(pageLines, from, to) {
   for (let k = 1; k < picked.length; k++) {
     pitches.push(picked[k].box.y - picked[k - 1].box.y);
   }
-  const sorted = [...pitches].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  const typical =
-    sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const typical = median(pitches);
   if (typical <= 0) return null;
 
   return Math.max(...pitches) / typical;
+}
+
+/**
+ * The same median `trimRunningFooter` takes, so the numbers this script prints
+ * about that rule are the rule's own arithmetic and not a lookalike.
+ */
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * How many trailing lines `trimRunningFooter` would delete from a page if it
+ * were handed that whole page as its block: the size of the page's running
+ * footer, measured rather than assumed.
+ *
+ * This is the quantity `MAX_FOOTER_LINES` is drawn from, so printing it keeps
+ * that constant's margin checked the same way `humanGapRatio` keeps
+ * `FOOTER_GAP_MULTIPLE`'s. The two constants answer different questions and
+ * both can be wrong on their own: the gap multiple decides WHETHER a gap looks
+ * like the one above a footer, and the line cap decides whether what sits
+ * below it is small enough to BE one. A bundle whose footers OCR into more
+ * lines than the cap allows would stop being trimmed at all -- crops inflate,
+ * nothing throws -- and this line is where that shows up.
+ *
+ * Deliberately measured with the whole page as the block rather than with the
+ * model's chosen range: the footer's own size is a property of the page, and
+ * measuring it against ranges the model happened to choose this run would make
+ * the constant's justification move every time an answer moved.
+ *
+ * Returns 0 for a page with no oversized gap at all, which is most of them.
+ */
+function footerTailLines(pageLines) {
+  const sorted = [...pageLines].sort((a, b) => a.i - b.i);
+  if (sorted.length < 4) return 0;
+
+  const pitches = [];
+  for (let k = 1; k < sorted.length; k++) {
+    pitches.push(sorted[k].box.y - sorted[k - 1].box.y);
+  }
+  const typical = median(pitches);
+  if (typical <= 0) return 0;
+
+  let cutAfter = -1;
+  for (let k = 0; k < pitches.length; k++) {
+    if (pitches[k] >= FOOTER_GAP_MULTIPLE * typical) cutAfter = k;
+  }
+  if (cutAfter < 0) return 0;
+
+  return sorted.length - (cutAfter + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1273,6 +1349,33 @@ async function main() {
           "trimRunningFooter can now cut real evidence."
       : `  Margin: the trim fires no earlier than ${(FOOTER_GAP_MULTIPLE / (worstHumanGap || 1)).toFixed(1)}x ` +
           "beyond the widest legitimate in-crop gap measured.",
+  );
+  console.log();
+
+  // The other half of the trim's safety, and a different question from the one
+  // above: not "does it fire too early" but "how much does it delete when it
+  // does". See MAX_FOOTER_LINES in locate.ts. Every page of the bundle is
+  // measured, not just the ones a slot landed on, because a footer's size is a
+  // property of the page rather than of this run's answers.
+  let worstTail = 0;
+  const tails = [];
+  for (const p of pages) {
+    const tail = footerTailLines(p.lines);
+    if (tail === 0) continue;
+    tails.push(`${p.doc} p${p.pageInDoc}: ${tail}`);
+    if (tail > worstTail) worstTail = tail;
+  }
+  console.log(
+    `Running footers, measured page by page: ${tails.length} of ${pages.length} pages have a ` +
+      `gap at or above ${FOOTER_GAP_MULTIPLE}x, with ${worstTail} line(s) below it at the widest ` +
+      `(${tails.join(", ") || "none"}). MAX_FOOTER_LINES is ${MAX_FOOTER_LINES}.`,
+  );
+  console.log(
+    worstTail > MAX_FOOTER_LINES
+      ? "  WARNING: a real footer here is longer than the trim is allowed to delete -- " +
+          "trimRunningFooter now declines on that page and its crops run to the page bottom."
+      : `  Margin: the cap allows ${MAX_FOOTER_LINES - worstTail} line(s) more than the longest ` +
+          "footer this bundle demonstrates.",
   );
   console.log();
   if (!only) {
