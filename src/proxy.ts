@@ -103,11 +103,18 @@ export const config = {
    * where the redirect above points, so dropping it from this list turns every
    * signed-out visit into a redirect to itself.
    *
+   * `api/health` is excluded because Cloud Run's probe carries no session
+   * cookie. Without the exclusion the branch above answers it 401, the
+   * platform reads that as unhealthy, and it restarts a container that was
+   * serving every real request correctly. `src/app/api/health/route.ts` is
+   * the other half of this and the two must move together; it is also the one
+   * route in the app that deliberately does not call the guard.
+   *
    * Adding a route that must be public means editing this line -- and per the
    * warning at the top of the file, editing this line is exactly what cannot be
    * allowed to decide whether that route is protected. It is not; the guard is.
    */
   matcher: [
-    "/((?!api/auth|signin|_next/static|_next/image|favicon.ico|tesseract/).*)",
+    "/((?!api/auth|api/health|signin|_next/static|_next/image|favicon.ico|tesseract/).*)",
   ],
 };
