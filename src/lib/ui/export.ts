@@ -16,6 +16,7 @@ import type { HeaderFields } from "../export/docx.ts";
 import type { Template } from "../forms/template.ts";
 import type { Box } from "../pipeline/render.ts";
 import { resolvePage } from "./evidence.ts";
+import { slotKeyOf } from "./runtime.ts";
 import type { BrowserRun, SlotState } from "./runtime.ts";
 import { templateSlots } from "./slots.ts";
 
@@ -44,11 +45,19 @@ export type ExportPlan = {
  * order it receives them.
  */
 export function planExport(run: BrowserRun, template: Template): ExportPlan {
+  // Keyed by TEMPLATE key. A two-capture slot arrives as `<key>#1` / `<key>#2`
+  // and grouping on the raw state key matched nothing: with BOTH captures
+  // confirmed by the operator, this planned ZERO crops for the slot and listed
+  // it under `empty` as `pending`. The docx would have shipped that cell blank
+  // over two accepted zones -- a deliverable that looks complete, is missing
+  // evidence, and gets signed. That is the failure this project is organised
+  // against, so the grouping is not a stylistic choice.
   const byKey = new Map<string, SlotState[]>();
   for (const state of run.slots) {
-    const existing = byKey.get(state.key);
+    const key = slotKeyOf(state.key);
+    const existing = byKey.get(key);
     if (existing) existing.push(state);
-    else byKey.set(state.key, [state]);
+    else byKey.set(key, [state]);
   }
 
   const crops: PlannedCrop[] = [];

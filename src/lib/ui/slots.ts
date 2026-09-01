@@ -13,6 +13,7 @@
  */
 
 import type { SectionDef, SlotDef, Template } from "../forms/template.ts";
+import { slotKeyOf } from "./runtime.ts";
 import type { BrowserRun, SlotState, SlotStatus } from "./runtime.ts";
 
 /** Every slot the template declares, with the section it belongs to. */
@@ -98,11 +99,20 @@ export function sheetSections(
   run: BrowserRun,
   template: Template,
 ): SheetSection[] {
+  // Grouped by TEMPLATE key, not by the state's own key. A two-capture slot
+  // reaches this function as `kbLanjutan.top#1` and `kbLanjutan.top#2`, and
+  // grouping on those raw strings matched no template slot at all: the ToP row
+  // rendered `pending` forever, both captures fell out into
+  // `unmatchedStates`, and -- worst of the three -- `hasUnreviewedProposals`
+  // returned false while a proposal sat unreviewed on `#2`, so the export gate
+  // opened on an unreviewed zone. Measured against the real `seedSlots`, not
+  // theorised.
   const byKey = new Map<string, PlacedSlot[]>();
   run.slots.forEach((state, index) => {
-    const existing = byKey.get(state.key);
+    const key = slotKeyOf(state.key);
+    const existing = byKey.get(key);
     if (existing) existing.push({ state, index });
-    else byKey.set(state.key, [{ state, index }]);
+    else byKey.set(key, [{ state, index }]);
   });
 
   return template.sections.map((section) => ({
@@ -137,7 +147,10 @@ export function unmatchedStates(
   template: Template,
 ): SlotState[] {
   const known = new Set(templateSlots(template).map(({ slot }) => slot.key));
-  return run.slots.filter((state) => !known.has(state.key));
+  // `slotKeyOf` first: a capture of a slot the template DOES declare is not an
+  // unmatched state. Without it every multi-capture slot in the run was
+  // reported as belonging to no template.
+  return run.slots.filter((state) => !known.has(slotKeyOf(state.key)));
 }
 
 export type Progress = {
@@ -271,7 +284,9 @@ export function describeOutstanding(
   );
 
   return states.map((state) => {
-    const found = index.get(state.key);
+    // The template key, so a capture keyed `<slot>#2` is named by its own
+    // section rather than reported as "Not in this template".
+    const found = index.get(slotKeyOf(state.key));
     return {
       state,
       def: found?.slot,

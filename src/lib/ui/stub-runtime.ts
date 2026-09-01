@@ -21,6 +21,7 @@
  * public and has leaked twice.
  */
 
+import { seedSlots } from "../browser/runtime.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import { CROP_PADDING_PX } from "../pipeline/locate.ts";
@@ -31,7 +32,6 @@ import type {
   SlotState,
   StoredPage,
 } from "./runtime.ts";
-import { requiredCrops, templateSlots } from "./slots.ts";
 
 const PAGE_W = 2480;
 const PAGE_H = 3507;
@@ -83,38 +83,53 @@ function syntheticLines(seed: number): Line[] {
   });
 }
 
-function makePage(sourceId: string, index: number): StoredPage {
+/**
+ * `indexInSource` is the page's number WITHIN ITS OWN DOCUMENT, restarting at
+ * 0 for every source -- which is what `StoredPage.index` means in the real
+ * runtime. It is NOT the run-global page number; that one is the page's
+ * position in `run.pages` and is what a `Zone.pageIndex` holds.
+ *
+ * This stub used to number pages globally here, which made both readings look
+ * identical and hid the distinction from every screen developed against it.
+ */
+function makePage(sourceId: string, indexInSource: number): StoredPage {
   return {
-    id: `${sourceId}-${index}`,
+    id: `${sourceId}-${indexInSource}`,
     sourceId,
-    index,
+    index: indexInSource,
     widthPx: PAGE_W,
     heightPx: PAGE_H,
-    lines: syntheticLines(index),
+    lines: syntheticLines(indexInSource),
   };
 }
 
-/** Every fillable slot the template declares, one state per required capture. */
+/**
+ * Seeded by the REAL runtime's `seedSlots`, deliberately.
+ *
+ * The stub previously built its own slot list and gave a two-capture slot two
+ * states under the SAME key, where the real runtime keys them `<slot>#1` and
+ * `<slot>#2`. Every screen was therefore developed against a key convention
+ * production does not use, and the difference was invisible until the real
+ * module was wired. Borrowing the real seeder is what stops that recurring:
+ * a stub may invent pages and pixels, but not the shape of the contract.
+ */
 function emptySlots(): SlotState[] {
-  return templateSlots(AO_TEMPLATE).flatMap(({ slot }) =>
-    slot.fillable
-      ? Array.from({ length: requiredCrops(slot) }, () => ({
-          key: slot.key,
-          label: slot.label,
-          status: "pending" as const,
-        }))
-      : [],
-  );
+  return seedSlots(AO_TEMPLATE);
 }
 
-function zoneFor(page: StoredPage, from: number, to: number) {
+/**
+ * `pageIndex` is the page's POSITION IN `run.pages`, not `page.index`. Getting
+ * this wrong in a fake is worse than getting it wrong in production, because
+ * it teaches every screen the wrong rule while all the tests pass.
+ */
+function zoneFor(run: BrowserRun, page: StoredPage, from: number, to: number) {
   const picked = page.lines.filter((l) => l.i >= from && l.i <= to);
   const x = Math.min(...picked.map((l) => l.box.x)) - CROP_PADDING_PX;
   const y = Math.min(...picked.map((l) => l.box.y)) - CROP_PADDING_PX;
   const right = Math.max(...picked.map((l) => l.box.x + l.box.w)) + CROP_PADDING_PX;
   const bottom = Math.max(...picked.map((l) => l.box.y + l.box.h)) + CROP_PADDING_PX;
   return {
-    pageIndex: page.index,
+    pageIndex: run.pages.indexOf(page),
     box: { x, y, w: right - x, h: bottom - y },
     lineRange: [from, to] as [number, number],
   };
@@ -156,7 +171,7 @@ function searchStub(run: BrowserRun, roundPages: StoredPage[]): SlotState[] {
       ...slot,
       status: "proposed" as const,
       origin: "llm" as const,
-      zone: zoneFor(page, range[0], range[1]),
+      zone: zoneFor(run, page, range[0], range[1]),
       text: page.lines
         .filter((l) => l.i >= range[0] && l.i <= range[1])
         .map((l) => l.text)
@@ -168,12 +183,17 @@ function searchStub(run: BrowserRun, roundPages: StoredPage[]): SlotState[] {
 function seedRun(): BrowserRun {
   const sourceId = "src-splitba";
   const otherId = "src-merged";
+  // Each source's pages restart at 0, exactly as the real ingest numbers them.
+  // The run-global positions are 0..4; the second document's `index` values
+  // are 0,1,2 and deliberately COLLIDE with the first document's, because that
+  // collision is the normal case in production and any screen that cannot
+  // cope with it is broken.
   const pages = [
     makePage(sourceId, 0),
     makePage(sourceId, 1),
+    makePage(otherId, 0),
+    makePage(otherId, 1),
     makePage(otherId, 2),
-    makePage(otherId, 3),
-    makePage(otherId, 4),
   ];
   const run: BrowserRun = {
     id: "demo-run",
@@ -229,6 +249,23 @@ async function drawPage(page: StoredPage): Promise<ImageBitmap> {
  * nobody should mistake the stub for the IndexedDB-backed real thing.
  */
 export function createStubRuntime(): Runtime {
+  // THE GUARD. This fake invents pages, invents OCR lines and paints its own
+  // "scans"; a build that served it to an operator would produce a validation
+  // document full of confident, fabricated evidence and nothing would look
+  // wrong. The app ran on it for an entire track precisely because nothing
+  // failed when it was wired, so the refusal is deliberate and loud.
+  //
+  // `process.env.NODE_ENV` is statically inlined into the client bundle by
+  // Next, so this is a real production-build guard and not just a server-side
+  // check. Tests and `next dev` are unaffected.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "createStubRuntime() was called in a production build. The stub " +
+        "fabricates pages and OCR text; it must never back an operator's " +
+        "run. Use `liveRuntime` from src/lib/ui/live-runtime.ts.",
+    );
+  }
+
   const runs = new Map<string, BrowserRun>();
   const seeded = seedRun();
   runs.set(seeded.id, seeded);
@@ -270,7 +307,9 @@ export function createStubRuntime(): Runtime {
       const added: StoredPage[] = [];
       for (let i = 0; i < total; i++) {
         await wait(400);
-        added.push(makePage(sourceId, existing.pages.length + i));
+        // `i`, not a run-global counter: pages are numbered within their own
+        // source document.
+        added.push(makePage(sourceId, i));
         onProgress?.(i + 1, total);
       }
 

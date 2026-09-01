@@ -19,10 +19,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { AO_TEMPLATE } from "@/lib/forms/template";
+import { liveRuntime } from "@/lib/ui/live-runtime";
+import { applyProposals, requestProposals, wantedKeys } from "@/lib/ui/propose";
 import type { BrowserRun, RunSummary, SlotState } from "@/lib/ui/runtime";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
-import { createStubRuntime } from "@/lib/ui/stub-runtime";
 
 import { Btn, Eyebrow, Notice, Tally } from "./chrome";
 import { ContactSheet } from "./contact-sheet";
@@ -33,14 +34,16 @@ import { ZoneEditor, type EditorTarget } from "./zone-editor";
 import type { PlateActions } from "./proposal-plate";
 
 /**
- * THE STUB, and the only line that changes when the real runtime lands: swap
- * `createStubRuntime()` for the module implementing the contract at
- * `src/lib/browser/runtime.ts`. See the merge note in `src/lib/ui/runtime.ts`.
+ * THE REAL RUNTIME: IndexedDB on this device, rendering and OCR in a Web
+ * Worker. `liveRuntime` is the whole binding, and `src/lib/ui/wiring.test.mts`
+ * asserts that this module uses it -- the app shipped on `createStubRuntime()`
+ * for an entire track precisely because nothing failed when it did.
  *
- * Built at module scope rather than in a render, so nothing here reads the
- * clock or allocates while React is rendering.
+ * The stub is still worth having for local work on the screens (see
+ * `src/lib/ui/stub-runtime.ts`), but it now refuses to construct in a
+ * production build, so it cannot quietly take over again.
  */
-const runtime = createStubRuntime();
+const runtime = liveRuntime;
 
 const PHASES = [
   { id: "ingest", label: "Ingest" },
@@ -82,6 +85,7 @@ function Workspace() {
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [rounds, setRounds] = useState<RoundLog[]>([]);
   const [busy, setBusy] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditorTarget | null>(null);
 
@@ -145,29 +149,31 @@ function Workspace() {
     setBusy(true);
     setError(null);
     try {
-      let current: BrowserRun =
-        run ??
-        (() => {
-          const fresh: BrowserRun = {
-            id: crypto.randomUUID(),
-            createdAt: Date.now(),
-            sources: [],
-            pages: [],
-            slots: [],
-          };
-          return fresh;
-        })();
-      if (!run) await runtime.saveRun(current);
+      /*
+       * THE RUNTIME MINTS THE RUN, not this component.
+       *
+       * This used to build a `BrowserRun` here with `slots: []` and `saveRun`
+       * it before ingesting. Against the real runtime that is silently fatal:
+       * `ingestDocument` keeps the slots of a run that already exists, so the
+       * empty list persisted, every page rendered and OCR'd correctly, and the
+       * contact sheet came back with nothing to review. Passing an id the
+       * runtime has never seen lets it seed every fillable slot -- one state
+       * per capture, ordinals and all -- which is knowledge that belongs to
+       * the template and the runtime, not to a screen.
+       */
+      let runId = run?.id ?? crypto.randomUUID();
+      let current: BrowserRun | null = run;
 
       for (const file of files) {
-        const before = current.pages.length;
+        const before = current?.pages.length ?? 0;
         setProgress({ name: file.name, done: 0, total: 0 });
         const updated = await runtime.ingestDocument(
-          current.id,
+          runId,
           file,
           (done, total) => setProgress({ name: file.name, done, total }),
         );
         current = updated;
+        runId = updated.id;
         setRounds((prev) => [
           ...prev,
           {
@@ -179,15 +185,54 @@ function Workspace() {
         ]);
       }
 
-      setRun(current);
-      rememberRun(current.id);
-      setRuns(await runtime.listRuns());
+      if (current) {
+        setRun(current);
+        rememberRun(current.id);
+      }
       setPhase("sheet");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : String(problem));
     } finally {
       setBusy(false);
       setProgress(null);
+      // Refreshed even when the ingest FAILED. Each page is persisted as it
+      // finishes, so a bundle that died on page 20 of 29 still left a run
+      // holding nineteen pages of OCR -- minutes of work the operator has
+      // already paid for. Listing it only on success made that run invisible
+      // until a reload, which reads as "nothing was saved".
+      try {
+        setRuns(await runtime.listRuns());
+      } catch {
+        /* the list is a convenience; never mask the ingest's own error */
+      }
+    }
+  };
+
+  /**
+   * THE SEARCH. The only thing that moves a slot to "proposed".
+   *
+   * The run is RE-READ from storage first, and the answer is applied to that
+   * fresh copy rather than to the `run` in React state. A full pass is minutes
+   * of model calls, and an ingest or another tab may have written pages in the
+   * meantime; applying to a stale object would save a run without them.
+   */
+  const search = async () => {
+    if (!run) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const response = await requestProposals(run);
+      const fresh = (await runtime.loadRun(run.id)) ?? run;
+      commit(applyProposals(fresh, response));
+      setPhase("sheet");
+    } catch (problem) {
+      setError(
+        problem instanceof Error
+          ? `The search failed, and nothing in the run was changed: ${problem.message}`
+          : String(problem),
+      );
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -253,6 +298,12 @@ function Workspace() {
   );
 
   const counts = run ? progressOf(run, AO_TEMPLATE) : null;
+
+  // Slots the model has not been asked about yet, or was asked and missed.
+  // Nothing else in the app produces a proposal, so when this is non-zero and
+  // the operator has not run the search, the sheet is empty for a reason the
+  // screen has to state rather than leave them to infer.
+  const unsearched = run ? wantedKeys(run).length : 0;
 
   return (
     <div className="lt lt-shell flex flex-col">
@@ -322,6 +373,22 @@ function Workspace() {
 
       <main className="mx-auto flex w-full max-w-[92rem] flex-col gap-5 px-5 py-6">
         {error ? <Notice tone="stop">{error}</Notice> : null}
+
+        {run && run.pages.length > 0 && unsearched > 0 && !editing ? (
+          <div className="lt-card flex flex-wrap items-center gap-4 p-4">
+            <div className="mr-auto flex flex-col gap-1">
+              <Eyebrow>Search the bundle</Eyebrow>
+              <p className="text-xs" style={{ color: "var(--lt-faint)" }}>
+                {searching
+                  ? `Searching ${run.pages.length} pages for ${unsearched} slots. This is one model call per slot and takes a few minutes; the page can stay open.`
+                  : `${unsearched} slots have no proposal yet. The search reads the OCR text of ${run.pages.length} pages on the server and proposes a region for each.`}
+              </p>
+            </div>
+            <Btn onClick={() => void search()} disabled={searching}>
+              {searching ? "Searching..." : "Search for these slots"}
+            </Btn>
+          </div>
+        ) : null}
 
         {editing && run ? (
           /* Keyed by target, so opening the editor on a different capture

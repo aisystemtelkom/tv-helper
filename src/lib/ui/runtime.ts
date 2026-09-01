@@ -1,38 +1,17 @@
 /**
- * THE SEAM between this UI track and the browser-runtime track.
+ * THE SEAM between the operator UI and the browser runtime, now JOINED.
  *
- * The agreed interface is `src/lib/browser/runtime.ts`, which a sibling track
- * is implementing concurrently. That path does not exist in this branch, so
- * every type below is a MIRROR of the agreed contract, copied verbatim, and
- * `src/lib/ui/stub-runtime.ts` is a fake implementation the UI is developed
- * against.
+ * This file used to MIRROR the agreed contract, because the UI track and the
+ * runtime track were built concurrently and `src/lib/browser/runtime.ts` did
+ * not exist on the UI branch. It exists now, so the mirror is gone and the
+ * types below are re-exported from it. That is not tidiness: while the mirror
+ * stood, drift between the two declarations was invisible, and every consumer
+ * of these types was checked against a copy rather than against the thing it
+ * actually receives at runtime. Re-exporting makes `tsc` the referee.
  *
- * WHY THE MIRROR RATHER THAN AN IMPORT. Creating `src/lib/browser/runtime.ts`
- * here would collide with the file the runtime track is adding at exactly that
- * path -- a both-added merge conflict over a file this track does not own.
- * Mirroring costs one file and conflicts with nothing.
- *
- * HOW TO SNAP THE TWO TOGETHER AT MERGE. Two edits, both in files this track
- * owns:
- *
- *   1. In THIS file, delete the mirrored type block and re-export instead:
- *
- *        export type {
- *          SlotStatus, SlotState, StoredPage, BrowserRun,
- *        } from "../browser/runtime.ts";
- *
- *      `tsc` then proves the mirror was accurate: every consumer is typed
- *      against the real declarations, and any drift becomes a compile error
- *      rather than a runtime surprise.
- *
- *   2. In `src/components/operator/operator-app.tsx`, pass the real module to
- *      `<RuntimeProvider runtime={...}>` in place of `createStubRuntime()`.
- *      The shape it must satisfy is `Runtime` below, whose members are the
- *      contract's free functions gathered into one object so the UI can be
- *      driven by a fake without a module mock.
- *
- * Nothing else in this track imports the runtime directly. That is deliberate:
- * the swap is meant to be two edits, not a search.
+ * DO NOT RE-INTRODUCE A LOCAL COPY OF THESE TYPES. The mirror hid three real
+ * mismatches until it was removed (see `slotKeyOf` below, and the note on
+ * `Zone.pageIndex`), each of which shipped a document that looked complete.
  */
 
 import type { Line } from "../pipeline/geometry.ts";
@@ -40,54 +19,64 @@ import type { Zone } from "../pipeline/locate.ts";
 
 export type { Line, Zone };
 
-/* -------------------------------------------------------------------------
- * MIRROR OF THE CONTRACT. Keep identical to src/lib/browser/runtime.ts.
- * ---------------------------------------------------------------------- */
+/**
+ * The contract itself. `src/lib/browser/runtime.ts` is the only definition;
+ * everything the UI knows about a run comes from there.
+ *
+ * Two of these carry a meaning that is NOT guessable from the type, and both
+ * have already been a defect in this project:
+ *
+ *  - `StoredPage.index` is the page's number WITHIN ITS OWN SOURCE DOCUMENT.
+ *    `Zone.pageIndex` is a different number: the page's POSITION IN
+ *    `BrowserRun.pages`, which is append-only across every document ingested
+ *    into the run. They coincide for the first source file and diverge for
+ *    every one after it, which is why confusing them is quiet -- the first
+ *    document reviews correctly and the second sends a reviewer to the wrong
+ *    page. Resolve one to the other with `resolvePage` in `./evidence.ts`;
+ *    never index `run.pages` with a `StoredPage.index`.
+ *
+ *  - `SlotState.key` is NOT always a `SlotDef.key`. A slot whose
+ *    `SlotDef.crops` is greater than one is seeded as SEVERAL states keyed
+ *    `<slotKey>#1`, `<slotKey>#2`, because `SlotState.zone` holds one zone
+ *    and one state per slot would silently drop the second capture. Recover
+ *    the template key with `slotKeyOf`, re-exported below -- never by
+ *    splitting the string by hand.
+ */
+export type {
+  SlotStatus,
+  SlotState,
+  StoredPage,
+  RunSource,
+  BrowserRun,
+} from "../browser/runtime.ts";
 
-export type SlotStatus =
-  | "pending" // not searched yet
-  | "proposed" // model proposed a zone, awaiting the operator
-  | "confirmed" // operator accepted or redrew it
-  | "outstanding" // searched, not found - drives the dokumen tambahan loop
-  | "unfilled"; // operator declined to supply more documents; ships empty
+/**
+ * The template key behind a `SlotState.key`.
+ *
+ * Re-exported rather than reimplemented so there is exactly one definition of
+ * how a capture ordinal is separated from its slot key. A second one here
+ * would compile, agree on every key that has no ordinal, and disagree the
+ * first time the separator changed.
+ *
+ * Taken from the leaf module rather than from `../browser/runtime.ts` so that
+ * the pure logic modules (`./slots.ts`, `./export.ts`) do not drag IndexedDB
+ * and the Web Worker client into a plain `node --test` process.
+ */
+export { slotKeyOf } from "../browser/slot-key.ts";
 
-export type SlotState = {
-  key: string;
-  label: string;
-  status: SlotStatus;
-  zone?: Zone; // from src/lib/pipeline/locate.ts
-  text?: string; // the OCR text the zone covers, for the operator to judge
-  origin?: "llm" | "human";
-};
-
-export type StoredPage = {
-  id: string;
-  sourceId: string;
-  index: number;
-  widthPx: number;
-  heightPx: number;
-  lines: Line[]; // from src/lib/pipeline/geometry.ts
-};
-
-export type BrowserRun = {
-  id: string;
-  createdAt: number;
-  sources: { id: string; name: string; pageCount: number }[];
-  pages: StoredPage[];
-  slots: SlotState[];
-};
-
-/* ---------------------------------------------------------------------- */
+import type { BrowserRun, SlotState } from "../browser/runtime.ts";
 
 export type RunSummary = { id: string; createdAt: number; label: string };
 
 /**
  * The contract's free functions, gathered into one object.
  *
- * The contract declares them as module-level exports; this UI takes them as a
- * value so a screen can be driven by the stub, and so the live/stub choice is
- * made in one place instead of by whichever module happened to import first.
- * A module of free functions satisfies this type as-is.
+ * The runtime declares them as module-level exports; the UI takes them as a
+ * VALUE so a screen can be driven by a fake without mocking a module, and so
+ * the live/stub choice is made in one place instead of by whichever module
+ * happened to import first. `src/lib/ui/live-runtime.ts` is that one place in
+ * production; `import * as runtime` satisfies this type as-is, which is what
+ * makes `tsc` check the real module against the shape the UI consumes.
  */
 export type Runtime = {
   outstandingSlots(run: BrowserRun): SlotState[];
@@ -103,6 +92,15 @@ export type Runtime = {
     file: File,
     onProgress?: (done: number, total: number) => void,
   ): Promise<BrowserRun>;
-  /** A page bitmap for display and for cropping. Rendered on demand. */
+  /**
+   * A page bitmap for display and for cropping, rendered on demand at
+   * `DEFAULT_DPI` so a `Zone.box` maps to bitmap pixels ONE TO ONE.
+   *
+   * Scale for display in CSS only. Re-rendering at another DPI would draw
+   * correctly and put every rectangle in the wrong place, including one the
+   * operator drew by hand, which would then be saved back wrong.
+   *
+   * THE CALLER MUST `close()` THE BITMAP. One 300 DPI A4 page is ~35MB.
+   */
   pageBitmap(runId: string, pageId: string): Promise<ImageBitmap>;
 };
