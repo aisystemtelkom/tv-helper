@@ -43,6 +43,41 @@ COPY . .
 # so a missing credential fails the request that needs it and not the build.
 RUN pnpm build
 
+# THE HEALTH ENDPOINT MUST STAY UNGATED, and this is the only place a
+# regression is caught before Cloud Run catches it.
+#
+# `src/app/api/health/route.ts` deliberately does not call the guard, and
+# `src/proxy.ts` deliberately excludes `api/health` from its matcher. Both
+# halves are needed: drop either and an unauthenticated probe becomes a 401 or
+# a 307, Cloud Run reads that as a failed probe, and it restarts a container
+# that is serving every real request correctly. The app looks fine to anyone
+# who curls it with a session, so nothing else would notice.
+#
+# A build-time assertion rather than a test because the failure lands on the
+# platform, not in the app, and this is the last gate before an image is
+# pushed. Cheap, and loud in the right place.
+#
+# The first grep is anchored to `(?!`, the negative lookahead itself, and not
+# to the bare string: `api/health` also appears in that file's prose, so a
+# plain grep passes while the matcher no longer excludes anything. Verified by
+# deleting the exclusion and watching this build fail.
+RUN set -eu; \
+    grep -qE '\(\?!.*api/health' src/proxy.ts \
+      || { echo "Dockerfile: src/proxy.ts no longer excludes api/health from" >&2; \
+           echo "its matcher. An unauthenticated Cloud Run probe would get a" >&2; \
+           echo "401/307 and every revision would be marked unhealthy." >&2; \
+           exit 1; }; \
+    test -f src/app/api/health/route.ts \
+      || { echo "Dockerfile: src/app/api/health/route.ts is gone, but the" >&2; \
+           echo "runbook's --startup-probe still points at /api/health." >&2; \
+           exit 1; }; \
+    ! grep -qE '^ *import .*(@/lib/auth|lib/auth/)' src/app/api/health/route.ts \
+      || { echo "Dockerfile: the health route now imports the auth guard. An" >&2; \
+           echo "unauthenticated probe would get a 401 and Cloud Run would" >&2; \
+           echo "restart healthy containers." >&2; \
+           exit 1; }; \
+    echo "health endpoint is present and ungated"
+
 # REPAIR THE TRACED node_modules. Without this the image builds, pushes, and
 # then the container dies on the first line of `node server.js` with
 #
@@ -127,11 +162,33 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 # The two asset copies get the same treatment: a missing `ind.traineddata.gz`
 # breaks OCR in production only, silently, while `next dev` serves it from disk
 # and looks perfect.
-RUN node -e "require('next/dist/server/next')" \
- && test -d ./.next/static \
- && test -s ./public/tesseract/ind.traineddata.gz \
- && test -s ./public/tesseract/tesseract-core-simd-lstm.wasm \
- && echo "standalone tree loads; static and vendored OCR assets present"
+#
+# ASSERT THE WHOLE OCR CORE SET, NOT ONE VARIANT. tesseract.js picks its wasm
+# core at RUNTIME from the browser's CPU features, so a laptop with relaxed-SIMD
+# asks for `tesseract-core-relaxedsimd-lstm.wasm` and one without asks for the
+# plain `tesseract-core-lstm.wasm`. Checking only the variant this build machine
+# happens to favour would pass while an operator's browser 404s -- production
+# only, inside a Web Worker, with the page still looking perfectly healthy.
+# These are the three OEM 1 (LSTM_ONLY) cores `vendor:ocr` ships; the non-LSTM
+# ones are not loaded by this app.
+#
+# `.js` and `.wasm` are both required: tesseract.js fetches the `.wasm.js`
+# loader, which then fetches the `.wasm` beside it.
+RUN set -eu; \
+    node -e "require('next/dist/server/next')"; \
+    test -d ./.next/static; \
+    for f in worker.min.js ind.traineddata.gz eng.traineddata.gz \
+             tesseract-core-lstm.wasm tesseract-core-lstm.wasm.js \
+             tesseract-core-simd-lstm.wasm tesseract-core-simd-lstm.wasm.js \
+             tesseract-core-relaxedsimd-lstm.wasm \
+             tesseract-core-relaxedsimd-lstm.wasm.js; do \
+      test -s "./public/tesseract/$f" \
+        || { echo "Dockerfile: public/tesseract/$f is missing or empty." >&2; \
+             echo "OCR would 404 in the browser for anyone whose CPU selects" >&2; \
+             echo "that core. Check scripts/vendor-ocr.mjs and the public/" >&2; \
+             echo "COPY above." >&2; exit 1; }; \
+    done; \
+    echo "standalone tree loads; static and all vendored OCR assets present"
 
 USER nextjs
 EXPOSE 8080
