@@ -161,6 +161,19 @@ export async function extractFields(
  * between two different customers is the operator's call and not this
  * function's.
  *
+ * THIS RUNS OVER EVERY fieldKey, WHATEVER IT HOLDS, and that is what makes
+ * `sameEntity`'s containment rule this function's problem rather than
+ * `abbrev.ts`'s alone. Nothing here knows whether a key holds a customer
+ * name, a quote number or a price; the template's backed keys are name-like
+ * today and its unbacked rows -- `MPLS VPN IP Address`, `MPLS VPN IP
+ * Bandwidth`, the charge rows -- are not, and adding one of those is a
+ * one-line template edit that would never think to revisit this file. So the
+ * restriction is enforced where the values are, in `abbrev.ts`'s
+ * `isNameLike`: containment merges only spellings whose identity is carried
+ * by words. A numeric key that arrives here later gets a conflict the
+ * operator settles, which is the outcome this function exists to produce,
+ * rather than a silent merge of two different numbers.
+ *
  * Order is preserved: keys come back in the order they were first seen, and
  * ties inside a key keep the earlier entry, so an earlier round outranks a
  * later one when nothing else separates them.
