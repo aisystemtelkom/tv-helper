@@ -81,7 +81,12 @@ export function Cite({ cite }: { cite: Citation | null }) {
         {"  ·  "}
         {cite.size}
       </p>
-      {cite.spansPage ? (
+      {cite.wholePage ? (
+        <p className="lt-mono text-xs" style={{ color: "var(--lt-faint)" }}>
+          the whole page, as this section is meant to capture it - check it is
+          the right page
+        </p>
+      ) : cite.spansPage ? (
         <p className="lt-mono text-xs" style={{ color: "var(--lt-mark)" }}>
           covers {Math.round(cite.heightShare * 100)}% of the page - check it
           has not run on into a footer

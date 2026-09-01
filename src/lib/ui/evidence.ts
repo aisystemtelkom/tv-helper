@@ -121,12 +121,26 @@ export type Citation = {
   /** Share of the page's height the crop covers, 0-1. */
   heightShare: number;
   /**
-   * Advisory: the crop covers most of the page. The known unfixed defect in
-   * `locate.ts` (a running page footer gets swallowed, so a 1.3in signature
-   * block comes back 9.5in tall) shows up as exactly this, and it is the
-   * shape the design asks the operator to catch by eye.
+   * Advisory: the crop covers most of the page WITHOUT having been asked to.
+   * The known unfixed defect in `locate.ts` (a running page footer gets
+   * swallowed, so a 1.3in signature block comes back 9.5in tall) shows up as
+   * exactly this, and it is the shape the design asks the operator to catch
+   * by eye.
+   *
+   * Never true for a `wholePage` capture. Four of the twelve captures are
+   * whole pages by design, so warning "covers 100% of the page - check it has
+   * not run on into a footer" over them would have put a false alarm on a
+   * third of the sheet -- the same alarm fatigue the `ambiguous` flag caused,
+   * on the same signal.
    */
   spansPage: boolean;
+  /**
+   * The zone is the entire page: a `layout: "images"` capture, which
+   * `/api/propose` produces deterministically and without a model call.
+   * Worth saying, because "L 0-93 · 8.3 x 11.7 in" otherwise reads like a
+   * runaway range rather than the intended answer.
+   */
+  wholePage: boolean;
 };
 
 /** Crops are cut at the render DPI, so a pixel box has a real physical size. */
@@ -147,6 +161,7 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
   const cited = hasLineCitation(zone);
   const heightShare =
     resolved.page.heightPx > 0 ? zone.box.h / resolved.page.heightPx : 0;
+  const wholePage = coversWholePage(zone.box, resolved.page);
 
   return {
     source: resolved.sourceName,
@@ -155,8 +170,27 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
     lineCount: cited ? to - from + 1 : 0,
     size: sizeInInches(zone.box),
     heightShare,
-    spansPage: heightShare >= SPANS_PAGE_RATIO,
+    spansPage: !wholePage && heightShare >= SPANS_PAGE_RATIO,
+    wholePage,
   };
+}
+
+/**
+ * Is this box the whole page?
+ *
+ * `>=` rather than `===` on the extents, and `<=` on the origin, because a
+ * hand-drawn zone is clamped to the page and can land exactly on its edges;
+ * a capture that reaches every edge IS the page however it got there.
+ */
+function coversWholePage(box: Box, page: StoredPage): boolean {
+  return (
+    page.widthPx > 0 &&
+    page.heightPx > 0 &&
+    box.x <= 0 &&
+    box.y <= 0 &&
+    box.w >= page.widthPx &&
+    box.h >= page.heightPx
+  );
 }
 
 /**

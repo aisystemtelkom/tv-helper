@@ -181,7 +181,27 @@ test("citeZone flags a crop that swallows most of the page", () => {
   });
   assert.ok(cite);
   assert.equal(cite.spansPage, true);
+  assert.equal(cite.wholePage, false);
   assert.ok(cite.heightShare >= 0.8);
+});
+
+test("a whole-page capture is described, not flagged as a runaway range", () => {
+  // Four of the twelve captures are `layout: "images"` slots, which
+  // `/api/propose` answers with the entire page and no model call. Warning
+  // "covers 100% of the page - check it has not run on into a footer" over a
+  // capture that is SUPPOSED to be the whole page puts a false alarm on a
+  // third of the contact sheet, which is the same alarm fatigue the
+  // `ambiguous` flag caused, on the same signal.
+  const cite = citeZone(RUN, {
+    pageIndex: 0,
+    box: { x: 0, y: 0, w: 1000, h: 2000 },
+    lineRange: [0, 93],
+  });
+  assert.ok(cite);
+  assert.equal(cite.wholePage, true);
+  assert.equal(cite.spansPage, false);
+  // Still a real citation: the page it names is still the thing to check.
+  assert.equal(cite.lines, "L 0-93");
 });
 
 test("a hand-drawn zone with no lines carries no line citation", () => {
