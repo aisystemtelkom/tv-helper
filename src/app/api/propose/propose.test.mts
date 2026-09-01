@@ -384,3 +384,143 @@ test("a classify failure does not cost the run its search", async () => {
   assert.equal(result.proposals.length, 1);
   assert.equal(result.proposals[0].zone.pageIndex, 0);
 });
+
+/* --------------------------------------------- whole-page ("images") sections */
+
+/**
+ * The routing `scripts/generate.mjs` has always done and this route did not.
+ *
+ * A `layout: "images"` section is a whole-page capture: the human filling the
+ * sample screenshots the entire page, so there is no region inside it to find.
+ * This route used to hand those slots to `locateSlot` like any other, which
+ * returns a plausible-looking FRAGMENT of the right page -- a crop that opens
+ * fine, looks like evidence, and is not the capture. Four of the production
+ * template's twelve captures are whole-page, so a third of the deliverable was
+ * that.
+ */
+const IMAGE_TEMPLATE: Template = {
+  id: "t",
+  label: "T",
+  sections: [
+    {
+      title: "SP",
+      layout: "images",
+      slots: [
+        {
+          key: "sp.1",
+          label: "SP",
+          docType: "SP",
+          hint: "the whole Surat Penunjukan page",
+          fillable: true,
+        },
+        {
+          key: "sp.2",
+          label: "SP (lanjutan)",
+          docType: "SP",
+          hint: "the second whole page of the Surat Penunjukan",
+          fillable: true,
+        },
+      ],
+    },
+    twoCaptureSection,
+  ],
+  xlsxRows: [],
+  fieldHints: {},
+};
+
+/** Classifies pages 1 and 2 as the SP; refuses to be asked anything else. */
+const classifiesSpOnly = async (prompt: string): Promise<string> => {
+  if (prompt.includes("segmenting")) {
+    return JSON.stringify({
+      spans: [
+        { docType: "KB", fromPage: 0, toPage: 0 },
+        { docType: "SP", fromPage: 1, toPage: 2 },
+      ],
+    });
+  }
+  throw new Error(
+    "a whole-page slot must not reach locateSlot: asking the model to find a " +
+      "page inside that page is the defect this test pins",
+  );
+};
+
+test("a whole-page slot takes the page WHOLE, with no model call", async () => {
+  const pages = [
+    wirePage(0, "a", "KB page"),
+    wirePage(1, "a", "SP page one"),
+    wirePage(2, "a", "SP page two"),
+  ];
+
+  const result = await proposeZones(
+    { runId: "r", pages, wanted: ["sp.1", "sp.2"] },
+    classifiesSpOnly,
+    IMAGE_TEMPLATE,
+  );
+
+  assert.equal(result.outstanding.length, 0);
+  const byKey = new Map(result.proposals.map((p) => [p.key, p]));
+
+  // Consecutive slots take consecutive pages of the document: that is what
+  // "SP" and "SP (lanjutan)" mean.
+  assert.equal(byKey.get("sp.1")?.zone.pageIndex, 1);
+  assert.equal(byKey.get("sp.2")?.zone.pageIndex, 2);
+
+  // WHOLE, not a region. A box smaller than the page is the failure.
+  assert.deepEqual(byKey.get("sp.1")?.zone.box, {
+    x: 0,
+    y: 0,
+    w: 2480,
+    h: 3507,
+  });
+  assert.deepEqual(byKey.get("sp.1")?.zone.lineRange, [0, 1]);
+});
+
+test("a whole-page slot with no page of its type is outstanding, not an arbitrary page", async () => {
+  // Taking whatever page happened to be there would be plausible wrong
+  // evidence, which is worse than a slot the operator is asked to settle.
+  const noSp = async (prompt: string): Promise<string> => {
+    if (prompt.includes("segmenting")) {
+      return '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}';
+    }
+    throw new Error("must not reach locateSlot");
+  };
+
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: [wirePage(0, "a", "KB one"), wirePage(1, "a", "KB two")],
+      wanted: ["sp.1"],
+    },
+    noSp,
+    IMAGE_TEMPLATE,
+  );
+
+  assert.equal(result.proposals.length, 0);
+  assert.equal(result.outstanding.length, 1);
+  assert.equal(result.outstanding[0].key, "sp.1");
+  assert.match(result.outstanding[0].reason, /no SP page 0/);
+});
+
+test("re-searching only the second SP slot does not hand it the first one's page", async () => {
+  // The ordinal is the slot's FIXED place in the template, not its place
+  // among the slots wanted this time. Counting only the wanted ones would
+  // give `sp.2` the very page `sp.1` is already confirmed on, and the
+  // deliverable would carry the same screenshot twice.
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: [
+        wirePage(0, "a", "KB page"),
+        wirePage(1, "a", "SP page one"),
+        wirePage(2, "a", "SP page two"),
+      ],
+      wanted: ["sp.2"],
+    },
+    classifiesSpOnly,
+    IMAGE_TEMPLATE,
+  );
+
+  assert.equal(result.proposals.length, 1);
+  assert.equal(result.proposals[0].key, "sp.2");
+  assert.equal(result.proposals[0].zone.pageIndex, 2);
+});

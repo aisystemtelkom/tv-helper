@@ -27,7 +27,12 @@ import type { ApiGate } from "@/lib/auth/guard";
 // is executed directly by `node --test` (see the note above), which resolves
 // neither a bare alias nor an extensionless specifier.
 import { slotKeyOf } from "../../../lib/browser/slot-key.ts";
-import { AO_TEMPLATE, type SlotDef, type Template } from "../../../lib/forms/template.ts";
+import {
+  AO_TEMPLATE,
+  type SectionDef,
+  type SlotDef,
+  type Template,
+} from "../../../lib/forms/template.ts";
 import { classifyPages, type Ask, type DocType } from "../../../lib/pipeline/classify.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import { locateSlot, type OcrPage, type Zone } from "../../../lib/pipeline/locate.ts";
@@ -226,9 +231,109 @@ export function rankedPool(
 }
 
 /**
+ * A whole page, as a zone.
+ *
+ * `lineRange` covers every line the page has, so the citation the contact
+ * sheet renders says so rather than claiming a region.
+ */
+function wholePageZone(page: WirePage): Zone {
+  return {
+    pageIndex: page.index,
+    box: { x: 0, y: 0, w: page.width, h: page.height },
+    lineRange: [0, Math.max(0, page.lines.length - 1)],
+  };
+}
+
+/**
+ * `layout: "images"` slots, taken WHOLE and with no model call.
+ *
+ * THIS ROUTE USED TO SEND THEM THROUGH `locateSlot` LIKE EVERYTHING ELSE, and
+ * that is a category error `scripts/generate.mjs` has routed around since it
+ * was written: a human filling the sample screenshots the entire page, so
+ * there is no region inside the page to find, and asking for one returns a
+ * plausible-looking fragment every time. It is how those slots failed the
+ * first measurement run, and routing them out of the model took that gate from
+ * 6/12 to 9/12. Four of this template's twelve captures are whole-page
+ * (`ba.permintaan`, `sp.1`, `sp.2`, `email.1`), so a third of the deliverable's
+ * evidence was a fragment of the right page presented as the page.
+ *
+ * Which page is `classifyPages`'s question, not `locateSlot`'s, and a slot
+ * with no candidate is reported OUTSTANDING rather than given an arbitrary
+ * page: plausible wrong evidence is the failure this project is organised
+ * against, and an unclassified page is exactly that.
+ *
+ * WHERE THIS DELIBERATELY DIFFERS FROM `generate.mjs`. There, a slot's
+ * position among its section's same-docType siblings counts only the slots
+ * being filled THIS ROUND, because a tambahan round searches only the pages
+ * the tambahan supplied. This route is always offered the whole run, so the
+ * position is the slot's FIXED ordinal in the template instead. Counting only
+ * the wanted ones here would hand `sp.2` the very page `sp.1` already holds
+ * whenever the operator re-runs the search with `sp.1` confirmed.
+ */
+function wholePageProposals(
+  section: SectionDef,
+  captureKeys: Map<string, string[]>,
+  pages: WirePage[],
+  byType: Map<DocType, Set<number>>,
+  proposals: Proposal[],
+  outstanding: { key: string; reason: string }[],
+): void {
+  const fillable = section.slots.filter((slot) => slot.fillable);
+  const seenOfType = new Map<DocType | null, number>();
+
+  for (const slot of fillable) {
+    // Advanced for EVERY fillable sibling, wanted or not, so the ordinal is
+    // the slot's place in the template rather than in this request.
+    const position = seenOfType.get(slot.docType) ?? 0;
+    seenOfType.set(slot.docType, position + 1);
+
+    const keys = captureKeys.get(slot.key);
+    if (!keys) continue;
+
+    const candidates = slot.docType
+      ? pages.filter((page) => byType.get(slot.docType as DocType)?.has(page.index))
+      : [];
+    const page = candidates[position];
+
+    if (!page) {
+      for (const key of keys) {
+        outstanding.push({
+          key,
+          reason: slot.docType
+            ? `no ${slot.docType} page ${position} among the ${pages.length} pages searched`
+            : "whole-page slot with no document type to identify its page",
+        });
+      }
+      continue;
+    }
+
+    const [first, ...rest] = keys;
+    proposals.push({
+      key: first,
+      zone: wholePageZone(page),
+      text: page.lines.map((line) => line.text).join("\n"),
+      // The classifier answered, not the locator. High because nothing was
+      // guessed: the page is taken whole, so there is no extent to be wrong
+      // about -- only the identification, which the operator still reviews.
+      confidence: "high",
+    });
+    for (const key of rest) {
+      outstanding.push({
+        key,
+        reason:
+          "this slot holds more than one capture and a whole-page section " +
+          "supplies one page per slot; add it by hand or supply a dokumen " +
+          "tambahan",
+      });
+    }
+  }
+}
+
+/**
  * The search itself.
  *
- * ONE MODEL CALL PER TEMPLATE SLOT, not per capture. A slot whose
+ * ONE MODEL CALL PER TEMPLATE SLOT, not per capture, and NONE AT ALL for a
+ * `layout: "images"` section -- see `wholePageProposals`. A slot whose
  * `SlotDef.crops` is 2 is wanted as two `SlotState`s (`#1`, `#2`) but its
  * `hint` describes only the first of them -- deliberately, and measured:
  * naming both captures in one hint made the call land on the second and drop
@@ -267,14 +372,40 @@ export async function proposeZones(
 
   const defs = new Map(
     template.sections.flatMap((section) =>
-      section.slots.map((slot) => [slot.key, slot] as const),
+      section.slots.map((slot) => [slot.key, { section, slot }] as const),
     ),
   );
 
   const byType = await classifyByDocType(body.pages, ask);
 
+  // Whole-page sections first, and out of the model's way entirely. Handled
+  // per SECTION rather than per slot because "SP" and "SP (lanjutan)" mean
+  // consecutive pages of one document, which is a fact about the section.
+  const imageSections = new Set(
+    [...wantedBySlot.keys()]
+      .map((key) => defs.get(key)?.section)
+      .filter(
+        (section): section is SectionDef =>
+          section !== undefined && section.layout === "images",
+      ),
+  );
+  for (const section of imageSections) {
+    wholePageProposals(
+      section,
+      wantedBySlot,
+      body.pages,
+      byType,
+      proposals,
+      outstanding,
+    );
+  }
+
   for (const [slotKey, captureKeys] of wantedBySlot) {
-    const slot = defs.get(slotKey);
+    const entry = defs.get(slotKey);
+    const slot = entry?.slot;
+    // Already answered above, deterministically. Sending it on to `locateSlot`
+    // is the defect `wholePageProposals` exists to stop.
+    if (entry?.section.layout === "images") continue;
     if (!slot || !slot.fillable) {
       for (const key of captureKeys) {
         outstanding.push({
