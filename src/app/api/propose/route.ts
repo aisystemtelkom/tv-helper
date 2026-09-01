@@ -42,6 +42,8 @@ export const maxDuration = 300;
 let calls = 0;
 let promptTokens = 0;
 let outputTokens = 0;
+let thoughtTokens = 0;
+let totalTokens = 0;
 
 /**
  * The pipeline's `Ask`, over the one model this app knows about.
@@ -60,9 +62,27 @@ async function ask(prompt: string): Promise<string> {
     providerOptions,
   });
 
+  /*
+   * PER CALL, in the same shape `/api/chat` logs, because a per-request total
+   * hides the thing worth seeing: one locate call carries every page of the
+   * bundle as numbered lines, so the calls are not the same size as each
+   * other and an average over thirteen of them says nothing about which slot
+   * is expensive. `thoughts=` is broken out because thought tokens bill at
+   * the OUTPUT rate and are otherwise invisible inside `out=`.
+   */
+  const thoughts = result.usage.outputTokenDetails?.reasoningTokens ?? 0;
+
   calls += 1;
   promptTokens += result.usage.inputTokens ?? 0;
   outputTokens += result.usage.outputTokens ?? 0;
+  thoughtTokens += thoughts;
+  totalTokens += result.usage.totalTokens ?? 0;
+
+  console.log(
+    `[propose] ${MODEL_ID} call=${calls} in=${result.usage.inputTokens ?? "?"} ` +
+      `out=${result.usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
+      `total=${result.usage.totalTokens ?? "?"} finish=${result.finishReason}`,
+  );
 
   if (result.finishReason === "length") {
     console.warn(
@@ -85,15 +105,19 @@ async function search(body: ProposeBody): Promise<ProposeResult> {
   const startedCalls = calls;
   const startedIn = promptTokens;
   const startedOut = outputTokens;
+  const startedThoughts = thoughtTokens;
+  const startedTotal = totalTokens;
   const startedAt = Date.now();
 
   try {
     return await proposeZones(body, ask);
   } finally {
     console.log(
-      `[propose] ${MODEL_ID} run=${body.runId} pages=${body.pages.length} ` +
+      `[propose] cost ${MODEL_ID} run=${body.runId} pages=${body.pages.length} ` +
         `slots=${body.wanted.length} calls=${calls - startedCalls} ` +
         `in=${promptTokens - startedIn} out=${outputTokens - startedOut} ` +
+        `(thoughts=${thoughtTokens - startedThoughts}) ` +
+        `total=${totalTokens - startedTotal} ` +
         `${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
     );
   }
