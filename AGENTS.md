@@ -23,12 +23,23 @@ deliverables that reproduce a human-authored sample:
 The headless pipeline that produces both is built and merged. `pnpm generate`
 runs it end to end with no UI and no browser involved.
 
-**The assistant-ui chat under `src/app/` is leftover scaffolding.** It proved
-the inference path and that job is done. It is still in the tree, it is still
-the only thing `pnpm dev` serves, and it is the only part of the application
-that sends images to the model (`pnpm smoke`'s vision probes aside). Do not
-mistake it for the product, and do not read its cost profile as the
-pipeline's.
+**`pnpm dev` now serves the OPERATOR UI, not the chat.** `src/app/page.tsx`
+renders `<OperatorApp />` behind the auth gate. The assistant-ui chat that used
+to live there is gone: its vendored components were deleted and nothing renders
+a thread any more. Read the "Not built yet" section before believing the
+operator screens do what they appear to do -- they are currently driven by a
+stub.
+
+**What is left of the chat scaffolding is one live route and a set of orphans.**
+`/api/chat` still works, is still gated, and is still the only part of the
+application that sends images to the model (`pnpm smoke`'s vision probes
+aside) -- so do not read its cost profile as the pipeline's -- but nothing in
+this app calls it any more. `src/lib/threads/`, `src/lib/attachments/` and
+`src/lib/storage/indexeddb.ts` are imported by nothing outside their own
+directories: they belonged to the deleted chat UI. Several gotchas below
+(`createLocalStorageAdapter`, the attachment `accept` list,
+`DEFAULT_PAGE_LIMIT`) are about that dead code and are kept only so that
+reviving it does not re-derive the same bugs.
 
 **There is no local fallback.** Ollama is not deployed to production, so it is
 not kept as a code path either. `GOOGLE_GENERATIVE_AI_API_KEY` is required and
@@ -224,7 +235,7 @@ and looks for the same slots in any document.*
   wrong value does not. Verify the current state with
   `git grep -n "NEVER_EXTRACTED = " scripts/generate.mjs`, which as the tree
   stands prints
-  `scripts/generate.mjs:991:export const NEVER_EXTRACTED = new Set(["namaProyek"]);`.
+  `scripts/generate.mjs:1008:export const NEVER_EXTRACTED = new Set(["namaProyek"]);`.
 
   **This was re-enabled once and reverted.** The hint now rules the agreement
   title out by name, and one manual run showed it no longer answering with the
@@ -268,6 +279,58 @@ and looks for the same slots in any document.*
 - **Pass `cacheMethod: "none"` in Node.** Otherwise tesseract.js decompresses
   the vendored `.traineddata.gz` into `process.cwd()` and leaves it there.
   `gzip: true` must agree with what `vendor-ocr.mjs` writes, or the fetch 404s.
+
+### On-device storage (`src/lib/storage/runs.ts`)
+
+- **A run carries a `rev`, and a write that is behind is REFUSED.** `putRun`
+  replaces a run wholesale, so a `BrowserRun` captured before a long ingest
+  does not carry the pages that ingest appended -- and saving it deleted every
+  one of them and resolved successfully. `putRun` and `appendPage` now compare
+  `run.rev` against what is stored **inside the write's own readwrite
+  transaction** and throw `StaleRunWriteError` on a mismatch. Keeping the read
+  and the write in one transaction is the whole mechanism: a check done in a
+  separate transaction, or in `runtime.ts`'s per-run lock, does not see a
+  second tab at all.
+- **So `saveRun` returns the run, and the caller MUST keep it.**
+  `setRun(await saveRun({ ...run, slots: next }))`. The object passed in is one
+  revision behind the moment it resolves; saving it again throws. A caller that
+  ignores the return value works exactly once.
+- **A missing `rev` is treated as revision 0, never as a waiver.** That is what
+  lets a hand-built run create a run that does not exist while never being able
+  to overwrite one that does, and it upgrades records written before runs
+  carried a revision at all.
+- **`PageLossError` is the second, independent net.** Even at the right
+  revision, a write that does not carry every stored page is refused rather
+  than deleting the difference. `BrowserRun.pages` is append-only because
+  `Zone.pageIndex` is a position in it, so there is no legitimate single-page
+  removal -- only `deleteRun`, which takes the whole run, its pages and its
+  PDFs.
+- **The tests use `fake-indexeddb`** (devDependency, test-only, never in the
+  browser bundle): `node --test` has no IndexedDB, and a hand-rolled Map models
+  neither the transaction nor the auto-commit that make the revision check
+  mean anything. See `src/lib/browser/persistence.test.mts`.
+
+### Matching two spellings (`src/lib/pipeline/abbrev.ts`)
+
+- **`sameEntity`'s containment rule is fenced to NAME-LIKE values, and that
+  fence is load-bearing.** Containment says "the shorter spelling is the longer
+  one, abbreviated". `reconcileFieldValues` runs `sameEntity` over **every**
+  fieldKey, so unfenced it declared `1-70000000001` and `1-70000000001-2` to be
+  one quote and `Rp 5.000.000` and `Rp 5.000.000.000` to be one price -- and
+  since `sameEntity` is what decides SETTLED versus CONFLICT, the losing number
+  was recorded nowhere. `isNameLike` requires at least two identity-bearing
+  words, none carrying a digit.
+- **The cost is deliberate: street addresses are not name-like.** Two spellings
+  of one address that differ in how much of the locality they print now come
+  back as a conflict rather than being merged. A conflict blanks the cell and
+  lists both spellings for the operator to settle in one edit; a fusion picks
+  one silently. Fusing is the failure this project is organised against.
+- **Equality, the domain-abbreviation table, and the acronym rule stay
+  general** and are unaffected. They each demand that one side actually be
+  written as an abbreviation before they will look at the other; containment
+  demands nothing, which is why it alone is fenced.
+- **Widening any of these means keeping the negative tests green.** The tests
+  that matter in `scripts/test-pipeline.mjs` are the ones asserting `false`.
 
 ### Prompting and model replies
 
@@ -351,9 +414,15 @@ and looks for the same slots in any document.*
 - **Never name a script `setup` in `package.json`.** `pnpm setup` is a reserved
   built-in that modifies the shell PATH; it silently shadows the package script
   and your code never runs.
-- **`src/components/*` is vendored**, generated by `assistant-ui init` and
-  overwritten on upgrade. Don't hand-edit it. Its lint rules are narrowed in
-  `eslint.config.mjs` for exactly this reason.
+- **`src/components/*` IS NO LONGER VENDORED.** It used to hold assistant-ui's
+  generated thread components, which is why this file said not to hand-edit
+  them. Those files are deleted; what is there now is `operator/` (this
+  project's own screens, edit freely) and `ui/` (seven shadcn primitives).
+  `eslint.config.mjs` still narrows rules for five paths --
+  `src/components/attachment.tsx`, `file.tsx`, `image.tsx`, `reasoning.tsx`,
+  `thread.tsx` -- **none of which exist any more**. The block is inert rather
+  than wrong, and it is the thing to delete if you are tidying, not a reason to
+  leave the operator components unlinted.
 - **`createLocalStorageAdapter`'s history adapter lacks `withFormat`**, which
   `useChatRuntime` hard-requires and throws without. `src/lib/threads/history.ts`
   supplies one and `store.tsx` patches it in. Replacing that with the stock
@@ -457,11 +526,29 @@ src/lib/pipeline/ocr.ts        tesseract worker, words with pixel boxes
 src/lib/pipeline/geometry.ts   words -> numbered lines, union, pad, line range -> box
 src/lib/pipeline/classify.ts   doc-type spans from OCR text
 src/lib/pipeline/locate.ts     slot -> line range -> box
-src/lib/pipeline/fields.ts     xlsx values with validated citations
+src/lib/pipeline/fields.ts     xlsx values with validated citations; reconcile
+src/lib/pipeline/abbrev.ts     do two spellings denote one thing (see gotchas)
+src/lib/pipeline/json.ts       the one extractJson every model reply goes through
 src/lib/export/png.ts          dependency-free PNG encoder
 src/lib/export/crop.ts         sub-rectangle out of a rendered page
 src/lib/export/docx.ts         the DOKUMEN VALIDASI packet
 src/lib/export/xlsx.ts         the EPIC order-config sheet (exceljs)
+
+src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
+                               under browser/ is private to it
+src/lib/browser/types.ts       BrowserRun, StoredPage, SlotState (+ rev)
+src/lib/browser/ingest.ts      the render+OCR page loop, dependencies injected
+src/lib/browser/pipeline.worker.ts  that loop, in a Web Worker
+src/lib/browser/worker-client.ts    the page's side of it
+src/lib/storage/runs.ts        IndexedDB: runs, pages, PDF bytes; the rev check
+src/lib/storage/indexeddb.ts   the chat scaffolding's separate key/value DB
+
+src/lib/ui/runtime.ts          a MIRROR of the runtime contract, not an import
+src/lib/ui/stub-runtime.ts     a fake runtime that invents scans (see below)
+src/lib/ui/slots.ts, evidence.ts, export.ts, snap.ts, crops.ts
+                               the operator screens' logic, UI-free
+src/components/operator/       the operator screens themselves
+src/lib/auth/                  Auth.js, the Firestore allowlist, the gates
 
 scripts/generate.mjs           pnpm generate: the whole pipeline, one command
 scripts/measure-locate.mjs     pnpm measure:locate: the gate, real documents
@@ -470,7 +557,9 @@ scripts/smoke.mjs              pnpm smoke: reachability, text, streaming, vision
 scripts/test-pipeline.mjs      the pipeline unit suite
 scripts/test-converters.mjs    xlsx/docx extraction
 
-src/app/                       the assistant-ui chat scaffolding (see above)
+src/app/page.tsx               the operator UI, behind the auth gate
+src/app/api/chat/              the surviving chat route (no caller in this app)
+docs/runbook-deploy.md         deployment, which has its own doc
 ```
 
 `pnpm smoke` asserts reachability, text, streaming, vision, and per-page image
@@ -481,7 +570,12 @@ Driving the OpenAI compatibility endpoint instead would be less code and would
 pass while the app was failing, because the shim carries neither
 `thinkingConfig` nor `mediaResolution`.
 
-`pnpm test` runs both suites with `node --test` and makes no API calls.
+`pnpm test` runs six suites with `node --test` and makes no API calls:
+`scripts/test-converters.mjs`, `scripts/test-pipeline.mjs`, and the four
+alongside the code they cover -- `src/lib/auth/auth.test.mts`,
+`src/lib/browser/browser.test.mts`, `src/lib/browser/persistence.test.mts`
+(IndexedDB, via `fake-indexeddb`) and `src/lib/ui/ui.test.mts`. `pretest` runs
+`pnpm vendor:ocr` first; see the OCR gotchas for why that is not optional.
 
 ## Not built yet, and known gaps
 
@@ -498,18 +592,45 @@ Recorded so nobody reads a design statement as a description of the code.
   `KB / ToP (2)` -- Terms of Payment -- a different slot from `TTD Pejabat`,
   and text-heavy. The recorded 11/12 names `KB / ToP (2)` as the only miss,
   which means `TTD Pejabat` is currently passing text-only.)
-- **There is no UI for the pipeline.** No confirmation step, no contact sheet,
-  no manual zone selection, and no `/api/locate` route: `pnpm generate` writes
-  its three output files unreviewed. The design's "the app never emits an
-  unreviewed zone" describes the target, not the current command.
-- **The "dokumen tambahan" loop is half built** (2026-08-31 corrections, §4).
-  Built: `generate.mjs` searches every supplied document for every slot,
-  reports the outstanding ones by name and reason in an `OUTSTANDING (n)` log
-  block and an `<ID EPIC>_OUTSTANDING.json` report, accepts further documents
-  through `--tambahan <file.pdf>`, and re-searches only the outstanding slots
-  while keeping earlier zones (`searchRound`, `mergeZones`). Not built: anything
-  that *asks* the operator -- the loop is the operator re-running the command
-  -- and the manual zone selection that is the designed terminal state.
+- **THE OPERATOR UI IS WIRED TO A STUB, AND THAT IS THE MOST MISLEADING THING
+  IN THE TREE.** `src/components/operator/operator-app.tsx` holds
+  `const runtime = createStubRuntime();`. `src/lib/ui/stub-runtime.ts` invents
+  pages, invents OCR lines and paints its own "scans", so signing in and
+  driving the whole flow -- upload, proposals, zone editing, outstanding,
+  export -- succeeds against data that came from nowhere. Its
+  `ingestDocument` never reads the uploaded file's bytes: it sleeps, adds three
+  synthetic pages and marks slots found. Runs live in an in-memory `Map`, so
+  nothing reaches IndexedDB and a reload loses the lot. Check that one line
+  before reading any screenshot of this app as evidence that something works.
+- **The two tracks have not been snapped together.** `src/lib/ui/runtime.ts`
+  is a hand-copied MIRROR of the contract rather than an import, written that
+  way so the UI and runtime tracks would not collide on one file; its own
+  header gives the two-edit merge recipe (re-export from
+  `../browser/runtime.ts`, then pass the real module to `RuntimeProvider`).
+  The mirror has since drifted and `tsc` will say so when it is re-exported:
+  `BrowserRun` gained `rev`, and `saveRun` returns the stored run rather than
+  `void`. Both are deliberate -- see the storage gotchas -- and the UI's
+  `commit()` needs to keep what `saveRun` returns.
+- **Nothing proposes a zone in the browser.** `src/lib/browser/runtime.ts`
+  never asks the model anything, by design: `src/lib/model.ts` is the only file
+  that may know how the model is reached, so the search has to come from a
+  server route. **There is no `/api/locate` route** -- `src/app/api/` holds
+  only `auth/[...nextauth]` and `chat`. The real runtime can therefore ingest,
+  render and OCR a bundle on the device, and every slot then stays `"pending"`
+  forever. This is the gap between the operator UI and a working product.
+- **`pnpm generate` writes its three output files unreviewed.** The design's
+  "the app never emits an unreviewed zone" describes the UI's target, not this
+  command.
+- **The "dokumen tambahan" loop is built twice, in two places, and neither is
+  complete.** In `generate.mjs`: it searches every supplied document for every
+  slot, reports the outstanding ones by name and reason in an `OUTSTANDING (n)`
+  log block and an `<ID EPIC>_OUTSTANDING.json` report, accepts further
+  documents through `--tambahan <file.pdf>`, and re-searches only the
+  outstanding slots while keeping earlier zones (`searchRound`, `mergeZones`);
+  the loop is the operator re-running the command. In the UI:
+  `outstanding-panel.tsx` asks the question and `zone-editor.tsx` is the manual
+  zone selection the design calls the terminal state -- both real code, both
+  currently driven by the stub.
 - **Deployment is built, and its own doc is `docs/runbook-deploy.md`.**
   `Dockerfile`, `output: "standalone"` in `next.config.ts`, `src/proxy.ts`,
   Auth.js under `src/lib/auth/`, and the Firestore allowlist all exist. This
@@ -521,10 +642,38 @@ Recorded so nobody reads a design statement as a description of the code.
   know: the gate can pass while `src/lib/model.ts` is broken, and its own
   defaults can drift from the app's. Check both before reading a gate result as
   a statement about the app.
-- **`ocr.ts` uses `typeof window === "undefined"` to mean "in Node".** That is
-  false inside a Web Worker, where `window` is undefined but the CDN is very
-  much reachable, so the vendored `BROWSER_ASSETS` paths would be skipped and
-  tesseract.js would silently fall back to its CDN defaults. Nothing runs in a
-  worker today, so it is latent. Fix it before any browser-side OCR.
+- **The `typeof window` worker blocker is FIXED, and the mechanism this file
+  used to record for it was wrong.** Worth keeping the correction, because the
+  wrong version is the kind that gets re-derived.
+
+  The old note said: `ocr.ts` reads `typeof window === "undefined"` as "in
+  Node", which is false in a Web Worker, so the vendored asset paths are
+  skipped there and tesseract.js falls back to its CDN. **That last step does
+  not follow.** Read back out of the emitted worker chunk, Turbopack
+  CONSTANT-FOLDS that condition to false for a browser target and inlines the
+  browser branch, so the vendored paths were passed anyway and no CDN fetch
+  ever happened. The old code was correct *by bundler behaviour* rather than by
+  construction -- true only while whatever builds this keeps folding it, and
+  silently a third party in the browser's request path the moment it does not.
+  That is a real defect, and a different one from the one that was written
+  down.
+
+  **The defect that genuinely broke a worker, under any bundler, was the SHAPE
+  of the asset paths.** tesseract.js resolves a relative path to an absolute
+  URL only when its own environment is `'browser'`; inside a worker it is
+  `'webworker'` and that resolution is SKIPPED, so the raw string travels on to
+  a Blob-URL worker whose whole body is `importScripts("<path>")`. A `blob:`
+  URL has an opaque path, and a root-relative specifier cannot be resolved
+  against one at all.
+
+  Both are fixed. `detectRuntime()` detects a browser POSITIVELY (a `document`,
+  or a worker's `importScripts`/`WorkerGlobalScope`), falls back to `"browser"`
+  for an unknown runtime so an unrecognised environment 404s loudly rather than
+  reaching a CDN, and takes its scope as an argument so a test can hand it a
+  synthetic worker. `vendoredAssets()` emits ABSOLUTE URLs off
+  `location.origin`, falling back to a relative path only for an opaque origin,
+  where `"null/tesseract/..."` would be worse. `src/lib/export/png.ts` carried
+  the same `typeof window` pattern and is fixed too.
+  `src/lib/browser/browser.test.mts` pins all of it.
 - Only two sample bundles exist. That is enough to test capture and not enough
   to claim accuracy.
