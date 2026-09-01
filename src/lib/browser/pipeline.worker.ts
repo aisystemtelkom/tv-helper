@@ -59,6 +59,30 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
+/*
+ * EXPECT "Warning: Setting up fake worker." IN THE CONSOLE, AND DO NOT CHASE
+ * IT. It is not the CDN fallback, and reading it as one sends you after the
+ * wrong thing.
+ *
+ * pdf.js decides whether it may spawn its own worker with
+ * `PDFWorker._isSameOrigin(window.location, workerSrc)`. There is no `window`
+ * inside a Web Worker, so that line throws ReferenceError, pdf.js catches it,
+ * logs "The worker has been disabled." and falls back. It never gets as far as
+ * `_createCDNWrapper`, which is the only thing in that function that would
+ * reach a third party.
+ *
+ * So `workerSrc` above is still what gets loaded -- the fake-worker path
+ * dynamically imports the very same URL -- and it is still the bundled asset.
+ * Confirmed in the network log of a real 29-page ingest: 96 requests, every
+ * one of them this origin, `/_next/static/media/pdf.worker.min.*.mjs` among
+ * them, and no external host.
+ *
+ * The real consequence is only that PDF parsing shares this worker's thread
+ * instead of getting one of its own, which is nothing next to the 40 seconds
+ * a page costs in OCR. Setting `workerSrc` remains correct and required: the
+ * fake worker imports it, and pdf.js's own default is a CDN URL.
+ */
+
 /**
  * pdf.js creates its own scratch canvases for soft masks and transparency
  * groups, and its default factory calls `document.createElement`. There is no
@@ -101,6 +125,65 @@ class OffscreenCanvasFactory {
   }
 }
 
+/**
+ * The same no-op filter factory pdf.js gives itself in Node, because a Web
+ * Worker has no DOM either and pdf.js does not know that.
+ *
+ * `pdf.mjs` picks its default with
+ * `src.FilterFactory || (isNodeJS ? NodeFilterFactory : DOMFilterFactory)`,
+ * and `NodeFilterFactory` is literally `class extends BaseFilterFactory {}` --
+ * every method returns "none" and nothing touches a document. A worker is not
+ * Node, so it gets `DOMFilterFactory`, whose `#createUrl` reads
+ * `this.#document.URL` off an `ownerDocument` that defaulted to a `document`
+ * that does not exist.
+ *
+ * MEASURED, NOT REASONED. Ingesting the real bundle in Chrome, the last page
+ * of the two-page SPLITBA scan -- the printed email thread, which is one of
+ * the twelve captures -- died with "Cannot read properties of undefined
+ * (reading 'URL')" after twenty-eight pages had ingested cleanly. The same
+ * page renders without complaint under `pnpm generate`, because Node takes the
+ * other branch. That asymmetry is the whole bug: a page that needs a transfer
+ * function or an image mask renders headlessly and kills the browser ingest.
+ *
+ * Matching Node is also the right ANSWER and not merely the convenient one:
+ * the browser runtime is meant to produce the same pixels as the headless
+ * pipeline, since the zone geometry is measured in them.
+ *
+ * This is the same shape of defect as `OffscreenCanvasFactory` above, and the
+ * lesson generalises: every `*Factory` pdf.js lets you inject exists because
+ * its default reaches for a DOM.
+ */
+class NoFilterFactory {
+  addFilter() {
+    return "none";
+  }
+  addHCMFilter() {
+    return "none";
+  }
+  addAlphaFilter() {
+    return "none";
+  }
+  addLuminosityFilter() {
+    return "none";
+  }
+  addKnockoutFilter() {
+    return "none";
+  }
+  addHighlightHCMFilter() {
+    return "none";
+  }
+  addSelectionHCMFilter() {
+    return "none";
+  }
+  addSelectionFilter() {
+    return "none";
+  }
+  createSelectionStyle() {
+    return null;
+  }
+  destroy() {}
+}
+
 const makeContext: CanvasFactory = (width, height) => {
   const context = new OffscreenCanvas(width, height).getContext("2d");
   if (!context) throw new Error("OffscreenCanvas gave no 2D context.");
@@ -141,6 +224,7 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
   const task = pdfjs.getDocument({
     data: new Uint8Array(source.bytes),
     CanvasFactory: OffscreenCanvasFactory,
+    FilterFactory: NoFilterFactory,
   });
   open = { sourceId, task };
   return task.promise;
