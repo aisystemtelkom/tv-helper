@@ -15,7 +15,15 @@
  *
  *  1. `BrowserRun.pages` is APPEND-ONLY. A zone's `pageIndex` is a position
  *     in it, so ingesting a dokumen tambahan adds to the end and never
- *     reorders or removes.
+ *     reorders or removes. Enforced, not just intended: a write that does not
+ *     carry every stored page is refused with `PageLossError`.
+ *  1b. A WRITE THAT IS BEHIND IS REFUSED, not applied. Every run carries a
+ *     `rev` stamped by storage; `saveRun` and each page of an ingest check it
+ *     inside their own transaction and throw `StaleRunWriteError` on a
+ *     mismatch. Without it, saving a `BrowserRun` captured before an ingest
+ *     deleted every page that ingest had written and resolved successfully.
+ *     Callers must keep what `saveRun` returns -- the object they passed in
+ *     is one revision behind as soon as it resolves.
  *  2. INGESTING IS ADDITIVE. A later document can only add pages and fill
  *     slots; it never touches a zone an operator already confirmed. That is
  *     the foundation of the dokumen tambahan loop (2026-08-31 corrections,
@@ -57,6 +65,14 @@ export type {
   SlotStatus,
   StoredPage,
 } from "./types.ts";
+
+/**
+ * The two ways a write is refused, re-exported because they are part of this
+ * surface: a UI that treats them as generic failures tells the operator
+ * nothing useful, and the one useful thing to say ("this run changed
+ * underneath you, reload") is only sayable if the type is reachable.
+ */
+export { PageLossError, StaleRunWriteError } from "../storage/runs.ts";
 
 /**
  * Separates a multi-capture slot's ordinal from its template key. See
@@ -154,6 +170,10 @@ function newRun(id: string): BrowserRun {
   return {
     id,
     createdAt: Date.now(),
+    // Revision 0 is "not stored yet", which is the only revision that is
+    // allowed to create a run. If one already exists under this id, writing
+    // this is refused rather than allowed to flatten it.
+    rev: 0,
     sources: [],
     pages: [],
     slots: seedSlots(),
@@ -165,6 +185,7 @@ function metaOf(run: BrowserRun): RunMeta {
   return {
     id: run.id,
     createdAt: run.createdAt,
+    rev: run.rev,
     sources: run.sources,
     slots: run.slots,
   };
@@ -179,15 +200,18 @@ function labelFor(sources: RunSource[]): string {
 /**
  * Serialises this tab's writes per run.
  *
- * `saveRun` replaces a run wholesale, so two writes that overlap would end
- * with whichever finished last, silently discarding the other's pages. An
- * ingest writes after every page for minutes on end, which is exactly when a
- * UI is most likely to save a slot edit as well.
+ * Ordering only. Two writes that overlap would otherwise interleave their
+ * IndexedDB transactions, and an ingest writes after every page for minutes
+ * on end, which is exactly when a UI is most likely to save a slot edit as
+ * well.
  *
- * It does NOT protect against a caller that saves a `BrowserRun` it captured
- * before an ingest started: that object genuinely does not have the new
- * pages, and no lock can invent them. Re-read with `loadRun` after an
- * `ingestDocument` resolves.
+ * WHAT IT CANNOT DO, and what does it instead. A lock cannot help a caller
+ * that saves a `BrowserRun` it captured before an ingest started: that object
+ * genuinely does not have the new pages, so serialising it merely decides
+ * when the loss happens. Nor does this lock exist in a second tab. The
+ * revision check in `putRun`/`appendPage` covers both -- it runs inside the
+ * write's own transaction, so a stale save is REFUSED rather than ordered --
+ * and this lock is now only about keeping this tab's own writes tidy.
  */
 const locks = new Map<string, Promise<unknown>>();
 
@@ -220,15 +244,34 @@ export async function loadRun(id: string): Promise<BrowserRun | null> {
   return getRun(id);
 }
 
-export async function saveRun(run: BrowserRun): Promise<void> {
-  await withRunLock(run.id, () => putRun(run));
+/**
+ * Persists a run, and hands back the version that is now stored.
+ *
+ * THE RETURN VALUE IS NOT OPTIONAL TO USE. `run.rev` records which stored
+ * version this object was built from, and a save advances it, so the object
+ * passed in here is stale the moment this resolves. A caller that keeps
+ * rendering the old object and saves it again gets a `StaleRunWriteError` on
+ * that second save. Keep what comes back:
+ *
+ *     setRun(await saveRun({ ...run, slots: next }));
+ *
+ * REFUSES A STALE WRITE rather than performing it. If anything else wrote to
+ * this run since `run` was read -- an `ingestDocument` that finished
+ * underneath the screen, or another tab -- this throws
+ * `StaleRunWriteError` and changes nothing. That is deliberate and is the
+ * point of the whole mechanism: the old behaviour was to accept the write and
+ * delete every page the ingest had added, reporting success. A caller that
+ * catches it should re-read with `loadRun` and re-apply the edit; retrying
+ * with the same object cannot work, because the object is missing whatever
+ * the other writer added.
+ */
+export async function saveRun(run: BrowserRun): Promise<BrowserRun> {
+  return withRunLock(run.id, () => putRun(run));
 }
 
 /** An empty run, persisted, with every fillable slot seeded `"pending"`. */
 export async function createRun(id: string = crypto.randomUUID()): Promise<BrowserRun> {
-  const run = newRun(id);
-  await withRunLock(id, () => putRun(run));
-  return run;
+  return withRunLock(id, () => putRun(newRun(id)));
 }
 
 /** Deletes a run, its pages, and the PDFs it holds. */
@@ -277,8 +320,7 @@ export async function ingestDocument(
     let run: BrowserRun = loaded ?? newRun(runId);
 
     const source: RunSource = { id: sourceId, name, pageCount: 0 };
-    run = { ...run, sources: [...run.sources, source] };
-    await putRun(run);
+    run = await putRun({ ...run, sources: [...run.sources, source] });
 
     // Writes are chained rather than awaited inside the callback: the worker
     // posts page results as it finishes them and does not wait for this side,
@@ -301,14 +343,32 @@ export async function ingestDocument(
         const order = run.pages.length;
         // `total` comes with every page message, so the source's length is
         // recorded from the first page on rather than only at the end.
-        run = withAppendedPage(run, stored, total);
+        //
+        // The revision is advanced HERE, synchronously, rather than read back
+        // out of the write below: `writes` is a chain, so these callbacks run
+        // ahead of the writes they queue, and a revision taken from the last
+        // completed write would be several pages behind by the time the next
+        // callback needs it. Advancing in queue order is correct because the
+        // chain executes in exactly that order -- and if it ever did not, the
+        // check inside `appendPage` would refuse the write rather than let a
+        // page land under a revision nothing agreed on.
+        run = { ...withAppendedPage(run, stored, total), rev: (run.rev ?? 0) + 1 };
 
         const meta = metaOf(run);
-        writes = writes.then(() =>
-          appendPage(meta, stored, order).catch((error: unknown) => {
-            writeError ??= error;
-          }),
-        );
+        writes = writes.then(() => {
+          // Once one page write has failed, every later one is refused too:
+          // its expected revision names a version that was never written. The
+          // first error is the real one, so stop rather than bury it under a
+          // cascade of stale-revision errors that describe the consequence
+          // instead of the cause. Pages already committed stay committed.
+          if (writeError !== undefined) return;
+          return appendPage(meta, stored, order).then(
+            () => undefined,
+            (error: unknown) => {
+              writeError ??= error;
+            },
+          );
+        });
 
         onProgress?.(done, total);
       });

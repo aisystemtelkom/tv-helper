@@ -52,6 +52,83 @@ const BY_RUN = "byRun";
 export type RunMeta = Omit<BrowserRun, "pages">;
 
 /**
+ * A write refused because the run moved on underneath the writer.
+ *
+ * Its own class so a UI can tell this apart from a quota failure or a closed
+ * database and say the one useful thing -- "this run changed since you loaded
+ * it; reload" -- instead of a generic failure. Catching it and retrying with
+ * the same object would be wrong: the object is missing whatever the other
+ * writer added, which is the entire point.
+ */
+export class StaleRunWriteError extends Error {
+  readonly runId: string;
+  /** The revision the writer believed was current. */
+  readonly expected: number;
+  /** The revision actually stored, or `null` when the run is not stored. */
+  readonly actual: number | null;
+
+  constructor(runId: string, expected: number, actual: number | null) {
+    super(
+      actual === null
+        ? `run ${runId} is not stored (it was deleted, or never saved), but ` +
+            `this write is based on revision ${expected}. Writing it would ` +
+            "resurrect a deleted run. Reload before saving."
+        : `run ${runId} has moved on: this write is based on revision ` +
+            `${expected}, but revision ${actual} is stored. Something else ` +
+            "wrote to this run -- most likely an ingest that finished after " +
+            "this object was read. Re-read the run with getRun and re-apply " +
+            "the change; saving this object would discard the other write.",
+    );
+    this.name = "StaleRunWriteError";
+    this.runId = runId;
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+/**
+ * A run that would silently lose pages it is not carrying.
+ *
+ * The second net under `StaleRunWriteError`, and independent of it: this one
+ * fires on what the write would DO rather than on where it came from, so a
+ * caller that assembled a short `pages` array through some other mistake --
+ * a bad filter, a partially-loaded run -- is caught even when its revision
+ * is perfectly current.
+ */
+export class PageLossError extends Error {
+  readonly runId: string;
+  /** The page ids stored for this run that the incoming run does not carry. */
+  readonly missing: string[];
+
+  constructor(runId: string, missing: string[]) {
+    super(
+      `run ${runId} would lose ${missing.length} stored page(s) ` +
+        `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}) ` +
+        "because this write does not carry them. Pages are append-only: a " +
+        "zone's pageIndex is a position in that array, so dropping one " +
+        "repoints every zone after it. Re-read the run and re-apply the " +
+        "change.",
+    );
+    this.name = "PageLossError";
+    this.runId = runId;
+    this.missing = missing;
+  }
+}
+
+/**
+ * The revision an object was built from, with a missing one read as 0.
+ *
+ * Absent means either a run built by hand that was never stored, or a record
+ * written before runs carried a revision at all. Both are correctly treated
+ * as the oldest possible revision: the first can only create, and the second
+ * matches the 0 that `readRev` reports for that stored record too, so an
+ * existing run upgrades on its next write instead of becoming unwritable.
+ */
+function revOf(meta: { rev?: number } | undefined | null): number {
+  return meta?.rev ?? 0;
+}
+
+/**
  * A page as stored.
  *
  * `order` is the page's position in `BrowserRun.pages` and exists because
@@ -177,12 +254,32 @@ async function transact<T>(
       );
   });
 
-  // A readonly transaction's outcome adds nothing once its reads have
-  // resolved, but an unobserved rejected promise is an unhandled rejection,
-  // which in a Web Worker is an error event with no context at all.
-  if (mode !== "readwrite") void settled.catch(() => {});
+  // An unobserved rejected promise is an unhandled rejection, which in a Web
+  // Worker is an error event with no context at all. A readonly transaction's
+  // outcome is never awaited; a readwrite one is not awaited either when
+  // `action` itself throws, which is how the revision checks below refuse a
+  // write. Attaching this handler does not stop `await settled` from seeing
+  // the rejection -- `.catch` derives a new promise and leaves the original
+  // rejected -- so the caller still learns about a failed commit.
+  void settled.catch(() => {});
 
-  const result = await action(tx);
+  let result: T;
+  try {
+    result = await action(tx);
+  } catch (error) {
+    // Nothing half-written survives a refusal. The checks below throw before
+    // issuing any write, so this is belt and braces -- but a future check
+    // added after the first `put` would silently commit part of a rejected
+    // write without it, which is precisely the failure shape this module is
+    // written against.
+    try {
+      tx.abort();
+    } catch {
+      // Already finished; there is nothing to abort.
+    }
+    throw error;
+  }
+
   if (mode === "readwrite") await settled;
   return result;
 }
@@ -192,7 +289,9 @@ export async function listRunMeta(): Promise<RunMeta[]> {
   const rows = await transact([RUNS], "readonly", (tx) =>
     promisify(tx.objectStore(RUNS).getAll() as IDBRequest<RunMeta[]>),
   );
-  return rows.sort((a, b) => b.createdAt - a.createdAt);
+  return rows
+    .map((row) => ({ ...row, rev: revOf(row) }))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** A whole run, pages included, or null. PDF bytes are never loaded here. */
@@ -211,27 +310,67 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
 
     return {
       ...meta,
+      // Stamped, not passed through: this is the number a later write is
+      // checked against, so it has to be the one this read actually saw --
+      // including the 0 that stands for a record written before runs carried
+      // a revision.
+      rev: revOf(meta),
       pages: records.sort((a, b) => a.order - b.order).map(toStoredPage),
     };
   });
 }
 
 /**
- * Persists a run exactly as given: the meta, and `pages` reconciled against
- * what is already stored.
+ * Persists a run, but only if the run has not moved on since it was read.
  *
- * REPLACE, not merge. A page record that belongs to this run and is not in
- * `run.pages` is deleted, because the alternative -- keeping it -- makes a
- * page impossible to remove and leaves orphans that `loadRun` would hand back
- * as if they were current. The cost is that a caller holding a stale
- * `BrowserRun` can undo an append by saving it; `runtime.ts` serialises its
- * own writes per run and re-reads before appending for exactly that reason.
+ * ## What this used to do, and what it cost
+ *
+ * It replaced a run wholesale: every stored page not present in `run.pages`
+ * was DELETED. That made a stale write catastrophic and silent. An operator
+ * uploads a 29-page bundle; `ingestDocument` OCRs it for three minutes,
+ * appending pages as it goes; the UI is meanwhile holding the `BrowserRun` it
+ * loaded before the upload, and the moment the operator accepts a zone it
+ * saves that object. Every page the ingest had written was deleted, the save
+ * resolved, and the run still opened and still looked complete. The comment
+ * here used to name that hazard and tell callers to re-read -- but the UI
+ * cannot re-read an object React is already rendering, and a rule that is
+ * only ever documented is a rule that eventually gets broken by the one
+ * caller that did not read the comment.
+ *
+ * ## The two checks
+ *
+ * 1. REVISION. `run.rev` is the revision the caller read (absent = 0, the
+ *    oldest possible). It is compared against what is stored INSIDE the same
+ *    readwrite transaction as the write, so the read and the write cannot be
+ *    separated by another writer -- including one in another tab, which the
+ *    per-run lock in `runtime.ts` cannot see at all. A mismatch throws
+ *    `StaleRunWriteError` and writes nothing. A run that is not stored may
+ *    only be written by a caller at revision 0, so a save cannot resurrect a
+ *    deleted run either.
+ *
+ * 2. PAGE LOSS. Even at the correct revision, a write that does not carry
+ *    every stored page is refused with `PageLossError` rather than deleting
+ *    the difference. Pages are append-only -- `Zone.pageIndex` is a position
+ *    in that array -- so there is no such thing as a legitimate page removal
+ *    short of deleting the whole run, which `deleteRun` does. The old
+ *    comment's argument for deleting (orphans would be handed back as
+ *    current) is answered better this way: nothing is orphaned, because
+ *    nothing is dropped.
+ *
+ * Both are refusals, not repairs. Merging the caller's slots onto the stored
+ * pages would let the save appear to succeed while quietly discarding
+ * whichever of the two writers' slot edits lost, and a validator signs what
+ * comes out of here.
+ *
+ * Returns the run as now stored, with `rev` advanced. THE CALLER MUST KEEP
+ * IT: the object it passed in is stale the instant this resolves, and saving
+ * that one again throws.
  *
  * Source BYTES are untouched here. `BrowserRun.sources` carries no bytes, so
  * writing this object over the `sources` store would wipe the PDFs and break
  * `pageBitmap` later, at display time, far from the cause.
  */
-export async function putRun(run: BrowserRun): Promise<void> {
+export async function putRun(run: BrowserRun): Promise<BrowserRun> {
   const ids = new Set(run.pages.map((p) => p.id));
   if (ids.size !== run.pages.length) {
     throw new Error(
@@ -241,22 +380,38 @@ export async function putRun(run: BrowserRun): Promise<void> {
   }
 
   const { pages, ...meta } = run;
+  const expected = revOf(run);
+  const next = expected + 1;
 
   await transact([RUNS, PAGES], "readwrite", async (tx) => {
+    const runs = tx.objectStore(RUNS);
+    const stored = await promisify(
+      runs.get(run.id) as IDBRequest<RunMeta | undefined>,
+    );
+
+    if (!stored) {
+      if (expected !== 0) throw new StaleRunWriteError(run.id, expected, null);
+    } else if (revOf(stored) !== expected) {
+      throw new StaleRunWriteError(run.id, expected, revOf(stored));
+    }
+
     const store = tx.objectStore(PAGES);
     const existing = await promisify(
       store.index(BY_RUN).getAllKeys(run.id) as IDBRequest<IDBValidKey[]>,
     );
-    for (const key of existing) {
-      if (!ids.has(String(key))) store.delete(key);
-    }
+    const missing = existing
+      .map((key) => String(key))
+      .filter((key) => !ids.has(key));
+    if (missing.length > 0) throw new PageLossError(run.id, missing);
 
     pages.forEach((page, order) => {
       store.put({ ...page, runId: run.id, order } satisfies PageRecord);
     });
 
-    tx.objectStore(RUNS).put(meta satisfies RunMeta);
+    runs.put({ ...meta, rev: next } satisfies RunMeta);
   });
+
+  return { ...run, rev: next };
 }
 
 /**
@@ -271,20 +426,46 @@ export async function putRun(run: BrowserRun): Promise<void> {
  * `order` must be the page's position in `BrowserRun.pages` -- the caller
  * knows it, because it is appending to that array in the same step -- and
  * must never be reused: it is what `Zone.pageIndex` refers to.
+ *
+ * REVISION-CHECKED like `putRun`, and for the reason that makes the check
+ * work at all: this is the write an ingest performs, once per page, for
+ * minutes. If it did not advance the run's revision, a `BrowserRun` read
+ * before the ingest would still look current when the ingest finished, and
+ * saving it would delete every page the ingest had appended -- the exact
+ * failure the revision exists to stop. So each page moves the run forward,
+ * and anything holding an older copy is refused.
+ *
+ * The run must already be stored: an append has nothing to append to
+ * otherwise, and inventing the run here would hide the ordering mistake that
+ * led to it. Returns the meta as now stored, revision advanced.
  */
 export async function appendPage(
   run: RunMeta,
   page: StoredPage,
   order: number,
-): Promise<void> {
-  await transact([RUNS, PAGES], "readwrite", (tx) => {
+): Promise<RunMeta> {
+  const expected = revOf(run);
+  const next = expected + 1;
+
+  await transact([RUNS, PAGES], "readwrite", async (tx) => {
+    const runs = tx.objectStore(RUNS);
+    const stored = await promisify(
+      runs.get(run.id) as IDBRequest<RunMeta | undefined>,
+    );
+    if (!stored) throw new StaleRunWriteError(run.id, expected, null);
+    if (revOf(stored) !== expected) {
+      throw new StaleRunWriteError(run.id, expected, revOf(stored));
+    }
+
     tx.objectStore(PAGES).put({
       ...page,
       runId: run.id,
       order,
     } satisfies PageRecord);
-    tx.objectStore(RUNS).put(run satisfies RunMeta);
+    runs.put({ ...run, rev: next } satisfies RunMeta);
   });
+
+  return { ...run, rev: next };
 }
 
 /** One page by its own id, without loading the run it belongs to. */
