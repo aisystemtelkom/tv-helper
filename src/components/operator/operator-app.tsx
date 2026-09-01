@@ -114,7 +114,16 @@ function Workspace() {
 
   const commit = (next: BrowserRun) => {
     setRun(next);
-    void runtime.saveRun(next).catch((problem: unknown) => {
+    void runtime
+      .saveRun(next)
+      // Keep what the store returns, not what we sent. `saveRun` advances the
+      // run's `rev`, and saving from a run whose `rev` is behind is refused --
+      // so dropping the result would make the SECOND confirmation of every
+      // session fail. The refusal itself is deliberate: a save replaces a run
+      // wholesale, so a stale write would silently delete every page an
+      // in-flight ingest had added.
+      .then(setRun)
+      .catch((problem: unknown) => {
       // Saying so is the point: an operator who is told the save failed can
       // stop, where one who is not will keep confirming zones into a run that
       // will not survive the reload.

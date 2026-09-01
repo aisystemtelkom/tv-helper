@@ -82,7 +82,15 @@ export type Runtime = {
   outstandingSlots(run: BrowserRun): SlotState[];
   listRuns(): Promise<RunSummary[]>;
   loadRun(id: string): Promise<BrowserRun | null>;
-  saveRun(run: BrowserRun): Promise<void>;
+  /**
+   * Returns the STORED run, whose `rev` has advanced. The caller must keep it
+   * and save from that next time: a revision counter the caller never advances
+   * is worse than none, because the second save of any run is then always
+   * behind and is refused. That refusal is deliberate -- `saveRun` replaces a
+   * run wholesale, so a stale write silently deletes every page an in-flight
+   * ingest added.
+   */
+  saveRun(run: BrowserRun): Promise<BrowserRun>;
   /**
    * Renders + OCRs every page of `file` in a Web Worker and appends them to
    * the run. `onProgress` reports page-level progress so the UI can show a bar.

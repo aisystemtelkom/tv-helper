@@ -290,7 +290,16 @@ export function createStubRuntime(): Runtime {
     },
 
     async saveRun(run) {
-      runs.set(run.id, run);
+      // Advance `rev` exactly as the real runtime does. A stub that returns
+      // the run unchanged would let the UI pass a stale revision back, so the
+      // real implementation refuses the second save of every run while the
+      // stub reports success -- the stub would hide the very bug the counter
+      // exists to catch.
+      // `rev` is optional, and a missing one means revision 0 -- the oldest
+      // possible -- so a hand-built run is refused rather than trusted.
+      const stored = { ...run, rev: (run.rev ?? 0) + 1 };
+      runs.set(stored.id, stored);
+      return stored;
     },
 
     async ingestDocument(runId, file, onProgress) {

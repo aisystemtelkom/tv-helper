@@ -70,6 +70,31 @@ export type RunSource = { id: string; name: string; pageCount: number };
 export type BrowserRun = {
   id: string;
   createdAt: number;
+  /**
+   * WHICH STORED VERSION OF THIS RUN THIS OBJECT WAS BUILT FROM.
+   *
+   * Storage owns it. `getRun` stamps what it read, and every write compares
+   * this number against what is stored and refuses when they differ (see
+   * `putRun`). It is not a timestamp, a page count, or anything a caller
+   * should compute; the only correct thing to do with it is to carry it
+   * along unchanged, which `{ ...run, slots }` already does.
+   *
+   * WHY IT EXISTS. `putRun` replaces a run wholesale, so a `BrowserRun`
+   * captured before an `ingestDocument` resolves does not have the pages
+   * that ingest appended -- and saving it deleted every one of them and
+   * reported success. Minutes of OCR gone, no error, and the run still opens
+   * and still looks complete. No amount of caller discipline fixes that: the
+   * UI holds a run in React state for as long as the operator is looking at
+   * it, and an ingest runs for minutes underneath. A number the write can
+   * check does fix it.
+   *
+   * OPTIONAL, AND STRICTLY: absent means "never came from storage", which is
+   * treated as revision 0, the oldest possible. So a hand-built run can
+   * create a run that does not exist yet and can never overwrite one that
+   * does. The check is never skipped -- a missing `rev` is the most stale
+   * value there is, not a waiver.
+   */
+  rev?: number;
   sources: RunSource[];
   /**
    * APPEND-ONLY, and that is load-bearing rather than a convention.

@@ -2482,3 +2482,110 @@ test("the extraction prompt tells the model these documents abbreviate", async (
   // The prompt is hard-wrapped, so the sentence spans a newline.
   assert.match(sent, /Never expand an abbreviation the text\s+does not expand/);
 });
+
+// ---------------------------------------------------------------------------
+// Containment, fenced to name-like values.
+//
+// `sameEntity`'s containment rule -- "one value's words appear as a
+// contiguous run inside the other's" -- was applied to every value of every
+// kind, and `reconcileFieldValues` runs it over every fieldKey. So it did not
+// only merge `Bank Contoh Nusantara` into `PT Bank Contoh Nusantara Kantor
+// Pusat Tbk`, which is what it was argued for. It also declared
+// `1-70000000001` and `1-70000000001-2` to be one quote, and `Rp 5.000.000`
+// and `Rp 5.000.000.000` to be one price -- and because `sameEntity` is what
+// decides whether a field is SETTLED or in CONFLICT, the loser was recorded
+// nowhere at all. One of two different numbers shipped into a document a
+// validator signs, with nothing anywhere saying there had been two.
+//
+// Containment now requires both sides to be NAME-LIKE: at least two
+// identity-bearing words, none of which carries a digit. The tests below are
+// the negative half of that, and they matter more than the positive half.
+// ---------------------------------------------------------------------------
+
+import { isNameLike } from "../src/lib/pipeline/abbrev.ts";
+
+test("sameEntity refuses to fuse two numerically different values", () => {
+  // Quote numbers. One is a strict prefix of the other, which is exactly what
+  // containment used to accept.
+  assert.equal(sameEntity("1-70000000001", "1-70000000001-2"), false);
+  assert.equal(sameEntity("1-70000000001-2", "1-70000000001"), false);
+  // ...and a bare id inside a labelled one is not the same id either.
+  assert.equal(sameEntity("1-70000000001", "Quote 1-70000000001"), false);
+
+  // Money. These differ by a factor of a thousand and share every word of the
+  // shorter one.
+  assert.equal(sameEntity("Rp 5.000.000", "Rp 5.000.000.000"), false);
+  assert.equal(sameEntity("100 000 000", "100 000 000 000"), false);
+
+  // Account numbers, where a prefix is a different account.
+  assert.equal(sameEntity("1234 5678", "1234 5678 90"), false);
+
+  // Bandwidth and term: the number is the whole answer, and the extra word
+  // changes which line it describes.
+  assert.equal(sameEntity("10 Mbps", "10 Mbps Backup"), false);
+  assert.equal(sameEntity("30 Hari", "30 Hari Kalender"), false);
+
+  // An address and the subnet cut out of it. The template's unbacked rows
+  // include `MPLS VPN IP Address`, so this is a fieldKey away from being live.
+  assert.equal(sameEntity("10.20.30.0", "10.20.30.0/24"), false);
+});
+
+test("reconcileFieldValues reports two different quote numbers as a conflict", () => {
+  // The end-to-end consequence, at the function the deliverables read from.
+  // Before the fence this returned ONE entry carrying `1-70000000001-2`, with
+  // `conflict` undefined: the other quote number existed nowhere in the
+  // output, and both exporters would have printed the survivor as settled.
+  const reconciled = reconcileFieldValues([
+    {
+      fieldKey: "quote",
+      value: "1-70000000001",
+      source: { pageIndex: 0, lineRange: [1, 1] },
+    },
+    {
+      fieldKey: "quote",
+      value: "1-70000000001-2",
+      source: { pageIndex: 3, lineRange: [4, 4] },
+    },
+  ]);
+
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0].value, "");
+  assert.deepEqual(reconciled[0].conflict, ["1-70000000001", "1-70000000001-2"]);
+  assert.equal(reconciled[0].source, undefined);
+});
+
+test("the fence leaves the name case containment was argued for intact", () => {
+  // The whole point of containment, and it still holds: a name written with
+  // its corporate wrapper and its branch is the same organisation as the bare
+  // name. Narrowing the rule must not cost this.
+  assert.ok(
+    sameEntity("Bank Contoh Nusantara", "PT Bank Contoh Nusantara Kantor Pusat Tbk"),
+  );
+
+  // Routes 1 to 3 were never restricted and are unaffected by the fence, even
+  // though none of these values is name-like on its own.
+  assert.ok(sameEntity("1-70000000001", "1-70000000001"));
+  assert.ok(sameEntity("LOP999001", "lop999001"));
+  assert.ok(sameEntity("PKS", "Perjanjian Kerja Sama"));
+  assert.ok(sameEntity("BCN", "Bank Contoh Nusantara"));
+});
+
+test("isNameLike admits names and refuses anything whose identity is a number", () => {
+  assert.equal(isNameLike("Bank Contoh Nusantara"), true);
+  // The corporate wrapper contributes nothing, so what is left must still be
+  // two words: `PT Contoh Tbk` is one word of identity dressed up.
+  assert.equal(isNameLike("PT Bank Contoh Nusantara Tbk"), true);
+  assert.equal(isNameLike("PT Contoh Tbk"), false);
+  assert.equal(isNameLike("Contoh"), false);
+  assert.equal(isNameLike(""), false);
+
+  // A digit ANYWHERE in an identity-bearing word disqualifies the value. That
+  // takes street addresses with it -- deliberately: an address whose two
+  // spellings differ only in how much of the locality they print now comes
+  // back as a conflict the operator settles in one edit, instead of a merge
+  // nobody is told about.
+  assert.equal(isNameLike("1-70000000001"), false);
+  assert.equal(isNameLike("Rp 5.000.000"), false);
+  assert.equal(isNameLike("10 Mbps"), false);
+  assert.equal(isNameLike("Jl Contoh No 1 RT 002 RW 003"), false);
+});

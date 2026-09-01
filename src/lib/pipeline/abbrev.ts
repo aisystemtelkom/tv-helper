@@ -281,6 +281,54 @@ function acronymMatches(short: string, long: string): boolean {
 }
 
 /**
+ * Whether a value is NAME-LIKE: the kind of thing containment is allowed to
+ * reason about at all.
+ *
+ * THIS IS THE GUARD ON ROUTE 4 OF `sameEntity`, and it exists because that
+ * route was applied to every value of every kind. Containment says "the
+ * shorter spelling is the longer one, abbreviated". That is true of names --
+ * `Bank Contoh Nusantara` really is `PT Bank Contoh Nusantara Kantor Pusat
+ * Tbk` with its wrapper and its branch dropped -- and it is FALSE of
+ * anything whose identity is a number:
+ *
+ *   - `1-70000000001` is not `1-70000000001-2`; they are two quotes.
+ *   - `Rp 5.000.000` is not `Rp 5.000.000.000`; they differ by a thousand.
+ *   - `1234 5678` is not `1234 5678 90`; they are two accounts.
+ *   - `10.20.30.0` is not `10.20.30.0/24`; one is a host, one is a subnet.
+ *
+ * Every one of those fused before this guard existed, and `sameEntity` is
+ * what `reconcileFieldValues` uses to decide that a field is settled rather
+ * than in conflict -- so each of them shipped one of two different numbers
+ * into a document a validator signs, with the losing number recorded
+ * nowhere. That is the failure this whole module is written against, reached
+ * through the one rule that was never restricted to the case it was argued
+ * for.
+ *
+ * THE TEST IS ON THE WORDS THAT CARRY IDENTITY, not on the raw string. A
+ * value is name-like when it has at least two significant words and NONE of
+ * them carries a digit. Two words because a single generic word already
+ * cannot stand for a whole name (see `containsRun`); no digits because a
+ * digit anywhere in an identity-bearing word means some part of what
+ * distinguishes this value from its neighbours is numeric, and containment
+ * cannot tell "the same thing, written shorter" from "a different number".
+ *
+ * THE COST, STATED PLAINLY. A street address carries house and RT/RW
+ * numbers, so `Jl Contoh No 1 RT 002` is not name-like and two spellings of
+ * one address that differ only in how much of the locality they print now
+ * come back as a CONFLICT instead of being merged. That is the direction to
+ * be wrong in: a conflict blanks the cell and lists both spellings for the
+ * operator, who can settle it in one edit, whereas a fusion picks one
+ * silently. It is also strictly a narrowing -- this guard can only turn a
+ * `true` into a `false`, never the reverse -- so it cannot introduce a
+ * fusion of its own.
+ */
+export function isNameLike(value: string): boolean {
+  const significant = significantWords(value);
+  if (significant.length < 2) return false;
+  return significant.every((word) => !/[0-9]/.test(word));
+}
+
+/**
  * True when `needle`'s words appear as a contiguous run inside `haystack`'s.
  *
  * Contiguous and word-aligned, not a substring test: "Bank Nusantara" must
@@ -307,7 +355,16 @@ function containsRun(haystack: string[], needle: string[]): boolean {
  *      Kerja Sama`);
  *   3. one is written as the other's initials (`BCN` / `Bank Contoh
  *      Nusantara`);
- *   4. one contains the other, once corporate designators are stripped.
+ *   4. one contains the other, once corporate designators are stripped --
+ *      AND BOTH SIDES ARE NAME-LIKE.
+ *
+ * Routes 1 to 3 are general, and safe to be: equality asserts nothing,
+ * and routes 2 and 3 each demand that one side be written as an
+ * abbreviation before they will look at the other. Route 4 demands nothing
+ * of the kind, which is why it alone is fenced. Applied to every value of
+ * every kind it declares `1-70000000001` and `1-70000000001-2` to be one
+ * quote; `isNameLike` above carries the argument for the fence and the four
+ * cases that forced it.
  *
  * A blank never matches anything, including another blank: "we found
  * nothing twice" is not agreement, and treating it as agreement would let a
@@ -325,6 +382,12 @@ export function sameEntity(a: string, b: string): boolean {
   const strippedA = stripCorporateForms(a).split(" ");
   const strippedB = stripCorporateForms(b).split(" ");
   if (strippedA.join(" ") === strippedB.join(" ")) return true;
+
+  // Route 4, and the guard that makes it defensible. Checked here rather
+  // than inside `containsRun` so that the restriction is a property of the
+  // MATCH -- the thing a caller reasons about -- rather than a detail of one
+  // helper, and so that reading `sameEntity` alone tells you it holds.
+  if (!isNameLike(a) || !isNameLike(b)) return false;
 
   return containsRun(strippedA, strippedB) || containsRun(strippedB, strippedA);
 }
