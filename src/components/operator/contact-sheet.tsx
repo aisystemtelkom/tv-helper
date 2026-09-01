@@ -20,7 +20,11 @@ import { useMemo } from "react";
 
 import { AO_TEMPLATE } from "@/lib/forms/template";
 import type { BrowserRun } from "@/lib/ui/runtime";
-import { sheetSections, unmatchedStates } from "@/lib/ui/slots";
+import {
+  proposedIndexesIn,
+  sheetSections,
+  unmatchedStates,
+} from "@/lib/ui/slots";
 
 import { Btn, Chip, Eyebrow, Notice } from "./chrome";
 import { ProposalPlate, type PlateActions } from "./proposal-plate";
@@ -43,10 +47,6 @@ export function ContactSheet({
   const sections = useMemo(() => sheetSections(run, AO_TEMPLATE), [run]);
   const orphans = useMemo(() => unmatchedStates(run, AO_TEMPLATE), [run]);
 
-  const proposedIn = (keys: string[]) =>
-    run.slots.flatMap((state, index) =>
-      state.status === "proposed" && keys.includes(state.key) ? [index] : [],
-    );
 
   return (
     <div className="flex flex-col gap-6">
@@ -74,8 +74,7 @@ export function ContactSheet({
       </nav>
 
       {sections.map((section) => {
-        const keys = section.entries.map((e) => e.def.key);
-        const waiting = proposedIn(keys);
+        const waiting = proposedIndexesIn(section);
         return (
           <section
             key={section.title}

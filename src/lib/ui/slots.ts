@@ -135,6 +135,31 @@ export function sheetSections(
 }
 
 /**
+ * The run positions of every proposal waiting in one section: what the
+ * section's "Accept all" acts on, and what its count must report.
+ *
+ * TAKEN FROM THE AGGREGATE, never re-derived from the state keys. The contact
+ * sheet used to compute this as "states whose `key` is one of this section's
+ * `SlotDef.key`s", and a two-capture slot's states are keyed
+ * `kbLanjutan.top#1` / `#2`, which equal no `SlotDef.key` at all. So the ToP
+ * row's proposals were invisible to it: the button offered to "Accept all 2"
+ * in a section holding three proposals and left the third untouched, while
+ * the section's own nav badge -- which reads the aggregate -- said 3. An
+ * operator who clicked it had every reason to believe the section was done.
+ *
+ * That is the same mistake `sheetSections` documents at length just above,
+ * made a second time twenty lines away. `states` already holds the grouping,
+ * so there is nothing here to get wrong.
+ */
+export function proposedIndexesIn(section: SheetSection): number[] {
+  return section.entries.flatMap((entry) =>
+    entry.states
+      .filter((placed) => placed.state.status === "proposed")
+      .map((placed) => placed.index),
+  );
+}
+
+/**
  * Slot states the run holds under a key the template does not declare.
  *
  * Not a theoretical case: the tool is document-agnostic and a template can be

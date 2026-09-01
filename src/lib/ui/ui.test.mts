@@ -31,6 +31,7 @@ import {
   hasUnreviewedProposals,
   outstandingIndexes,
   progressOf,
+  proposedIndexesIn,
   sheetSections,
   unmatchedStates,
   type PlacedSlot,
@@ -443,6 +444,43 @@ test("sheetSections accounts for every template slot, including untouched ones",
       ["manual", "pending"],
     ],
   );
+});
+
+test("Accept all covers a two-capture slot's proposals, and counts them", () => {
+  /*
+   * OBSERVED IN THE REAL UI, on the real bundle. The contact sheet computed
+   * this as "states whose `key` is one of this section's `SlotDef.key`s". A
+   * two-capture slot's states are keyed `two#1` / `two#2`, which equal no
+   * `SlotDef.key`, so they were invisible to it: the button read "Accept all
+   * 2 in KB (lanjutan)" over a section holding three proposals, accepted two,
+   * and left `kbLanjutan.top#1` proposed -- while the section's nav badge,
+   * which reads the aggregate, said 3. An operator who clicked it had every
+   * reason to think the section was finished.
+   */
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [
+      state("one", "proposed", true),
+      state("two#1", "proposed", true),
+      state("two#2", "proposed", true),
+    ],
+  };
+  const [only] = sheetSections(run, TEMPLATE);
+  // Every proposal in the section, by its position in `run.slots`.
+  assert.deepEqual(proposedIndexesIn(only), [0, 1, 2]);
+});
+
+test("Accept all offers only the proposals, not the decisions already made", () => {
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [
+      state("one", "confirmed", true),
+      state("two#1", "proposed", true),
+      state("two#2", "outstanding"),
+    ],
+  };
+  const [only] = sheetSections(run, TEMPLATE);
+  assert.deepEqual(proposedIndexesIn(only), [1]);
 });
 
 test("a stored slot the template no longer declares is surfaced, not dropped", () => {
