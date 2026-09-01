@@ -63,7 +63,15 @@ function page(
   return { id, sourceId, index, widthPx: 1000, heightPx: 2000, lines };
 }
 
-/** Fictional identifiers only: this repo is public. */
+/**
+ * Fictional identifiers only: this repo is public.
+ *
+ * `StoredPage.index` RESTARTS AT 0 FOR EVERY SOURCE, which is the contract
+ * `src/lib/browser/types.ts` states and what `ingestDocument` actually writes.
+ * This fixture used to number them 0..4 across the run, which no producer of a
+ * `BrowserRun` does, and that is what made the old two-reading `resolvePage`
+ * look reasonable. A `Zone.pageIndex` is the position in `pages`, always.
+ */
 const RUN: BrowserRun = {
   id: "run-1",
   createdAt: 0,
@@ -74,9 +82,9 @@ const RUN: BrowserRun = {
   pages: [
     page("p0", "s1", 0),
     page("p1", "s1", 1),
-    page("p2", "s2", 2),
-    page("p3", "s2", 3),
-    page("p4", "s2", 4),
+    page("p2", "s2", 0),
+    page("p3", "s2", 1),
+    page("p4", "s2", 2),
   ],
   slots: [],
 };
@@ -87,41 +95,50 @@ test("resolvePage names the file a reviewer would open, and its own page number"
   const resolved = resolvePage(RUN, 3);
   assert.ok(resolved);
   assert.equal(resolved.sourceName, "LOP999001_merged.pdf");
-  // Global page 3 is the SECOND page of the second document. Reporting "3"
-  // here is the mistake the xlsx exporter already had to fix once.
+  // Run-global page 3 is the SECOND page of the second document. Reporting
+  // "3" here is the mistake the xlsx exporter already had to fix once.
   assert.equal(resolved.pageInDoc, 1);
   assert.equal(resolved.pagesInDoc, 3);
-  assert.equal(resolved.ambiguous, false);
 });
 
-test("resolvePage reports ambiguity instead of guessing when indexes repeat", () => {
-  // A runtime that numbers pages per source rather than per run: index 0
-  // names two different pages, so a Zone's pageIndex cannot identify one.
-  const perSource: BrowserRun = {
-    ...RUN,
-    pages: [
-      page("p0", "s1", 0),
-      page("p1", "s1", 1),
-      page("p2", "s2", 0),
-      page("p3", "s2", 1),
-    ],
-  };
-  const resolved = resolvePage(perSource, 2);
+test("resolvePage reads pageIndex as the run-global position, never as StoredPage.index", () => {
+  /*
+   * THIS ASSERTION REPLACES ONE THAT PINNED A DEFECT.
+   *
+   * It used to read: with `StoredPage.index` repeating across sources,
+   * `resolvePage` sets `ambiguous: true` and the plate warns "page numbering
+   * repeats in this run, so this page was matched by position - open it
+   * before accepting". But indexes repeat in EVERY multi-source run -- that
+   * is the documented contract, not a degenerate case -- so the warning fired
+   * on every citation of every real run, and it fired over the correct
+   * answer. Permanent alarm fatigue on the one signal the design depends on
+   * for a reviewer to distrust a citation is worse than no signal at all.
+   *
+   * What is worth asserting is the thing that actually decides whether a crop
+   * comes off the right page: run-global position wins over `index` when the
+   * two disagree. Here run-global page 2 is the second document's FIRST page
+   * (`index` 0), and `index` 2 belongs to a different page entirely (`p4`).
+   */
+  const resolved = resolvePage(RUN, 2);
   assert.ok(resolved);
-  assert.equal(resolved.ambiguous, true);
-  // Positional fallback, and the flag is what tells the operator not to trust it.
   assert.equal(resolved.page.id, "p2");
+  assert.equal(resolved.page.index, 0);
+  assert.equal(resolved.sourceName, "LOP999001_merged.pdf");
+  assert.equal(resolved.pageInDoc, 0);
 });
 
 test("resolvePage returns null for a page index the run does not have", () => {
   assert.equal(resolvePage(RUN, 99), null);
 });
 
-test("a hand-drawn zone reads back to the page it was drawn on, either numbering", () => {
+test("a hand-drawn zone reads back to the page it was drawn on", () => {
   // Written by `zonePageRef`, read by `resolvePage`. If these two ever
   // disagree the crop comes off a different page and still looks like a crop.
+  // Both a single-source run (where position and `index` coincide) and a
+  // multi-source one (where they do not) have to hold.
   for (const run of [
     RUN,
+    { ...RUN, sources: [RUN.sources[0]], pages: RUN.pages.slice(0, 2) },
     {
       ...RUN,
       pages: [

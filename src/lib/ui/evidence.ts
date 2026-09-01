@@ -41,43 +41,41 @@ export type ResolvedPage = {
   pageInDoc: number;
   /** How many pages that source contributed to this run. */
   pagesInDoc: number;
-  /**
-   * True when `page.index` was not unique across the run, so a `Zone`'s
-   * `pageIndex` cannot identify a page on its own and array position was used
-   * instead. Surfaced in the UI rather than swallowed -- see `resolvePage`.
-   */
-  ambiguous: boolean;
 };
 
 /**
- * The page a zone points at.
+ * The page a zone points at: `BrowserRun.pages[pageIndex]`, and nothing else.
  *
- * `Zone.pageIndex` is a number and `StoredPage` carries both an `id` and an
- * `index`, and the contract does not say whether that index is numbered
- * across the whole run or restarts per source document. Both readings are
- * handled, and the one case where they genuinely cannot be told apart is
- * reported rather than guessed at silently:
+ * THE CONTRACT IS NOT AMBIGUOUS, and this function used to act as though it
+ * were. `src/lib/browser/types.ts` states both halves: `StoredPage.index` is
+ * "the page's 0-based number WITHIN ITS OWN SOURCE DOCUMENT ... It is NOT the
+ * run-global page number. That one is the page's position in
+ * `BrowserRun.pages`, and it is what `Zone.pageIndex` refers to."
+ * `/api/propose` re-derives the position rather than copying `page.index` and
+ * refuses a request numbered the other way (`assertRunGlobalIndexes`), and
+ * `zonePageRef` below writes the same number. So array position is the ONLY
+ * reading, not a fallback from one.
  *
- *   - indexes unique across the run  -> look the page up by index. This is
- *     the headless pipeline's numbering (`generate.mjs` numbers pages
- *     globally and keeps `pageInDoc` separately), so it is the expected path.
- *   - indexes repeat                 -> they restart per document, so the
- *     index alone names several pages. Fall back to array position and set
- *     `ambiguous`, which the contact sheet renders as a warning on the plate.
+ * WHAT THIS REPLACES, AND WHY IT MATTERED. The old version looked a page up by
+ * `index` when those values happened to be unique and by position when they
+ * repeated, and set an `ambiguous` flag in the second case -- which the
+ * contact sheet rendered as "page numbering repeats in this run, so this page
+ * was matched by position - open it before accepting". Under the real contract
+ * `index` restarts at 0 for every source, so a second document ALWAYS repeats
+ * it: the warning fired on every citation of every multi-source run, which is
+ * every real run. That is permanent alarm fatigue on the one signal the design
+ * relies on for a reviewer to distrust a citation, and it warned about the
+ * correct answer. (Both branches resolved to the same page anyway: indexes can
+ * only be unique when there is one source, where position and index coincide.)
  *
- * Getting this wrong is the exact wrong-and-quiet failure this project fears:
- * a crop cut from the wrong page still looks like a crop.
+ * The genuine failure -- a `pageIndex` the run cannot resolve -- is still
+ * reported, as `null`.
  */
 export function resolvePage(
   run: BrowserRun,
   pageIndex: number,
 ): ResolvedPage | null {
-  const indexes = new Set(run.pages.map((p) => p.index));
-  const unique = indexes.size === run.pages.length;
-
-  const page = unique
-    ? run.pages.find((p) => p.index === pageIndex)
-    : run.pages[pageIndex];
+  const page = run.pages[pageIndex];
   if (!page) return null;
 
   const siblings = run.pages.filter((p) => p.sourceId === page.sourceId);
@@ -86,9 +84,12 @@ export function resolvePage(
   return {
     page,
     sourceName: source?.name ?? page.sourceId,
+    // From the run rather than from `page.index` so an interrupted ingest
+    // still cites a position the run can actually show. The two agree
+    // whenever a source's pages were stored in order, which is the only way
+    // `ingestDocument` writes them.
     pageInDoc: Math.max(0, siblings.indexOf(page)),
     pagesInDoc: source?.pageCount ?? siblings.length,
-    ambiguous: !unique,
   };
 }
 
@@ -99,14 +100,12 @@ export function resolvePage(
  * The inverse of `resolvePage`, and it has to be written as one: a zone the
  * operator draws by hand is stored by number, and if that number is read back
  * under a different rule than it was written under, the crop is cut from a
- * different page and still looks like a crop. `ui.test.mts` holds the
- * round-trip both numbering schemes have to satisfy.
+ * different page and still looks like a crop. `ui.test.mts` holds the round
+ * trip. Unconditional, for the reason spelled out above: the run-global
+ * position is what `Zone.pageIndex` means.
  */
 export function zonePageRef(run: BrowserRun, page: StoredPage): number {
-  const indexes = new Set(run.pages.map((p) => p.index));
-  return indexes.size === run.pages.length
-    ? page.index
-    : run.pages.indexOf(page);
+  return run.pages.indexOf(page);
 }
 
 export type Citation = {
@@ -128,7 +127,6 @@ export type Citation = {
    * shape the design asks the operator to catch by eye.
    */
   spansPage: boolean;
-  ambiguous: boolean;
 };
 
 /** Crops are cut at the render DPI, so a pixel box has a real physical size. */
@@ -158,7 +156,6 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
     size: sizeInInches(zone.box),
     heightShare,
     spansPage: heightShare >= SPANS_PAGE_RATIO,
-    ambiguous: resolved.ambiguous,
   };
 }
 

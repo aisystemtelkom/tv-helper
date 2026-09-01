@@ -87,12 +87,6 @@ export function Cite({ cite }: { cite: Citation | null }) {
           has not run on into a footer
         </p>
       ) : null}
-      {cite.ambiguous ? (
-        <p className="lt-mono text-xs" style={{ color: "var(--lt-gap)" }}>
-          page numbering repeats in this run, so this page was matched by
-          position - open it before accepting
-        </p>
-      ) : null}
     </div>
   );
 }
