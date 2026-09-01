@@ -61,7 +61,13 @@ import {
   StaleRunWriteError,
   type RunMeta,
 } from "../storage/runs.ts";
-import { createRun, loadRun, outstandingSlots, saveRun } from "./runtime.ts";
+import {
+  createRun,
+  ingestDocument,
+  loadRun,
+  outstandingSlots,
+  saveRun,
+} from "./runtime.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -541,4 +547,145 @@ test("appendPage refuses a page for a run that is not stored", async () => {
     StaleRunWriteError,
   );
   assert.equal(await getPage("o0"), null);
+});
+
+// ---------------------------------------------------------------------------
+// 6. `ingestDocument` itself, not a hand-written restatement of it
+// ---------------------------------------------------------------------------
+
+/**
+ * THE MIRROR IS WHY THIS SHIPPED BROKEN.
+ *
+ * `ingestPages` above says it reproduces "exactly the sequence of WRITES"
+ * `ingestDocument` performs. It did not. The real function pre-incremented the
+ * revision and handed the ADVANCED number to `appendPage`, which compares what
+ * it is given against what is STORED -- so `expected` was one ahead of storage
+ * on the very first page and every append of every ingest was refused.
+ *
+ * Observed in a browser against the real 29-page bundle: OCR ran for twenty
+ * minutes, the per-page progress bar ticked all the way to the end, and
+ * IndexedDB was left holding zero pages with the source's `pageCount` at 0.
+ *
+ * The hand-written mirror carried the RETURNED meta forward and was therefore
+ * correct, so the suite stayed green over a runtime that could not store a
+ * single page. These tests call `ingestDocument` with only the Web Worker
+ * replaced, so the revision arithmetic that was wrong is the part that runs.
+ */
+
+/** A worker stand-in: hands back `count` pages exactly as the real one does. */
+function fakeWorker(count: number) {
+  return (
+    _sourceId: string,
+    onPage: (
+      page: { index: number; widthPx: number; heightPx: number; lines: [] },
+      done: number,
+      total: number,
+    ) => void,
+  ): Promise<number> => {
+    for (let n = 0; n < count; n++) {
+      onPage({ index: n, widthPx: 2480, heightPx: 3507, lines: [] }, n + 1, count);
+    }
+    return Promise.resolve(count);
+  };
+}
+
+/** Fictional identifiers only: this repo is public. */
+const pdf = (name: string) =>
+  new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
+
+test("ingestDocument STORES the pages it read, not just returns them", async () => {
+  const id = runId("ingest-stores");
+
+  const returned = await ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
+    ingestSource: fakeWorker(4),
+  });
+
+  // What the function claims. The broken version got this far too.
+  assert.equal(returned.pages.length, 4);
+
+  // What is actually on the device, which is the only copy there is.
+  const stored = await loadRun(id);
+  assert.ok(stored);
+  assert.equal(stored.pages.length, 4);
+  assert.deepEqual(
+    stored.pages.map((p) => p.index),
+    [0, 1, 2, 3],
+  );
+  assert.equal(stored.sources.length, 1);
+  assert.equal(stored.sources[0].name, "LOP999001_BUNDLE.pdf");
+  assert.equal(stored.sources[0].pageCount, 4);
+});
+
+test("a second ingestDocument appends to the first, and both survive", async () => {
+  const id = runId("ingest-tambahan");
+
+  await ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
+    ingestSource: fakeWorker(3),
+  });
+  const after = await ingestDocument(id, pdf("SPLITBA_LOP999001.pdf"), undefined, {
+    ingestSource: fakeWorker(2),
+  });
+
+  const stored = await loadRun(id);
+  assert.ok(stored);
+  // Run-global position is what `Zone.pageIndex` means, so the tambahan's
+  // pages land AFTER the bundle's and never in among them. `StoredPage.index`
+  // restarts per source, which is exactly why the two must not be confused.
+  assert.equal(stored.pages.length, 5);
+  assert.deepEqual(
+    stored.pages.map((p) => p.index),
+    [0, 1, 2, 0, 1],
+  );
+  assert.equal(stored.sources.length, 2);
+  // The returned run and the stored one must agree, or the screen is showing
+  // something the device does not have.
+  assert.equal(after.pages.length, stored.pages.length);
+  assert.equal(after.rev, stored.rev);
+});
+
+test("the run ingestDocument returns can be saved again without a stale write", async () => {
+  // The operator's next action after an ingest is to confirm a zone, and that
+  // goes through `saveRun`. If the returned `rev` did not match what the
+  // ingest left in storage, the first confirmation of every session would
+  // throw and the decision would live only in React state.
+  const id = runId("ingest-then-save");
+
+  const run = await ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
+    ingestSource: fakeWorker(3),
+  });
+
+  const saved = await saveRun({
+    ...run,
+    slots: [{ key: "kb.nomor", label: "Nomor", status: "confirmed" }],
+  });
+
+  assert.equal(saved.slots[0].status, "confirmed");
+  const stored = await loadRun(id);
+  assert.equal(stored?.pages.length, 3);
+  assert.equal(stored?.slots[0].status, "confirmed");
+});
+
+test("a worker that dies mid-bundle keeps the pages it did finish", async () => {
+  // An interrupted ingest must raise -- silence here would tell the operator
+  // the whole document was read -- while leaving the pages already paid for.
+  const id = runId("ingest-dies");
+
+  await assert.rejects(
+    () =>
+      ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
+        ingestSource: (_sourceId, onPage) => {
+          onPage({ index: 0, widthPx: 2480, heightPx: 3507, lines: [] }, 1, 9);
+          onPage({ index: 1, widthPx: 2480, heightPx: 3507, lines: [] }, 2, 9);
+          return Promise.reject(new Error("The document worker stopped"));
+        },
+      }),
+    /The document worker stopped/,
+  );
+
+  const stored = await loadRun(id);
+  assert.ok(stored);
+  assert.equal(stored.pages.length, 2);
+  // The source says how long the document IS, not how far the ingest got, so
+  // a half-read document is visible as one rather than claiming to be whole.
+  assert.equal(stored.sources[0].pageCount, 9);
 });

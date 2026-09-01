@@ -302,11 +302,25 @@ export async function deleteRun(id: string): Promise<void> {
  *
  * `onProgress` fires per page because OCR of one real page takes 4-5 seconds:
  * without it a bundle looks like a hung tab for several minutes.
+ *
+ * `deps.ingestSource` IS INJECTABLE SO A TEST CAN EXECUTE THIS FUNCTION, and
+ * that is not a nicety. The revision sequence below used to be wrong in a way
+ * that discarded every page of every ingest, and it survived because
+ * `persistence.test.mts` RE-STATED the sequence of writes by hand instead of
+ * running it: the hand-written mirror was correct while the code was not, and
+ * a green suite said so. Everything else here -- pdf.js, the canvas, OCR --
+ * is already behind the worker, so this one argument is all that stands
+ * between the real function and `node --test`.
  */
+export type IngestDeps = {
+  ingestSource: typeof ingestSource;
+};
+
 export async function ingestDocument(
   runId: string,
   file: File,
   onProgress?: (done: number, total: number) => void,
+  deps: IngestDeps = { ingestSource },
 ): Promise<BrowserRun> {
   const sourceId = crypto.randomUUID();
   const name = file.name || "document.pdf";
@@ -331,7 +345,7 @@ export async function ingestDocument(
     let writeError: unknown;
 
     try {
-      await ingestSource(sourceId, (page, done, total) => {
+      await deps.ingestSource(sourceId, (page, done, total) => {
         const stored: StoredPage = {
           id: crypto.randomUUID(),
           sourceId,
@@ -353,9 +367,20 @@ export async function ingestDocument(
         // chain executes in exactly that order -- and if it ever did not, the
         // check inside `appendPage` would refuse the write rather than let a
         // page land under a revision nothing agreed on.
-        run = { ...withAppendedPage(run, stored, total), rev: (run.rev ?? 0) + 1 };
+        //
+        // TWO DIFFERENT NUMBERS, and conflating them cost a whole bundle.
+        // `base` is the revision this write is BASED ON -- what is stored
+        // right now -- and it is what `appendPage` compares against. `run.rev`
+        // is what the run BECOMES once that write lands, which is what the
+        // next callback must build on. Handing `appendPage` the advanced
+        // number made `expected` one ahead of storage on the very first page,
+        // so every append of every ingest was refused: 29 pages of OCR ran, a
+        // normal progress bar ticked to the end, and the run was left holding
+        // zero pages.
+        const base = run.rev ?? 0;
+        run = { ...withAppendedPage(run, stored, total), rev: base + 1 };
 
-        const meta = metaOf(run);
+        const meta: RunMeta = { ...metaOf(run), rev: base };
         writes = writes.then(() => {
           // Once one page write has failed, every later one is refused too:
           // its expected revision names a version that was never written. The
