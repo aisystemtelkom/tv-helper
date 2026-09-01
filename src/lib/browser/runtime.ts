@@ -42,6 +42,7 @@ import {
   deleteRun as deleteRunRecords,
   type RunMeta,
 } from "../storage/runs.ts";
+import { CAPTURE_SEPARATOR } from "./slot-key.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
   BrowserRun,
@@ -59,18 +60,12 @@ export type {
 } from "./types.ts";
 
 /**
- * Separates a multi-capture slot's ordinal from its template key. See
- * `SlotState.key`: the sample's ToP row holds two pictures cut from two
- * different pages, and one `SlotState` per slot would silently ship one of
- * them.
+ * Moved to a pure leaf module so `/api/propose` can apply the SAME rule
+ * server-side: this file carries `"use client"`, and a server route importing
+ * from it would receive a client reference instead of a function. Re-exported
+ * here so browser callers keep importing it from the runtime.
  */
-const CAPTURE_SEPARATOR = "#";
-
-/** The template key behind a `SlotState.key`, ordinal suffix removed. */
-export function slotKeyOf(slotStateKey: string): string {
-  const cut = slotStateKey.lastIndexOf(CAPTURE_SEPARATOR);
-  return cut === -1 ? slotStateKey : slotStateKey.slice(0, cut);
-}
+export { CAPTURE_SEPARATOR, slotKeyOf } from "./slot-key.ts";
 
 /**
  * One `SlotState` per capture the template asks for, all `"pending"`.
