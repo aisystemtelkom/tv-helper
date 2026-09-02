@@ -498,6 +498,86 @@ test("an operator's decision to ship empty beats the search result behind it", (
   assert.equal(aggregateStatus([], 0, 1), "pending");
 });
 
+test("a settled slot that ships one crop and one blank is confirmed, not empty", () => {
+  /*
+   * THE SLOT IS FINISHED AND IT CARRIES EVIDENCE.
+   *
+   * This used to report `unfilled`, because `unfilled` was tested before
+   * `partial`: the label claimed a deliberate blank over a slot that was about
+   * to export a picture, which is this project's failure class in miniature
+   * and the kind of thing an operator cannot see is wrong.
+   *
+   * The fix that suggests itself, `partial` whenever any capture is confirmed,
+   * is also wrong and is pinned against here. The operator has settled BOTH
+   * captures; nothing is owed. Calling it "sebagian" would mean the sheet can
+   * never go quiet, and the second lie is worse than the first because it is
+   * invisible: nothing on screen would say why the colour never clears.
+   */
+  const settled = placed(
+    state("two", "confirmed", true),
+    state("two", "unfilled"),
+  );
+  assert.equal(aggregateStatus(settled, 1, 2), "confirmed");
+  assert.notEqual(aggregateStatus(settled, 1, 2), "partial");
+
+  // Both blank on purpose is the one case that really is `unfilled`.
+  assert.equal(
+    aggregateStatus(placed(state("two", "unfilled"), state("two", "unfilled")), 0, 2),
+    "unfilled",
+  );
+});
+
+test("partial means something is still open, never merely part-empty", () => {
+  // Confirmed beside a capture the search could not find: the operator still
+  // owes that one a decision, so the slot is genuinely part done.
+  assert.equal(
+    aggregateStatus(
+      placed(state("two", "confirmed", true), state("two", "outstanding")),
+      1,
+      2,
+    ),
+    "partial",
+  );
+  // Confirmed beside a capture the run has no state for at all. `found` alone
+  // cannot see this: the second picture is absent, not merely unfilled.
+  assert.equal(
+    aggregateStatus(placed(state("two", "confirmed", true)), 1, 2),
+    "partial",
+  );
+  // Nothing confirmed and something still open is named by what is open,
+  // rather than borrowing `partial`.
+  assert.equal(
+    aggregateStatus(placed(state("two", "outstanding"), state("two", "unfilled")), 0, 2),
+    "outstanding",
+  );
+});
+
+test("a slot the operator has finished with counts as decided", () => {
+  /*
+   * The aggregate word and `progressOf`'s `decided` have to agree, because
+   * `decided` is what the export screen's affirmative is built on. The bug
+   * this pins is only ever visible when the two disagree: under the old rule
+   * the slot below read `unfilled` (so it did count as decided) while showing
+   * a confirmed crop, and under the rejected fix it would have read `partial`
+   * and stopped counting, so a finished packet would never say it was ready.
+   */
+  // TEMPLATE's `two` needs two captures; `one` is left with no state at all,
+  // so it stays `pending` and the assertions below are about `two` alone.
+  const run: BrowserRun = {
+    ...RUN,
+    slots: [state("two", "confirmed", true), state("two", "unfilled")],
+  };
+  const progress = progressOf(run, TEMPLATE);
+  assert.equal(progress.confirmed, 1);
+  assert.equal(progress.partial, 0);
+  assert.equal(progress.unfilled, 0);
+  assert.equal(
+    progress.decided,
+    1,
+    "a slot the operator has nothing left to do on must count as decided",
+  );
+});
+
 test("each capture of a two-capture slot keeps its own position in the run", () => {
   // Deliberately the SAME object twice, which is what a runtime that shares a
   // template-derived state would produce. Recovering the position with
@@ -599,10 +679,27 @@ test("progress counts fillable slots only, so hand-pasted cells never read as mi
   const progress = progressOf(run, TEMPLATE);
   assert.equal(progress.fillable, 2);
   assert.equal(progress.confirmed, 1);
-  assert.equal(progress.partial, 0);
-  // `two` holds one of its two captures and its second came back outstanding.
-  assert.equal(progress.outstanding, 1);
+  /*
+   * `two` holds one CONFIRMED capture and one that came back outstanding, and
+   * this assertion moved: it used to expect `outstanding: 1, partial: 0`.
+   *
+   * That was the same lie as the unfilled case reaching the sheet through a
+   * different branch. Reporting "tidak ditemukan" over a slot that is about to
+   * export a confirmed crop tells the operator nothing was found while the
+   * picture sits underneath the label. The slot is genuinely PART found, which
+   * is the word `partial` exists for.
+   *
+   * Nothing is hidden by the change. The tambahan screen lists captures from
+   * the runtime's own per-capture `outstandingSlots(run)`, not from this
+   * aggregate, so that second capture still gets its terminal decision; and
+   * `hasUnreviewedProposals` counts `proposed` only, so the export gate is
+   * unmoved either way.
+   */
+  assert.equal(progress.partial, 1);
+  assert.equal(progress.outstanding, 0);
   assert.equal(progress.pending, 0);
+  // Still not finished: one capture owes a decision, so it is not decided.
+  assert.equal(progress.decided, 1);
 });
 
 test("export is blocked by an unreviewed proposal, not by an accepted gap", () => {

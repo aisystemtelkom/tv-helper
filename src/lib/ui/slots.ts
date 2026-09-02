@@ -61,25 +61,88 @@ export type SlotAggregate = {
   status: SlotAggregateStatus;
 };
 
+/**
+ * One word for a slot that may hold several captures.
+ *
+ * THE WORD ANSWERS EXACTLY ONE QUESTION: is anything still owed on this slot?
+ * That is the only thing the operator is scanning the sheet for, and it is
+ * what the export screen's affirmative and `progressOf`'s `decided` are built
+ * on. Every branch below is in service of it.
+ *
+ * A capture is SETTLED when the operator has finished with it: `confirmed`
+ * (they accepted the evidence) or `unfilled` (they decided it ships empty, on
+ * the record). Everything else still owes something. `outstanding` is
+ * deliberately unsettled even though a search has run over it, because
+ * "searched, not found" is the START of the tambahan loop and the operator
+ * still has to draw it by hand or ship it empty. A capture the template asks
+ * for that the run holds no state for at all is unsettled by omission.
+ *
+ * IF YOU ARE HERE TO CHANGE THIS, YOU HAVE PROBABLY ARRIVED WITH A RANKING IN
+ * MIND. That is the frame the bug lived in and it is the thing to put down
+ * first. The old rule was an ordered list of "which status wins", and every
+ * fix available inside that frame is just a different ordering, which means
+ * every one of them has a new pair it gets wrong. Two orderings were tried and
+ * both broke, in opposite directions, before anyone noticed the frame was the
+ * problem. This function does not rank statuses. It asks one question about
+ * the whole slot and answers it.
+ *
+ * THE ORDERING THAT SHIPPED ASSERTED INTENT OVER EVIDENCE, TWICE. `unfilled`
+ * was tested before `partial`, so a two-capture slot with one confirmed crop
+ * and one deliberately-empty capture reported "sengaja dikosongkan" while the
+ * crop that WILL be exported sat visible underneath the label. `outstanding`
+ * was tested before `partial` too, so the same slot with its second capture
+ * merely not found reported "tidak ditemukan": nothing was found, said the
+ * label, over a picture. That second branch is the stronger contradiction and
+ * it went unnoticed longer, because a search for "the bug" naturally stops at
+ * the first ordering it finds.
+ *
+ * THE OBVIOUS FIX IS ALSO WRONG, and it was proposed and rejected. Making
+ * `partial` win whenever any capture is confirmed cures the first lie by
+ * installing a second one: that slot is FULLY SETTLED, the operator has
+ * nothing left to do on it, and calling it "sebagian" means the sheet can
+ * never go quiet. The first lie is at least visible (a crop sits there
+ * contradicting the label); the second is invisible, and a packet that can
+ * never reach a quiet state teaches people to ignore the colour entirely,
+ * which costs more than the bug it fixes. It would also drop a finished slot
+ * out of `progressOf`'s `decided`, making the export screen's "Siap diekspor"
+ * lie in the other direction.
+ *
+ * So: `partial` only while something is genuinely still open. Once everything
+ * is settled the slot is `confirmed` if any capture carries evidence and
+ * `unfilled` only if none does. Assert this together with `decided`: the bug
+ * is only ever visible when the two disagree.
+ */
 export function aggregateStatus(
   states: PlacedSlot[],
   found: number,
   required: number,
 ): SlotAggregateStatus {
   const statuses = states.map((s) => s.state.status);
+
+  // A proposal outranks everything: it is the one state where a person is
+  // being waited on rather than merely having work left.
   if (statuses.includes("proposed")) return "proposed";
-  if (
-    found >= required &&
-    states
-      .filter((s) => s.state.zone)
-      .every((s) => s.state.status === "confirmed")
-  ) {
-    return "confirmed";
+
+  const confirmed = states.filter(
+    (s) => s.state.status === "confirmed" && s.state.zone,
+  ).length;
+  // Captures the template declares that the run has no state for. `found` is
+  // not enough on its own: a slot needing two pictures and holding one state
+  // has an entire capture nobody has looked at.
+  const absent = Math.max(0, required - states.length);
+  const open =
+    absent +
+    statuses.filter(
+      (s) => s === "pending" || s === "outstanding" || s === "proposed",
+    ).length;
+
+  if (open > 0) {
+    if (confirmed > 0) return "partial";
+    if (statuses.includes("outstanding")) return "outstanding";
+    return "pending";
   }
-  if (statuses.includes("unfilled")) return "unfilled";
-  if (statuses.includes("outstanding")) return "outstanding";
-  if (found > 0) return "partial";
-  return "pending";
+
+  return confirmed > 0 ? "confirmed" : "unfilled";
 }
 
 export type SheetSection = {
