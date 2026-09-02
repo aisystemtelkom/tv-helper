@@ -193,7 +193,7 @@ Cloud Run's first request.
 ```bash
 PROJECT_ID=<your-project>
 REGION=asia-southeast2
-SERVICE=tv-helper
+SERVICE=tv-validator
 REPO=tv-helper
 
 gcloud config set project "$PROJECT_ID"
@@ -772,7 +772,7 @@ reaches a shell history or a CI log:
 
 ```bash
 printf 'GOOGLE_GENERATIVE_AI_API_KEY: "%s"\nAUTH_SECRET: "%s"\n' "$KEY" "$SECRET" > env.yaml
-gcloud run services update tv-helper --region=asia-southeast2 --env-vars-file=env.yaml
+gcloud run services update tv-validator --region=asia-southeast2 --env-vars-file=env.yaml
 rm -f env.yaml    # do this in the same command; it holds a live credential
 ```
 
@@ -782,6 +782,36 @@ where a secret version is readable only by holders of one narrow role. In this
 project that is close to the same set of people, which is why it is acceptable
 here and not in general. Migrating back is Step 2 unchanged, once an Owner has
 run the two `add-iam-policy-binding` commands in Prerequisites.
+
+### The Cloud Run service is `tv-validator`; nearly everything else is not
+
+The service was renamed from `tv-helper` on 2026-09-02, before the OAuth client
+was created, because **the redirect URI contains the service name** and creating
+the client first would have meant redoing it. Cloud Run cannot rename in place,
+so this was a deploy-verify-delete:
+
+```bash
+gcloud run deploy tv-validator --image=<same image> --env-vars-file=env.yaml ...
+# verify the new URL serves before deleting the old service
+gcloud run services delete tv-helper --region=asia-southeast2
+```
+
+Deleting the old service is part of the rename, not tidying: it kept serving the
+same app with the same live Gemini key on its own URL, so leaving it up would
+have doubled the credentialed attack surface for no benefit.
+
+What did NOT change, and should not be "made consistent" without a reason:
+
+| Name | Value | Why it stays |
+| --- | --- | --- |
+| Cloud Run service | `tv-validator` | the renamed thing |
+| Artifact Registry repo | `tv-helper` | renaming means re-pushing every image |
+| Image name | `tv-helper` | same |
+| Allowlist bucket | `tv-helper-allowlist-<n>` | bucket names cannot be renamed; contents would have to be copied |
+| Repo, package name | `tv-helper` | the codebase was not renamed |
+
+The URL is `https://<service>-<project-number>.<region>.run.app`, so the service
+name is the ONLY one of these that a user or an OAuth redirect URI ever sees.
 
 ### Browsing a private prod service, before the OAuth client exists
 
@@ -795,7 +825,7 @@ Tunnel instead. The service stays `--no-allow-unauthenticated`, and the proxy
 attaches your own gcloud identity to every request:
 
 ```bash
-gcloud run services proxy tv-helper --region=asia-southeast2 --port=8080
+gcloud run services proxy tv-validator --region=asia-southeast2 --port=8080
 # then browse http://localhost:8080
 ```
 
