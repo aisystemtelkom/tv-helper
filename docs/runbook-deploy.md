@@ -700,6 +700,109 @@ Both are the obvious-looking answers to "database" and "auth" respectively.
 
 ---
 
+## What the first real deploy actually hit (2026-09-02)
+
+The steps above were written before anyone ran them against
+`gen-lang-client-0956394022` ("AI for TV"). Four of them did not survive contact.
+Recorded here rather than edited into the steps, because the steps are still
+right for a project where you hold Owner, and this section is what to read when
+you do not.
+
+### Cloud Build is unusable from at least one Windows machine
+
+`gcloud builds submit` hung for a full ten minutes and **registered no build at
+all** -- `gcloud builds list` returned "Listed 0 items" both regionally and
+globally, so nothing was queued, throttled, or failing. `--async`, which should
+return the moment the upload finishes, hung identically. One attempt exited with
+a bare gcloud crash footer ("please run the following command: gcloud
+feedback") and no cause.
+
+Do not debug this from the app side; nothing about the repo is involved. Build
+locally and push straight to Artifact Registry:
+
+```bash
+gcloud auth configure-docker asia-southeast2-docker.pkg.dev --quiet
+IMAGE=asia-southeast2-docker.pkg.dev/$PROJECT/tv-helper/tv-helper:$(git rev-parse --short HEAD)
+docker build --platform linux/amd64 -t "$IMAGE" .   # --platform is REQUIRED on arm64
+docker push "$IMAGE"
+```
+
+`--platform linux/amd64` is not optional on an Apple Silicon machine: Cloud Run
+runs amd64, and an arm64 image deploys successfully and then crash-loops with an
+exec-format error that reads like a broken entrypoint.
+
+### `roles/editor` cannot create the Firestore database
+
+Test what you hold before believing a role name:
+
+```bash
+curl -s -X POST \
+  "https://cloudresourcemanager.googleapis.com/v1/projects/$PROJECT:testIamPermissions" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  -d '{"permissions":["datastore.databases.create","datastore.entities.create","secretmanager.versions.access"]}'
+```
+
+On this project, as Editor, that returns `datastore.entities.create` and
+withholds the other two. So Editor can **read and write allowlist documents but
+cannot create the database that holds them**. Creating it is a one-time Owner
+action:
+
+```bash
+gcloud firestore databases create --location=asia-southeast2 --type=firestore-native
+```
+
+**The app does not wait for it.** `BOOTSTRAP_OWNER_EMAIL` in
+`src/lib/auth/allowlist.ts` short-circuits before the store is consulted, so the
+bootstrap owner signs in and gets `owner` against a project with no Firestore
+database at all. Everyone else gets a clean `lookup-failed` deny. That is the
+designed behaviour and it is what makes a partial deployment useful: one person
+can drive the whole app while the database is still pending.
+
+### Editor cannot read secret payloads either, so Step 2 does not apply
+
+`secretmanager.versions.access` is deliberately excluded from `roles/editor` by
+Google. The consequence is easy to get backwards: it is **not** fixed by running
+as a different service account, because the default compute service account
+carries Editor too. Without an Owner to grant `roles/secretmanager.secretAccessor`,
+Secret Manager cannot be read by anything in the project.
+
+Pass the values as environment variables instead, via a file so the value never
+reaches a shell history or a CI log:
+
+```bash
+printf 'GOOGLE_GENERATIVE_AI_API_KEY: "%s"\nAUTH_SECRET: "%s"\n' "$KEY" "$SECRET" > env.yaml
+gcloud run services update tv-helper --region=asia-southeast2 --env-vars-file=env.yaml
+rm -f env.yaml    # do this in the same command; it holds a live credential
+```
+
+This is a real step down in posture and should be recorded as debt rather than
+forgotten: a Cloud Run env var is readable by anyone with `run.services.get`,
+where a secret version is readable only by holders of one narrow role. In this
+project that is close to the same set of people, which is why it is acceptable
+here and not in general. Migrating back is Step 2 unchanged, once an Owner has
+run the two `add-iam-policy-binding` commands in Prerequisites.
+
+### Browsing a private prod service, before the OAuth client exists
+
+The OAuth client cannot be created until the URL exists (Trap 1), so there is a
+window where prod is deployed and unreachable in a browser. Do not widen it with
+`--allow-unauthenticated` plus `AUTH_DISABLED=true`: that is a publicly open app
+holding a live Gemini key, and it is the one combination this runbook most wants
+to avoid.
+
+Tunnel instead. The service stays `--no-allow-unauthenticated`, and the proxy
+attaches your own gcloud identity to every request:
+
+```bash
+gcloud run services proxy tv-helper --region=asia-southeast2 --port=8080
+# then browse http://localhost:8080
+```
+
+`AUTH_DISABLED` is honoured only while `AUTH_GOOGLE_ID` is unset, so setting the
+OAuth client later closes the bootstrap switch by construction rather than by
+your remembering to unset a flag.
+
 ## Post-deploy verification
 
 **Run all of it, in order, every time.** A Cloud Run revision that reports
