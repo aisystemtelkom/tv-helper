@@ -4,10 +4,14 @@
  * render, OCR, classify, locate, crop, extract, verify, export -- with no UI
  * and no browser involved.
  *
- *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]... [--out dir]
+ *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]...
+ *                 [--out dir] [--jenis-order MO]
  *
  * Everything it knows about the target document comes from
- * `src/lib/forms/template.ts`. This file is wiring, not policy.
+ * `src/lib/forms/template.ts`. This file is wiring, not policy -- with one
+ * exception it should not grow a second of: the header's JENIS ORDER cell,
+ * which is resolved here because it is a property of the ORDER rather than of
+ * the template (see the JENIS ORDER section).
  *
  * Four things here are load-bearing and easy to "simplify" back into bugs:
  *
@@ -109,12 +113,53 @@ import {
   ocrPageCompletely,
   ocrPageWithGemini,
 } from "../src/lib/pipeline/gemini-ocr.ts";
+import { deriveIdsFromFilenames } from "../src/lib/pipeline/fields.ts";
+// THE EXTRACTION WIRING NOW LIVES IN src/lib/pipeline/extract.ts, and is
+// re-exported below so this file's tests and callers still find it here. It
+// moved because `/api/extract` needs exactly this and cannot import a script:
+// a second copy of NEVER_EXTRACTED, of the pool ranking or of the hint
+// prepending is a copy that can silently disagree with this one, which is a
+// blank cell in one deliverable and a plausible wrong value in the other
+// (2026-09-03 findings, section 4).
 import {
-  deriveIdsFromFilenames,
-  extractFields,
-  reconcileFieldValues,
-} from "../src/lib/pipeline/fields.ts";
+  DISAGREEING_DOCUMENTS_REASON,
+  FIELD_DOC_TYPES,
+  NEVER_EXTRACTED,
+  NEVER_EXTRACTED_REASON,
+  extractTextFields as extractTextFieldsWith,
+  extractableFieldKeys,
+  groupKeysByDocTypes,
+  orderPaperworkDocTypes,
+  poolForDocTypes,
+  rankedPoolForDocTypes,
+  remapCitedPageIndex,
+  withFieldHints,
+} from "../src/lib/pipeline/extract.ts";
+
+// ANSWERED_BY_REQUEST_REASON is deliberately NOT re-exported here. It is the
+// reason /api/extract gives for a key it did not search because the request
+// already answered it, and this script has no equivalent state: a
+// request-answered key is simply filled and drops out of outstandingFields.
+// Importing a shared constant and ignoring it reads as wiring somebody
+// started, so the route stays its only consumer.
+export {
+  DISAGREEING_DOCUMENTS_REASON,
+  FIELD_DOC_TYPES,
+  NEVER_EXTRACTED,
+  NEVER_EXTRACTED_REASON,
+  extractableFieldKeys,
+  groupKeysByDocTypes,
+  orderPaperworkDocTypes,
+  poolForDocTypes,
+  rankedPoolForDocTypes,
+  remapCitedPageIndex,
+  withFieldHints,
+};
 import { locateSlot } from "../src/lib/pipeline/locate.ts";
+import {
+  orderRequestFieldValues,
+  readOrderRequestBuffer,
+} from "../src/lib/pipeline/order-request.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 import { verifyCitedValues } from "../src/lib/pipeline/verify.ts";
 import { DEFAULT_DPI, renderPageUpright } from "../src/lib/pipeline/render.ts";
@@ -468,10 +513,49 @@ async function askImage(prompt, image, schema, label = "ocr") {
 // ---------------------------------------------------------------------------
 
 const USAGE = `Usage: pnpm generate <bundle.pdf> [more.pdf ...] [--tambahan <extra.pdf>]...
-                    [--out <dir>]
+                    [--out <dir>] [--jenis-order <AO|MO|DO|...>]
+                    [--request <order-request.xlsx>] [--service <SID|n>]
+                    [--template <Form_Validasi.template.docx>]
 
 Writes <ID EPIC>_DOKUMEN_VALIDASI.docx, <ID EPIC>_ORDER_Config.xlsx and
 <ID EPIC>_OUTSTANDING.json into <dir> (default: out/, which is gitignored).
+
+--template patches the operator's own stripped Form Validasi instead of
+building a document from scratch, and it is the better of the two outputs by a
+wide margin. Measured against the two human samples (2026-09-03 findings,
+section 3), the constructed path ships no word/header1.xml and so no DOKUMEN
+VALIDASI banner, no theme1.xml, an empty <w:docDefaults> with no Normal style
+so the samples' Calibri-at-12pt falls back to Word's own default, and no
+TableGrid style so its tables have no borders where all thirteen tables across
+the two samples do. Produce the template with
+
+    pnpm make:docx-template <Form_Validasi.docx>
+
+which writes <name>.template.docx and <name>.template.json side by side; pass
+the .docx here and the .json is read from beside it. There is deliberately no
+template in the repo: the two sample forms share three section names out of
+eleven and twelve, so no single one fits both orders, and everything derived
+from documents/ is client material that must never be committed.
+
+--request supplies the ORDER REQUEST: row 1 type hints, row 2 headers, one row
+per SID. It is read FIRST, deterministically, with no OCR and no model call,
+and every key it answers is then REMOVED from what the scans are searched for.
+That is the whole point of it -- of the thirty-one filled value cells measured
+across the two sample bundles, twelve to thirteen come from the request and
+zero to one from the contract scans (2026-09-03 findings, section 2), so
+searching a 29-page contract for them was asking the wrong corpus.
+
+--service picks one service out of a multi-SID request, by SID or by 1-based
+row order. Without it, a field every service agrees on ships and a field they
+disagree on ships BLANK with both readings named, exactly as two disagreeing
+documents do -- never the first row silently.
+
+--jenis-order (or JENIS_ORDER in the environment) sets the header's JENIS ORDER
+cell. Without it the run reads the value off the order request or off a printed
+JENIS ORDER label in the documents, and where neither answers it ships the cell
+BLANK and names it in the outstanding report. It is never defaulted: the value
+is a workflow verb (AO = Activation, MO = Modify, DO = Delete), not a property
+of the template, and a guessed one gets signed.
 
 Every positional PDF is round 1: the whole slot list is searched across all of
 them, with no assumption about which document carries what. Each --tambahan
@@ -493,13 +577,45 @@ export function parseArgs(argv) {
   /** @type {string[][]} */
   const rounds = [[]];
   let outDir = join(repoRoot, "out");
+  let jenisOrder;
+  let requestPath;
+  let service;
+  let templatePath;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--out") {
+    if (arg === "--template") {
+      const value = argv[++i];
+      if (!value) throw new Error("--template needs a docx");
+      templatePath = resolve(value);
+    } else if (arg === "--request") {
+      const value = argv[++i];
+      if (!value) throw new Error("--request needs an xlsx");
+      requestPath = resolve(value);
+    } else if (arg === "--service") {
+      const value = argv[++i];
+      // Same guard as --jenis-order and for the same reason: nothing
+      // downstream checks a service selector against the filesystem, so
+      // `--service --out dir` would otherwise look for a service called
+      // "--out" and fail with a message about SIDs.
+      if (!value || value.startsWith("--") || value.trim() === "") {
+        throw new Error("--service needs a SID or a row number");
+      }
+      service = value.trim();
+    } else if (arg === "--out") {
       const value = argv[++i];
       if (!value) throw new Error("--out needs a directory");
       outDir = resolve(value);
+    } else if (arg === "--jenis-order") {
+      const value = argv[++i];
+      // A value that is itself an option is a typo, not an order type, and
+      // unlike --out and --tambahan there is no filesystem check downstream to
+      // catch it: `--jenis-order --out dir` would otherwise print "--out" in
+      // the header cell and complete successfully.
+      if (!value || value.startsWith("--") || value.trim() === "") {
+        throw new Error("--jenis-order needs a value");
+      }
+      jenisOrder = value.trim();
     } else if (arg === "--tambahan") {
       const value = argv[++i];
       if (!value) throw new Error("--tambahan needs a PDF");
@@ -517,7 +633,65 @@ export function parseArgs(argv) {
       if (!existsSync(p)) throw new Error(`no such file: ${p}`);
     }
   }
-  return { rounds, outDir };
+  if (requestPath !== undefined && !existsSync(requestPath)) {
+    throw new Error(`no such file: ${requestPath}`);
+  }
+  // Both halves checked HERE rather than at the export, which is thousands of
+  // model tokens and several minutes downstream. A run that is going to fail
+  // for want of a manifest should fail before it starts paying.
+  if (templatePath !== undefined) {
+    if (!existsSync(templatePath)) throw new Error(`no such file: ${templatePath}`);
+    const manifestPath = manifestPathFor(templatePath);
+    if (!existsSync(manifestPath)) {
+      throw new Error(
+        `--template needs its manifest beside it: no such file: ${manifestPath}. ` +
+          "Both files come out of `pnpm make:docx-template`; pass " +
+          "the .template.docx it wrote and leave the .template.json next to it.",
+      );
+    }
+  }
+  // A selector with no request to select from is a typo the operator wants to
+  // hear about now, not a run that silently ignores half of what they asked
+  // for and searches the scans for everything.
+  if (service !== undefined && requestPath === undefined) {
+    throw new Error("--service needs --request");
+  }
+  return { rounds, outDir, jenisOrder, requestPath, service, templatePath };
+}
+
+/**
+ * The anchor manifest that belongs to a `.template.docx`.
+ *
+ * `make-docx-template.mjs` writes the pair `<name>.template.docx` and
+ * `<name>.template.json` side by side, so the manifest is derived rather than
+ * asked for: a second flag is a second thing to get wrong, and a manifest
+ * from a DIFFERENT form's template pairs positionally with this one's rows
+ * and puts every crop in a plausible wrong place -- which `buildPatches`
+ * catches by label only where the labels happen to differ.
+ */
+export function manifestPathFor(templatePath) {
+  return templatePath.replace(/\.docx$/i, "") + ".json";
+}
+
+/**
+ * Reads the pair `--template` names. Returns `undefined` when no template was
+ * given, which is the constructed-document path.
+ */
+async function loadDocxTemplate(templatePath) {
+  if (templatePath === undefined) return undefined;
+  const manifestPath = manifestPathFor(templatePath);
+  const docx = new Uint8Array(await readFile(templatePath));
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `${manifestPath} is not readable JSON: ` +
+        `${error instanceof Error ? error.message : String(error)}. Re-run ` +
+        "`pnpm make:docx-template` against the source form.",
+    );
+  }
+  return { docx, manifest };
 }
 
 // ---------------------------------------------------------------------------
@@ -860,30 +1034,12 @@ function pagesByIndex(pages) {
   return byIndex;
 }
 
-/**
- * The pool a search is offered: EVERY candidate page, with the ones
- * classify.ts labelled with a preferred docType moved to the front.
- *
- * Nothing is dropped, and that is the entire point -- this is the function
- * that replaced `poolFor(byType, pages, slot.docType)`, which returned only
- * the matching pages and so decided in advance which document could possibly
- * answer a slot. Reintroducing a filter here (an early `return head`, a
- * `.slice`, "the tail is only noise") re-narrows the pool and quietly
- * restores the assumption the tool is supposed to have dropped.
- */
-export function rankedPool(preferredDocTypes, byType, candidates) {
-  const preferred = new Set();
-  for (const docType of preferredDocTypes ?? []) {
-    if (!docType) continue;
-    for (const index of byType.get(docType) ?? []) preferred.add(index);
-  }
-  const head = [];
-  const tail = [];
-  for (const page of candidates) {
-    (preferred.has(page.index) ? head : tail).push(page);
-  }
-  return [...head, ...tail];
-}
+// `rankedPool` used to be defined here. It is now
+// `rankedPoolForDocTypes` in src/lib/pipeline/extract.ts, imported above --
+// renamed because `/api/propose` has a `rankedPoolForSlot` that ranks for one
+// SlotDef and takes its arguments in a different order, and two functions
+// called `rankedPool` with different signatures is a mix-up that would not be
+// a type error in a .mjs file.
 
 /**
  * The name a slot is searched by: the document its section is about, then its
@@ -1043,11 +1199,6 @@ export function outstandingSlots(template, zones, reasons = new Map()) {
   return outstanding;
 }
 
-/** The default `conflictReason`: what a conflict means when the entry does not
- * say, which is `reconcileFieldValues`' own case. */
-const DISAGREEING_DOCUMENTS_REASON =
-  "found more than once and the answers disagree";
-
 /**
  * Every xlsx row a PDF is supposed to back that came back without a value.
  *
@@ -1096,6 +1247,63 @@ export function outstandingFields(template, values) {
               .map((value) => JSON.stringify(value))
               .join(" vs ")}); ships blank until the operator picks one`
           : "searched, not found",
+    });
+  }
+  return outstanding;
+}
+
+/**
+ * Every value that was READ but has nowhere in this form to land.
+ *
+ * `buildXlsx` keys the values it is handed by `fieldKey` and walks
+ * `template.xlsxRows`, so a value whose key names no row is simply never
+ * written. That drop was silent in all three places an operator looks:
+ * `main()` logged it as `layanan = "..." [request C3 "Layanan"]`, which reads
+ * exactly like a shipped cell; `report.orderRequest.answered` listed it; and
+ * `outstandingFields` walks `template.xlsxRows`, so a key with no row can
+ * never appear there. Measured on a nine-column request: seven values read,
+ * ONE cell filled. The report asserted the other six were handled and the
+ * workbook did not carry them -- the deliverable looking complete while
+ * missing content, which is the failure this project is organised against.
+ *
+ * `AO_TEMPLATE` declares four fieldKey-bearing rows and
+ * `REQUEST_COLUMN_FIELD_KEYS` maps sixteen columns, so the gap is structural
+ * rather than incidental: the rows are item 5 of the 2026-09-03 findings and
+ * are deliberately not this change's work. Until they land, a value with
+ * nowhere to go is a REPORTED gap.
+ *
+ * Deliberately general rather than checking only the request's keys. A
+ * model-extracted key cannot reach here today, because `extractableFieldKeys`
+ * derives what to search for from the template's own rows -- but that is an
+ * invariant somewhere else, and this costs one pass over a list to stop
+ * depending on it.
+ */
+export function unmappedFieldValues(template, values) {
+  const rowKeys = new Set(
+    template.xlsxRows.map((row) => row.fieldKey).filter(Boolean),
+  );
+  const outstanding = [];
+  const seen = new Set();
+  for (const value of values) {
+    // A blanked conflict has nothing to lose: it was never going to fill a
+    // cell, and it is already reported on its own CONFLICT line.
+    if (value.conflict?.length) continue;
+    if (String(value.value ?? "").trim() === "") continue;
+    if (rowKeys.has(value.fieldKey) || seen.has(value.fieldKey)) continue;
+    seen.add(value.fieldKey);
+    const from = value.requestSource
+      ? `the order request (${value.requestSource.column}, ` +
+        `"${value.requestSource.header}")`
+      : "the documents";
+    outstanding.push({
+      kind: "unmapped",
+      key: value.fieldKey,
+      label: value.fieldKey,
+      reason:
+        `read from ${from} as ${JSON.stringify(value.value)}, but the ` +
+        `"${template.id}" form has no xlsx row for it, so the workbook does ` +
+        "not carry it. The value is here and in the run log; keying it needs " +
+        "a row in the form's xlsxRows.",
     });
   }
   return outstanding;
@@ -1206,7 +1414,7 @@ export async function searchRound({
     for (const slot of fillable) {
       if (satisfied.has(slot.key)) continue;
 
-      const pool = rankedPool([slot.docType], byType, pages);
+      const pool = rankedPoolForDocTypes([slot.docType], byType, pages);
       if (pool.length === 0) {
         reasons.set(slot.key, "no pages were supplied to search");
         continue;
@@ -1341,232 +1549,309 @@ async function cutCrops(zones, pages, sources) {
 // and points at the wrong page.
 // ---------------------------------------------------------------------------
 
-/**
- * The docTypes a fieldKey's value is MOST LIKELY to sit in -- the pages put
- * at the front of its pool, never the only pages in it.
- *
- * The entries are unchanged from when this was a filter, and the name is kept
- * for the same reason; what changed is that `rankedPool` consumes it instead
- * of `poolForDocTypes`, so a key absent here simply gets an unranked pool
- * rather than a different (smaller) one. Every key sees every page either way.
- */
-export const FIELD_DOC_TYPES = {
-  cc: ["BAPermintaan"],
-  alamat: ["BAPermintaan"],
-  picContacts: ["Email"],
-};
+// FIELD_DOC_TYPES, orderPaperworkDocTypes, poolForDocTypes,
+// remapCitedPageIndex, withFieldHints, groupKeysByDocTypes, NEVER_EXTRACTED
+// and extractableFieldKeys all used to be defined here. They are now
+// src/lib/pipeline/extract.ts, imported and re-exported at the top of this
+// file, because `/api/extract` runs the identical wiring and a server route
+// cannot import a script. Everything the history above records still applies
+// to them; the comments moved with the code.
 
-/** The docTypes every `layout: "images"` fillable slot captures -- the pages
- * a key with no FIELD_DOC_TYPES entry is shown first. */
-export function orderPaperworkDocTypes(template) {
-  const set = new Set();
-  for (const section of template.sections) {
-    if (section.layout !== "images") continue;
-    for (const slot of section.slots) {
-      if (slot.fillable && slot.docType) set.add(slot.docType);
-    }
-  }
-  return [...set];
+/**
+ * `extractTextFields`, with this script's model call and this script's log.
+ *
+ * The body is `src/lib/pipeline/extract.ts`'s, shared with `/api/extract`.
+ * This wrapper exists only to keep the CLI's positional signature (which
+ * `scripts/test-pipeline.mjs` calls) and to bind the two things a shared
+ * module must not know: which `ask` reaches the model, and where progress is
+ * printed.
+ */
+export async function extractTextFields(
+  template,
+  byType,
+  pages,
+  askFn = ask,
+  answered = new Set(),
+) {
+  return extractTextFieldsWith({
+    template,
+    byType,
+    pages,
+    ask: askFn,
+    answered,
+    log: (message) => console.log(message),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// JENIS ORDER.
+//
+// This cell used to be `jenisOrder: AO_TEMPLATE.id`, on the reasoning that the
+// operator picks the template so the template's own id is the honest answer.
+// It is not. JENIS ORDER values are WORKFLOW VERBS -- AO = Activation Order,
+// MO = Modify Order, DO = Delete Order, and more exist -- not template
+// variants, so which section list a run renders says nothing about which verb
+// the order is. The second client bundle (2026-09-03 findings, section 1) is
+// an MO, and the hard-coded line would have put "AO" in a header cell a
+// validator signs: plausible, unflagged, and wrong, which is the exact failure
+// class this project is organised against.
+//
+// So the value comes from a real source, in this preference order:
+//
+//   1. AN EXPLICIT OPERATOR OVERRIDE (`--jenis-order`, or `JENIS_ORDER` in the
+//      environment). First because the operator is the only party who can be
+//      *told* the answer out of band -- the client says "this one is an MO" in
+//      a WhatsApp message that is not in the bundle -- and because every step
+//      below is an inference that must be overridable when it is wrong.
+//   2. THE ORDER REQUEST, when one was supplied. Second because it is the
+//      document that *states* the requested order type as a field rather than
+//      mentioning it in prose: bundle two ships it as an xlsx with a
+//      "Jenis order (yang diminta)" column. It ranks below the operator only
+//      because a request can be superseded and the operator knows that.
+//      Reading it is item 3 of the plan and belongs to the next agent in this
+//      chain; `resolveJenisOrder` takes it as an already-parsed object so that
+//      landing the reader is a one-line change at the call site.
+//   3. INFERENCE FROM THE DOCUMENTS, narrowly. Third because it reads a label
+//      somebody printed rather than a field somebody filled, so it can pick up
+//      a mention of a DIFFERENT order (a renewal's base agreement naming the
+//      original activation) or an unticked list of options. The guards below
+//      exist for exactly those two cases and it stays last of the three that
+//      can produce a value.
+//   4. BLANK, reported outstanding by name. There is deliberately NO default.
+//      Same argument as `NEVER_EXTRACTED`'s `namaProyek`: a blank invites the
+//      operator to fill it in, a plausible wrong value gets signed.
+// ---------------------------------------------------------------------------
+
+/**
+ * The printed label, with whatever follows it on the same OCR line.
+ *
+ * Anchored on the LABEL and not on a list of known codes, because the code set
+ * is open ("and more exist") and a closed list would silently drop a real
+ * order type instead of reporting it -- the wrong-and-quiet direction. The
+ * optional parenthetical is not decoration: bundle two's order request spells
+ * the label "Jenis order (yang diminta)", and a line carrying that spelling
+ * with the value after it would otherwise fail the code shape below and be
+ * thrown away as unreadable.
+ */
+const JENIS_ORDER_LINE = /jenis\s*order\s*(?:\([^)]*\))?(.*)$/i;
+
+/** The separators a form prints between the label and its value, stripped in
+ * code rather than inside `JENIS_ORDER_LINE`: as a greedy class in the regex
+ * it backtracks, so a bare `JENIS ORDER :` matched with ":" AS ITS VALUE and
+ * reported a label whose value could not be read instead of no label at all. */
+const JENIS_ORDER_SEPARATORS = /^[\s:.\-]+/;
+
+/** A code as it is printed: a short run of letters, `AO`, `MO`, `DO`. */
+const JENIS_ORDER_CODE = /^([A-Za-z]{2,4})\b(.*)$/;
+
+/**
+ * What may follow the code and still leave the line an ANSWER.
+ *
+ * Nothing, punctuation, or ONE parenthetical that runs to the end -- which is
+ * how a form prints a code beside its own expansion, `MO (Modify Order)`.
+ * Anything else means the words after the code are part of the text rather
+ * than trailing decoration, and the code was never an answer at all.
+ *
+ * THIS REPLACED A SEPARATOR-MATCHING GUARD, and the replacement is the whole
+ * defensibility of this step. The old one refused `AO / MO / DO` by looking
+ * for `/`, `|` or `,` immediately after the first code, so it recognised a
+ * blank form's menu under exactly one punctuation class out of several. Run
+ * against the exported function, all five of these resolved to a confident
+ * `{ value: "AO", origin: "documents" }` with a page-and-line citation that
+ * made it read as verified:
+ *
+ *     "JENIS ORDER    AO    MO    DO"        <- an unticked tick-box row, the
+ *     "JENIS ORDER : AO   MO   DO"              case the guard's own docstring
+ *     "Jenis Order : AO ( ) MO ( ) DO ( )"      says it exists for
+ *     "JENIS ORDER : AO - MO - DO"
+ *     "JENIS ORDER : AO atau MO"
+ *
+ * Asking instead what may FOLLOW an answer covers every separator there is,
+ * including whitespace and the ones nobody has thought of, and it fails in
+ * the safe direction: an unfamiliar shape is recorded raw for the operator
+ * rather than read as the first code printed.
+ */
+const JENIS_ORDER_TRAILER = /^[\s:.,;-]*(?:\([^)]*\))?[\s.,;]*$/;
+
+/**
+ * The order codes AGENTS.md names: Activation, Modify, Delete.
+ *
+ * NOT the whole answer -- the set is open ("and more exist") -- but the half
+ * of it that can be accepted whatever case OCR returns them in.
+ */
+const JENIS_ORDER_KNOWN_CODES = new Set(["AO", "MO", "DO"]);
+
+/**
+ * Does this token read as an order code rather than as a word?
+ *
+ * `JENIS_ORDER_CODE` on its own accepts ANY two-to-four letter word, so a
+ * label followed by prose put a conjunction in the header cell and marked it
+ * resolved. Measured against the exported function before this guard existed:
+ * "JENIS ORDER DAN LAYANAN" -> "DAN", "JENIS ORDER YANG DIMINTA" -> "YANG",
+ * "Jenis order yang diminta" -> "YANG", "Jenis Order Baru" -> "BARU". The
+ * trailer rule above kills the first three (each has trailing words); "Baru"
+ * is the whole of its line and needs this.
+ *
+ * The rule is the SHAPE OF AN ABBREVIATION, not a closed list, so an
+ * unfamiliar order type is still read rather than dropped: two or three
+ * letters, written upper-case, which is how a form prints a code and is not
+ * how it prints "Baru", "yang" or "Lama". A known code is taken in any case
+ * because `JENISORDER: mo` is a real OCR reading of one.
+ *
+ * A token this refuses is not lost -- it is recorded with `value: ""` and its
+ * raw text, so the outstanding report names it and the operator answers with
+ * one flag. Blank-and-asked beats plausible-and-signed.
+ */
+function readsAsOrderCode(printed) {
+  const code = printed.toUpperCase();
+  if (JENIS_ORDER_KNOWN_CODES.has(code)) return true;
+  return printed.length <= 3 && printed === code;
 }
 
 /**
- * The classified pages for a set of docTypes, ascending by global index. Pure
- * and side-effect free, so it is testable without a model call.
+ * Every labelled JENIS ORDER value the bundle prints, with where it was read.
+ *
+ * Exported for the tests: the guards above are the whole reason this step is
+ * defensible at all, so they are pinned by name rather than exercised only
+ * through a full run.
  */
-export function poolForDocTypes(docTypes, byType, pages) {
-  const wanted = new Set();
-  for (const docType of docTypes) {
-    for (const index of byType.get(docType) ?? []) wanted.add(index);
-  }
-  return [...wanted].sort((a, b) => a - b).map((i) => pages[i]);
-}
-
-/**
- * Maps a citation's pool POSITION back to that page's true document index.
- * Returns undefined -- drop the citation -- when the position is not one the
- * pool actually holds, instead of the old `pool[i]?.index ?? i` fallback,
- * which wrote the raw local position into the workbook as a bundle-global
- * page number whenever the model cited a position outside the pool.
- */
-export function remapCitedPageIndex(poolPosition, pool) {
-  return pool[poolPosition]?.index;
-}
-
-/**
- * Wraps an `ask` so the extraction prompt carries each key's definition.
- *
- * `extractFields` is handed bare key names and builds its prompt from them,
- * which makes "cc" the entire description of the field -- the thinnest hint
- * in the pipeline, and the one that lost to the printed email's own `Cc:`
- * header when the pool stopped being narrowed. The definitions live in
- * `Template.fieldHints`; this is how they reach the model.
- *
- * It PREPENDS rather than splicing into the prompt on purpose. The prompt is
- * `src/lib/pipeline/fields.ts`'s to build, and matching against its interior
- * ("insert after the `Fields:` line") would make this quietly stop working
- * the next time that file is reworded -- quietly, because the call would
- * still succeed and the model would still answer, just without the
- * disambiguation that keeps the customer name right.
- *
- * Returns `ask` unchanged when nothing is described, so a key with no entry
- * costs no wrapper and no prompt text.
- */
-export function withFieldHints(ask, keys, fieldHints) {
-  const described = keys.filter((key) => fieldHints?.[key]);
-  if (described.length === 0) return ask;
-
-  const block = [
-    "FIELD DEFINITIONS. These define the fields requested below. Where a",
-    "definition and the field's short name disagree, the definition wins, and",
-    "text a definition rules out is not an acceptable answer even when it",
-    "looks like a match.",
-    ...described.map((key) => `  ${key}: ${fieldHints[key]}`),
-    "",
-  ].join("\n");
-
-  return (prompt) => ask(`${block}\n${prompt}`);
-}
-
-/** Groups fieldKeys by the docType set that ranks their pool, so keys with the
- * same ranking cost one extraction call instead of one apiece. */
-export function groupKeysByDocTypes(keys, defaultDocTypes) {
-  const groups = new Map();
-  for (const key of keys) {
-    const docTypes = FIELD_DOC_TYPES[key] ?? defaultDocTypes;
-    const signature = docTypes.join("|");
-    const group = groups.get(signature);
-    if (group) group.keys.push(key);
-    else groups.set(signature, { docTypes, keys: [key] });
-  }
-  return [...groups.values()];
-}
-
-/**
- * Keys deliberately not sent to the model at all, whatever the template says.
- *
- * `namaProyek` is in this set and ships BLANK. It reaches the two most-read
- * cells in the deliverables -- the `NAMA Proyek :` cell in the docx header
- * table and its xlsx row -- and on the full pool it reliably answered with
- * the Surat Penunjukan's subject line: the master contract's scope title, not
- * this order's project name. That wrong value carried a citation that
- * *passed* validation, so it read as sourced evidence rather than a guess
- * (task-11 finding 3).
- *
- * IT WAS BRIEFLY RE-ENABLED and is reverted here. The case for re-enabling
- * was that `AO_TEMPLATE.fieldHints.namaProyek` now rules out the agreement
- * title and the appointment letter's subject by name, and one manual run on
- * the sample bundle showed it no longer answering with the master contract.
- * That same run recorded the answer as the request email's own subject line,
- * "not the wording the human-authored sample uses for the same field" -- by
- * its own account not the right value. A key whose best recorded evidence is
- * "differently wrong" does not clear the bar for a cell a validator signs.
- *
- * The bar for taking it back out of this set is a reproducible run that
- * yields the sample's own project name, not an argument that the hint is
- * better. Until then a blank invites the operator to fill it in, and a
- * plausible wrong value does not. `outstandingFields` reports it by name
- * with the reason below, so blank is never silent.
- */
-export const NEVER_EXTRACTED = new Set(["namaProyek"]);
-
-/** Why a NEVER_EXTRACTED key is blank, for the run's outstanding list. The
- * generic "searched, not found" would be a false statement about it: nothing
- * searched for it at all. */
-const NEVER_EXTRACTED_REASON =
-  "deliberately not extracted; the operator fills this in (see NEVER_EXTRACTED)";
-
-/**
- * The backed xlsx keys a run actually asks the model for: every fieldKey the
- * template declares, minus `NEVER_EXTRACTED`. Exported so the exclusion is
- * testable end of chain rather than asserted about a Set nothing reads --
- * silently dropping this filter is exactly how the blank cell would turn back
- * into a plausible wrong one.
- */
-export function extractableFieldKeys(template) {
-  return [
-    ...new Set(
-      template.xlsxRows
-        .map((row) => row.fieldKey)
-        .filter((key) => key && !NEVER_EXTRACTED.has(key)),
-    ),
-  ];
-}
-
-/**
- * `askFn` is injected, defaulting to the real model, for the same reason
- * `searchRound` injects `locate`: it makes the whole wiring -- ranking,
- * grouping, hint prepending, citation remapping -- exercisable without a
- * credential. The wrong-customer regression lived in this wiring, not in
- * `extractFields`, so a test that composes the pieces itself would not have
- * caught it.
- *
- * THE RETURNED LIST HOLDS AT MOST ONE ENTRY PER fieldKey. This is the one
- * point where every answer to a key converges -- a model reply that cites the
- * same field twice, two key groups that both answer it, and the documents of
- * every round, since extraction runs once over the whole run's pages after
- * the last tambahan round rather than per round. `reconcileFieldValues` is
- * therefore applied here and nowhere else, and it is what makes two spellings
- * of one answer stop counting as a disagreement (`Bank Contoh Nusantara` and
- * `PT Bank Contoh Nusantara Tbk` are one answer, not two). Drop the call and
- * the duplicates come back, to be resolved by array order inside whichever
- * exporter builds its Map last.
- */
-export async function extractTextFields(template, byType, pages, askFn = ask) {
-  const keys = extractableFieldKeys(template);
-  const defaultDocTypes = orderPaperworkDocTypes(template);
-
-  const values = [];
-  for (const group of groupKeysByDocTypes(keys, defaultDocTypes)) {
-    // Every page, ranked -- see this section's header comment. `pages` is the
-    // whole run's page list, so a key can be answered by a document that
-    // arrived in a later round.
-    const pool = rankedPool(group.docTypes, byType, pages);
-    if (pool.length === 0) {
-      console.log(`  no pages to search; skipping ${group.keys.join(", ")}`);
-      continue;
-    }
-
-    console.log(
-      `  extracting ${group.keys.join(", ")} from ${pool.length} pages ` +
-        `(${group.docTypes.join("/")} first)...`,
-    );
-
-    const renumbered = pool.map((page, position) => ({ ...page, index: position }));
-    const found = await extractFields(
-      group.keys,
-      renumbered,
-      withFieldHints(askFn, group.keys, template.fieldHints),
-    );
-
-    for (const value of found) {
-      if (!value.source) {
-        values.push(value);
+export function jenisOrderCandidates(pages) {
+  const found = [];
+  for (const page of pages) {
+    for (const line of page.lines ?? []) {
+      const labelled = JENIS_ORDER_LINE.exec(line.text ?? "");
+      if (!labelled) continue;
+      const raw = labelled[1].replace(JENIS_ORDER_SEPARATORS, "").trim();
+      // A label with nothing beside it -- the value is in the next table cell,
+      // which OCR may have grouped onto another line. Nothing to report and
+      // nothing to guess.
+      if (raw === "") continue;
+      const where = `${sourceLabel(page)} line ${line.i}`;
+      const code = JENIS_ORDER_CODE.exec(raw);
+      if (
+        !code ||
+        !JENIS_ORDER_TRAILER.test(code[2]) ||
+        !readsAsOrderCode(code[1])
+      ) {
+        // Recorded WITHOUT a value on purpose. The operator gets told the
+        // label was there and what stood next to it, which is what turns a
+        // blank cell into a question they can answer in one look.
+        found.push({ value: "", raw, where });
         continue;
       }
-      // Same lookup remapCitedPageIndex makes internally, kept here too so
-      // the xlsx note can name the page's own file and page number instead
-      // of this run's bundle-global index (task-11 finding 2) -- that global
-      // index sent a reviewer to the wrong document for every page after the
-      // first source file.
-      const page = pool[value.source.pageIndex];
-      const pageIndex = remapCitedPageIndex(value.source.pageIndex, pool);
-      values.push(
-        pageIndex === undefined
-          ? { fieldKey: value.fieldKey, value: value.value }
-          : {
-              ...value,
-              source: {
-                ...value.source,
-                pageIndex,
-                sourceName: page.sourceName,
-                pageInDoc: page.pageInDoc,
-              },
-            },
-      );
+      found.push({ value: code[1].toUpperCase(), raw, where });
     }
   }
+  return found;
+}
 
-  return reconcileFieldValues(values);
+/**
+ * The JENIS ORDER a run ships, and the sentence explaining where it came from.
+ *
+ * Returns `{ value, origin, detail }`. `value` is `""` when no source answered
+ * -- never a default -- and `detail` is written to be read by an operator in
+ * the outstanding report, so it says what was looked at as well as what was
+ * found. Every input is injected, so the whole preference order is testable
+ * without a PDF, a credential or an environment variable.
+ */
+export function resolveJenisOrder({ flag, env, orderRequest, pages = [] } = {}) {
+  // Explicit values are taken VERBATIM apart from whitespace. The operator may
+  // legitimately want a spelling this file has never heard of, and quietly
+  // uppercasing or abbreviating it would put words in their mouth in a cell
+  // they are accountable for.
+  const explicit = (value) => String(value ?? "").trim().replace(/\s+/g, " ");
+
+  const fromFlag = explicit(flag);
+  if (fromFlag) {
+    return { value: fromFlag, origin: "flag", detail: "given as --jenis-order" };
+  }
+
+  const fromEnv = explicit(env);
+  if (fromEnv) {
+    return { value: fromEnv, origin: "env", detail: "given as JENIS_ORDER" };
+  }
+
+  const fromRequest = explicit(orderRequest?.jenisOrder);
+  if (fromRequest) {
+    return {
+      value: fromRequest,
+      origin: "order-request",
+      detail: "read from the order request",
+    };
+  }
+
+  const candidates = jenisOrderCandidates(pages);
+  const answered = candidates.filter((candidate) => candidate.value !== "");
+  const distinct = [...new Set(answered.map((candidate) => candidate.value))];
+
+  if (distinct.length === 1) {
+    return {
+      value: distinct[0],
+      origin: "documents",
+      // The citation is the point. An inferred header cell that cannot be
+      // checked is worth less than a blank one, so the run log and the report
+      // both name the page and line it was read off.
+      detail: `read off ${answered.map((candidate) => candidate.where).join(", ")}`,
+    };
+  }
+
+  if (distinct.length > 1) {
+    // Two documents printing two different order types is exactly the case
+    // where picking one is worst: a renewal's base agreement naming the
+    // original activation reads just as much like an answer as the renewal
+    // does. Same resolution as a field conflict -- blank, with both readings
+    // named for the operator to settle.
+    return {
+      value: "",
+      origin: "conflict",
+      detail:
+        `the documents disagree (${answered
+          .map((candidate) => `${candidate.value} on ${candidate.where}`)
+          .join(" vs ")}); ships blank until the operator picks one`,
+    };
+  }
+
+  if (candidates.length > 0) {
+    return {
+      value: "",
+      origin: "none",
+      detail:
+        `the label was found but nothing beside it reads as an order type ` +
+        `(${candidates
+          .map((candidate) => `${JSON.stringify(candidate.raw)} on ${candidate.where}`)
+          .join("; ")}); pass --jenis-order to set it`,
+    };
+  }
+
+  return {
+    value: "",
+    origin: "none",
+    detail:
+      "no order request supplied and no document prints a JENIS ORDER label; " +
+      "pass --jenis-order to set it",
+  };
+}
+
+/**
+ * The header cells a run could not source, in the shape the outstanding report
+ * uses for slots and fields.
+ *
+ * A separate `kind` because a header cell is neither: it is not backed by a
+ * crop, so no dokumen tambahan round will fill it, and it has no `fieldKey`,
+ * so `outstandingFields` cannot see it. Without this the JENIS ORDER cell
+ * would ship blank and SILENTLY, which trades one wrong-and-quiet failure for
+ * another.
+ */
+export function outstandingHeaderFields(jenisOrder) {
+  if (jenisOrder.value !== "") return [];
+  return [
+    {
+      kind: "header",
+      key: "jenisOrder",
+      label: "JENIS ORDER",
+      reason: jenisOrder.detail,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -1595,15 +1880,126 @@ async function openSources(paths, sources) {
 }
 
 async function main() {
-  const { rounds, outDir } = parseArgs(process.argv.slice(2));
+  const {
+    rounds,
+    outDir,
+    jenisOrder: jenisOrderFlag,
+    requestPath,
+    service,
+    templatePath,
+  } = parseArgs(process.argv.slice(2));
+
+  // Read here, before a single page is rendered, for the same reason the order
+  // request is: a template whose manifest is unreadable or whose sections do
+  // not correspond to this form is a five-second fix, and finding that out at
+  // the export step costs the whole run's OCR and model spend. `buildDocx`
+  // checks the correspondence itself; this only proves the two files exist and
+  // parse.
+  const docxTemplate = await loadDocxTemplate(templatePath);
 
   console.log(`Model:  ${MODEL_TARGET}`);
+  // Which of the two document paths this run takes, said out loud. The
+  // constructed one is missing the header banner, the theme, the Normal style
+  // and every table border (2026-09-03 findings, section 3), and the file it
+  // produces does not say so.
+  console.log(
+    docxTemplate
+      ? `docx:   patching ${basename(templatePath)}`
+      : "docx:   constructed from the form (no --template; no header, theme, " +
+          "Normal style or table borders)",
+  );
   // Named on every run, because which engine read the pixels is the first
   // thing anyone comparing two runs' crops needs to know, and the deliverables
   // themselves do not say.
   console.log(`OCR:    ${OCR_ENGINE} (cache tag ${OCR_ENGINE_TAG})`);
   console.log(`OCR cache: ${OCR_CACHE_PATH}${FORCE_FRESH ? " (bypassed)" : ""}`);
   console.log();
+
+  // -------------------------------------------------------------------------
+  // THE ORDER REQUEST, READ FIRST AND READ DETERMINISTICALLY.
+  //
+  // Before the PDFs are even opened, for two separate reasons. It is the input
+  // that answers most of the workbook -- twelve to thirteen of thirty-one
+  // filled value cells across the two sample bundles, against zero to one from
+  // the contract scans (2026-09-03 findings, section 2) -- and it is the only
+  // input that can be wrong in a way a human fixes in five seconds. A
+  // malformed request that surfaces after twenty minutes of OCR costs the
+  // whole run; the same error thrown here costs nothing.
+  //
+  // Nothing in this block reaches the model, the network or a credential. That
+  // is the property that makes the request worth preferring over a search:
+  // a value here was READ OUT OF A CELL, not inferred from a picture of one.
+  // -------------------------------------------------------------------------
+  /** @type {import("../src/lib/pipeline/order-request.ts").OrderRequest | null} */
+  let orderRequest = null;
+  /** @type {import("../src/lib/pipeline/fields.ts").FieldValue[]} */
+  let requestValues = [];
+  if (requestPath) {
+    orderRequest = await readOrderRequestBuffer(
+      new Uint8Array(await readFile(requestPath)),
+      basename(requestPath),
+    );
+    requestValues = orderRequestFieldValues(orderRequest, { service });
+
+    console.log(
+      `Order request: ${orderRequest.file} sheet "${orderRequest.sheet}", ` +
+        `${orderRequest.services.length} service(s)` +
+        (service ? `, --service ${service}` : ""),
+    );
+    for (const entry of orderRequest.services) {
+      console.log(`  row ${entry.row}: SID ${entry.sid || "(none printed)"}`);
+    }
+    for (const value of requestValues) {
+      if (value.conflict?.length) {
+        console.log(
+          `  ${value.fieldKey} = "" -- CONFLICT (${value.conflictReason}) between ` +
+            value.conflict.map((v) => JSON.stringify(v)).join(" and "),
+        );
+        continue;
+      }
+      const where = value.requestSource;
+      console.log(
+        `  ${value.fieldKey} = ${JSON.stringify(value.value)} ` +
+          `[${where.column}${where.rows.join("/")} ${JSON.stringify(where.header)}]`,
+      );
+    }
+    // Reported, never silently dropped. A column this reader has no field key
+    // for is either a layout it does not understand or a field the client
+    // added, and both are things a human has to see -- an order request that
+    // quietly contributes half of what it holds looks exactly like one that
+    // contributed all of it.
+    for (const column of orderRequest.unmapped) {
+      console.warn(
+        `  column ${column.column} ${JSON.stringify(column.header)} NOT READ: ${column.reason}`,
+      );
+    }
+    if (orderRequest.jenisOrderReadings.length > 1) {
+      console.warn(
+        `  the request's services disagree on the order type ` +
+          `(${orderRequest.jenisOrderReadings.join(" vs ")}); the JENIS ORDER ` +
+          "cell falls through to the documents and then to blank",
+      );
+    }
+    console.log();
+  } else {
+    // Said out loud, because the alternative reads identically to a run where
+    // the request answered nothing. Bundle one legitimately has no request
+    // file -- its request arrived as an email that is already a page of the
+    // scan -- and that is a different situation from an operator forgetting
+    // the flag.
+    console.log(
+      "Order request: none supplied (--request). Every backed key will be " +
+        "searched for in the scans.\n",
+    );
+  }
+
+  /**
+   * The keys the request already answered, INCLUDING the ones it answered with
+   * a blank because its services disagreed. A disagreement is still an answer:
+   * the request is the authority for that field, and a scan search could only
+   * ever supply one of the two readings without knowing there was a second.
+   */
+  const answeredByRequest = new Set(requestValues.map((value) => value.fieldKey));
 
   const cache = await loadCache();
   /** Every source and page seen so far, across every round. Append-only. */
@@ -1692,7 +2088,13 @@ async function main() {
   let values = [];
   let extractionError;
   try {
-    values = await extractTextFields(AO_TEMPLATE, byType, pages);
+    values = await extractTextFields(
+      AO_TEMPLATE,
+      byType,
+      pages,
+      ask,
+      answeredByRequest,
+    );
   } catch (error) {
     console.warn(`  extraction FAILED -- ${error.message}`);
     extractionError = error.message;
@@ -1749,6 +2151,47 @@ async function main() {
     console.log();
   }
 
+  // -------------------------------------------------------------------------
+  // The request's answers join the run's values HERE, after verification, and
+  // the position is load-bearing rather than incidental.
+  //
+  // `verifyCitedValues` re-reads a value from a picture of the lines it cites
+  // and reports anything it cannot check in `report.unverified`, which the
+  // summary prints as "shipped without a crop re-read". A request-supplied
+  // value has no citation and no crop -- there is no page it came from -- so
+  // passing it through that pass would add it to the UNVERIFIED list and tell
+  // the operator that a value read straight out of a spreadsheet cell went
+  // unchecked. That sentence is false, it appears in the one place the
+  // operator is asked to judge how much of the workbook to trust, and it would
+  // grow with every field the request answers, which is the direction this
+  // whole change is pushing. Merging after the pass is what keeps it honest.
+  //
+  // The two lists cannot collide: `answeredByRequest` removed every key here
+  // from what the model was asked for, so `values` holds no key `requestValues`
+  // holds and no reconciliation is needed or possible. ASSERTED rather than
+  // only stated, and the request goes LAST: every consumer (`buildXlsx`, the
+  // `byKey` map the docx header is built from) keys these into a Map, which
+  // keeps the LAST entry, so on a collision the model's guess would beat the
+  // spreadsheet cell the paragraph above says is authoritative. Spreading the
+  // request last makes the order and the stated authority agree whatever
+  // happens upstream, and the assertion makes a collision a crash instead of
+  // a silently-preferred value.
+  // -------------------------------------------------------------------------
+  const requestKeys = new Set(requestValues.map((value) => value.fieldKey));
+  const collided = values
+    .map((value) => value.fieldKey)
+    .filter((key) => requestKeys.has(key));
+  if (collided.length > 0) {
+    throw new Error(
+      `${collided.length} field(s) were answered by BOTH the order request ` +
+        `and the document search: ${[...new Set(collided)].join(", ")}. ` +
+        "`answeredByRequest` is supposed to remove every request-answered key " +
+        "from what the model is asked for; one of the two lists is being built " +
+        "from the wrong set of keys.",
+    );
+  }
+  values = [...values, ...requestValues];
+
   for (const value of values) {
     // A key two readings answered incompatibly ships blank with both readings
     // named, so the operator sees a decision that was NOT made rather than an
@@ -1764,9 +2207,16 @@ async function main() {
       );
       continue;
     }
+    // Where the value came from, said on the same line as the value. With two
+    // input paths in the run this is no longer decoration: "which of these
+    // cells did a model find in a scan, and which were read out of the
+    // request" is the first thing an operator needs in order to know where to
+    // look when one is wrong.
     const cite = value.source
       ? ` [page ${value.source.pageIndex}, lines ${value.source.lineRange.join("-")}]`
-      : " [no citation]";
+      : value.requestSource
+        ? ` [request ${value.requestSource.column}${value.requestSource.rows.join("/")}]`
+        : " [no citation]";
     console.log(`  ${value.fieldKey} = ${JSON.stringify(value.value)}${cite}`);
   }
   // A value can arrive uncited either because the model never offered a
@@ -1778,12 +2228,47 @@ async function main() {
   // and counting it as one would overstate how much of the workbook is
   // unchecked while understating the conflict, which was already reported
   // above on its own line.
+  // A request-supplied value is NOT uncited: `requestSource` names the file,
+  // sheet, column and rows it was read from, and that note reaches the
+  // workbook exactly as a citation does. Counting it here would report the
+  // deterministic half of the run as the unchecked half.
   const shipped = values.filter((v) => !v.conflict?.length);
-  const uncited = shipped.filter((v) => !v.source).length;
+  const uncited = shipped.filter((v) => !v.source && !v.requestSource).length;
   if (uncited > 0) {
     console.log(`  ${uncited} of ${shipped.length} extracted value(s) carry no citation`);
   }
+
+  // Warned per key, right under the value lines that look like shipped cells,
+  // because that is where the misreading happens: `layanan = "..." [request
+  // C3]` and a workbook with no layanan row read identically until now. See
+  // `unmappedFieldValues`.
+  const unmapped = unmappedFieldValues(AO_TEMPLATE, values);
+  for (const entry of unmapped) {
+    console.warn(
+      `  ${entry.key} NOT IN THE WORKBOOK -- the "${AO_TEMPLATE.id}" form has ` +
+        "no xlsx row for it; the value above goes nowhere",
+    );
+  }
   console.log();
+
+  // `orderRequest` was parsed at the top of this function -- see the block
+  // there. `resolveJenisOrder` reads only its `jenisOrder`, which is a plain
+  // string and is blank whenever the request's services disagree, so a
+  // disagreement falls through to the documents and then to a reported blank
+  // rather than picking one of them.
+  const jenisOrder = resolveJenisOrder({
+    flag: jenisOrderFlag,
+    env: process.env.JENIS_ORDER,
+    orderRequest,
+    pages,
+  });
+  // Printed on every run, blank included, because the header cell itself
+  // cannot say where its value came from and this is the only place an
+  // operator can see the difference between "told" and "inferred".
+  console.log(
+    `JENIS ORDER: ${jenisOrder.value === "" ? "(blank)" : jenisOrder.value} ` +
+      `-- ${jenisOrder.detail}\n`,
+  );
 
   const { idEpic, quote } = deriveIdsFromFilenames(sources.map((s) => s.name));
   // Safe as a Map only because `extractTextFields` reconciled the list first:
@@ -1796,10 +2281,11 @@ async function main() {
     namaProyek: byKey.get("namaProyek") ?? "",
     quote,
     cc: byKey.get("cc") ?? "",
-    // Blank in the sample by design, and the operator picks the template, so
-    // the template's own id is the honest answer for JENIS ORDER.
+    // Blank in the sample by design.
     order: "",
-    jenisOrder: AO_TEMPLATE.id,
+    // Never the template's id. See the JENIS ORDER section above for why that
+    // was wrong and what answers it now.
+    jenisOrder: jenisOrder.value,
   };
 
   await mkdir(outDir, { recursive: true });
@@ -1808,7 +2294,7 @@ async function main() {
   const xlsxPath = join(outDir, `${stem}_ORDER_Config.xlsx`);
   const reportPath = join(outDir, `${stem}_OUTSTANDING.json`);
 
-  await writeFile(docxPath, await buildDocx(AO_TEMPLATE, header, filled));
+  await writeFile(docxPath, await buildDocx(AO_TEMPLATE, header, filled, docxTemplate));
   await writeFile(xlsxPath, await buildXlsx(AO_TEMPLATE, values));
 
   // The structured outstanding report. Section 4 of the corrections note
@@ -1816,6 +2302,7 @@ async function main() {
   // rather than a silent gap, and a log line scrolls away: this file is what
   // a later UI reads to ask "is there a dokumen tambahan for these?", and
   // what a resumed run reads to know which zones it already has.
+  const unmappedKeys = new Set(unmapped.map((entry) => entry.key));
   const slotsOutstanding = outstandingSlots(AO_TEMPLATE, zones, reasons);
   const fieldsOutstanding = outstandingFields(AO_TEMPLATE, values).map((field) =>
     extractionError ? { ...field, reason: extractionError } : field,
@@ -1823,6 +2310,43 @@ async function main() {
   const report = {
     template: AO_TEMPLATE.id,
     generatedAt: new Date().toISOString(),
+    // On the record even when it WAS resolved, because "AO" in the header is
+    // no longer self-explanatory: it now means one of four different things
+    // depending on who supplied it, and only this line says which.
+    jenisOrder,
+    // On the record because the report is what a later UI and a resumed run
+    // read, and "which values did a model find and which were read out of a
+    // spreadsheet" is not recoverable from the values alone. `unmapped` is
+    // here for the same reason it is warned about in the log: a column nobody
+    // has mapped yet is a standing gap, and a gap only in a scrolled-away log
+    // line is a gap nobody acts on.
+    orderRequest: orderRequest
+      ? {
+          file: orderRequest.file,
+          sheet: orderRequest.sheet,
+          service: service ?? null,
+          services: orderRequest.services.map((entry) => ({
+            row: entry.row,
+            sid: entry.sid,
+          })),
+          // `answered` used to hold every key the request produced, including
+          // the ones no xlsx row can carry, so the report asserted a field was
+          // handled while the workbook had no such cell. Split, because those
+          // are two different facts an operator acts on differently: one is
+          // done, the other needs a row in the form.
+          answered: requestValues
+            .filter((value) => !value.conflict?.length)
+            .map((value) => value.fieldKey)
+            .filter((key) => !unmappedKeys.has(key)),
+          dropped: requestValues
+            .filter((value) => unmappedKeys.has(value.fieldKey))
+            .map((value) => value.fieldKey),
+          // Unmapped COLUMNS -- a header this reader has never seen -- which
+          // is a different gap from `dropped` above: that one is a column we
+          // read fine and have nowhere to put.
+          unmapped: orderRequest.unmapped,
+        }
+      : null,
     documents: sources.map((source, index) => ({
       index,
       name: source.name,
@@ -1837,7 +2361,16 @@ async function main() {
       lineRange: zone.lineRange,
       box: zone.box,
     })),
-    outstanding: [...slotsOutstanding, ...fieldsOutstanding],
+    outstanding: [
+      ...slotsOutstanding,
+      ...fieldsOutstanding,
+      ...outstandingHeaderFields(jenisOrder),
+      // A value that was read and has nowhere to land is outstanding in the
+      // same sense the others are: something the operator has to do by hand
+      // before the workbook is complete. A gap only in a scrolled-away log
+      // line is a gap nobody acts on.
+      ...unmapped,
+    ],
   };
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
@@ -1869,8 +2402,9 @@ async function main() {
 
   if (report.outstanding.length > 0) {
     console.log(
-      `OUTSTANDING (${report.outstanding.length}) -- each needs a dokumen tambahan ` +
-        "or a manual zone selection:",
+      `OUTSTANDING (${report.outstanding.length}) -- each needs a dokumen tambahan, ` +
+        "a manual zone selection, a flag (for a [header] item), or a row in " +
+        "the form (for an [unmapped] one):",
     );
     for (const item of report.outstanding) {
       console.log(`  - [${item.kind}] ${item.key} (${item.label}): ${item.reason}`);
@@ -1898,9 +2432,18 @@ async function main() {
   );
 }
 
-/** An argument mistake deserves the usage text, not a stack trace. */
+/**
+ * An argument mistake deserves the usage text, not a stack trace.
+ *
+ * `has no service ` is matched on a substring rather than an anchor because
+ * `selectServices` throws `<file> has no service "1234". It lists 2: ...` --
+ * a good message, thrown before the PDFs are opened, that fell through to the
+ * `pipeline failed:` branch and reached the operator as a console.error dump
+ * of an Error object. A typo in a SID is the single likeliest --service
+ * mistake and it was the one presented as a crash.
+ */
 const USAGE_ERRORS =
-  /^(no PDF given|unknown option |--out needs|--tambahan needs|no such file: )/;
+  /^(no PDF given|unknown option |--out needs|--tambahan needs|--jenis-order needs|--request needs|--service needs|--template needs|no such file: )|has no service /;
 
 // Guarded so the test suite can import this file's pure helpers (e.g.
 // poolForDocTypes, remapCitedPageIndex) without running the whole CLI --

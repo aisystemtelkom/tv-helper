@@ -33,31 +33,23 @@ import {
   type SlotDef,
   type Template,
 } from "../../../lib/forms/template.ts";
-import { classifyPages, type Ask, type DocType } from "../../../lib/pipeline/classify.ts";
-import { assertLinesWellFormed } from "../../../lib/pipeline/geometry.ts";
-import type { Line } from "../../../lib/pipeline/geometry.ts";
+import type { Ask, DocType } from "../../../lib/pipeline/classify.ts";
 import { locateSlot, type OcrPage, type Zone } from "../../../lib/pipeline/locate.ts";
+// The wire contract, the provider-failure tag and the classify pass are
+// SHARED WITH `/api/extract` and live in one copy under `src/lib/api/`. They
+// are re-exported below under the names this route's callers and tests
+// already use.
+import {
+  AskFailed,
+  assertRunGlobalIndexes,
+  assertWirePages,
+  classifyByDocType,
+  guardAsk,
+  type WirePage,
+} from "../../../lib/api/wire.ts";
 
-/**
- * One page as the browser sends it.
- *
- * `index` IS THE RUN-GLOBAL PAGE NUMBER: the page's position in
- * `BrowserRun.pages`, which is append-only. It is NOT `StoredPage.index`,
- * which is the page's number within its own source document and restarts at 0
- * for every file. `locateSlot` copies the `index` it is given straight into
- * `Zone.pageIndex`, so sending the wrong one here would point every zone
- * after the first document at the wrong page -- the crop would still render,
- * still look like a crop, and cite the wrong file. `assertRunGlobalIndexes`
- * below refuses the request rather than trusting the caller to have read this
- * paragraph.
- */
-export type WirePage = {
-  index: number;
-  sourceId: string;
-  width: number;
-  height: number;
-  lines: Line[];
-};
+export { assertRunGlobalIndexes, classifyByDocType };
+export type { WirePage };
 
 export type ProposeBody = {
   runId: string;
@@ -81,125 +73,6 @@ export type ProposeResult = {
 };
 
 /**
- * The contract the whole route rests on, checked instead of assumed.
- *
- * The browser is asked to send `run.pages` in order, so a page's position in
- * the array IS its run-global index. If that ever stops being true, every
- * zone this route returns is silently attributed to the wrong page, and a
- * reviewer opens the wrong document. A 400 is enormously better.
- */
-export function assertRunGlobalIndexes(pages: WirePage[]): void {
-  pages.forEach((page, position) => {
-    if (page.index !== position) {
-      throw new Error(
-        `pages[${position}] carries index ${page.index}. \`index\` must be the ` +
-          "page's run-global position in BrowserRun.pages, not its number " +
-          "within its own source document.",
-      );
-    }
-  });
-}
-
-/**
- * "The model could not be reached" wrapped so it cannot be mistaken for "the
- * model answered and found nothing".
- *
- * THIS DISTINCTION IS THE WHOLE POINT. Both arrive at the same `catch`, and
- * treating them alike produces the project's signature failure: a missing
- * credential came back 200 OK with every slot marked `"outstanding"`, which
- * means SEARCHED AND NOT FOUND and drives the dokumen tambahan loop. The
- * operator would have been sent to hunt for documents to fill slots that were
- * never actually searched, and nothing anywhere would have looked wrong.
- *
- * So a throw from `ask` is tagged here, rethrown past the per-slot handlers,
- * and becomes a 503 that says the run was not changed. A reply that arrives
- * and is unusable is a different thing and is still reported per slot.
- */
-class AskFailed extends Error {
-  // An explicit field, NOT a TypeScript parameter property: this file is
-  // executed by `node --test`, whose strip-only type stripping rejects
-  // `constructor(readonly reason: unknown)` outright.
-  reason: unknown;
-
-  constructor(reason: unknown) {
-    super("the model could not be reached");
-    this.name = "AskFailed";
-    this.reason = reason;
-  }
-}
-
-/** Tags provider failures so a per-slot `catch` cannot swallow one. */
-function guardAsk(ask: Ask): Ask {
-  return async (prompt: string) => {
-    try {
-      return await ask(prompt);
-    } catch (error) {
-      throw new AskFailed(error);
-    }
-  };
-}
-
-/** How much of a page classify sees. Headings live at the top. */
-const HEAD_LINES = 12;
-
-/**
- * Document types per page, classified ONE SOURCE DOCUMENT AT A TIME.
- *
- * Per document rather than over the concatenation because a span is a run of
- * pages within one file: a span crossing a file boundary is never a
- * legitimate answer. `scripts/generate.mjs` classifies the same way.
- *
- * Classification is asked in LOCAL positions (0..n-1 within the document) and
- * mapped straight back to the run-global index, which is the same round trip
- * `locateSlot` makes for its pool.
- */
-export async function classifyByDocType(
-  pages: WirePage[],
-  ask: Ask,
-): Promise<Map<DocType, Set<number>>> {
-  const byType = new Map<DocType, Set<number>>();
-  const sources = [...new Set(pages.map((p) => p.sourceId))];
-
-  for (const sourceId of sources) {
-    const own = pages.filter((p) => p.sourceId === sourceId);
-    if (own.length === 0) continue;
-
-    const heads = own.map((page, position) => ({
-      index: position,
-      head: page.lines
-        .slice(0, HEAD_LINES)
-        .map((l) => l.text)
-        .join(" "),
-    }));
-
-    let spans;
-    try {
-      spans = await classifyPages(heads, ask);
-    } catch (error) {
-      // Never reached the model: that is fatal for the request, not a
-      // document that merely would not classify.
-      if (error instanceof AskFailed) throw error;
-      // A document that will not classify still has pages worth searching:
-      // ranking is a preference, never a filter, so an unclassified document
-      // simply loses its head start. Failing the whole request instead would
-      // cost the operator every slot.
-      continue;
-    }
-
-    for (const span of spans) {
-      const set = byType.get(span.docType) ?? new Set<number>();
-      for (let p = span.fromPage; p <= span.toPage; p++) {
-        const page = own[p];
-        if (page) set.add(page.index);
-      }
-      byType.set(span.docType, set);
-    }
-  }
-
-  return byType;
-}
-
-/**
  * Every page, the slot's preferred document type first.
  *
  * A PREFERENCE, NOT A FILTER. The 2026-08-31 corrections retired pool
@@ -207,8 +80,15 @@ export async function classifyByDocType(
  * documents were supplied, so every page stays in the pool and only the order
  * changes. Narrowing is what let the customer name match a printed email's own
  * `Cc:` header and ship the wrong customer on both deliverables.
+ *
+ * NOT THE SAME FUNCTION AS `rankedPoolForDocTypes` in
+ * `src/lib/pipeline/extract.ts`, which is why both carry what they rank in
+ * their names. This one ranks for ONE SLOT and reads the preference off
+ * `SlotDef.docType`; that one ranks for a GROUP OF FIELD KEYS and is handed
+ * the docType list outright. They take their arguments in different orders
+ * and neither is a drop-in for the other.
  */
-export function rankedPool(
+export function rankedPoolForSlot(
   slot: SlotDef,
   pages: WirePage[],
   byType: Map<DocType, Set<number>>,
@@ -435,7 +315,7 @@ export async function proposeZones(
       continue;
     }
 
-    const pool = rankedPool(slot, body.pages, byType);
+    const pool = rankedPoolForSlot(slot, body.pages, byType);
 
     let found;
     try {
@@ -515,65 +395,14 @@ export function parseProposeBody(value: unknown): ProposeBody {
   if (!body.wanted.every((key) => typeof key === "string")) {
     throw new Error("wanted must be an array of slot keys");
   }
-  for (const page of body.pages) {
-    if (typeof page?.index !== "number" || typeof page?.sourceId !== "string") {
-      throw new Error("every page needs a numeric index and a sourceId");
-    }
-    if (!Array.isArray(page.lines)) throw new Error("every page needs lines");
-    // The page's own size, checked before the lines are, because
-    // `assertLinesWellFormed` bounds every box against it: `x + w > undefined`
-    // is false, so an absent width would make the on-page rule pass over
-    // anything at all. `wholePageZone` also writes these two numbers straight
-    // into a zone box, and a NaN box is the shape `cropToPng` used to encode
-    // as an empty picture.
-    if (
-      !Number.isFinite(page.width) ||
-      !Number.isFinite(page.height) ||
-      page.width <= 0 ||
-      page.height <= 0
-    ) {
-      throw new Error(
-        `page ${page.index} needs a positive width and height in pixels`,
-      );
-    }
-    // THE SHAPE OF A LINE, not just that lines exist. This route was careful
-    // about the page NUMBERING contract twice over and took a `Line` on trust,
-    // and the whole pipeline counts in lines: `locateSlot` numbers them for the
-    // model, the model answers with a range of them, and `boxForLineRange`
-    // turns that range back into the rectangle a validator ends up signing. A
-    // page whose lines are numbered any other way, or carry a NaN or an
-    // off-page box, produces a plausible citation of the wrong text. Checked
-    // HERE, before the gate lets anything spend the credential on it.
-    //
-    // WRAPPED SO THE MESSAGE NAMES THE PAGE AND THE WAY OUT. The bare rule
-    // ("lines[1].box is 0x12") is written for whoever is debugging a producer;
-    // what reaches an operator here is a 400 on a run they have already
-    // ingested, and the only two facts they can act on are which page is bad
-    // and that the fix is to re-ingest. A run stored before the Gemini
-    // migration can trip this -- the tesseract producer never validated its own
-    // boxes -- and re-ingesting is what such a run needs anyway, because zones
-    // measured by one engine and crops cut against another are the mixing this
-    // migration forbids.
-    //
-    // Deliberately still ALL-OR-NOTHING rather than degrading per page. Excusing
-    // one page would drop it from the search pool, and every slot that lives on
-    // it would then report "outstanding" -- searched and not found -- which is
-    // this route's own recorded failure class, and is exactly what the
-    // `AskFailed` distinction below exists to prevent.
-    try {
-      assertLinesWellFormed(page.lines, page.width, page.height);
-    } catch (error) {
-      throw new Error(
-        `page ${page.index} has unusable line geometry: ` +
-          `${error instanceof Error ? error.message : String(error)}. This run ` +
-          "cannot be searched as stored; remove it and add the documents again.",
-      );
-    }
-  }
-  // Checked HERE, before the gate spends anything, because a caller that
-  // numbered its pages the other way would otherwise pay for a full search
-  // and receive zones pointing at the wrong documents.
-  assertRunGlobalIndexes(body.pages as WirePage[]);
+  // EVERY PAGE'S SHAPE, GEOMETRY AND NUMBERING, in one shared check, because
+  // `/api/extract` rests on exactly the same contract and a second copy of it
+  // is a copy that can silently disagree. What it refuses and why is written
+  // out in `src/lib/api/wire.ts`; the short version is that the whole pipeline
+  // counts in lines, so a page numbered any other way buys a full search and
+  // returns a plausible citation of the wrong text. Checked HERE, before the
+  // gate lets anything spend the credential on it.
+  assertWirePages(body.pages as WirePage[]);
   return body as ProposeBody;
 }
 

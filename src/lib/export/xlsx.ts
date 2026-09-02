@@ -28,7 +28,21 @@ export async function buildXlsx(
       value?.value ?? "",
     ]);
 
-    if (value?.source) {
+    if (value?.requestSource) {
+      // The deterministic path's provenance. A value read out of the order
+      // request has no page and no line range -- there was no OCR and no model
+      // call -- so the note names the cell it came from instead: file, sheet,
+      // column, header, and every row that carried the same text. Written in
+      // the same place and the same style as a citation because a reviewer
+      // checking a cell should not have to know which pipeline filled it, only
+      // where to look; and a request-supplied cell with NO note would read as
+      // an unsourced guess, which is the one thing it is not.
+      const { file, sheet, column, header, rows } = value.requestSource;
+      added.getCell(5).note =
+        `${file} sheet "${sheet}", ` +
+        `${rows.length === 1 ? "row" : "rows"} ${rows.join(", ")}, ` +
+        `column ${column} (${header})`;
+    } else if (value?.source) {
       const [from, to] = value.source.lineRange;
       const { sourceName, pageInDoc } = value.source;
       // Name the actual file and its own (1-based) page number when they

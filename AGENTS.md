@@ -238,15 +238,21 @@ and looks for the same slots in any document.*
   distribution list), not a narrower pool. Whichever shape you find in the
   tree, changing it means re-running the gate.
 - `namaProyek` is deliberately excluded from extraction entirely
-  (`NEVER_EXTRACTED` in `scripts/generate.mjs`) and ships blank. On the full
-  pool it reliably picked the Surat Penunjukan's subject line, the master
-  contract's scope title rather than this order's project name, and carried a
-  citation that *passed* validation, in the docx header's `NAMA Proyek :` cell
-  and its xlsx row. A blank invites the operator to fill it in; a plausible
-  wrong value does not. Verify the current state with
-  `git grep -n "NEVER_EXTRACTED = " scripts/generate.mjs`, which as the tree
-  stands prints
-  `scripts/generate.mjs:1008:export const NEVER_EXTRACTED = new Set(["namaProyek"]);`.
+  (`NEVER_EXTRACTED` in `src/lib/pipeline/extract.ts`, which
+  `scripts/generate.mjs` re-exports) and ships blank. On the full pool it
+  reliably picked the Surat Penunjukan's subject line, the master contract's
+  scope title rather than this order's project name, and carried a citation
+  that *passed* validation, in the docx header's `NAMA Proyek :` cell and its
+  xlsx row. A blank invites the operator to fill it in; a plausible wrong
+  value does not. Verify the current state with
+  `git grep -n "NEVER_EXTRACTED" src/lib/pipeline/extract.ts`, whose first hit
+  as the tree stands is
+  `export const NEVER_EXTRACTED: ReadonlySet<string> = new Set(["namaProyek"]);`.
+  It moved out of the script so `/api/extract` could share the one copy: a
+  second `NEVER_EXTRACTED` is a copy that can silently disagree with the
+  first. The command this paragraph used to give pointed at
+  `scripts/generate.mjs` and returned nothing at all, which reads exactly like
+  the guard having been deleted.
 
   **This was re-enabled once and reverted.** The hint now rules the agreement
   title out by name, and one manual run showed it no longer answering with the
@@ -510,13 +516,30 @@ What did not change:
   `measure-locate.mjs` read the env var themselves), and it has no
   `NEXT_PUBLIC_` prefix, so it cannot reach the browser bundle. Keep it that
   way.
-- **Real client documents still never get committed.** `/documents` and
-  `/test-docs` stay gitignored; you may read them, never stage them. This repo
-  is public, and Google being an approved processor did not make the client's
-  files publishable. **Never put a real LOP number, quote number, customer
-  name, or project name in a committed file.** The fictional set used
-  throughout the tests and this document is `LOP999001`, `1-70000000001`,
-  `BANK CONTOH NUSANTARA`, `PSB VPN IP KCP Contoh`.
+- **Real client documents still never get committed.** `/documents`,
+  `/documents/new` and `/test-docs` stay gitignored; you may read them, never
+  stage them. This repo is public, and Google being an approved processor did
+  not make the client's files publishable. **Never put a real LOP number, quote
+  number, SID, customer name, project name, address, price, phone number or
+  email address in a committed file** -- not in a test fixture, and not in a
+  doc comment's example either, which is where the last one got through.
+
+  The fictional set used throughout the tests and this document:
+
+  | Kind | Use |
+  | --- | --- |
+  | LOP number | `LOP999001` |
+  | Quote number | `1-70000000001` |
+  | Customer | `BANK CONTOH NUSANTARA` |
+  | Project | `PSB VPN IP KCP Contoh` |
+  | SID | `1209990001` |
+  | Contact | `Budi Contoh`, `budi@contoh.example` |
+
+  **The list is a tool, not a decoration: extend it the moment a new KIND of
+  identifier appears.** `SID` is here because the second bundle introduced
+  per-service rows and there was no fictional SID to reach for, so a real one
+  went into an `--service` example in a doc comment and reached a public repo.
+  A writer with nothing to substitute substitutes what is in front of them.
 
 ## Where things live
 
