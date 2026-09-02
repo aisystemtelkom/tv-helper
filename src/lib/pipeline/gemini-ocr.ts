@@ -157,21 +157,38 @@ const Reply = z.object({
   lines: z.array(
     z
       .object({
-        box_2d: z.array(z.unknown()),
-        // BOTH SPELLINGS, and `label` is not speculative tolerance: it is the
-        // key Gemini's object-detection habit reaches for, and a reply that
-        // uses it cleanly (no doubled key to repair) was measured coming back
-        // from a prompt asking for `text`. Accepting it costs nothing and
-        // turns an otherwise perfectly usable page into a usable page.
+        // `unknown`, not `unknown[]`. A `box_2d` that arrives as a string is a
+        // CONTENT failure of one entry and belongs in `convertBox`'s
+        // drop-and-count, not in a throw that discards the other 23 lines of
+        // the page. Measured: one entry of 24 on a real page came back as a
+        // string, and `z.array(...)` here took the whole page down with it.
+        box_2d: z.unknown(),
+        // THREE SPELLINGS, all measured coming back from a prompt that asks
+        // for exactly one of them. `label` is the key Gemini's
+        // object-detection habit reaches for; `text_content` turned up on a
+        // real contract page alongside `label` in the same entry. None of
+        // these is speculative tolerance -- each was observed, and accepting
+        // it turns an otherwise perfectly usable page into a usable page.
+        // Preference order at the read site is text, then text_content, then
+        // label, because `label` is the one Gemini also uses for a short
+        // region NAME rather than a transcription.
         text: z.string().optional(),
+        text_content: z.string().optional(),
         label: z.string().optional(),
       })
-      // An entry carrying NEITHER is a packaging failure and throws for the
-      // whole reply, exactly as a missing `text` did before. It is the one case
-      // where widening the schema must not widen what is accepted.
-      .refine((e) => typeof e.text === "string" || typeof e.label === "string", {
-        message: 'an entry has neither a "text" nor a "label" transcription',
-      }),
+      // An entry carrying NONE of them is a packaging failure and throws for
+      // the whole reply, exactly as a missing `text` did before. It is the one
+      // case where widening the schema must not widen what is accepted.
+      .refine(
+        (e) =>
+          typeof e.text === "string" ||
+          typeof e.text_content === "string" ||
+          typeof e.label === "string",
+        {
+          message:
+            'an entry has no "text", "text_content" or "label" transcription',
+        },
+      ),
   ),
 });
 
@@ -256,11 +273,20 @@ const INTERPOLATION_ALARM_SHARE = 0.5;
  * cite nothing. For a single-line entry this is exactly the `h >= 1` rule.
  */
 function convertBox(
-  box2d: unknown[],
+  box2d: unknown,
   width: number,
   height: number,
   segments: number,
 ): Box | null {
+  // MEASURED, not defensive: on a real 300 DPI contract page
+  // `gemini-3.5-flash` returned one entry of 24 whose `box_2d` was a STRING
+  // rather than an array, and the schema's `z.array(...)` rejected the whole
+  // page for it -- 23 good lines thrown away over one bad entry, which is the
+  // opposite of the packaging/content split this module documents. A wrong
+  // TYPE is a content failure of one entry, exactly like a wrong arity, so it
+  // is dropped and counted here and the convention guard decides whether the
+  // reply as a whole is unusable.
+  if (!Array.isArray(box2d)) return null;
   if (box2d.length !== 4) return null;
   if (!box2d.every((v) => typeof v === "number" && Number.isFinite(v))) {
     return null;
@@ -407,10 +433,17 @@ export function linesFromGeminiReply(
   let droppedEntries = 0;
 
   for (const entry of entries) {
+    // Preference order, not arbitrary: `text` is what the prompt asks for,
+    // `text_content` is a spelling Gemini substitutes wholesale, and `label`
+    // is last because it is also the key Gemini uses for a short region NAME
+    // when it emits a transcription under one of the other two. Taking
+    // `label` first would replace a full line of text with the word "footer".
+    //
     // `?? ""` is unreachable -- the schema's refine already rejected an entry
-    // with neither key -- and is here only because the refine narrows nothing
-    // for the type checker.
-    const segments = printedSegments(entry.text ?? entry.label ?? "");
+    // carrying none of the three -- and is here only because the refine
+    // narrows nothing for the type checker.
+    const transcription = entry.text ?? entry.text_content ?? entry.label ?? "";
+    const segments = printedSegments(transcription);
     // An entry that transcribed to nothing has no printed line to place. It is
     // skipped rather than counted as a box failure -- see `printedSegments`.
     if (segments.length === 0) continue;

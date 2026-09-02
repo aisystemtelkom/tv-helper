@@ -34,7 +34,12 @@ import {
 const W = 400;
 const H = 1000;
 
-type Entry = { box_2d: unknown[]; text?: string; label?: string };
+type Entry = {
+  box_2d: unknown;
+  text?: string;
+  text_content?: string;
+  label?: string;
+};
 
 function reply(entries: Entry[]): string {
   return JSON.stringify({ lines: entries });
@@ -275,17 +280,6 @@ test("a clean `label` key is accepted, and a label VALUE is never mistaken for o
   );
 });
 
-test("an entry with neither a text nor a label transcription throws for the whole reply", () => {
-  // The one place widening the schema must not widen what is accepted: an
-  // entry with a box and no transcription is a packaging failure, and a page
-  // that quietly came back with fewer lines is the failure this module exists
-  // to refuse.
-  assert.throws(
-    () => linesFromGeminiReply(reply([{ box_2d: [100, 250, 140, 750] } as never]), W, H),
-    /has neither a .*text.* nor a .*label.* transcription/,
-  );
-});
-
 test("the produced lines satisfy the whole drop-in contract", () => {
   const { lines } = linesFromGeminiReply(
     reply([
@@ -466,5 +460,69 @@ test("assertLinesWellFormed rejects every way a producer can go quietly wrong", 
   assert.throws(
     () => assertLinesWellFormed([lineAt(0, 400), lineAt(1, 100)], W, H),
     /array order is reading order/,
+  );
+});
+
+// --- Two malformations measured on a real page, after the suite was first
+// written. Both took a whole page down; both are one entry's problem.
+
+test("a box_2d that arrives as a STRING drops that entry, not the page", () => {
+  // Measured on a real 300 DPI contract page: one entry of 24 came back with
+  // box_2d as a string, and `z.array(...)` in the schema rejected the whole
+  // reply for it. Twenty-three good lines discarded over one bad entry is the
+  // opposite of the packaging/content split this module documents.
+  const { lines, report } = linesFromGeminiReply(
+    reply([
+      { box_2d: [100, 250, 200, 750], text: "BANK CONTOH NUSANTARA" },
+      { box_2d: "[300, 250, 400, 750]", text: "LOP999001" },
+      { box_2d: [500, 250, 600, 750], text: "1-70000000001" },
+    ]),
+    W,
+    H,
+  );
+  assert.equal(lines.length, 2, "the two well-formed entries survive");
+  assert.equal(report.droppedEntries, 1);
+  assert.deepEqual(
+    lines.map((l) => l.text),
+    ["BANK CONTOH NUSANTARA", "1-70000000001"],
+  );
+  // Still a dense, ordered, on-page set after the drop.
+  assertLinesWellFormed(lines, W, H);
+});
+
+test("text_content is accepted, and text wins over label", () => {
+  // Gemini substitutes `text_content` wholesale on some pages, and emits
+  // `label` ALONGSIDE it carrying a short region name rather than the
+  // transcription. Taking `label` first would replace a line of text with the
+  // word "footer".
+  const { lines } = linesFromGeminiReply(
+    reply([
+      { box_2d: [100, 250, 200, 750], text_content: "PSB VPN IP KCP Contoh" },
+      { box_2d: [300, 250, 400, 750], label: "footer", text: "LOP999001" },
+      { box_2d: [500, 250, 600, 750], label: "BANK CONTOH NUSANTARA" },
+    ]),
+    W,
+    H,
+  );
+  assert.deepEqual(
+    lines.map((l) => l.text),
+    ["PSB VPN IP KCP Contoh", "LOP999001", "BANK CONTOH NUSANTARA"],
+  );
+});
+
+test("an entry with no transcription key at all still throws for the reply", () => {
+  // Widening to three spellings must not widen what is ACCEPTED: an entry
+  // carrying none of them is a packaging failure, not one entry's content.
+  // A page that quietly came back with fewer lines is the failure this module
+  // exists to refuse, so this stays a throw for the whole reply rather than
+  // joining the drop-and-count path that a bad BOX takes.
+  assert.throws(
+    () =>
+      linesFromGeminiReply(
+        reply([{ box_2d: [100, 250, 200, 750] }]),
+        W,
+        H,
+      ),
+    /text_content/,
   );
 });
