@@ -61,3 +61,10 @@ next-env.d.ts
 # megabytes of binary that would otherwise land in every diff.
 /public/tesseract/*
 !/public/tesseract/.gitkeep
+
+# Ad-hoc probe and scratch scripts. A class rule, not a list: one such script
+# hard-coded an absolute path whose FILENAME carried a real LOP number and
+# customer identifier, at the root of a public repo. /documents and /test-docs
+# were ignored; nothing covered a file that merely names them.
+/probe-*.mjs
+/scratch-*.mjs
