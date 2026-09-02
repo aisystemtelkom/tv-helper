@@ -2733,7 +2733,7 @@ import {
   jenisOrderCandidates,
   outstandingHeaderFields,
   resolveJenisOrder,
-} from "./generate.mjs";
+} from "../src/lib/pipeline/jenis-order.ts";
 
 /** A page carrying only what the JENIS ORDER scan reads off one. */
 function textPage(texts, sourceName = "bundle.pdf", pageInDoc = 0) {
