@@ -110,11 +110,20 @@ export const config = {
    * the other half of this and the two must move together; it is also the one
    * route in the app that deliberately does not call the guard.
    *
+   * `privacy` is excluded because Google requires a publicly reachable privacy
+   * policy URL before it will let the OAuth consent screen be published, and a
+   * policy behind a login is not a policy. Publishing is not cosmetic here: in
+   * Testing mode only accounts on Google's own test-user list may sign in, so
+   * every operator would have to be added in the Cloud console AS WELL AS to
+   * this app's allowlist -- which is exactly what the admin page exists to
+   * avoid. `src/app/privacy/page.tsx` is the other half of this exclusion and
+   * deliberately does not call the guard.
+   *
    * Adding a route that must be public means editing this line -- and per the
    * warning at the top of the file, editing this line is exactly what cannot be
    * allowed to decide whether that route is protected. It is not; the guard is.
    */
   matcher: [
-    "/((?!api/auth|api/health|signin|_next/static|_next/image|favicon.ico|tesseract/).*)",
+    "/((?!api/auth|api/health|signin|privacy|_next/static|_next/image|favicon.ico|tesseract/).*)",
   ],
 };
