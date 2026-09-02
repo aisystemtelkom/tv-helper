@@ -344,6 +344,54 @@ which is how a clerk voids a line so nothing can be written into it
 afterwards) with a draining counter, and leaves only when the counter reaches
 zero. Struck and still live, at the same time, which is the truth.
 
+## Two screens that do not exist yet, and how to get them right
+
+Recorded because both have an obvious shape that is wrong, and the obvious one
+is what a later pass would reach for.
+
+### The docx template is per-run, and must never be remembered
+
+The exporter is being rewritten to patch a template built from a human-authored
+Form Validasi rather than construct the document from scratch, which is what
+recovers the header, the theme fonts and the table borders. It is headless for
+now (a CLI flag), so there is nothing to build here yet. Two rules for when
+there is:
+
+- **NEVER PERSIST A TEMPLATE ACROSS RUNS.** Per-run or absent, never sticky.
+  "Exported against last month's template" can only happen if something
+  remembers one, so nothing may. That rules out "choose once and remember",
+  which is the affordance that would feel most helpful and would be the bug.
+- **Do not ask for a template.** Operators do not have templates; they have a
+  previous Form Validasi for a similar order, which is a thing they actually
+  keep in a folder. The field asks for that, and the template is derived from
+  it. A screen that asks for an artifact nobody has is a screen nobody uses.
+
+A missing or malformed template does NOT block the export. It falls back to the
+built-in layout, which is what ships today and is usable, just plain. But the
+fallback is **always stated**, never silent: a document that quietly came out
+plain is the same class of problem as one that quietly came out wrong, only
+cheaper.
+
+### Jenis Order autofills, and must not be validated
+
+`resolveJenisOrder` returns `{ value, origin, detail }`, where `origin` is one
+of flag / env / request / inferred and `detail` is the sentence explaining
+which, so it arrives as a value AND its provenance in the shape a citation
+already has. It is pure and reads the OCR pages the run already holds, so it
+costs no request and no round trip.
+
+It is the best autofill candidate among the six header fields, for a reason
+worth keeping: **the set of order types is small and its members are short
+codes, so a wrong answer is visible to an operator in a way a wrong project
+name is not.** `namaProyek` fails that test, which is why it stays blank.
+
+**Do not validate the answer against a list of known codes.** AO, MO and DO are
+the ones met so far and more exist; the inference is anchored on the printed
+label rather than on a known set, so it can legitimately return a code nobody
+here has seen. Rejecting it would silently drop a real order type, which is the
+wrong-and-quiet direction. The field is already a `datalist` and not a
+`select`, for exactly this reason, and it must stay one.
+
 ## The constraint that outranks all of this
 
 The browser talks to nothing but this app.

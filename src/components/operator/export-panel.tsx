@@ -1021,7 +1021,14 @@ export function ExportPanel({
           />
           {/* A datalist, not a select: AO, MO and DO are the ones met so far
               and more exist, so a closed list would lock the operator out of a
-              real jenis order. */}
+              real jenis order.
+
+              IT MUST STAY ONE once `resolveJenisOrder` starts filling this in.
+              That inference is anchored on the printed LABEL rather than on a
+              list of known codes, precisely so it can answer with an order type
+              nobody here has seen; validating its answer against a set would
+              silently drop the real ones, which is the wrong-and-quiet
+              direction. Suggest, never constrain. */}
           <datalist id="jenis-order">
             <option value="AO" />
             <option value="MO" />
