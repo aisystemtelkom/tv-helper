@@ -95,12 +95,27 @@ export const VERIFY_PROMPT = [
 const Reply = z.object({ text: z.string() });
 
 /**
+ * The schema this pass constrains generation to.
+ *
+ * Small, but for the same measured reason as `OCR_RESPONSE_SCHEMA`: asked in
+ * prose for one JSON object, `gemini-3.5-flash` returned unparseable JSON on 4
+ * of 4 real pages. This pass is the guard on every value a validator signs, so
+ * it is the last place to leave the reply shape to chance.
+ */
+const VERIFY_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: { text: { type: "string" } },
+  required: ["text"],
+};
+
+/**
  * One crop, one reading. Throws rather than returning a blank on an unusable
  * reply: a blank reading would disagree with every value and blank every cell,
  * which is a loud enough failure to be worth an actual exception instead.
  */
 export async function reOcrCrop(crop: ImageInput, ask: AskImage): Promise<string> {
-  return Reply.parse(extractJson(await ask(VERIFY_PROMPT, crop))).text;
+  const reply = await ask(VERIFY_PROMPT, crop, VERIFY_RESPONSE_SCHEMA);
+  return Reply.parse(extractJson(reply)).text;
 }
 
 /**

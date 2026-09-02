@@ -305,6 +305,12 @@ async function geminiAskOnce(prompt, options = {}) {
     tag = "gemini",
     // Only the OCR path refuses a non-STOP finish. See `askImage` below.
     requireStop = false,
+    // CONSTRAINED DECODING, and it is not optional on the OCR path. Measured
+    // on four real pages: without a response schema 0 of 4 replies were
+    // parseable JSON; with one, 4 of 4, keys exactly {box_2d, text}. See
+    // OCR_RESPONSE_SCHEMA in src/lib/pipeline/gemini-ocr.ts for the four
+    // distinct malformations this removes.
+    responseSchema = null,
   } = options;
 
   const url =
@@ -324,6 +330,7 @@ async function geminiAskOnce(prompt, options = {}) {
     generationConfig: {
       maxOutputTokens,
       responseMimeType: "application/json",
+      ...(responseSchema ? { responseSchema } : {}),
       thinkingConfig: { thinkingLevel: THINKING_LEVEL },
     },
   };
@@ -412,7 +419,9 @@ async function geminiAsk(prompt, options = {}) {
 }
 
 /**
- * The `AskImage` `ocrPageWithGemini` takes: (prompt, image) => reply text.
+ * The `AskImage` `ocrPageWithGemini` takes: (prompt, image, schema) => reply
+ * text. The schema is forwarded to the provider as `responseSchema` so
+ * generation is CONSTRAINED to it, not merely told about it.
  *
  * The same six-attempt backoff as the text ask, for the same reason -- a 503
  * blip mid-bundle would otherwise abandon a run that has already paid for
@@ -427,12 +436,13 @@ async function geminiAsk(prompt, options = {}) {
  * silently short page would move a slot's required range without anything in
  * the log to say so.
  */
-async function askImage(prompt, image) {
+async function askImage(prompt, image, schema) {
   return geminiAsk(prompt, {
     image,
     maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
     tag: "gemini-ocr",
     requireStop: true,
+    responseSchema: schema,
   });
 }
 

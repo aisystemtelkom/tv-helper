@@ -20,7 +20,7 @@
  * ship it in the browser bundle, where a deploy cannot fix it.
  */
 
-import { generateText } from "ai";
+import { generateObject, jsonSchema } from "ai";
 
 import { requireApiUser } from "@/lib/auth/require-user";
 import {
@@ -35,6 +35,7 @@ import {
   ocrPageWithGemini,
   type AskImage,
   type ImageInput,
+  type ResponseSchema,
 } from "@/lib/pipeline/gemini-ocr";
 
 import { createOcrHandler, OcrUnusable } from "./handler.ts";
@@ -124,10 +125,18 @@ class ModelUnreachable extends Error {
 async function askImageOnce(
   prompt: string,
   image: ImageInput,
+  schema: ResponseSchema,
   stats: CallStats,
 ): Promise<string> {
-  const result = await generateText({
+  // `generateObject`, not `generateText`: it forwards the schema to Gemini as
+  // `responseSchema`, so generation is CONSTRAINED to the shape rather than
+  // asked for it in prose. Measured on four real 300 DPI pages with the same
+  // prompt -- unconstrained, 0 of 4 replies were parseable JSON; constrained,
+  // 4 of 4. Without this, every page of a real ingest throws and the operator
+  // sees an ingest that fails at page 1.
+  const result = await generateObject({
     model: chatModel(),
+    schema: jsonSchema(schema),
     messages: [
       {
         role: "user",
@@ -180,19 +189,23 @@ async function askImageOnce(
     );
   }
 
-  return result.text;
+  // Stringified straight back: `AskImage` is `=> Promise<string>` and
+  // `linesFromGeminiReply` owns the parse, so the convention guard and the
+  // drop-and-count stay at one seam rather than at every call site.
+  return JSON.stringify(result.object);
 }
 
 /** Retries transients, tags everything else so the handler can tell them apart. */
 async function askImage(
   prompt: string,
   image: ImageInput,
+  schema: ResponseSchema,
   stats: CallStats,
 ): Promise<string> {
   let lastError: unknown;
   for (let i = 0; i < ATTEMPTS; i++) {
     try {
-      return await askImageOnce(prompt, image, stats);
+      return await askImageOnce(prompt, image, schema, stats);
     } catch (error) {
       lastError = error;
       // The model answered; the answer is the problem. Retrying spends the
@@ -224,7 +237,8 @@ async function askImage(
 async function recognize(png: Uint8Array) {
   const image: ImageInput = { bytes: png, mediaType: "image/png" };
   const stats: CallStats = { in: 0, out: 0, thoughts: 0, total: 0, finish: "?" };
-  const ask: AskImage = (prompt, img) => askImage(prompt, img, stats);
+  const ask: AskImage = (prompt, img, schema) =>
+    askImage(prompt, img, schema, stats);
   const startedAt = Date.now();
 
   let lines = "-";

@@ -60,7 +60,67 @@ import type { Box, RenderedPage } from "./render.ts";
  * in `src/lib/pipeline/`, and `AskImage` has exactly one consumer.
  */
 export type ImageInput = { bytes: Uint8Array; mediaType: "image/png" };
-export type AskImage = (prompt: string, image: ImageInput) => Promise<string>;
+
+/**
+ * A JSON Schema the provider is asked to CONSTRAIN GENERATION to, not merely
+ * to be told about. It is deliberately a required parameter of `AskImage`
+ * rather than something a caller opts into.
+ *
+ * MEASURED, and the measurement is the whole reason this parameter exists.
+ * Four real 300 DPI contract pages, `gemini-3.5-flash`, same prompt:
+ *
+ *     without a response schema:  0 of 4 replies were parseable JSON
+ *     with one:                   4 of 4, keys exactly {box_2d, text}, 0 bad boxes
+ *
+ * Unconstrained, the model emits a doubled key (`"label": "text": "..."`), a
+ * `box_2d` that is a string rather than an array, a third key spelling
+ * (`text_content`), and outright syntax errors mid-array -- four distinct
+ * malformations, each of which took a whole page down. Every one of them
+ * disappears under constrained decoding, because the grammar cannot produce
+ * them.
+ *
+ * The tolerances below (`repairDoubledKeys`, the three accepted key
+ * spellings, the non-array `box_2d` drop) are kept as defence in depth, NOT as
+ * the load-bearing path. If this schema is ever dropped they are what stands
+ * between the pipeline and a blank run -- but they were each written after a
+ * failure, and the schema is what stops the next unmeasured malformation.
+ */
+export type ResponseSchema = Record<string, unknown>;
+
+export const OCR_RESPONSE_SCHEMA: ResponseSchema = {
+  type: "object",
+  properties: {
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          box_2d: {
+            type: "array",
+            items: { type: "integer" },
+            minItems: 4,
+            maxItems: 4,
+          },
+          text: { type: "string" },
+        },
+        required: ["box_2d", "text"],
+      },
+    },
+  },
+  required: ["lines"],
+};
+
+/**
+ * `schema` is REQUIRED, so a caller cannot forget it and quietly fall back to
+ * the unconstrained behaviour that measured 0 of 4. `ocrPageWithGemini`
+ * supplies `OCR_RESPONSE_SCHEMA`; the caller's only job is to forward it to
+ * the provider, which is the one thing this module must not do itself.
+ */
+export type AskImage = (
+  prompt: string,
+  image: ImageInput,
+  schema: ResponseSchema,
+) => Promise<string>;
 
 /**
  * Hand-bumped, and part of every OCR cache key.
@@ -636,5 +696,9 @@ export async function ocrPageWithGemini(
   ask: AskImage,
 ): Promise<{ lines: Line[]; report: OcrReport }> {
   const { width, height } = pngDimensions(image.bytes);
-  return linesFromGeminiReply(await ask(OCR_PROMPT, image), width, height);
+  return linesFromGeminiReply(
+    await ask(OCR_PROMPT, image, OCR_RESPONSE_SCHEMA),
+    width,
+    height,
+  );
 }

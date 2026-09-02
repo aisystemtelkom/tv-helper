@@ -91,7 +91,7 @@ import { createCanvas } from "@napi-rs/canvas";
 // sees. A plain node script gets none of Next's env loading for free.
 import { repoRoot } from "./env.mjs";
 
-import { generateText } from "ai";
+import { generateObject, generateText, jsonSchema } from "ai";
 
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 import {
@@ -322,9 +322,22 @@ async function askOnce(prompt) {
  * `[generate ocr]` lines that is really two different jobs is a small lie in
  * the one place cost is meant to be visible.
  */
-async function askImageOnce(prompt, image, label = "ocr") {
-  const { text, usage, finishReason } = await generateText({
+async function askImageOnce(prompt, image, schema, label = "ocr") {
+  // `generateObject`, not `generateText`, and the difference is not stylistic.
+  // It forwards the schema to Gemini as `responseSchema`, which CONSTRAINS
+  // generation rather than describing the wanted shape in prose. Measured on
+  // four real 300 DPI pages with the same prompt: unconstrained, 0 of 4
+  // replies were parseable JSON (a doubled key, a stringified box_2d, a third
+  // key spelling, and a bare syntax error mid-array); constrained, 4 of 4 with
+  // keys exactly {box_2d, text}.
+  //
+  // The object is stringified straight back, because `AskImage` is
+  // `=> Promise<string>` and `linesFromGeminiReply` owns the parse. Keeping
+  // the parse in one place is what lets the convention guard and the
+  // drop-and-count live at a single seam rather than at every call site.
+  const { object, usage, finishReason } = await generateObject({
     model: chatModel(),
+    schema: jsonSchema(schema),
     messages: [
       {
         role: "user",
@@ -339,6 +352,7 @@ async function askImageOnce(prompt, image, label = "ocr") {
     abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     maxRetries: 0,
   });
+  const text = JSON.stringify(object);
 
   const thoughts = usage.outputTokenDetails?.reasoningTokens ?? 0;
   cost.calls += 1;
@@ -422,8 +436,8 @@ async function ask(prompt) {
 }
 
 /** The `AskImage` every OCR call in this script is injected with. */
-async function askImage(prompt, image, label = "ocr") {
-  return withRetries("OCR", () => askImageOnce(prompt, image, label));
+async function askImage(prompt, image, schema, label = "ocr") {
+  return withRetries("OCR", () => askImageOnce(prompt, image, schema, label));
 }
 
 // ---------------------------------------------------------------------------
@@ -1646,7 +1660,7 @@ async function main() {
         const page = await sources[meta.source].doc.getPage(meta.pageInDoc + 1);
         return await renderPageUpright(page, DEFAULT_DPI, nodeContext);
       },
-      ask: (prompt, image) => askImage(prompt, image, "verify"),
+      ask: (prompt, image, schema) => askImage(prompt, image, schema, "verify"),
       log: (line) => console.log(line),
     });
     values = verified.values;
