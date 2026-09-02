@@ -68,3 +68,10 @@ next-env.d.ts
 # were ignored; nothing covered a file that merely names them.
 /probe-*.mjs
 /scratch-*.mjs
+
+# Stray screenshots and mockups at the repo root. A class rule for the same
+# reason as /probe-*.mjs: this repo is PUBLIC, a screenshot of the running app
+# can carry a customer name in a rendered crop, and "git add -A" does not ask.
+# Anything genuinely meant to be committed can be added with "git add -f".
+/*.png
+/mockups/
