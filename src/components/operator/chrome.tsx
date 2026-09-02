@@ -314,7 +314,16 @@ export function Cite({ cite }: { cite: Citation | null }) {
           )}
         </dd>
 
-        <dt>ukuran</dt>
+        {/* "di halaman", not bare "ukuran". This is the size of the REGION
+            ON THE SCAN, which is what helps an operator judge whether the
+            rectangle is a field or a whole block. It is deliberately not a
+            claim about how large the picture lands in the docx: the exporter
+            fits images to the usable column, so the two coincide today and
+            will not once that placement changes. A number on this screen that
+            silently stops describing the deliverable is the failure class this
+            product is organised against, and the cheap defence is a label that
+            says which of the two it is. */}
+        <dt>ukuran di halaman</dt>
         <dd>{cite.size}</dd>
       </dl>
     </div>

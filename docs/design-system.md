@@ -168,8 +168,12 @@ which are quotations.
 discriminate at the tail: `PKS_..._2026 (2).pdf` against `(3).pdf`.
 `shortenFileName` in `chrome.tsx`.
 
-**Printed size is centimetres with a comma decimal**, because the audience is
-Indonesian and holding A4. `cropSize` in `evidence.ts`.
+**Size is centimetres with a comma decimal**, because the audience is
+Indonesian and holding A4. `cropSize` in `evidence.ts`. It is labelled `ukuran
+di halaman` and it measures the region ON THE SCAN, never the picture as the
+exporter places it: the docx fits images to the usable column, so the two agree
+only while nothing is being scaled. A placed size, if one is ever wanted, has
+to come back from the exporter.
 
 ## The six states: six shapes
 
@@ -239,7 +243,7 @@ one, the answer is no.
          +---------------------------------------+   +--------+
                                                      berkas  PKS_...(2).pdf
          | Menutupi 87% halaman. Periksa apakah      baris   31-58 (28)
-         | terbawa ke catatan kaki.                  ukuran  16,0 x 6,4 cm
+         | terbawa ke catatan kaki.        ukuran di halaman  16,0 x 6,4 cm
 
          > Teks di dalam area ini
          [ Terima ]  [ Gambar ulang ]  [ Bukan ini ]

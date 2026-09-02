@@ -185,6 +185,14 @@ export type Citation = {
  * Indonesia holding A4 paper, so `16,0 x 6,4 cm` is a size they can put two
  * fingers on and `6.3 x 2.5 in` is not. This is display only: nothing
  * downstream measures in either unit, and the exporter works in pixels.
+ *
+ * IT MEASURES THE REGION ON THE SCAN, NOT THE PICTURE IN THE DELIVERABLE, and
+ * the screens must keep saying so. The docx exporter fits an image to the
+ * usable column width, so a crop wider than the column is placed smaller than
+ * this number says. The two happen to agree while nothing is being scaled, and
+ * an operator who reads this as "how big it prints" would be quietly wrong the
+ * moment one is. If a placed size is ever wanted on screen, it has to come
+ * back from the exporter rather than be recomputed here.
  */
 export function cropSize(box: Box, dpi: number = DEFAULT_DPI): string {
   const cm = (px: number) => ((px / dpi) * 2.54).toFixed(1).replace(".", ",");
