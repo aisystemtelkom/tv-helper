@@ -301,8 +301,18 @@ function Sheet({
     return out;
   }, [workSections]);
 
+  /*
+   * "Is this capture's crop actually on screen?", which is what makes a
+   * decision key live. A capture whose PAGE would not render counts as drawn
+   * for this purpose: its picture is never coming, the plate says so and
+   * disables Terima itself, and treating it as undrawn would leave the
+   * keyboard silently inert over a row the operator can still redraw or
+   * reject.
+   */
   const drawn = useCallback(
-    (slotIndex: number) => Boolean(thumbs[String(slotIndex)]),
+    (slotIndex: number) =>
+      Boolean(thumbs.urls[String(slotIndex)]) ||
+      Boolean(thumbs.failed[String(slotIndex)]),
     [thumbs],
   );
 

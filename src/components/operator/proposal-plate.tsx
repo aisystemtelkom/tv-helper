@@ -74,6 +74,7 @@ import {
   StateWord,
 } from "./chrome";
 import { Denah, Missing } from "./denah";
+import type { CropThumbs } from "./use-crop-thumbs";
 
 export type PlateActions = {
   onAccept: (slotIndex: number) => void;
@@ -153,7 +154,7 @@ const CROP_CAP: Record<CropCap, { height: string; width: string }> = {
   proof: { height: "9rem", width: "24rem" },
 };
 
-type CropCondition = "ready" | "waiting" | "broken";
+type CropCondition = "ready" | "waiting" | "broken" | "unrenderable";
 
 /**
  * THE CROP'S BOX IS RESERVED FROM THE ZONE, BEFORE THE PICTURE EXISTS.
@@ -201,6 +202,16 @@ function CropFrame({
               cut in this tab from a document that must never leave it;
               next/image would want a loader and a remote pattern. */}
           <img src={url} alt={alt} className="block h-full w-full" />
+        </div>
+      ) : condition === "unrenderable" ? (
+        /* Same family as `broken`: the picture is not coming. Different
+           sentence, because the cause is different and the operator can act on
+           knowing which. Hatched rather than lit, for the reason below. */
+        <div
+          className="lt-hatch grid place-items-center px-3 text-center text-[0.8125rem]"
+          style={{ ...style, color: "var(--gap)" }}
+        >
+          Halaman ini gagal dibuka, jadi potongannya tidak bisa diambil
         </div>
       ) : condition === "broken" ? (
         /* NOT paper, and not the waiting trough either. A crop whose page the
@@ -294,6 +305,7 @@ function CaptureRow({
   slotIndex,
   fieldLabel,
   thumbUrl,
+  thumbFailure,
   actions,
   showState,
   ordinal,
@@ -307,6 +319,8 @@ function CaptureRow({
   slotIndex: number;
   fieldLabel: string;
   thumbUrl?: string;
+  /** Set when this capture's PAGE would not render, so no crop is coming. */
+  thumbFailure?: string;
   actions: PlateActions;
   /** Only when the slot holds several captures; otherwise the header says it. */
   showState: boolean;
@@ -335,12 +349,22 @@ function CaptureRow({
   // old plate showed it as "cutting the crop..." forever: a broken capture
   // presenting as a slow app, so the operator waits instead of acting.
   const broken = Boolean(state.zone) && cite === null;
-  const waiting = Boolean(state.zone) && !broken && !thumbUrl;
+  // A page that would not render is the SECOND way a crop never arrives, and
+  // it used to be invisible: `useCropThumbs` caught the failure so one bad page
+  // could not stop the sheet, and said nothing, so this capture sat on
+  // "Menyiapkan potongan" for the session with Terima inert behind it. Both
+  // failures now land in the same family, because what the operator needs is
+  // identical either way: stop waiting, and redraw.
+  const unrenderable = Boolean(state.zone) && !broken && Boolean(thumbFailure);
+  const waiting =
+    Boolean(state.zone) && !broken && !unrenderable && !thumbUrl;
   const condition: CropCondition = broken
     ? "broken"
-    : waiting
-      ? "waiting"
-      : "ready";
+    : unrenderable
+      ? "unrenderable"
+      : waiting
+        ? "waiting"
+        : "ready";
 
   // A settled capture collapses; one just decided in this session does not,
   // because pulling the picture away under the hand that accepted it is the one
@@ -378,9 +402,13 @@ function CaptureRow({
     ? "Potongannya belum tampil. Tunggu gambarnya muncul sebelum Anda memutuskan."
     : broken
       ? "Halaman potongan ini sudah tidak ada di pekerjaan ini, jadi tidak ada yang bisa Anda nilai. Gambar ulang areanya, atau tandai bukan ini."
-      : state.status === "proposed"
-        ? "Bukan ini membuang usulan ini, dan bagian ini masuk ke daftar yang belum ditemukan."
-        : null;
+      : unrenderable
+        ? // It says WAITING WILL NOT HELP, which is the whole point of telling
+          // the operator apart from the loading state they used to be left in.
+          "Halaman ini gagal dibuka, jadi potongannya tidak akan muncul betapa pun lamanya Anda menunggu. Gambar ulang areanya dari halaman lain, atau tandai bukan ini."
+        : state.status === "proposed"
+          ? "Bukan ini membuang usulan ini, dan bagian ini masuk ke daftar yang belum ditemukan."
+          : null;
 
   const expandToggle =
     settled && state.zone && !forceExpanded ? (
@@ -448,7 +476,7 @@ function CaptureRow({
                 <>
                   <Btn
                     tone="primary"
-                    disabled={waiting || broken}
+                    disabled={waiting || broken || unrenderable}
                     onClick={() => decide(() => actions.onAccept(slotIndex))}
                   >
                     Terima
@@ -586,7 +614,7 @@ export function ProposalPlate({
 }: {
   run: BrowserRun;
   entry: SlotAggregate;
-  thumbs: Record<string, string>;
+  thumbs: CropThumbs;
   actions: PlateActions;
   /** Slot indexes whose save is still in flight. */
   pending?: ReadonlySet<number>;
@@ -693,7 +721,8 @@ export function ProposalPlate({
             state={placed.state}
             slotIndex={placed.index}
             fieldLabel={label}
-            thumbUrl={thumbs[String(placed.index)]}
+            thumbUrl={thumbs.urls[String(placed.index)]}
+            thumbFailure={thumbs.failed[String(placed.index)]}
             actions={actions}
             showState={multi}
             ordinal={multi ? i + 1 : null}

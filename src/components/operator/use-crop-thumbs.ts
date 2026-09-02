@@ -31,14 +31,35 @@ export function cropSpecs(run: BrowserRun): CropSpec[] {
 
 const NONE: Record<string, string> = {};
 
-export function useCropThumbs(run: BrowserRun): Record<string, string> {
+/**
+ * What the sheet knows about every proposed crop: the ones that are cut, and
+ * the ones that never will be.
+ *
+ * `failed` exists because a page that will not render used to be INDISTIN-
+ * GUISHABLE FROM ONE THAT IS STILL BEING CUT. The loop below caught the
+ * `pageBitmap` rejection and moved on so that one bad page could not stop the
+ * rest of the sheet, which is right, but nothing then told the plate: the
+ * capture sat on "Menyiapkan potongan" for the rest of the session, and since
+ * a decision key is inert while its crop is not on screen, Terima stayed
+ * disabled with no explanation and no way forward. A permanent dead end that
+ * presents itself as a loading state is the failure this product is organised
+ * against, wearing a spinner.
+ */
+export type CropThumbs = {
+  urls: Record<string, string>;
+  /** Spec id to the reason its page could not be rendered. */
+  failed: Record<string, string>;
+};
+
+export function useCropThumbs(run: BrowserRun): CropThumbs {
   const runtime = useRuntime();
   const runId = run.id;
   const key = useMemo(() => JSON.stringify(cropSpecs(run)), [run]);
   const [state, setState] = useState<{
     key: string;
     urls: Record<string, string>;
-  }>({ key: "", urls: NONE });
+    failed: Record<string, string>;
+  }>({ key: "", urls: NONE, failed: NONE });
 
   useEffect(() => {
     // The effect reads its work list back out of `key` rather than closing
@@ -62,9 +83,23 @@ export function useCropThumbs(run: BrowserRun): Record<string, string> {
         let bitmap: ImageBitmap;
         try {
           bitmap = await runtime.pageBitmap(runId, pageId);
-        } catch {
-          // A page that will not render is reported by the plate itself as a
-          // missing crop; one bad page must not stop the rest of the sheet.
+        } catch (problem) {
+          // One bad page must not stop the rest of the sheet, so this still
+          // moves on. What it no longer does is move on SILENTLY: every spec
+          // that wanted this page is recorded as failed, so the plate can say
+          // the crop will never arrive and offer the way out, instead of
+          // showing a loading state that is really a dead end.
+          if (!alive) return;
+          const reason =
+            problem instanceof Error ? problem.message : String(problem);
+          setState((prev) => ({
+            key,
+            urls: prev.key === key ? prev.urls : NONE,
+            failed: {
+              ...(prev.key === key ? prev.failed : NONE),
+              ...Object.fromEntries(group.map((spec) => [spec.id, reason])),
+            },
+          }));
           continue;
         }
         try {
@@ -78,6 +113,7 @@ export function useCropThumbs(run: BrowserRun): Record<string, string> {
             setState((prev) => ({
               key,
               urls: { ...(prev.key === key ? prev.urls : NONE), [spec.id]: url },
+              failed: prev.key === key ? prev.failed : NONE,
             }));
           }
         } finally {
@@ -92,5 +128,11 @@ export function useCropThumbs(run: BrowserRun): Record<string, string> {
     };
   }, [runtime, runId, key]);
 
-  return state.key === key ? state.urls : NONE;
+  return useMemo(
+    () =>
+      state.key === key
+        ? { urls: state.urls, failed: state.failed }
+        : { urls: NONE, failed: NONE },
+    [state, key],
+  );
 }
