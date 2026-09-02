@@ -2791,7 +2791,10 @@ test("resolveJenisOrder prefers the operator, then the order request, then the d
   const inferred = resolveJenisOrder({ pages });
   assert.equal(inferred.value, "AO");
   assert.equal(inferred.origin, "documents");
-  assert.match(inferred.detail, /bundle\.pdf p0 line 0/);
+  // p1, not p0: `pageInDoc` is a 0-based index and the LABEL is a page
+  // number, because an operator holding the paper counts from one. See
+  // `sourceLabel` for why the field stays an index.
+  assert.match(inferred.detail, /bundle\.pdf p1 line 0/);
 
   // An empty or whitespace-only override is not an answer, so it falls through
   // instead of shipping a blank cell that claims to have been set by hand.
@@ -2810,8 +2813,8 @@ test("resolveJenisOrder blanks a JENIS ORDER two documents disagree about", () =
   const conflict = resolveJenisOrder({ pages });
   assert.equal(conflict.value, "");
   assert.equal(conflict.origin, "conflict");
-  assert.match(conflict.detail, /MO on renewal\.pdf p0/);
-  assert.match(conflict.detail, /AO on base-agreement\.pdf p4/);
+  assert.match(conflict.detail, /MO on renewal\.pdf p1/);
+  assert.match(conflict.detail, /AO on base-agreement\.pdf p5/);
   assert.equal(outstandingHeaderFields(conflict).length, 1);
 
   // The same value printed twice is one answer, not a disagreement.
