@@ -84,8 +84,37 @@ type ErrorLike = {
   isRetryable?: unknown;
   statusCode?: unknown;
   name?: unknown;
+  code?: unknown;
   cause?: unknown;
 };
+
+/**
+ * Node's transport-level failures, which arrive as `TypeError: fetch failed`
+ * carrying the real reason on `cause.code` and NO status anywhere.
+ *
+ * MEASURED, not imagined: a 29-page OCR run died at page 13 with
+ * `TypeError: fetch failed { cause: Error: read ECONNRESET }`. Twelve pages
+ * were already paid for. Every one of these is the connection breaking rather
+ * than the server answering, so retrying asks the question again instead of
+ * spending the same tokens to be told the same thing -- the test that
+ * separates a transient from a verdict everywhere else in this function.
+ */
+const TRANSPORT_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
 
 /**
  * Is this rejection worth retrying, or is it the answer?
@@ -128,6 +157,12 @@ export function isTransient(error: unknown): boolean {
       }
     }
     if (err.name === "TimeoutError" || err.name === "AbortError") return true;
+    // A transport failure carries no status at all, so it must be matched on
+    // `code`. See TRANSPORT_CODES: this is the case that killed a run which
+    // had already OCR'd twelve pages.
+    if (typeof err.code === "string" && TRANSPORT_CODES.has(err.code)) {
+      return true;
+    }
   }
   return false;
 }

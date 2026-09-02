@@ -412,7 +412,24 @@ async function geminiAsk(prompt, options = {}) {
       // paid for six pages. MAX_TOKENS and the safety reasons are deliberately
       // NOT here: those are properties of the request, so another identical
       // call buys nothing but another image upload.
+      // A TRANSPORT failure carries nothing matchable in its string. Node's
+      // fetch rejects with `TypeError: fetch failed` and hangs the real reason
+      // on `cause.code`, so `String(err)` is the useless half. MEASURED: this
+      // run died at page 13 with `read ECONNRESET` after twelve pages were
+      // already paid for, because the regex below saw only "fetch failed".
+      // This is the same defect AGENTS.md records for the 503 -- detect from
+      // the error OBJECT, not from its toString -- in a second place.
+      // `src/lib/model.ts`'s `isTransient` carries the full list; this harness
+      // deliberately does not import it (see the file header), so the two must
+      // be kept in step by hand.
+      const code = err?.code ?? err?.cause?.code;
+      const transport =
+        typeof code === "string" &&
+        /^(ECONNRESET|ECONNREFUSED|ECONNABORTED|EPIPE|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|UND_ERR_)/.test(
+          code,
+        );
       const transient =
+        transport ||
         /HTTP 503|HTTP 429|AbortError|abort|finishReason=(RECITATION|OTHER)/i.test(
           String(err),
         );
