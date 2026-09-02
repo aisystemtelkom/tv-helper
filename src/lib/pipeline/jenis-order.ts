@@ -118,12 +118,25 @@ export type JenisOrder = {
 };
 
 /**
- * `file pN` for a page. Kept local rather than imported so this module has no
- * dependency at all: it is four tokens, and sharing it would couple a browser
- * import to a CLI helper.
+ * `file pN` for a page, where N IS A PAGE NUMBER AND NOT AN INDEX.
+ *
+ * `pageInDoc` is 0-based, because it is a position that indexes arrays. The
+ * label adds one, because it is read by a person holding the paper, and that
+ * person counts from one. Keeping the field an index and the label a page
+ * number is the whole distinction: flipping the FIELD would break every caller
+ * that uses it to look something up, and printing the INDEX sends an operator
+ * to the page before the one carrying the answer.
+ *
+ * This string is operator-facing in two places already -- the outstanding
+ * report, via `outstandingHeaderFields`, and the operator UI's Jenis Order
+ * field -- so the CLI and the browser must render it identically or the same
+ * document produces two different locations depending on which path found it.
+ *
+ * Kept local rather than imported so this module has no dependency at all: it
+ * is four tokens, and sharing it would couple a browser import to a CLI helper.
  */
 function sourceLabel(page: JenisOrderPage): string {
-  return `${page.sourceName} p${page.pageInDoc}`;
+  return `${page.sourceName} p${page.pageInDoc + 1}`;
 }
 
 /**
