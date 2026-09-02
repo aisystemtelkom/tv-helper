@@ -79,12 +79,17 @@
  * crops. Moving only one side was considered and rejected: it would compare
  * Gemini page geometry against tesseract crop text through
  * `findRequiredLineRange`'s 25%-of-signature fuzzy tolerance, which is tuned
- * for a different engine's error modes, and this harness reports a miss there
- * as "no window matched ... (OCR-quality issue, not necessarily a locate
- * failure)" rather than as a regression. A diagnostic that hides the thing
- * being measured is worse than no comparison. "Real text against real text
- * from the same engine", below, is the entire reason these numbers mean
+ * for a different engine's error modes, and a miss there would be reported as
+ * a note about OCR rather than as a regression. A diagnostic that hides the
+ * thing being measured is worse than no comparison. "Real text against real
+ * text from the same engine", below, is the entire reason these numbers mean
  * anything, and it is a property of the pair, not of either side.
+ *
+ * That warning was written before the same failure happened for real, so read
+ * it as history rather than as a caution: on 2026-09-02 a same-engine miss was
+ * reported as "(OCR-quality issue, not necessarily a locate failure)" and three
+ * readers took the parenthetical at its word. `describeNoWindow` replaced it
+ * with the ratio that settles it -- see there.
  *
  * Three on-disk caches make iteration cheap. They used to be asymmetric in a
  * way that could silently fake a result; they are not any more, and the fix
@@ -131,7 +136,11 @@ const { default: JSZip } = await import("jszip");
 import { renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 import {
+  MAX_UNCOVERED_INK_RUN_SHARE,
+  MIN_INK_COVERAGE,
+  ocrPageCompletely,
   ocrPageWithGemini,
+  pageGeometry,
   pageToPng,
   OCR_PROMPT_VERSION,
 } from "../src/lib/pipeline/gemini-ocr.ts";
@@ -540,6 +549,64 @@ async function ocrRendered(rendered) {
   return { lines, report: null };
 }
 
+/**
+ * How often the page-completeness assertion fired, and how many pages a re-read
+ * then rescued. Printed in the summary, always, including the zeros.
+ *
+ * A GUARD THAT NEVER FIRES IS UNTESTED, NOT UNNECESSARY, and this one exists
+ * for an intermittent defect: roughly 7% of whole-page reads came back
+ * materially short on 2026-09-02. A gate run whose log says nothing about the
+ * check is indistinguishable from one where it was never armed, and the Task 7
+ * verdict makes "the run log shows either zero firings or firings that
+ * recovered" a condition on deleting tesseract.
+ */
+let shortReads = 0;
+let recoveredPages = 0;
+
+/**
+ * A whole PAGE, with the completeness assertion armed.
+ *
+ * Separate from `ocrRendered` above because the assertion applies to pages and
+ * NOT to the twelve ground-truth crops, and the difference is not squeamishness
+ * about a second retry. A crop is a picture of a REGION whose ink runs to its
+ * own edge by construction, so the ratio the threshold was calibrated on means
+ * something different there; and the crops are the ground truth this harness
+ * scores against, so a false firing on that side would fail the gate over the
+ * instrument rather than over the pipeline. The defect measured on 2026-09-02
+ * was on the page side of the comparison, twice, and the crop side read longer
+ * than the page it was cut from -- see `describeNoWindow`.
+ *
+ * Nothing here for tesseract, which has never produced this failure: it fails
+ * loudly and illegibly instead ("Sa Pewa g A Pm 1 Sen"), which is a different
+ * problem with a different cure.
+ */
+async function ocrPageRendered(rendered, label) {
+  if (OCR_ENGINE !== "gemini") return await ocrRendered(rendered);
+
+  const { lines, report, attempt } = await ocrPageCompletely(
+    rendered,
+    (png) => ocrPageWithGemini(png, askImage),
+    {
+      label,
+      onShort: (short) => {
+        shortReads += 1;
+        console.warn(
+          `  SHORT READ ${label}, attempt ${short.attempt} of ${short.attempts}: ` +
+            `${short.lines} lines -- ${short.completeness.shortfalls.join("; ")}. ` +
+            // Named, not implied: the re-read sends the same bytes with the same
+            // prompt, so nothing but the model's own sampling can make it differ.
+            "Re-reading the IDENTICAL page image.",
+        );
+      },
+    },
+  );
+  if (attempt > 1) {
+    recoveredPages += 1;
+    console.log(`  RECOVERED ${label} on attempt ${attempt}.`);
+  }
+  return { lines, report };
+}
+
 // ---------------------------------------------------------------------------
 // Page OCR cache. Rendering and OCR-ing a 3507x2480 scan is slow -- this is a
 // real necessity, not a nicety: the merged contract scan is 27 pages and the
@@ -572,7 +639,13 @@ async function ocrPageCached(pdfDoc, pdfKey, pdfHash, pageIndex, ocrCache) {
   const started = Date.now();
   const page = await pdfDoc.getPage(pageIndex + 1); // pdf.js pages are 1-based
   const rendered = await renderPageUpright(page, 300, nodeContext);
-  const { lines, report } = await ocrRendered(rendered);
+  // The RGBA is right here, which is the whole argument for putting the
+  // completeness assertion on the device: no decoder, no second render, and a
+  // page that comes back short can simply be asked for again.
+  const { lines, report } = await ocrPageRendered(
+    rendered,
+    `${pdfKey} page ${pageIndex}`,
+  );
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
     `  OCR ${pdfKey} page ${pageIndex}: ${rendered.width}x${rendered.height}, ` +
@@ -586,24 +659,50 @@ async function ocrPageCached(pdfDoc, pdfKey, pdfHash, pageIndex, ocrCache) {
 }
 
 /**
- * The part of an `OcrReport` worth a line in the run log: how much of this
- * page's geometry was SLICED out of a multi-line block rather than returned by
- * the model, and how many entries were dropped for failing box validation.
+ * The part of an `OcrReport` worth a line in the run log.
  *
- * Printed rather than asserted, deliberately. If interpolation turns out to be
- * the common path rather than the exception, the design has quietly become
- * "trust the model's block box with a 12px pad" -- which the probe supports
- * (99 of 104 blocks contained their glyphs within that pad) but which is not
- * what was specified, and the difference is only visible if somebody can see
- * the number. The bundle-wide totals are summarised at the end of the run too,
- * because these per-page lines only print on a cache MISS.
+ * `chars` and `cover` are here because of what the 2026-09-02 run showed: two
+ * of its 29 pages came back materially incomplete with `finishReason=STOP`,
+ * zero dropped entries and no flag anywhere, and the ONLY numbers that
+ * separated them from the healthy 27 were how much text they transcribed and
+ * how far down the page their lowest returned box reached (0.514 of the page
+ * height on `merged:19`, against 0.94-0.99 on every healthy page). Printing
+ * them per page is the difference between seeing a short page while the run is
+ * still going and reconstructing it from a cache file afterwards, which is what
+ * actually happened and cost four investigations.
+ *
+ * `interpolated` is a NUMBER, not a warning. It ran at 69% of all lines
+ * bundle-wide, so as an alarm it fired on 21 of 29 pages including entirely
+ * healthy ones; as a number it still says the real thing, which is that this
+ * pipeline has largely become "trust the model's block box with a 12px pad".
+ *
+ * These per-page lines only print on a cache MISS, so the summary at the end of
+ * the run prints the same measurements for every page, cached or not.
  */
 function describeReport(report) {
   if (!report) return "";
   const parts = [
     `${report.blocks} blocks`,
     `${report.interpolatedLines} interpolated`,
+    `${report.transcribedChars} chars`,
+    `cover ${report.verticalCoverage.toFixed(3)}`,
   ];
+  // Present only where the caller held the pixels, which is pages and not
+  // crops. `cover` measures the boxes against the PAPER and cannot tell a short
+  // read from a wide bottom margin; `ink` measures them against this page's own
+  // last row of print, which is the only one of the two that can.
+  if (typeof report.inkCoverage === "number") {
+    parts.push(`ink ${report.inkCoverage.toFixed(3)}`);
+  }
+  // The half of the assertion a surviving running footer cannot fake: `ink` is
+  // a max over the boxes, so one box near the page bottom satisfies it however
+  // little else came back.
+  if (typeof report.uncoveredInkRunShare === "number") {
+    parts.push(`uncovered ${(100 * report.uncoveredInkRunShare).toFixed(1)}%`);
+  }
+  if (report.collapsedBlocks > 0) {
+    parts.push(`${report.collapsedBlocks} collapsed`);
+  }
   if (report.droppedEntries > 0) parts.push(`${report.droppedEntries} dropped`);
   if (report.degraded) parts.push(`DEGRADED: ${report.reasons.join("; ")}`);
   return `  [${parts.join(", ")}]`;
@@ -932,26 +1031,128 @@ function bestSubstringMatch(needle, haystack) {
 }
 
 /**
+ * How far a crop's own reading may sit from the page's before the two are
+ * called different text: roughly 25% of the crop signature's own length, floor
+ * 4 characters. Generous against per-character OCR noise across an entire crop,
+ * but far tighter than any single recurring phrase could satisfy on its own.
+ *
+ * ONE FUNCTION, TWO CALLERS, on purpose. The scorer and the FAIL string that
+ * explains a score used to hold independent copies of the same literal, so a
+ * change to one would have made the printed "against a tolerance of N" name a
+ * number the scorer did not apply -- a diagnostic quietly reporting a different
+ * threshold than the one that decided the verdict. The Task 7 verdict's §6 says
+ * it would not loosen this, which is exactly the circumstance in which a
+ * duplicate lies dormant for a long time.
+ */
+function matchTolerance(cropSig) {
+  return Math.max(4, Math.round(cropSig.length * 0.25));
+}
+
+/**
  * The [minLine, maxLine] run of a page's OCR lines that best reproduces a
- * ground-truth crop's own OCR text, or null if no window on this page comes
- * within tolerance (roughly 25% of the crop signature's own length, floor
- * 4 characters -- generous against per-character OCR noise across an
- * entire crop, but far tighter than any single recurring phrase could
- * satisfy on its own).
+ * ground-truth crop's own OCR text, or a `{ cause }` explaining why no window
+ * on this page qualifies.
+ *
+ * IT RETURNS THE CAUSE RATHER THAN A BARE NULL because there are three
+ * different ways to fail here and only one of them means "the page is short".
+ * `describeNoWindow` used to re-derive its verdict from scratch and could not
+ * tell them apart, so an empty crop signature printed a self-contradictory FAIL
+ * line -- distance 0 against a tolerance of 4, described as no match -- that
+ * blamed the page when the crop was the side that read as nothing. Pointing a
+ * reader confidently at the wrong side is the failure this string was rewritten
+ * to stop.
  */
 function findRequiredLineRange(pageLines, cropSig) {
-  if (!cropSig) return null;
+  if (!cropSig) return { cause: "empty-crop" };
   const { text: pageSig, spans } = buildPageSignature(pageLines);
-  if (spans.length === 0) return null;
+  if (spans.length === 0) return { cause: "empty-page" };
 
   const { distance, start, end } = bestSubstringMatch(cropSig, pageSig);
-  const tolerance = Math.max(4, Math.round(cropSig.length * 0.25));
-  if (distance > tolerance) return null;
+  const tolerance = matchTolerance(cropSig);
+  if (distance > tolerance) return { cause: "no-match", distance, tolerance };
 
   const covered = spans.filter((s) => s.start < end && s.end > start).map((s) => s.i);
-  if (covered.length === 0) return null;
+  if (covered.length === 0) {
+    return { cause: "no-lines-covered", distance, tolerance };
+  }
 
   return { minLine: Math.min(...covered), maxLine: Math.max(...covered), distance, tolerance };
+}
+
+/**
+ * Why no window of the chosen page matched this crop, in measured numbers.
+ *
+ * THE STRING THIS REPLACES HID THE DEFECT IT WAS REPORTING. It read "no window
+ * ... matched within tolerance (OCR-quality issue, not necessarily a locate
+ * failure)", and the parenthetical did exactly what the migration spec's Task 6
+ * predicted it would: three separate readers took it as a note about the
+ * instrument and looked elsewhere, and four investigations were spent before
+ * anybody computed the one ratio that says what actually happened.
+ *
+ * That ratio is the whole diagnosis and it needs no re-OCR. On 2026-09-02 the
+ * human crop `image1.png` -- a picture of a REGION of one page -- reduced to
+ * 1694 normalised characters while the WHOLE PAGE it was cut from reduced to
+ * 1142, or 67%. A part cannot contain more than its whole, so no window of that
+ * page could match, and `findRequiredLineRange` was arithmetically right to
+ * refuse. The page came back a third short with `finishReason=STOP`, zero
+ * dropped entries and no flag. `KB / ToP (1)` failed the same way at 88%.
+ *
+ * Both readings and the ratio are printed unconditionally, including when the
+ * page is longer than the crop, because a reader has to be able to tell the two
+ * cases apart -- and a healthy page IS longer than a crop of part of it. The
+ * verdict sentence is the only part that branches.
+ *
+ * IT BRANCHES ON THE SCORER'S OWN CAUSE, not on a re-derivation. There are
+ * three ways to reach here and the page-is-short sentence is right for exactly
+ * one of them. With an empty crop signature, `bestSubstringMatch("", pageSig)`
+ * returns distance 0 by its own n===0 early return and the tolerance floor is
+ * 4, so re-deriving printed "off by 0 against a tolerance of 4" and then called
+ * it a miss -- self-contradictory, and it blamed the page when the CROP read as
+ * nothing. Latent on today's twelve crops, which run 2 to 54 lines, and live
+ * the first time an engine correctly declines a page of handwriting.
+ */
+function describeNoWindow(pageEntry, cropSig, imageName, chosenPage, cause) {
+  const { text: pageSig } = buildPageSignature(pageEntry.lines);
+  const share = cropSig.length > 0 ? (100 * pageSig.length) / cropSig.length : 0;
+  const { distance } = bestSubstringMatch(cropSig, pageSig);
+  const tolerance = matchTolerance(cropSig);
+  const cover = pageGeometry(pageEntry.lines, pageEntry.height).verticalCoverage;
+
+  if (cause === "empty-crop") {
+    return (
+      `crop ${imageName} OCR'd to nothing at all, so there is no ground truth ` +
+      `to match page ${chosenPage} against. This says nothing about the ` +
+      "proposal: the CROP is the side that failed to read"
+    );
+  }
+  if (cause === "empty-page") {
+    return (
+      `page ${chosenPage} OCR'd to no lines at all, so no window of it can ` +
+      `match crop ${imageName}'s ${cropSig.length} normalised characters. The ` +
+      "page transcription is empty, not mis-chosen"
+    );
+  }
+
+  const measured =
+    `page ${chosenPage} OCR'd to ${pageSig.length} normalised characters against ` +
+    `crop ${imageName}'s own ${cropSig.length} (${share.toFixed(0)}%), and its ` +
+    `returned boxes reach ${cover.toFixed(3)} of the page height; best alignment ` +
+    `was off by ${distance} against a tolerance of ${tolerance}`;
+
+  if (cause === "no-lines-covered") {
+    return (
+      `${measured} -- the text matched within tolerance but the matching window ` +
+      "covers no whole OCR line, so there is no line range to require. That is " +
+      "a signature-alignment artifact, not a short page and not a locate miss"
+    );
+  }
+
+  return share < 100
+    ? `${measured} -- a crop of a REGION of this page reads longer than the whole ` +
+        "page's own reading, so no window can match: the page transcription is " +
+        "incomplete, not mis-chosen"
+    : `${measured} -- the page is not short, so this is a genuine disagreement ` +
+        "between the two readings of the same print";
 }
 
 // ---------------------------------------------------------------------------
@@ -1234,15 +1435,19 @@ function evaluate(entry, result, pages, cropEntries) {
 
   const required = findRequiredLineRange(pageEntry.lines, cropSig);
 
-  if (!required) {
+  if (required.cause) {
     return {
       pass: false,
       pageOk,
       chosenPage,
       lineRange: [from, to],
-      detail:
-        `no window of chosen page ${chosenPage} matched crop ${entry.image}'s own OCR text ` +
-        `within tolerance (OCR-quality issue, not necessarily a locate failure)`,
+      detail: describeNoWindow(
+        pageEntry,
+        cropSig,
+        entry.image,
+        chosenPage,
+        required.cause,
+      ),
     };
   }
 
@@ -1730,41 +1935,153 @@ async function main() {
   );
   console.log();
 
-  // How much of this bundle's geometry the model MEASURED and how much the
-  // producer SLICED. Aggregated here rather than left to the per-page OCR log
-  // lines, which only print on a cache miss -- so on the second run of a
-  // comparison, the run whose numbers get read, they are not printed at all.
+  // ---------------------------------------------------------------------
+  // What each page's OCR looked like, page by page, on every run.
   //
-  // Read as a proportion, not as a total. The design says a multi-line block
-  // is split into equal vertical bands and the resulting per-line boxes are
-  // computed rather than returned; the 12px CROP_PADDING_PX absorbs the error
-  // the probe measured, and `trimRunningFooter` then divides by a median that
-  // mixes real inter-block pitch with arithmetic within-block pitch. If
-  // interpolation is the common path rather than the exception, the design has
-  // quietly become "trust the model's block box with a 12px pad" -- which the
-  // probe supports but which is not what was specified, and which would also
-  // make the operator plate's "interpolated" chip appear on nearly every
-  // proposal and stop carrying information.
+  // The per-page OCR log lines above only print on a cache MISS, which means
+  // that on the second run of a comparison -- the run whose numbers actually
+  // get read -- they do not print at all. That is how the 2026-09-02 run
+  // shipped a score computed over two materially incomplete page reads with
+  // nothing in its output saying so.
+  //
+  // RECOMPUTED FROM THE CACHED LINES, not read off the cached `report`. Two
+  // reasons, and both matter. A report written by an earlier run carries that
+  // run's fields and that run's alarms, so reading it back would print the
+  // retired interpolation warning and none of the new measurements; and
+  // recomputing is what makes these alarms verifiable on a cached re-run that
+  // costs no model calls at all. `pageGeometry` takes lines and a height and
+  // touches no pixels, which is precisely what allows that.
+  //
+  // `blocks` and `dropped` still come from the report, because they are facts
+  // about a reply the cache no longer holds.
+  // ---------------------------------------------------------------------
   const reports = pages.map((p) => p.report).filter(Boolean);
   if (reports.length > 0) {
     const sum = (f) => reports.reduce((acc, r) => acc + f(r), 0);
     const totalLines = sum((r) => r.lines);
     const interpolated = sum((r) => r.interpolatedLines);
     const share = totalLines > 0 ? (100 * interpolated) / totalLines : 0;
+
+    console.log("Per-page OCR, every page of the bundle:");
+    console.log(
+      "  page        lines   chars   cover     ink  uncov   medH  collapsed  density  interp",
+    );
+    const flagged = [];
+    // Pages whose stored report carries no completeness numbers at all. They
+    // are not passes: see the `ink` column's own note below.
+    let unmeasured = 0;
+    for (const p of pages) {
+      if (!p.report) continue;
+      const g = pageGeometry(p.lines, p.height);
+      const interp = p.lines.filter((l) => l.origin === "interpolated").length;
+      console.log(
+        "  " +
+          `${p.doc} p${p.pageInDoc}`.padEnd(12) +
+          String(p.lines.length).padStart(5) +
+          String(g.transcribedChars).padStart(8) +
+          g.verticalCoverage.toFixed(3).padStart(8) +
+          // The only two columns here that cannot be recomputed from the cached
+          // lines: they need the page's pixels, so they are whatever the run
+          // that OCR'd this page measured. "n/m" is not a pass and not a
+          // failure -- it means NOT MEASURED: an entry written before the
+          // assertion existed, or a tesseract entry.
+          (typeof p.report.inkCoverage === "number"
+            ? p.report.inkCoverage.toFixed(3)
+            : "n/m"
+          ).padStart(8) +
+          (typeof p.report.uncoveredInkRunShare === "number"
+            ? `${(100 * p.report.uncoveredInkRunShare).toFixed(1)}%`
+            : "n/m"
+          ).padStart(7) +
+          String(Math.round(g.medianLineHeight)).padStart(7) +
+          String(g.collapsedBlocks).padStart(11) +
+          g.lineDensityRatio.toFixed(3).padStart(9) +
+          String(interp).padStart(8),
+      );
+      // A CACHED entry can carry a coverage the running guard never saw: it was
+      // written before the assertion existed, or by a run that failed later.
+      // The assertion itself cannot re-fire here -- that would need the pixels
+      // -- so the number it left behind is re-read instead, and a page below
+      // the threshold is flagged rather than merely printed.
+      const reasons = [...g.reasons];
+      if (typeof p.report.inkCoverage !== "number") unmeasured += 1;
+      if (
+        typeof p.report.inkCoverage === "number" &&
+        p.report.inkCoverage < MIN_INK_COVERAGE
+      ) {
+        reasons.push(
+          `short page: its returned boxes reached ${(100 * p.report.inkCoverage).toFixed(0)}% ` +
+            `of this page's own ink, under the ${(100 * MIN_INK_COVERAGE).toFixed(0)}% ` +
+            "the completeness assertion requires",
+        );
+      }
+      if (
+        typeof p.report.uncoveredInkRunShare === "number" &&
+        p.report.uncoveredInkRunShare > MAX_UNCOVERED_INK_RUN_SHARE
+      ) {
+        reasons.push(
+          `uncovered ink: ${(100 * p.report.uncoveredInkRunShare).toFixed(1)}% of ` +
+            "this page's height carries ink no returned box covers, over the " +
+            `${(100 * MAX_UNCOVERED_INK_RUN_SHARE).toFixed(1)}% the completeness ` +
+            "assertion allows",
+        );
+      }
+      if (reasons.length > 0) flagged.push({ page: p, reasons });
+    }
+    console.log();
+
+    if (flagged.length > 0) {
+      console.log(
+        `  WARNING: ${flagged.length} of ${reports.length} page(s) look incompletely read:`,
+      );
+      for (const f of flagged) {
+        console.log(`    ${f.page.doc} p${f.page.pageInDoc}: ${f.reasons.join("; ")}`);
+      }
+    } else {
+      console.log(
+        `  No page of ${reports.length} tripped the collapsed-block, thin-page, ` +
+          "short-page or uncovered-ink check.",
+      );
+    }
+
+    // The completeness assertion's own tally, printed on every run including
+    // the run where it did nothing. See `shortReads`: a silent guard and an
+    // absent guard read identically, and the Task 7 verdict asks specifically
+    // for "either zero firings or firings that recovered".
+    //
+    // These count THIS run's model calls, so a fully cached re-run reports zero
+    // by construction -- no page was read, so none could come back short. That
+    // is why the sentence says how many pages were actually read: "0 short
+    // reads" over 0 fresh reads and "0 short reads" over 29 of them are the
+    // same words about entirely different evidence, and the first is exactly
+    // what an unarmed guard also prints.
+    const fresh = reports.length - unmeasured;
+    console.log(
+      `  Completeness assertion: ${shortReads} short read(s) this run, ` +
+        `${recoveredPages} page(s) recovered by a re-read, over ${fresh} of ` +
+        `${reports.length} page(s) carrying a measured ink coverage` +
+        (unmeasured > 0
+          ? `. The other ${unmeasured} were served from a cache written before ` +
+            "the assertion existed (or by tesseract), so they are NOT MEASURED " +
+            `-- delete ${OCR_CACHE_PATH} to score them.`
+          : "."),
+    );
+    console.log();
+
+    // A NUMBER, NOT A WARNING, and the demotion is deliberate: as an alarm this
+    // fired on 21 of 29 pages, healthy ones included, and stayed silent on both
+    // pages that were genuinely broken. What it says as a number is a statement
+    // about the DESIGN, not about any one page -- the spec says a multi-line
+    // block is sliced into equal vertical bands and the resulting per-line
+    // boxes are computed rather than returned, the 12px CROP_PADDING_PX absorbs
+    // the error the probe measured, and at this share the pipeline has quietly
+    // become "trust the model's block box with a 12px pad". That is a thing to
+    // record and argue about once, which is what the Task 7 verdict does.
     console.log(
       `OCR geometry across ${reports.length} pages: ${sum((r) => r.blocks)} model entries -> ` +
         `${totalLines} lines, of which ${interpolated} (${share.toFixed(0)}%) were sliced out of a ` +
         `multi-line block rather than returned. ${sum((r) => r.droppedEntries)} entries dropped.`,
     );
-    const degraded = pages.filter((p) => p.report?.degraded);
-    if (degraded.length > 0) {
-      console.log(
-        `  WARNING: ${degraded.length} page(s) came back degraded: ` +
-          degraded
-            .map((p) => `${p.doc} p${p.pageInDoc} (${p.report.reasons.join("; ")})`)
-            .join(", "),
-      );
-    }
     console.log();
   }
 

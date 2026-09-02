@@ -106,8 +106,8 @@ import {
 import { classifyPages } from "../src/lib/pipeline/classify.ts";
 import {
   OCR_PROMPT_VERSION,
+  ocrPageCompletely,
   ocrPageWithGemini,
-  pageToPng,
 } from "../src/lib/pipeline/gemini-ocr.ts";
 import {
   deriveIdsFromFilenames,
@@ -226,6 +226,29 @@ const nodeContext = (w, h) => createCanvas(w, h).getContext("2d");
 // ---------------------------------------------------------------------------
 
 const cost = { calls: 0, in: 0, out: 0, thoughts: 0, total: 0 };
+
+/**
+ * How often the page-completeness assertion fired, how many pages a re-read
+ * then rescued, and -- the one that stops the other two from lying -- how many
+ * pages the check actually ran on.
+ *
+ * COUNTED AND PRINTED BECAUSE A GUARD THAT NEVER FIRES IS UNTESTED, NOT
+ * UNNECESSARY. The defect it watches for is intermittent -- roughly 7% of
+ * whole-page reads came back materially short on 2026-09-02 -- so a run whose
+ * log says nothing at all about it is indistinguishable from a run with the
+ * check accidentally disabled.
+ *
+ * `pagesChecked` exists because 0 short reads of 0 checked pages reads exactly
+ * like a clean bill of health and is not one. The assertion runs only where a
+ * page is actually read: a cache hit never reaches `ocrPageWithModel`, and the
+ * cache entry stores `{width, height, lines}` with no completeness in it, so a
+ * re-export of an already-OCR'd bundle checks nothing at all. Under tesseract
+ * it never runs either.
+ */
+let shortReads = 0;
+let recoveredPages = 0;
+let pagesChecked = 0;
+let pagesTotal = 0;
 
 /**
  * A ceiling on one call, not a budget. A locate prompt carries every page of
@@ -541,16 +564,61 @@ async function saveCache(cache) {
  * interpolated has quietly become "trust the model's block box with a 12px
  * pad", which is a different design from the one that was measured, and the
  * printed counts are how anybody would notice.
+ *
+ * THE COMPLETENESS ASSERTION RUNS HERE, and this is one of the three places it
+ * can: `rendered` is the RGBA `renderPageUpright` just produced, so the page's
+ * own ink extent is one pass away with no decoder and no second render.
+ * `/api/ocr` deliberately gets no pixels -- it receives a PNG and returns lines
+ * -- and the device is also the only side that can re-request a page, which is
+ * what the retry does. See `ocrPageCompletely` for the two properties that make
+ * an assertion acceptable here where a second segmentation engine is not.
  */
 async function ocrPageWithModel(rendered, sourceName, pageInDoc) {
-  const image = await pageToPng(rendered);
-  const { lines, report } = await ocrPageWithGemini(image, askImage);
+  pagesChecked += 1;
+  const { lines, report, completeness, attempt, image } = await ocrPageCompletely(
+    rendered,
+    (png) => ocrPageWithGemini(png, askImage),
+    {
+      label: `${sourceName} page ${pageInDoc}`,
+      onShort: (short) => {
+        shortReads += 1;
+        console.warn(
+          `    [generate ocr] SHORT READ ${sourceName} page ${pageInDoc}, ` +
+            `attempt ${short.attempt} of ${short.attempts}: ${short.lines} lines ` +
+            `-- ${short.completeness.shortfalls.join("; ")}. Re-reading the ` +
+            // Named, not implied: the re-read sends the same bytes with the
+            // same prompt, so nothing but the model's own sampling can make it
+            // differ. See `ocrPageCompletely`.
+            "IDENTICAL page image.",
+        );
+      },
+    },
+  );
+  if (attempt > 1) recoveredPages += 1;
 
   console.log(
     `    [generate ocr] ${sourceName} page ${pageInDoc}: ` +
       `${(image.bytes.length / 1024 / 1024).toFixed(2)}MB png, ` +
       `${report.blocks} blocks -> ${report.segments} bands -> ${report.lines} lines ` +
-      `(interpolated=${report.interpolatedLines}, dropped=${report.droppedEntries})`,
+      `(interpolated=${report.interpolatedLines}, dropped=${report.droppedEntries}, ` +
+      // The two numbers a short page shows up in, printed while the run is
+      // still going rather than only in a post-mortem. `chars` and `cover` are
+      // what separated the two silently-truncated pages of the 2026-09-02 gate
+      // run from the 27 healthy ones: one covered 0.514 of its page height, the
+      // other collapsed six paragraphs into their first lines. Neither raised
+      // anything anywhere else.
+      `chars=${report.transcribedChars}, cover=${report.verticalCoverage.toFixed(3)}, ` +
+      // `ink` is the assertion's own number: the same boxes measured against
+      // this page's real ink rather than against the paper. `cover` cannot tell
+      // a short read from a page with a wide bottom margin; `ink` can, which is
+      // the whole reason it is worth a pass over the RGBA.
+      `ink=${completeness.inkCoverage.toFixed(3)}, ` +
+      // The other half of the assertion, and the half a footer cannot fake:
+      // `ink` is a max over the boxes, so one box near the page bottom
+      // satisfies it however little else came back. `uncovered` is the most ink
+      // the boxes skipped in one stretch of the page.
+      `uncovered=${(100 * completeness.uncoveredInkRunShare).toFixed(1)}%, ` +
+      `collapsed=${report.collapsedBlocks})`,
   );
   if (report.degraded) {
     // Not fatal: `linesFromGeminiReply` throws outright when enough entries
@@ -655,6 +723,7 @@ async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
         const pageInDoc = nextToStart;
         if (pageInDoc >= total) return;
         nextToStart += 1;
+        pagesTotal += 1;
 
         const key = `${source.hash}:${DEFAULT_DPI}:${pageInDoc}:${OCR_ENGINE_TAG}`;
         const cached = FORCE_FRESH ? undefined : cache[key];
@@ -1811,6 +1880,17 @@ async function main() {
   } else {
     console.log("Nothing outstanding: every backed slot and field was filled.");
   }
+
+  // Printed unconditionally, including the zeros, and the denominator is
+  // printed with them. See `pagesChecked`: "0 short reads" over 0 checked pages
+  // is a fully cached run saying nothing, and it used to read identically to a
+  // clean one.
+  console.log(
+    `page completeness: ${pagesChecked} of ${pagesTotal} page(s) checked ` +
+      `against their own ink (the rest came from the OCR cache or from ` +
+      `tesseract, which this check does not cover), ${shortReads} short ` +
+      `read(s), ${recoveredPages} page(s) recovered by a re-read`,
+  );
 
   console.log(
     `cost: ${cost.calls} model calls, in=${cost.in} out=${cost.out} ` +

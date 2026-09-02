@@ -34,7 +34,10 @@
 
 import * as pdfjs from "pdfjs-dist";
 import type { Line } from "../pipeline/geometry.ts";
-import { pageToPng } from "../pipeline/gemini-ocr.ts";
+import {
+  ocrPageCompletely,
+  type OcrReport,
+} from "../pipeline/gemini-ocr.ts";
 import {
   DEFAULT_DPI,
   renderPageUpright,
@@ -295,6 +298,16 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
  * one that matters is an HTML sign-in page, which is what a redirected
  * unauthenticated request delivers where JSON was expected.
  */
+/**
+ * How many times the completeness assertion fired during this worker's life.
+ *
+ * A guard that never fires is untested, not unnecessary, so its firings have to
+ * be visible somewhere. In a Web Worker that somewhere is the console, and the
+ * running total goes on every warning because the worker's output is
+ * interleaved with the ingest's own progress lines.
+ */
+let shortReads = 0;
+
 async function messageFrom(res: Response): Promise<string> {
   const where = `POST /api/ocr answered ${res.status}`;
   if (res.redirected || !res.headers.get("content-type")?.includes("json")) {
@@ -337,34 +350,77 @@ async function messageFrom(res: Response): Promise<string> {
  *     will be cut from another. Everything downstream of that looks completely
  *     normal -- boxes on the page, crops that render, a document that opens --
  *     which is precisely why it is checked here and not trusted.
+ *  4. THE COMPLETENESS ASSERTION RUNS HERE, NOT IN THE ROUTE. Gemini
+ *     intermittently returns a materially incomplete transcription of a whole
+ *     page -- finishReason=STOP, zero dropped entries, nothing flagged --
+ *     measured at roughly 7% of whole-page reads. Catching it needs the page's
+ *     own ink extent, which needs the RGBA, which THIS side is holding and
+ *     `/api/ocr` deliberately is not: the route receives a PNG and returns
+ *     lines, and widening it to pixels is exactly the ruling the migration spec
+ *     made and this change keeps. The device is also the only side that can
+ *     re-request a page, which is what the retry does. `ocrPageCompletely`
+ *     owns the loop so this worker, `pnpm generate` and `pnpm measure:locate`
+ *     cannot drift into three readings of "complete". When the attempts run
+ *     out it throws, and this ingest stops on that page rather than committing
+ *     a partly-read one -- the deliberate direction, per the Task 7 verdict.
  */
 async function ocr(page: RenderedPage): Promise<Line[]> {
-  const image = await pageToPng(page);
+  const { lines } = await ocrPageCompletely(
+    page,
+    async (image) => {
+      const res = await fetch(new URL("/api/ocr", location.origin), {
+        method: "POST",
+        headers: { "content-type": "image/png" },
+        // `BodyInit` insists on an ArrayBuffer-backed view, while `Uint8Array`
+        // on its own widens to `ArrayBufferLike` (which includes
+        // SharedArrayBuffer). Both producers in `pageToPng` -- `encodePng` and
+        // `convertToBlob` -- hand back plain ArrayBuffer-backed bytes, so this
+        // narrows a fact that already holds rather than asserting a new one.
+        // Same reason as the `ImageData` narrowing inside `pageToPng` itself.
+        body: image.bytes as Uint8Array<ArrayBuffer>,
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error(await messageFrom(res));
 
-  const res = await fetch(new URL("/api/ocr", location.origin), {
-    method: "POST",
-    headers: { "content-type": "image/png" },
-    // `BodyInit` insists on an ArrayBuffer-backed view, while `Uint8Array` on
-    // its own widens to `ArrayBufferLike` (which includes SharedArrayBuffer).
-    // Both producers in `pageToPng` -- `encodePng` and `convertToBlob` -- hand
-    // back plain ArrayBuffer-backed bytes, so this narrows a fact that already
-    // holds rather than asserting a new one. Same reason as the `ImageData`
-    // narrowing inside `pageToPng` itself.
-    body: image.bytes as Uint8Array<ArrayBuffer>,
-    credentials: "same-origin",
-  });
-  if (!res.ok) throw new Error(await messageFrom(res));
-
-  const body = await res.json();
-  if (body.width !== page.width || body.height !== page.height) {
-    throw new Error(
-      `OCR measured ${body.width}x${body.height}, page is ${page.width}x${page.height}. ` +
-        "Zone boxes are in the pixel space of a page rendered at DEFAULT_DPI, " +
-        "so a mismatch means every rectangle for this page would be cut from " +
-        "the wrong coordinate space.",
-    );
-  }
-  return body.lines as Line[];
+      const body = await res.json();
+      if (body.width !== page.width || body.height !== page.height) {
+        throw new Error(
+          `OCR measured ${body.width}x${body.height}, page is ${page.width}x${page.height}. ` +
+            "Zone boxes are in the pixel space of a page rendered at DEFAULT_DPI, " +
+            "so a mismatch means every rectangle for this page would be cut from " +
+            "the wrong coordinate space.",
+        );
+      }
+      return {
+        lines: body.lines as Line[],
+        report: body.report as OcrReport,
+      };
+    },
+    {
+      // Deliberately not a page number. `IngestDeps.ocr` is
+      // `(page: RenderedPage) => Promise<Line[]>` and carries no index, and a
+      // counter kept here would be right only for as long as the ingest loop
+      // stays serial. The error itself carries the measurement, and the ingest
+      // stops on the page that failed.
+      label: "a page of this document",
+      onShort: (short) => {
+        shortReads += 1;
+        // The worker's only channel to a human is the browser console, and a
+        // guard nobody can see firing is a guard nobody can tell from a guard
+        // that was never armed. The running total is on every line because a
+        // worker's console output is interleaved with the ingest's own.
+        console.warn(
+          `[ocr] SHORT READ, attempt ${short.attempt} of ${short.attempts}: ` +
+            `${short.lines} lines -- ${short.completeness.shortfalls.join("; ")}. ` +
+            // Named, not implied: the re-read sends the same bytes with the same
+            // prompt, so nothing but the model's own sampling can make it differ.
+            "Re-reading the identical page image. " +
+            `${shortReads} short read(s) this ingest.`,
+        );
+      },
+    },
+  );
+  return lines;
 }
 
 /**
