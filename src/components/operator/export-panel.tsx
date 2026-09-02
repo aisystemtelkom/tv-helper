@@ -54,12 +54,19 @@
  * so, never as a picture.
  */
 
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import type { HeaderFields } from "@/lib/export/docx";
 import { AO_TEMPLATE } from "@/lib/forms/template";
 import { deriveIdsFromFilenames } from "@/lib/pipeline/fields";
+import {
+  resolveJenisOrder,
+  type JenisOrder,
+  type JenisOrderOrigin,
+  type JenisOrderPage,
+} from "@/lib/pipeline/jenis-order";
 import { cropToDisplayUrl, downloadBytes, revokeUrls } from "@/lib/ui/crops";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type {
@@ -88,6 +95,7 @@ import {
   Notice,
   STATUS_WORDS,
   StateWord,
+  TechnicalDetail,
   Title,
   shortenFileName,
 } from "./chrome";
@@ -374,6 +382,81 @@ function deriveWithSources(names: string[]): DerivedIds {
  * An empty field says `(belum diisi)`, never a lone dash: a blank that says
  * nothing and a blank that means something look identical otherwise.
  */
+/**
+ * How each origin is worded beside the field.
+ *
+ * `resolveJenisOrder` is PURE and reads the OCR pages the run already holds:
+ * no request, no model call, nothing to spend, which is why this is filled in
+ * automatically where `namaProyek` and `cc` are not. The other half of that
+ * argument is that a wrong order code is VISIBLE: the codes are short, few and
+ * printed on the form, so an operator catches a wrong one in a way they cannot
+ * catch a wrong project name.
+ *
+ * THE RESOLVER'S OWN `detail` IS NOT SHOWN AS PROSE. It is written for a
+ * developer reading a CLI log, in English, and it ends in advice an operator
+ * cannot act on ("pass --jenis-order to set it"). It still carries the file,
+ * page and line, which is the useful half, so it goes behind `Detail teknis`
+ * like every other deployer-facing string in this app. The sentence beside the
+ * field is ours and is in Bahasa Indonesia.
+ *
+ * The four non-answering origins all ship "" and say why. None of them may
+ * borrow the wording of another: `conflict` means two documents disagree and
+ * the operator decides, `inferred` means the form HAS an answer printed that
+ * we would not trust and they should go and read it, and `none` means nothing
+ * was printed at all. Telling an operator "tidak ditemukan" when the answer is
+ * on the page would send them away from the one place that has it.
+ */
+const JENIS_SENTENCE: Record<JenisOrderOrigin, string> = {
+  flag: "Ditentukan saat aplikasi dijalankan, bukan dibaca dari dokumen.",
+  env: "Ditentukan saat aplikasi dijalankan, bukan dibaca dari dokumen.",
+  "order-request":
+    "Diambil dari isian Jenis Order pada permintaan order, jadi ini yang paling bisa dipegang.",
+  documents:
+    "Terbaca dari label Jenis Order yang tercetak di dokumen. Periksa sebelum kedua berkas dibuat.",
+  inferred:
+    "Ada label Jenis Order di dokumen, tapi isinya tidak bisa dipastikan. Buka halamannya, baca sendiri, lalu isi di sini.",
+  conflict:
+    "Dokumen menyebut jenis order yang berbeda-beda, jadi kolom ini dibiarkan kosong. Anda yang menentukan mana yang benar.",
+  none: "Tidak ada dokumen yang mencantumkan Jenis Order. Isi sendiri.",
+};
+
+const JENIS_MARKER: Record<JenisOrderOrigin, string> = {
+  flag: "ditentukan saat dijalankan",
+  env: "ditentukan saat dijalankan",
+  "order-request": "diisi di permintaan order",
+  documents: "terbaca dari dokumen",
+  inferred: "tidak bisa dipastikan",
+  conflict: "dokumen tidak sepakat",
+  none: "tidak tertulis",
+};
+
+/**
+ * The sentence beside Jenis Order, and the resolver's own words behind a
+ * disclosure.
+ *
+ * Two audiences, never one paragraph. `JENIS_SENTENCE` is what the operator
+ * acts on; `jenis.detail` names the file, page and line and is in English with
+ * CLI advice on the end, so it sits under `Detail teknis` exactly like a raw
+ * exception does everywhere else in this app.
+ */
+function JenisNote({
+  jenis,
+  explainCodes = false,
+}: {
+  jenis: JenisOrder;
+  explainCodes?: boolean;
+}) {
+  return (
+    <>
+      {JENIS_SENTENCE[jenis.origin]}
+      {explainCodes
+        ? " AO mengaktifkan layanan, MO mengubah, DO menghapus, dan jenis lain juga ada."
+        : null}
+      <TechnicalDetail>{jenis.detail}</TechnicalDetail>
+    </>
+  );
+}
+
 function Field({
   id,
   label,
@@ -381,6 +464,10 @@ function Field({
   onChange,
   derived = "",
   derivedFrom = "",
+  derivedMarker = "dibaca dari nama berkas",
+  originMarker,
+  derivedNote,
+  derivedLabel = "Nama berkas",
   fallback = "",
   note,
   list,
@@ -393,18 +480,39 @@ function Field({
   derived?: string;
   /** The file name that yielded it. */
   derivedFrom?: string;
+  /**
+   * The three wordings that used to be hardcoded to "the source file names".
+   * A second source of derived values arrived (the jenis order read off the
+   * documents themselves), and the difference between "your file name said
+   * this" and "a page said this" is exactly what the operator needs to weigh,
+   * so it cannot be one sentence serving both.
+   */
+  derivedMarker?: string;
+  /**
+   * What to call the value's provenance while the operator has not touched it,
+   * INCLUDING when that value is empty. The computed marker below cannot do
+   * this: it collapses every empty field to "(belum diisi)", which is right
+   * for a field nobody tried to fill and wrong for one where something looked
+   * and reported back. "dokumen tidak sepakat" and "(belum diisi)" are both
+   * empty and mean entirely different things.
+   */
+  originMarker?: string;
+  derivedNote?: ReactNode;
+  derivedLabel?: string;
   /** The app's own starting value, for the one field that has one. */
   fallback?: string;
   /** Why this field is not filled in automatically, in one line. */
-  note?: string;
+  note?: ReactNode;
   list?: string;
 }) {
   const empty = value.trim() === "";
   const fromFile = derived !== "" && value === derived;
   const changed = derived !== "" && value !== derived;
 
-  const marker = fromFile
-    ? "dibaca dari nama berkas"
+  const marker = originMarker && value === derived
+    ? originMarker
+    : fromFile
+    ? derivedMarker
     : changed
       ? "diubah sendiri"
       : empty
@@ -444,31 +552,34 @@ function Field({
           keeps an operator from trusting a guess or from reading a deliberate
           blank as a broken feature, which is safety copy. */}
       {fromFile ? (
-        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-          {derivedFrom ? (
+        // A div, not a p: these slots take arbitrary nodes now, and a caller
+        // that puts a `Detail teknis` disclosure in one would otherwise nest a
+        // <details> inside a <p>, which is invalid and throws a hydration
+        // error rather than merely looking wrong.
+        <div className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+          {derivedNote ?? (derivedFrom ? (
             <>
               Terbaca di nama berkas{" "}
               <span className="lt-figure" title={derivedFrom}>
                 {shortenFileName(derivedFrom, 30)}
               </span>
-              .{" "}
+              . Periksa sebelum kedua berkas dibuat.
             </>
           ) : (
-            <>Terbaca di nama berkas sumber. </>
-          )}
-          Periksa sebelum kedua berkas dibuat.
-        </p>
+            <>Terbaca di nama berkas sumber. Periksa sebelum kedua berkas dibuat.</>
+          ))}
+        </div>
       ) : changed ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-            Nama berkas memberi <span className="lt-figure">{derived}</span>.
+            {derivedLabel} memberi <span className="lt-figure">{derived}</span>.
           </p>
           <Btn onClick={() => onChange(derived)}>Pakai lagi {derived}</Btn>
         </div>
       ) : note ? (
-        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+        <div className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
           {note}
-        </p>
+        </div>
       ) : null}
     </div>
   );
@@ -665,13 +776,51 @@ export function ExportPanel({
   // while the Berkas phase is open and unmounted when the operator leaves it.
   // A dokumen tambahan is taken on Periksa, so its file name is already in
   // `run.sources` before this component exists.
+  /*
+   * JENIS ORDER, READ OFF THE PAGES THIS RUN ALREADY HOLDS.
+   *
+   * `resolveJenisOrder` is pure: no filesystem, no model call, no request, so
+   * this costs nothing at render time and needs no button to spend. `flag` and
+   * `env` stay undefined because a browser has neither, and `orderRequest`
+   * will stay undefined until the ingest path accepts one, so in practice this
+   * answers `documents`, `inferred`, `conflict` or `none`.
+   *
+   * `pageInDoc` is `StoredPage.index`, the page's 0-based number WITHIN ITS
+   * OWN SOURCE, which is what the resolver's own callers pass. It renders as
+   * `p1` for the first page because the label adds one; the field stays an
+   * index because every caller uses it to look something up.
+   */
+  const jenisPages = useMemo<JenisOrderPage[]>(() => {
+    const nameOf = new Map(run.sources.map((s) => [s.id, s.name]));
+    return run.pages.map((page) => ({
+      sourceName: nameOf.get(page.sourceId) ?? "",
+      pageInDoc: page.index,
+      lines: page.lines,
+    }));
+  }, [run.pages, run.sources]);
+
+  const jenis = useMemo(
+    () => resolveJenisOrder({ pages: jenisPages }),
+    [jenisPages],
+  );
+
   const [header, setHeader] = useState<HeaderFields>({
     idEpic: derived.idEpic,
     quote: derived.quote,
     namaProyek: "",
     cc: "",
     order: "",
-    jenisOrder: AO_TEMPLATE.id,
+    /*
+     * NO DEFAULT. This used to seed `AO_TEMPLATE.id`, so every run arrived
+     * with a confident "AO" in a cell that goes into a document a validator
+     * signs, whether or not any document said so. That is the same shape as
+     * the printed option menu with nothing ticked being read as a filled AO,
+     * except done to ourselves: a filled field does not ask to be filled, so
+     * an operator working a Modify Order had to notice a value that already
+     * looked answered. `resolveJenisOrder` says outright that it has no
+     * default, and neither does this.
+     */
+    jenisOrder: jenis.value,
   });
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -1015,9 +1164,17 @@ export function ExportPanel({
             label="Jenis Order"
             value={header.jenisOrder}
             onChange={(value) => set({ jenisOrder: value })}
-            fallback={AO_TEMPLATE.id}
+            derived={jenis.value}
+            originMarker={JENIS_MARKER[jenis.origin]}
+            derivedMarker={JENIS_MARKER[jenis.origin]}
+            derivedLabel="Dokumen"
+            derivedNote={<JenisNote jenis={jenis} />}
             list="jenis-order"
-            note="AO mengaktifkan layanan, MO mengubah, DO menghapus. Nilai ini bawaan aplikasi, bukan dibaca dari dokumen, jadi ubah bila order ini bukan AO."
+            /* Reached when the resolver answered "". Which of the three
+               silences it is decides where the operator goes next: `conflict`
+               sends them to two pages to choose between, `inferred` to one
+               page to read, and `none` nowhere, because nothing is printed. */
+            note={<JenisNote jenis={jenis} explainCodes />}
           />
           {/* A datalist, not a select: AO, MO and DO are the ones met so far
               and more exist, so a closed list would lock the operator out of a
