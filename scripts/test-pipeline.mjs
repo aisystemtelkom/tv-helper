@@ -1559,7 +1559,7 @@ import {
   outstandingFields,
   outstandingSlots,
   parseArgs,
-  rankedPool,
+  rankedPoolForDocTypes,
   satisfiedSlotKeys,
   searchRound,
   slotCropCount,
@@ -1621,7 +1621,7 @@ const foundZone = (pageIndex) => ({
   confidence: "high",
 });
 
-test("rankedPool offers every page, with the preferred docType's pages first", () => {
+test("rankedPoolForDocTypes offers every page, with the preferred docType's pages first", () => {
   const pages = [0, 1, 2, 3].map((i) => fakePage(i));
   const byType = new Map([
     ["KB", [2, 3]],
@@ -1629,7 +1629,7 @@ test("rankedPool offers every page, with the preferred docType's pages first", (
     ["BAPermintaan", [1]],
   ]);
 
-  const pool = rankedPool(["KB"], byType, pages);
+  const pool = rankedPoolForDocTypes(["KB"], byType, pages);
 
   // Ranked: the KB pages lead.
   assert.deepEqual(pool.slice(0, 2).map((p) => p.index), [2, 3]);
@@ -1643,15 +1643,15 @@ test("rankedPool offers every page, with the preferred docType's pages first", (
   );
 });
 
-test("rankedPool keeps every page when nothing was classified as the preferred type", () => {
+test("rankedPoolForDocTypes keeps every page when nothing was classified as the preferred type", () => {
   const pages = [0, 1].map((i) => fakePage(i));
 
   assert.deepEqual(
-    rankedPool(["KB"], new Map(), pages).map((p) => p.index),
+    rankedPoolForDocTypes(["KB"], new Map(), pages).map((p) => p.index),
     [0, 1],
   );
   assert.deepEqual(
-    rankedPool([null], new Map([["KB", [1]]]), pages).map((p) => p.index),
+    rankedPoolForDocTypes([null], new Map([["KB", [1]]]), pages).map((p) => p.index),
     [0, 1],
   );
 });
@@ -2038,7 +2038,7 @@ function wrongCustomerPool() {
   ];
 }
 
-/** Both pages classified, so `rankedPool` reorders rather than filters -- the
+/** Both pages classified, so `rankedPoolForDocTypes` reorders rather than filters -- the
  * document-agnostic shape, where the Email page is still in `cc`'s pool. */
 const WRONG_CUSTOMER_BY_TYPE = new Map([
   ["BAPermintaan", [0]],
@@ -2717,4 +2717,351 @@ test("isNameLike admits names and refuses anything whose identity is a number", 
   assert.equal(isNameLike("Rp 5.000.000"), false);
   assert.equal(isNameLike("10 Mbps"), false);
   assert.equal(isNameLike("Jl Contoh No 1 RT 002 RW 003"), false);
+});
+
+// ---------------------------------------------------------------------------
+// JENIS ORDER.
+//
+// `scripts/generate.mjs` used to ship `jenisOrder: AO_TEMPLATE.id`, so every
+// run put "AO" in a header cell a validator signs. The second client bundle
+// (2026-09-03 findings, section 1) is an MO. These tests pin the two halves of
+// the fix: the preference order between real sources, and the refusal to
+// invent one when none of them answers.
+// ---------------------------------------------------------------------------
+
+import {
+  jenisOrderCandidates,
+  outstandingHeaderFields,
+  resolveJenisOrder,
+} from "./generate.mjs";
+
+/** A page carrying only what the JENIS ORDER scan reads off one. */
+function textPage(texts, sourceName = "bundle.pdf", pageInDoc = 0) {
+  return {
+    sourceName,
+    pageInDoc,
+    lines: texts.map((text, i) => ({ i, text })),
+  };
+}
+
+test("resolveJenisOrder never defaults, and says so in a sentence an operator can act on", () => {
+  const nothing = resolveJenisOrder({});
+  // The whole point. "AO" here is the shipped bug.
+  assert.equal(nothing.value, "");
+  assert.equal(nothing.origin, "none");
+  assert.match(nothing.detail, /--jenis-order/);
+
+  // And a blank cell is reported by name rather than shipping silently: it has
+  // no fieldKey and no crop, so neither outstandingFields nor outstandingSlots
+  // can see it.
+  const reported = outstandingHeaderFields(nothing);
+  assert.equal(reported.length, 1);
+  assert.equal(reported[0].kind, "header");
+  assert.equal(reported[0].key, "jenisOrder");
+  assert.equal(reported[0].reason, nothing.detail);
+
+  // A resolved cell is not outstanding.
+  assert.deepEqual(
+    outstandingHeaderFields({ value: "MO", origin: "flag", detail: "" }),
+    [],
+  );
+});
+
+test("resolveJenisOrder prefers the operator, then the order request, then the documents", () => {
+  const pages = [textPage(["JENIS ORDER : AO"])];
+  const orderRequest = { jenisOrder: "DO" };
+
+  // Every source present: the flag wins, because it is the only one the
+  // operator can be told out of band.
+  assert.equal(
+    resolveJenisOrder({ flag: "MO", env: "RO", orderRequest, pages }).value,
+    "MO",
+  );
+  assert.equal(
+    resolveJenisOrder({ env: "RO", orderRequest, pages }).value,
+    "RO",
+  );
+  const fromRequest = resolveJenisOrder({ orderRequest, pages });
+  assert.equal(fromRequest.value, "DO");
+  assert.equal(fromRequest.origin, "order-request");
+
+  // The documents answer only when nothing better did, and the answer carries
+  // the page and line it was read off -- an inferred header cell nobody can
+  // check is worth less than a blank one.
+  const inferred = resolveJenisOrder({ pages });
+  assert.equal(inferred.value, "AO");
+  assert.equal(inferred.origin, "documents");
+  assert.match(inferred.detail, /bundle\.pdf p0 line 0/);
+
+  // An empty or whitespace-only override is not an answer, so it falls through
+  // instead of shipping a blank cell that claims to have been set by hand.
+  assert.equal(resolveJenisOrder({ flag: "   ", env: "", pages }).value, "AO");
+});
+
+test("resolveJenisOrder blanks a JENIS ORDER two documents disagree about", () => {
+  const pages = [
+    textPage(["JENIS ORDER : MO"], "renewal.pdf"),
+    textPage(["Jenis Order: AO"], "base-agreement.pdf", 4),
+  ];
+
+  // A renewal's base agreement naming the ORIGINAL activation reads exactly
+  // like an answer. Picking either one is the failure this project is
+  // organised against, so both are named and the cell ships blank.
+  const conflict = resolveJenisOrder({ pages });
+  assert.equal(conflict.value, "");
+  assert.equal(conflict.origin, "conflict");
+  assert.match(conflict.detail, /MO on renewal\.pdf p0/);
+  assert.match(conflict.detail, /AO on base-agreement\.pdf p4/);
+  assert.equal(outstandingHeaderFields(conflict).length, 1);
+
+  // The same value printed twice is one answer, not a disagreement.
+  assert.equal(
+    resolveJenisOrder({
+      pages: [textPage(["JENIS ORDER : MO"]), textPage(["Jenis order MO"])],
+    }).value,
+    "MO",
+  );
+});
+
+test("jenisOrderCandidates refuses a printed list of options and reports what it saw", () => {
+  // A blank form's menu. Taking its first token would fill the cell with "AO"
+  // on every bundle regardless of the order -- the same confidently-wrong
+  // shape as the hard-coded line, sourced from a document instead.
+  for (const menu of [
+    "JENIS ORDER : AO / MO / DO",
+    "Jenis Order: AO/MO/DO",
+    "JENIS ORDER : AO, MO, DO",
+    // EVERY SEPARATOR, not just punctuation. The first guard here matched `/`,
+    // `|` and `,` immediately after the first code, so it recognised the menu
+    // under one punctuation class out of several: all five spellings below
+    // resolved to a confident {value:"AO", origin:"documents"} carrying a page
+    // and line citation that made it read as verified. The first is what an
+    // unticked tick-box row OCRs to, which is the case the guard's own
+    // docstring says it exists for.
+    "JENIS ORDER    AO    MO    DO",
+    "JENIS ORDER : AO   MO   DO",
+    "Jenis Order : AO ( ) MO ( ) DO ( )",
+    "JENIS ORDER : AO - MO - DO",
+    "JENIS ORDER : AO atau MO",
+  ]) {
+    const [candidate] = jenisOrderCandidates([textPage([menu])]);
+    assert.equal(candidate.value, "", menu);
+    assert.ok(candidate.raw.startsWith("AO"), menu);
+  }
+
+  // ... and the operator is told the label was there and what stood beside it,
+  // which is what turns a blank cell into a question answerable in one look.
+  const seen = resolveJenisOrder({
+    pages: [textPage(["JENIS ORDER : AO / MO / DO"])],
+  });
+  assert.equal(seen.value, "");
+  assert.match(seen.detail, /label was found/);
+  assert.match(seen.detail, /AO \/ MO \/ DO/);
+
+  // A label with nothing beside it is not a candidate at all.
+  assert.deepEqual(jenisOrderCandidates([textPage(["JENIS ORDER :"])]), []);
+  assert.deepEqual(jenisOrderCandidates([textPage(["ID EPIC : LOP999001"])]), []);
+});
+
+test("jenisOrderCandidates reads the spellings the two bundles actually print", () => {
+  const read = (text) => jenisOrderCandidates([textPage([text])])[0]?.value;
+
+  assert.equal(read("JENIS ORDER : MO"), "MO");
+  assert.equal(read("Jenis Order MO"), "MO");
+  assert.equal(read("JENISORDER: mo"), "MO");
+  // Bundle two's order request spells the label with a parenthetical. Without
+  // that branch the value beside it fails the code shape and is thrown away.
+  assert.equal(read("Jenis order (yang diminta) MO"), "MO");
+  // A code followed by its expansion is still that code.
+  assert.equal(read("JENIS ORDER : MO (Modify Order)"), "MO");
+  // The code set is open, so an unfamiliar one is read rather than dropped:
+  // a closed list would silently blank a real order type. Two or three
+  // upper-case letters is the shape of an abbreviation, which is as much as
+  // can be checked without one.
+  assert.equal(read("JENIS ORDER : RO"), "RO");
+  assert.equal(read("JENIS ORDER MO"), "MO");
+  assert.equal(read("Jenis order (yang diminta) : MO"), "MO");
+  assert.equal(read("JENIS ORDER : AO (Activation Order)"), "AO");
+});
+
+test("jenisOrderCandidates refuses an ordinary heading that happens to carry the label", () => {
+  const read = (text) => jenisOrderCandidates([textPage([text])])[0]?.value;
+
+  // `JENIS_ORDER_CODE` accepts any two-to-four letter word, so before the
+  // shape and trailer guards each of these put an Indonesian conjunction or
+  // adjective in a header cell a validator signs -- with origin "documents"
+  // and a page-and-line citation, and reported outstanding nowhere, because
+  // `outstandingHeaderFields` returns [] whenever the value is non-empty.
+  // Measured then: "DAN", "YANG", "YANG", "BARU" in that order.
+  assert.equal(read("JENIS ORDER DAN LAYANAN"), "");
+  assert.equal(read("JENIS ORDER YANG DIMINTA"), "");
+  assert.equal(read("Jenis order yang diminta"), "");
+  assert.equal(read("Jenis Order Baru"), "");
+
+  // The spec quotes bundle two's request column as "Jenis order (yang
+  // diminta)"; the same wording WITHOUT the parentheses is prose, so the
+  // value after it ships blank-and-asked rather than as "YANG". A real MO is
+  // lost here, and that is the trade: the operator sees the raw text in the
+  // outstanding report and answers with one flag, where the old behaviour
+  // shipped a conjunction nobody was ever asked about.
+  const prose = resolveJenisOrder({
+    pages: [textPage(["Jenis Order yang diminta : MO"])],
+  });
+  assert.equal(prose.value, "");
+  assert.match(prose.detail, /label was found/);
+  assert.match(prose.detail, /yang diminta : MO/);
+  assert.equal(outstandingHeaderFields(prose).length, 1);
+
+  // And the second-order cost of the old behaviour: a prose false positive
+  // anywhere in the bundle turned a correctly-read MO into a disagreement and
+  // blanked a cell that was right. It now reads MO.
+  assert.equal(
+    resolveJenisOrder({
+      pages: [
+        textPage(["Jenis order yang diminta"], "request.pdf"),
+        textPage(["JENIS ORDER : MO"], "form.pdf"),
+      ],
+    }).value,
+    "MO",
+  );
+});
+
+test("parseArgs takes --jenis-order and refuses a value that is another option", () => {
+  assert.equal(parseArgs(["package.json"]).jenisOrder, undefined);
+  assert.equal(
+    parseArgs(["package.json", "--jenis-order", " MO "]).jenisOrder,
+    "MO",
+  );
+
+  // `--jenis-order --out dir` has no filesystem check to catch it downstream:
+  // unguarded it would print "--out" in the header cell and exit 0.
+  assert.throws(
+    () => parseArgs(["package.json", "--jenis-order", "--out", "somewhere"]),
+    /--jenis-order needs a value/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--jenis-order"]),
+    /--jenis-order needs a value/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A VALUE WITH NOWHERE TO LAND.
+//
+// `buildXlsx` keys values by fieldKey and walks `template.xlsxRows`, so a key
+// with no row is simply never written. `AO_TEMPLATE` declares four
+// fieldKey-bearing rows; `REQUEST_COLUMN_FIELD_KEYS` maps sixteen columns. The
+// drop used to be silent in all three places an operator looks, while the run
+// log and `report.orderRequest.answered` both presented the key as answered.
+// ---------------------------------------------------------------------------
+
+import { unmappedFieldValues } from "./generate.mjs";
+
+const requestValue = (fieldKey, value) => ({
+  fieldKey,
+  value,
+  requestSource: {
+    file: "request.xlsx",
+    sheet: "Sheet1",
+    rows: [3],
+    column: "K",
+    header: "Term of Payment",
+  },
+});
+
+test("unmappedFieldValues names exactly the values the workbook cannot carry", async () => {
+  const values = [
+    // Backed by an xlsxRow in AO_TEMPLATE, so it lands and is not reported.
+    requestValue("alamat", "Jl Contoh 1"),
+    // No row anywhere in the form. Measured before this guard: the run logged
+    // it as a shipped value, listed it under orderRequest.answered, and the
+    // workbook carried no such cell.
+    requestValue("termOfPayment", "Monthly postpaid"),
+    requestValue("bandwidth", "172 Mbps"),
+  ];
+
+  const outstanding = unmappedFieldValues(AO_TEMPLATE, values);
+  assert.deepEqual(
+    outstanding.map((entry) => entry.key),
+    ["termOfPayment", "bandwidth"],
+  );
+  assert.equal(outstanding[0].kind, "unmapped");
+  // The reason has to carry the value itself: the workbook does not, so this
+  // report is the only place the operator can read what was found.
+  assert.match(outstanding[0].reason, /Monthly postpaid/);
+  assert.match(outstanding[0].reason, /no xlsx row/);
+  // And where it came from, so they know which input to fix.
+  assert.match(outstanding[0].reason, /order request \(K, "Term of Payment"\)/);
+
+  // The claim is measured against the exporter rather than asserted: every
+  // key this function does NOT report is a key that reaches column E, and
+  // every key it does report reaches no cell at all.
+  const workbook = new exceljs.Workbook();
+  await workbook.xlsx.load(await buildXlsx(AO_TEMPLATE, values));
+  const columnE = [];
+  workbook.getWorksheet("Order Config").eachRow((row) => {
+    const text = String(row.getCell(5).value ?? "");
+    if (text !== "") columnE.push(text);
+  });
+  assert.ok(columnE.includes("Jl Contoh 1"));
+  assert.ok(!columnE.includes("Monthly postpaid"));
+  assert.ok(!columnE.includes("172 Mbps"));
+});
+
+test("unmappedFieldValues reports nothing for a blank or a blanked conflict", () => {
+  // A blanked conflict was never going to fill a cell and is already reported
+  // on its own CONFLICT line; counting it here would report one gap twice and
+  // as the wrong kind.
+  assert.deepEqual(
+    unmappedFieldValues(AO_TEMPLATE, [
+      { fieldKey: "termOfPayment", value: "", conflict: ["a", "b"] },
+      { fieldKey: "bandwidth", value: "   " },
+    ]),
+    [],
+  );
+
+  // One entry per key, not one per value: a key answered by two rows of a
+  // multi-service request is one gap.
+  const twice = unmappedFieldValues(AO_TEMPLATE, [
+    requestValue("layanan", "METRO E"),
+    requestValue("layanan", "METRO E"),
+  ]);
+  assert.equal(twice.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// --template: the docx path that keeps the form's header, theme, Normal style
+// and table borders (2026-09-03 findings, section 3).
+// ---------------------------------------------------------------------------
+
+import { manifestPathFor } from "./generate.mjs";
+
+test("parseArgs takes --template and finds its manifest beside it", () => {
+  assert.equal(parseArgs(["package.json"]).templatePath, undefined);
+
+  // The manifest is DERIVED, never asked for separately: a second flag is a
+  // second thing to get wrong, and a manifest from a different form's
+  // template pairs positionally with this one's rows.
+  assert.equal(
+    manifestPathFor("/x/Form_Validasi.template.docx"),
+    "/x/Form_Validasi.template.json",
+  );
+  assert.equal(manifestPathFor("/x/Form.template.DOCX"), "/x/Form.template.json");
+
+  // Both halves are checked at parse time rather than at the export, which is
+  // thousands of model tokens and several minutes downstream.
+  assert.throws(
+    () => parseArgs(["package.json", "--template", "no-such-form.template.docx"]),
+    /no such file: /,
+  );
+  // package.json exists, so this gets past the docx check and fails on the
+  // manifest -- which is the message that has to say where the file goes.
+  assert.throws(
+    () => parseArgs(["package.json", "--template", "package.json"]),
+    /--template needs its manifest beside it/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--template"]),
+    /--template needs a docx/,
+  );
 });

@@ -27,7 +27,7 @@ import {
   createProposeHandler,
   parseProposeBody,
   proposeZones,
-  rankedPool,
+  rankedPoolForSlot,
   type WirePage,
 } from "./handler.ts";
 
@@ -251,7 +251,7 @@ test("ranking is a preference, never a filter: every page stays in the pool", ()
   ];
   const byType = new Map([["SP" as const, new Set([2])]]);
 
-  const pool = rankedPool(
+  const pool = rankedPoolForSlot(
     { key: "k", label: "L", docType: "SP", hint: "h", fillable: true },
     pages,
     byType,
