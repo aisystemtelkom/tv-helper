@@ -149,6 +149,65 @@ test("an admitted caller sending within-source page numbers gets a 400, not a se
   );
 });
 
+test("a malformed line is refused before the credential is spent", async () => {
+  // The route used to check `Array.isArray(page.lines)` and nothing more,
+  // while checking the page NUMBERING contract twice and very carefully. But
+  // the whole pipeline counts in lines: the locate prompt numbers them, the
+  // model answers with a range of them, and `boxForLineRange` turns that
+  // range back into the rectangle a validator signs. A page whose lines are
+  // numbered any other way, or whose box is NaN or off the page, buys a full
+  // search and returns a plausible citation of the wrong text.
+  const reached: unknown[] = [];
+  const handler = createProposeHandler({
+    gate: admits,
+    search: async (body) => {
+      reached.push(body);
+      return { proposals: [], outstanding: [] };
+    },
+    unreachable: () => new Response("unreachable", { status: 503 }),
+  });
+
+  const broken: [string, WirePage][] = [
+    [
+      "a gap in the line numbering",
+      { ...wirePage(0, "a", "one"), lines: [line(0, "first", 200), line(2, "third", 260)] },
+    ],
+    [
+      "a NaN box",
+      {
+        ...wirePage(0, "a", "one"),
+        lines: [{ i: 0, text: "first", box: { x: NaN, y: NaN, w: NaN, h: NaN }, words: [] }],
+      },
+    ],
+    [
+      "a box off the page",
+      {
+        ...wirePage(0, "a", "one"),
+        lines: [{ i: 0, text: "first", box: { x: 0, y: 0, w: 9999, h: 40 }, words: [] }],
+      },
+    ],
+    [
+      "lines out of reading order",
+      { ...wirePage(0, "a", "one"), lines: [line(0, "lower", 900), line(1, "upper", 100)] },
+    ],
+    [
+      "no page size to bound the boxes against",
+      { ...wirePage(0, "a", "one"), width: 0, height: 0 },
+    ],
+  ];
+
+  for (const [what, page] of broken) {
+    const response = await handler(
+      proposeRequest({ runId: "r", wanted: [], pages: [page] }),
+    );
+    assert.equal(response.status, 400, what);
+  }
+
+  // The point is not the status code but that nothing was searched: every one
+  // of these arrived past the gate and stopped before a token was spent.
+  assert.deepEqual(reached, []);
+});
+
 /* ------------------------------------------------- the page-numbering guard */
 
 test("a page numbered within its own source is refused, not searched", () => {

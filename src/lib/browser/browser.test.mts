@@ -246,6 +246,12 @@ test("ingestPdf walks every page in order and reports progress per page", async 
       loadDocument: async () => document,
       makeContext: nodeContext,
       dpi: 72,
+      // At 1 the pool degenerates to the loop this used to be, and the exact
+      // event sequence below is the assertion that it degenerates EXACTLY:
+      // one page rendered, OCR'd, released and freed before the next is even
+      // fetched. The default is 4; the ordering test after this one is what
+      // covers that.
+      concurrency: 1,
       ocr: async (rendered) => {
         events.push(`ocr:${rendered.width}x${rendered.height}`);
         return [
@@ -293,56 +299,170 @@ test("ingestPdf walks every page in order and reports progress per page", async 
   );
 
   // Strictly one page at a time, and every page released. Holding pages would
-  // cost a gigabyte on a real 29-page bundle: 2480x3507 RGBA is about 35MB.
+  // cost a gigabyte on a real 29-page bundle: 2480x3507 RGBA is about 33MB.
+  //
+  // `cleanup` now comes BEFORE `onPage` rather than after it. The page proxy
+  // is dropped the moment its lines are back, because the release step is
+  // outside the page's lifetime entirely -- it has to be, since under
+  // concurrency the page being released is usually not the page that just
+  // finished. Nothing downstream reads the proxy after OCR, and holding it
+  // across a persist that can take as long as it likes is the one thing worth
+  // not doing.
   assert.deepEqual(events, [
     "getPage:1",
     "render:1",
     "ocr:200x100",
-    "onPage:0",
     "cleanup:1",
+    "onPage:0",
     "getPage:2",
     "render:2",
     "ocr:200x100",
-    "onPage:1",
     "cleanup:2",
+    "onPage:1",
     "getPage:3",
     "render:3",
     "ocr:100x200",
-    "onPage:2",
     "cleanup:3",
+    "onPage:2",
     "destroy",
   ]);
 });
 
-test("ingestPdf awaits onPage before starting the next page", async () => {
-  // The caller persists inside onPage. If the loop raced ahead, a page could
-  // be written after a later one and IndexedDB would hold them out of order,
-  // which silently repoints every Zone.pageIndex.
-  const { document } = fakeDocument([
-    { w: 10, h: 10 },
-    { w: 10, h: 10 },
-  ]);
+test("ingestPdf releases pages in ascending index even when OCR finishes backwards", async () => {
+  // THE WRONG-PAGE TEST, and the reason it is stated in this shape.
+  //
+  // This used to assert `inFlight === 1` around a strictly serial loop, which
+  // a concurrent pool could be made to pass by simply never overlapping the
+  // work. That would test nothing: the hazard is not overlapping callbacks,
+  // it is ARRIVAL ORDER. The caller persists inside onPage, `runtime.ts`
+  // appends each page to the end of `run.pages` in arrival order, and
+  // `Zone.pageIndex` is a position in that array -- so one page released out
+  // of turn repoints every zone in the run at a different scan and ships a
+  // docx that opens fine with a crop of the wrong page in it.
+  //
+  // So the fake OCR finishes the pages BACKWARDS -- the last page first, page
+  // 0 dead last -- which is the arrival order that would break everything,
+  // and the assertions are that onPage still sees 0..5 in order, that two
+  // calls never overlap, and that the pool really did run pages in parallel.
+  // Without that last check a serial implementation would pass silently.
+  const pageCount = 6;
+  const concurrency = 3;
+  const { document } = fakeDocument(
+    Array.from({ length: pageCount }, () => ({ w: 10, h: 10 })),
+  );
 
-  let inFlight = 0;
-  const order: number[] = [];
+  let started = 0;
+  let ocrInFlight = 0;
+  let maxOcrInFlight = 0;
+  let onPageInFlight = 0;
+  const released: { index: number; done: number; total: number }[] = [];
 
   await ingestPdf(
     {
       loadDocument: async () => document,
       makeContext: nodeContext,
       dpi: 72,
-      ocr: async () => [],
+      concurrency,
+      ocr: async () => {
+        // The later the page, the sooner its OCR answers. Timers rather than
+        // resolved promises because a microtask-only fake would drain in
+        // start order and never exercise the buffer at all.
+        const pageNumber = started++;
+        ocrInFlight += 1;
+        maxOcrInFlight = Math.max(maxOcrInFlight, ocrInFlight);
+        await new Promise((resolve) =>
+          setTimeout(resolve, (pageCount - pageNumber) * 10),
+        );
+        ocrInFlight -= 1;
+        return [];
+      },
     },
-    async (page) => {
-      inFlight += 1;
-      assert.equal(inFlight, 1, "two onPage callbacks overlapped");
+    async (page, done, total) => {
+      onPageInFlight += 1;
+      assert.equal(onPageInFlight, 1, "two onPage callbacks overlapped");
+      // A real caller writes to IndexedDB here, which takes as long as it
+      // takes; releasing the next page underneath that write is the failure
+      // this await stands in for.
       await new Promise((resolve) => setTimeout(resolve, 5));
-      order.push(page.index);
-      inFlight -= 1;
+      released.push({ index: page.index, done, total });
+      onPageInFlight -= 1;
     },
   );
 
-  assert.deepEqual(order, [0, 1]);
+  assert.deepEqual(
+    released.map((r) => r.index),
+    [0, 1, 2, 3, 4, 5],
+    "pages must be released in ascending index, whatever order OCR answers in",
+  );
+
+  // Progress counts released pages, so it stays 1:1 with what the caller has
+  // actually been handed rather than with how much work has finished.
+  assert.deepEqual(
+    released.map((r) => [r.done, r.total]),
+    [
+      [1, 6],
+      [2, 6],
+      [3, 6],
+      [4, 6],
+      [5, 6],
+      [6, 6],
+    ],
+  );
+
+  assert.equal(
+    maxOcrInFlight,
+    concurrency,
+    "the pool must actually run pages in parallel, or this test proves nothing",
+  );
+});
+
+test("a page that fails takes the ingest with it and releases no page past the gap", async () => {
+  // Page 1 fails while 2 and 3 succeed. They must NOT be released: releasing
+  // them would leave `run.pages` holding page 0, page 2 and page 3 at
+  // positions 0, 1 and 2, which is the silent repointing in its purest form.
+  const { document, events } = fakeDocument(
+    Array.from({ length: 4 }, () => ({ w: 10, h: 10 })),
+  );
+
+  let started = 0;
+  const released: number[] = [];
+
+  await assert.rejects(
+    ingestPdf(
+      {
+        loadDocument: async () => document,
+        makeContext: nodeContext,
+        dpi: 72,
+        concurrency: 4,
+        ocr: async () => {
+          const pageNumber = started++;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (pageNumber === 1) throw new Error("OCR blew up on page 1");
+          return [];
+        },
+      },
+      (page) => {
+        released.push(page.index);
+      },
+    ),
+    /OCR blew up on page 1/,
+  );
+
+  assert.ok(
+    released.every((index, position) => index === position),
+    `released pages must stay a prefix of the document, got ${released.join(",")}`,
+  );
+  assert.ok(!released.includes(2), "a page after the gap must not be released");
+
+  // Every page that was opened is still released, and so is the document:
+  // an in-flight render must not be torn down under a failure elsewhere.
+  for (let pageNumber = 1; pageNumber <= started; pageNumber++) {
+    assert.ok(
+      events.includes(`cleanup:${pageNumber}`),
+      `page ${pageNumber} was never cleaned up`,
+    );
+  }
+  assert.ok(events.includes("destroy"));
 });
 
 test("ingestPdf releases the document even when a page fails", async () => {

@@ -45,8 +45,11 @@ reviving it does not re-derive the same bugs.
 
 **There is no local fallback.** Ollama is not deployed to production, so it is
 not kept as a code path either. `GOOGLE_GENERATIVE_AI_API_KEY` is required and
-every entry point fails loudly without it. OCR, by contrast, is entirely local
-and needs no credential.
+every entry point fails loudly without it. **This now includes OCR**, which
+used to be the exception: recognition is a Gemini vision call, so a dev with no
+key can no longer ingest a document at all. `OCR_ENGINE=tesseract` keeps the
+local engine for the two scripts while it survives; the browser has no such
+switch and never will.
 
 ## The failure class this project cares about
 
@@ -104,27 +107,33 @@ into bugs:
   silently is worse than paying again. `GENERATE_FORCE=1` bypasses the OCR
   cache. **The gate harness caches the opposite way round; see below.**
 
-## THE COMMON PATH SENDS TEXT, NOT IMAGES
+## ONLY THE OCR STAGE SENDS IMAGES
 
 This is the single easiest thing to get wrong about this repo, and the cost
-tables below read backwards if you get it wrong.
+tables below read backwards if you get it wrong. **It inverted with the Gemini
+OCR migration; anything you remember about it from before is now wrong by
+roughly an order of magnitude.**
 
-- **`pnpm generate` and `pnpm measure:locate` upload zero images.** Classify,
-  locate, and extract are all text-only; `Ask` is typed
-  `(prompt: string) => Promise<string>` and there is no image parameter
-  anywhere in `src/lib/pipeline/`.
-- **`GEMINI_MEDIA_RESOLUTION` therefore costs the validator nothing.** It only
-  affects `/api/chat` (the surviving chat scaffolding) and the vision probes in
-  `pnpm smoke`. Tuning it to save money on a `generate` run tunes the wrong
-  lever and changes no bill.
-- **What actually drives validator cost is the size of the OCR listing.** One
-  locate call carries every page of one document type as numbered lines: about
-  17k input tokens for this bundle's KB contract. More pages of one doc type,
-  or more `layout: "table"` slots, multiplies that directly.
-- The per-image numbers in the cost table are still correct **for images**. They
-  are kept because the chat route and the smoke test still send images and
-  because the design's signature-block vision fallback is still on the table
-  (see Not built yet).
+- **Classify, locate and extract are still provably text-only.** `Ask` is typed
+  `(prompt: string) => Promise<string>` in `classify.ts` and has no image
+  parameter anywhere in `src/lib/pipeline/`. The image-capable
+  `AskImage` is declared in `gemini-ocr.ts` and nowhere else, precisely so this
+  stays confirmable by reading one line.
+- **OCR does send images: one rendered page image per page.** Under
+  `OCR_ENGINE=gemini`, `pnpm generate` and `pnpm measure:locate` each upload
+  ~29 page images for this bundle, and every browser ingest posts one per page
+  to `/api/ocr`.
+- **`GEMINI_MEDIA_RESOLUTION` is therefore the DOMINANT validator cost lever,
+  not a free one.** It used to affect only `/api/chat` and `pnpm smoke`; it now
+  bills roughly 1110 input tokens per page at HIGH, flat, times every page of
+  every bundle. The old text here said tuning it "changes no bill". That is
+  exactly backwards now.
+- **The other big driver is still the size of the OCR listing.** One locate
+  call carries every page of one document type as numbered lines: about 17k
+  input tokens for this bundle's KB contract. More pages of one doc type, or
+  more `layout: "table"` slots, multiplies that directly.
+- The per-image numbers in the cost table are correct and now apply to the
+  validator path as well as to the chat route and the smoke test.
 
 `pnpm generate` prints a `cost:` line with total calls and tokens, and every
 call logs `in= out= (thoughts=) total=` exactly as `/api/chat` does, so cost is
@@ -443,8 +452,9 @@ and looks for the same slots in any document.*
 ## What a request costs
 
 Measured against `gemini-3.5-flash`. **These per-image numbers apply to
-`/api/chat` and `pnpm smoke`, not to the validator pipeline, which sends no
-images at all.**
+every image path, INCLUDING the validator pipeline: since the Gemini OCR
+migration each page of a run is one image call, so multiply the per-image row
+by the bundle's page count (29 for the sample) before quoting a run cost.**
 
 | `mediaResolution` | prompt tokens / image | | `thinkingLevel` | thought tokens |
 |---|---|---|---|---|
@@ -463,11 +473,12 @@ cap.
 `MEDIA_RESOLUTION_HIGH` stays the default because anything that does send an
 image here is sending a dense scan, and `MEDIUM` halves the input cost by
 discarding exactly the detail that decides a verdict. Change it only with
-accuracy measured on real scans. It is still not the lever that moves a
-`pnpm generate` bill; see the section above.
+accuracy measured on real scans. It is now the LARGEST lever on a
+`pnpm generate` bill rather than no lever at all; see the section above.
 
 The three levers, all env-tunable so a deployment can trade accuracy for cost
-without editing code: `GEMINI_MEDIA_RESOLUTION` (images only),
+without editing code: `GEMINI_MEDIA_RESOLUTION` (images only, which since the
+OCR migration means every page of every run),
 `GEMINI_THINKING_LEVEL` (applies everywhere; `low` is the cheap win against
 Gemini's default of medium with no measured loss on field extraction), and
 `GEMINI_MAX_OUTPUT_TOKENS` (a runaway guard, not a budget: the model will

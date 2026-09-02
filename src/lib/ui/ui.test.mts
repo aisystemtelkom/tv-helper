@@ -220,6 +220,91 @@ test("a hand-drawn zone with no lines carries no line citation", () => {
   assert.doesNotMatch(cite.lines, /L 0/);
 });
 
+test("citeZone counts the cited lines whose box was sliced, not measured", () => {
+  // Gemini returns paragraph blocks, so a multi-line block's per-line boxes
+  // are equal vertical bands: the text is measured, the edges are arithmetic.
+  // The operator is the only reader who can judge whether the cut landed
+  // where the page actually breaks, so the count has to reach the plate.
+  const sliced = (i: number, y: number): Line => ({
+    ...line(i, `line ${i}`, { x: 0, y, w: 100, h: 20 }),
+    origin: "interpolated",
+  });
+  const measured = (i: number, y: number): Line => ({
+    ...line(i, `line ${i}`, { x: 0, y, w: 100, h: 20 }),
+    origin: "measured",
+  });
+  const run: BrowserRun = {
+    ...RUN,
+    pages: [
+      page("p0", "s1", 0, [
+        measured(0, 0),
+        sliced(1, 20),
+        sliced(2, 40),
+        // Outside the cited range: counting it would make the chip a
+        // property of the page rather than of this crop.
+        sliced(3, 60),
+      ]),
+      ...RUN.pages.slice(1),
+    ],
+  };
+
+  const cite = citeZone(run, {
+    pageIndex: 0,
+    box: { x: 0, y: 0, w: 100, h: 60 },
+    lineRange: [0, 2],
+  });
+  assert.ok(cite);
+  assert.equal(cite.lineCount, 3);
+  assert.equal(cite.interpolatedLines, 2);
+});
+
+test("lines with no recorded origin are never counted as sliced", () => {
+  // `Line.origin` is optional and undefined means NOT RECORDED: every run
+  // ingested before the Gemini migration reads back that way, and
+  // `StoredPage.lines` is persisted opaquely with no version check anywhere.
+  // Counting those as interpolated would put the chip on every capture of
+  // every old run -- the same permanent false alarm the `ambiguous` flag
+  // caused, on the same signal.
+  const run: BrowserRun = {
+    ...RUN,
+    pages: [
+      page("p0", "s1", 0, [
+        line(0, "first", { x: 0, y: 0, w: 100, h: 20 }),
+        line(1, "second", { x: 0, y: 20, w: 100, h: 20 }),
+      ]),
+      ...RUN.pages.slice(1),
+    ],
+  };
+
+  const cite = citeZone(run, {
+    pageIndex: 0,
+    box: { x: 0, y: 0, w: 100, h: 40 },
+    lineRange: [0, 1],
+  });
+  assert.ok(cite);
+  assert.equal(cite.interpolatedLines, 0);
+});
+
+test("a hand-drawn zone reports no sliced lines, because it cites none", () => {
+  const run: BrowserRun = {
+    ...RUN,
+    pages: [
+      page("p0", "s1", 0, [
+        { ...line(0, "first", { x: 0, y: 0, w: 100, h: 20 }), origin: "interpolated" },
+      ]),
+      ...RUN.pages.slice(1),
+    ],
+  };
+
+  const cite = citeZone(run, {
+    pageIndex: 0,
+    box: { x: 0, y: 0, w: 100, h: 40 },
+    lineRange: [NO_LINE_CITATION, NO_LINE_CITATION],
+  });
+  assert.ok(cite);
+  assert.equal(cite.interpolatedLines, 0);
+});
+
 test("sizeInInches converts pixels at the render DPI", () => {
   assert.equal(sizeInInches({ x: 0, y: 0, w: 600, h: 300 }), "2.0 x 1.0 in");
 });

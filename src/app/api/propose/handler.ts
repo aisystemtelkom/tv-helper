@@ -34,6 +34,7 @@ import {
   type Template,
 } from "../../../lib/forms/template.ts";
 import { classifyPages, type Ask, type DocType } from "../../../lib/pipeline/classify.ts";
+import { assertLinesWellFormed } from "../../../lib/pipeline/geometry.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import { locateSlot, type OcrPage, type Zone } from "../../../lib/pipeline/locate.ts";
 
@@ -235,12 +236,28 @@ export function rankedPool(
  *
  * `lineRange` covers every line the page has, so the citation the contact
  * sheet renders says so rather than claiming a region.
+ *
+ * THE RANGE IS WRITTEN FROM THE ARRAY LENGTH BUT READ BY LINE NUMBER, which
+ * only agrees while `lines[k].i === k`. `parseProposeBody` already ran
+ * `assertLinesWellFormed` over every page, so this is the second net rather
+ * than the first -- but it is the net at the point of use, and it costs one
+ * comparison. Without it a page numbered any other way cites a range that
+ * simply names different text than the rectangle covers: nothing throws,
+ * `boxForLineRange` is never called for a whole-page capture, and the
+ * citation under the picture is quietly wrong.
  */
 function wholePageZone(page: WirePage): Zone {
+  const last = page.lines.length - 1;
+  if (last >= 0 && page.lines[last].i !== last) {
+    throw new Error(
+      `page ${page.index}'s last line is numbered ${page.lines[last].i}, not ` +
+        `${last}: a whole-page citation is written from the array length`,
+    );
+  }
   return {
     pageIndex: page.index,
     box: { x: 0, y: 0, w: page.width, h: page.height },
-    lineRange: [0, Math.max(0, page.lines.length - 1)],
+    lineRange: [0, Math.max(0, last)],
   };
 }
 
@@ -503,6 +520,55 @@ export function parseProposeBody(value: unknown): ProposeBody {
       throw new Error("every page needs a numeric index and a sourceId");
     }
     if (!Array.isArray(page.lines)) throw new Error("every page needs lines");
+    // The page's own size, checked before the lines are, because
+    // `assertLinesWellFormed` bounds every box against it: `x + w > undefined`
+    // is false, so an absent width would make the on-page rule pass over
+    // anything at all. `wholePageZone` also writes these two numbers straight
+    // into a zone box, and a NaN box is the shape `cropToPng` used to encode
+    // as an empty picture.
+    if (
+      !Number.isFinite(page.width) ||
+      !Number.isFinite(page.height) ||
+      page.width <= 0 ||
+      page.height <= 0
+    ) {
+      throw new Error(
+        `page ${page.index} needs a positive width and height in pixels`,
+      );
+    }
+    // THE SHAPE OF A LINE, not just that lines exist. This route was careful
+    // about the page NUMBERING contract twice over and took a `Line` on trust,
+    // and the whole pipeline counts in lines: `locateSlot` numbers them for the
+    // model, the model answers with a range of them, and `boxForLineRange`
+    // turns that range back into the rectangle a validator ends up signing. A
+    // page whose lines are numbered any other way, or carry a NaN or an
+    // off-page box, produces a plausible citation of the wrong text. Checked
+    // HERE, before the gate lets anything spend the credential on it.
+    //
+    // WRAPPED SO THE MESSAGE NAMES THE PAGE AND THE WAY OUT. The bare rule
+    // ("lines[1].box is 0x12") is written for whoever is debugging a producer;
+    // what reaches an operator here is a 400 on a run they have already
+    // ingested, and the only two facts they can act on are which page is bad
+    // and that the fix is to re-ingest. A run stored before the Gemini
+    // migration can trip this -- the tesseract producer never validated its own
+    // boxes -- and re-ingesting is what such a run needs anyway, because zones
+    // measured by one engine and crops cut against another are the mixing this
+    // migration forbids.
+    //
+    // Deliberately still ALL-OR-NOTHING rather than degrading per page. Excusing
+    // one page would drop it from the search pool, and every slot that lives on
+    // it would then report "outstanding" -- searched and not found -- which is
+    // this route's own recorded failure class, and is exactly what the
+    // `AskFailed` distinction below exists to prevent.
+    try {
+      assertLinesWellFormed(page.lines, page.width, page.height);
+    } catch (error) {
+      throw new Error(
+        `page ${page.index} has unusable line geometry: ` +
+          `${error instanceof Error ? error.message : String(error)}. This run ` +
+          "cannot be searched as stored; remove it and add the documents again.",
+      );
+    }
   }
   // Checked HERE, before the gate spends anything, because a caller that
   // numbered its pages the other way would otherwise pay for a full search

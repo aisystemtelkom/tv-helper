@@ -1,8 +1,8 @@
 /**
  * The end-to-end generator: scanned PDFs in, a DOKUMEN VALIDASI docx and an
  * EPIC order-config xlsx out. This is the whole pipeline in one command --
- * render, OCR, classify, locate, crop, extract, export -- with no UI and no
- * browser involved.
+ * render, OCR, classify, locate, crop, extract, verify, export -- with no UI
+ * and no browser involved.
  *
  *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]... [--out dir]
  *
@@ -46,12 +46,34 @@
  *    conversation is a later plan's; this is the headless capability under
  *    it, and the CLI shape is provisional.
  *
+ * OCR runs on one of two engines, chosen by `OCR_ENGINE` (default
+ * "tesseract"; "gemini" sends each rendered page to the model as an image).
+ * The flag exists so a run on one engine can be diffed crop-by-crop against a
+ * run on the other; it is deliberately a SCRIPT flag only, never a browser
+ * one, because a runtime engine switch in the worker would let two geometry
+ * sources mix inside one bundle.
+ *
  * OCR results are cached in the system temp directory, keyed by the source
- * file's content hash plus page and DPI, because OCR-ing 29 300-DPI scans
- * takes minutes and is a pure function of the pixels. Model replies are
- * deliberately NOT cached: unlike OCR they are not a pure function of their
+ * file's content hash plus page, DPI AND ENGINE, because OCR-ing 29 300-DPI
+ * scans takes minutes (and, on Gemini, money) and is a pure function of the
+ * pixels for a fixed engine. The engine tag is not decoration: content
+ * addressing alone made this cache hazard-free only while there was one
+ * engine, and without the tag the same bytes would hit a tesseract-written
+ * entry forever on a Gemini run -- which would look both fast AND correct,
+ * the most convincing possible false positive. Model replies are deliberately
+ * NOT cached: unlike a transcription they are not a pure function of their
  * input, and a stale verdict served silently is worse than paying again.
  * Set GENERATE_FORCE=1 to bypass the OCR cache.
+ *
+ * Every value bound for an xlsx cell is then RE-READ from a picture of the
+ * lines it cites, and a disagreement blanks the cell with both readings
+ * recorded instead of picking a winner (`src/lib/pipeline/verify.ts`;
+ * GENERATE_VERIFY=0 turns it off for a controlled A/B). It exists because
+ * Gemini confabulates small print confidently and repeatably at whole-page
+ * resolution while reading the same region perfectly as a crop. What it does
+ * NOT do is check that a crop shows the right region -- it compares text to
+ * text, so a picture of the wrong place agrees with itself. Only
+ * `pnpm measure:locate` measures where a zone landed.
  */
 
 import { createHash } from "node:crypto";
@@ -76,10 +98,17 @@ import {
   MAX_OUTPUT_TOKENS,
   MODEL_ID,
   MODEL_TARGET,
+  OCR_MAX_OUTPUT_TOKENS,
   chatModel,
+  isTransient,
   providerOptions,
 } from "../src/lib/model.ts";
 import { classifyPages } from "../src/lib/pipeline/classify.ts";
+import {
+  OCR_PROMPT_VERSION,
+  ocrPageWithGemini,
+  pageToPng,
+} from "../src/lib/pipeline/gemini-ocr.ts";
 import {
   deriveIdsFromFilenames,
   extractFields,
@@ -87,6 +116,7 @@ import {
 } from "../src/lib/pipeline/fields.ts";
 import { locateSlot } from "../src/lib/pipeline/locate.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
+import { verifyCitedValues } from "../src/lib/pipeline/verify.ts";
 import { DEFAULT_DPI, renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { cropToPng } from "../src/lib/export/crop.ts";
 import { buildDocx } from "../src/lib/export/docx.ts";
@@ -99,6 +129,94 @@ const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const TESSERACT_ASSETS = join(repoRoot, "public", "tesseract");
 const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-generate-ocr-cache.json");
 const FORCE_FRESH = process.env.GENERATE_FORCE === "1";
+
+/**
+ * The crop-level second pass, on unless `GENERATE_VERIFY=0` turns it off.
+ *
+ * On by default because it is the mitigation for the one measured failure this
+ * migration introduces -- confident, deterministic, invisible confabulation of
+ * small print at whole-page resolution -- and it costs about fifteen small
+ * calls a run. See `src/lib/pipeline/verify.ts`, and read its opening lines
+ * before quoting it as a correctness guarantee: it verifies VALUES, NOT CROPS.
+ *
+ * The switch exists for the controlled A/B this migration is judged on. A
+ * tesseract run and a Gemini run are diffed value by value, and a pass that
+ * blanks a cell on either side is a second variable moving in that diff. Turn
+ * it off to isolate the engine; leave it on for anything a validator sees.
+ */
+const VERIFY_VALUES = process.env.GENERATE_VERIFY !== "0";
+
+/**
+ * Which engine reads the pixels. Two scripts have this flag -- this one and
+ * `pnpm measure:locate` -- and nothing else does. The browser gets no runtime
+ * switch on purpose: mixing two engines' geometry inside one bundle is the
+ * wrong-and-quiet shape this project is organised against, and a browser
+ * revert is reverting the commit.
+ *
+ * An unknown value THROWS rather than falling back to the default. `gemeni`,
+ * `Gemini` or `gemini ` would otherwise run the whole bundle on tesseract
+ * while the operator believed they were measuring the model -- a silent
+ * answer to a question nobody asked.
+ */
+const OCR_ENGINE = process.env.OCR_ENGINE ?? "tesseract";
+if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
+  throw new Error(
+    `OCR_ENGINE=${OCR_ENGINE} is not an engine. Use "tesseract" (default) or "gemini".`,
+  );
+}
+
+/**
+ * Everything the cached text depends on, beyond the pixels themselves.
+ *
+ * The key used to be `${hash}:${dpi}:${page}` and that was genuinely
+ * hazard-free while tesseract was the only engine: different pixels, different
+ * key, and nothing else could change the answer. The moment the engine became
+ * a variable that stopped being true. An untagged key would serve
+ * tesseract-written lines to a Gemini run for as long as the temp file
+ * survives, and the run would print cache hits, finish in seconds and produce
+ * a plausible deliverable -- fast AND correct-looking, which is the hardest
+ * kind of wrong to notice.
+ *
+ * The model id is in the tag because a different model is a different reader
+ * of the same page, and `OCR_PROMPT_VERSION` is in it so that changing the
+ * prompt by a word invalidates every entry by construction rather than by
+ * somebody remembering to. `GENERATE_FORCE=1` still bypasses the lot.
+ */
+const OCR_ENGINE_TAG =
+  OCR_ENGINE === "gemini"
+    ? `gemini:${MODEL_ID}:${OCR_PROMPT_VERSION}`
+    : "tesseract";
+
+/**
+ * How many pages this script reads at once. Engine-dependent by default, and
+ * the difference is the point.
+ *
+ * On Gemini a page is a network round trip: the run spends nearly all of its
+ * wall clock waiting, so four in flight is four times the throughput for no
+ * extra CPU. 4 is the figure the migration probe measured its ~3.6s/page of
+ * model time at, and it matches `DEFAULT_CONCURRENCY` in
+ * `src/lib/browser/ingest.ts` so the two paths are comparable.
+ *
+ * On tesseract it stays 1. That engine is local wasm and already CPU-bound
+ * (measured at ~4.1s/page in Node), so a pool buys much less than it costs --
+ * and, more importantly, every tesseract run in this project is a BASELINE
+ * that a Gemini run is diffed against. Changing the tesseract path's timing
+ * and its peak memory in the same commit as the engine's would make that diff
+ * uninterpretable, which is the one thing the whole measurement sequence is
+ * organised to avoid. `OCR_CONCURRENCY=4` on the command line overrides it for
+ * anyone who wants to measure that separately.
+ *
+ * Whatever the number, pages are APPENDED in page order; see `ocrEveryPage`.
+ */
+const OCR_CONCURRENCY = Number(
+  process.env.OCR_CONCURRENCY ?? (OCR_ENGINE === "gemini" ? 4 : 1),
+);
+if (!Number.isInteger(OCR_CONCURRENCY) || OCR_CONCURRENCY < 1) {
+  throw new Error(
+    `OCR_CONCURRENCY=${process.env.OCR_CONCURRENCY} is not a page count. ` +
+      "Give it a whole number of pages, 1 or more.",
+  );
+}
 
 /** @napi-rs/canvas is the Node side of render.ts's injected CanvasFactory. */
 const nodeContext = (w, h) => createCanvas(w, h).getContext("2d");
@@ -162,33 +280,102 @@ async function askOnce(prompt) {
 }
 
 /**
- * Reads the SDK's own structured verdict instead of matching the message text.
+ * One OCR call: a page image in, the model's raw reply out.
  *
- * This is not a style preference. The first version of this function tested
- * `String(error)` for `503|429|unavailable|...`, and a real Gemini 503 got
- * past it and killed a run that had already spent 100k tokens: the message is
- * "This model is currently experiencing high demand. Spikes in demand are
- * usually temporary." -- no status code and no "unavailable" anywhere in
- * `String(error)`, because the code and the status live on the error object
- * (`statusCode: 503`, `isRetryable: true`) and in `responseBody`, neither of
- * which `toString()` includes. Measured on the real bundle, not imagined.
+ * The same `generateText` shape `askOnce` sends -- same provider options, same
+ * per-call timeout, same `maxRetries: 0` so the backoff below is the only one
+ * in the log -- with two deliberate differences.
  *
- * `AbortSignal.timeout` rejects with a DOMException carrying no status at all,
- * so that case is matched by name.
+ * 1. `OCR_MAX_OUTPUT_TOKENS`, not `MAX_OUTPUT_TOKENS`. The global 4096 is a
+ *    runaway guard for four-field JSON verdicts and stays that; a dense 300
+ *    DPI page was measured emitting 2554 output tokens of line list, so OCR
+ *    gets its own ceiling rather than raising everyone's.
+ * 2. ANY `finishReason` OTHER THAN `"stop"` THROWS, where the text path only
+ *    warns. That asymmetry is the whole point: a truncated locate reply fails
+ *    to parse loudly, so a warning is enough, but a short line list is still
+ *    valid JSON with fewer lines in it -- a silently short page, whose missing
+ *    lines are invisible to everything downstream, and which is then written
+ *    to the OCR cache and served on every subsequent run.
+ *
+ *    THE CONDITION IS `!== "stop"`, NOT `=== "length"`, and the difference is
+ *    load-bearing rather than pedantic. `length` is only the truncation this
+ *    was first written for; a `RECITATION` finish (measured arriving on 1 of 3
+ *    identical calls of one real contract page) and a content-filter finish
+ *    both map to reasons like `"other"` or `"content-filter"` and can carry
+ *    PARTIAL text. Nothing downstream can tell a short page from a sparse one.
+ *    `/api/ocr`'s route and the gate harness both spell it `!== "stop"`; the
+ *    three call sites must agree or a reader will assume they do.
+ *
+ * `image.bytes` goes on the wire as-is, as a `file` part rather than the
+ * `image` part the AI SDK deprecated in v7: the two were measured sending the
+ * identical request (same reply, same 1091 input tokens for the same PNG), but
+ * `image` logs a DeprecationWarning, and 29 of those a run is exactly the
+ * noise a real warning hides in.
+ *
+ * `providerOptions` carries `mediaResolution`, which used to cost the
+ * validator nothing because this script sent no images at all; on this path it
+ * is the dominant cost lever -- roughly 1110 input tokens per page at HIGH,
+ * flat, whatever the page's pixel dimensions.
+ *
+ * `label` only tags the log line. Two callers send images -- whole-page OCR and
+ * the crop-level verification pass -- and an invoice-sized run of identical
+ * `[generate ocr]` lines that is really two different jobs is a small lie in
+ * the one place cost is meant to be visible.
  */
-function isTransient(error) {
-  for (const err of [error, error?.cause]) {
-    if (!err) continue;
-    if (err.isRetryable === true) return true;
-    const status = err.statusCode;
-    if (typeof status === "number") {
-      if (status === 408 || status === 409 || status === 429 || status >= 500) {
-        return true;
-      }
-    }
-    if (err.name === "TimeoutError" || err.name === "AbortError") return true;
+async function askImageOnce(prompt, image, label = "ocr") {
+  const { text, usage, finishReason } = await generateText({
+    model: chatModel(),
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "file", data: image.bytes, mediaType: image.mediaType },
+        ],
+      },
+    ],
+    maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+    providerOptions,
+    abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    maxRetries: 0,
+  });
+
+  const thoughts = usage.outputTokenDetails?.reasoningTokens ?? 0;
+  cost.calls += 1;
+  cost.in += usage.inputTokens ?? 0;
+  cost.out += usage.outputTokens ?? 0;
+  cost.thoughts += thoughts;
+  cost.total += usage.totalTokens ?? 0;
+
+  console.log(
+    `    [generate ${label}] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
+      `out=${usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
+      `total=${usage.totalTokens ?? "?"} finish=${finishReason}`,
+  );
+
+  if (finishReason !== "stop") {
+    throw new Error(
+      `OCR stopped with finishReason="${finishReason}" and was not parsed. ` +
+        (finishReason === "length"
+          ? `It hit the ${OCR_MAX_OUTPUT_TOKENS}-token output cap, so this page's ` +
+            "line list is cut off part-way down the page. Raise " +
+            "GEMINI_OCR_MAX_OUTPUT_TOKENS if the page is legitimately this dense."
+          : "A reply that stopped for any reason other than finishing -- " +
+            "recitation, a content filter, or an unmapped provider reason -- can " +
+            "carry PARTIAL text, which is valid JSON with fewer lines in it.") +
+        " It is refused rather than parsed: a short line list reads downstream " +
+        "as a sparse page, nothing else in this run would catch it, and it " +
+        "would then be written to the OCR cache and served on every re-run.",
+    );
   }
-  return false;
+  if (!text.trim()) {
+    throw new Error(
+      `${MODEL_TARGET} returned no text for an OCR call (finishReason=${finishReason}). ` +
+        "An empty reply with an uncapped thinking budget usually means thinking " +
+        "spent the whole output allowance; GEMINI_THINKING_LEVEL is the knob.",
+    );
+  }
+  return text;
 }
 
 /**
@@ -198,25 +385,45 @@ function isTransient(error) {
  * failure is the one wrong answer this script must not give. The backoff is
  * longer than a chat request would justify because a full run is minutes of
  * OCR and six figures of tokens: waiting a minute beats redoing all of it.
+ *
+ * What counts as transient is `isTransient` in src/lib/model.ts, which reads
+ * the error OBJECT rather than its message -- it used to live here, and it
+ * moved to the provider boundary because reading provider error shapes is
+ * what that file is for and because the OCR route needs the same rule. Its
+ * docstring carries the 100k-token run a message-matching version cost.
+ *
+ * Shared by the text and image calls rather than copied, so there is one
+ * attempt count and one backoff curve to reason about: an OCR page is worth
+ * MORE retries than a slot, not fewer, because a page that gives up takes the
+ * whole run with it.
  */
-async function ask(prompt) {
+async function withRetries(what, attempt) {
   const attempts = 6;
   let lastError;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await askOnce(prompt);
+      return await attempt();
     } catch (err) {
       lastError = err;
       if (!isTransient(err) || i === attempts - 1) throw err;
       const backoffMs = Math.min(5000 * 2 ** i, 60_000);
       console.log(
-        `    [generate] transient error (${err.statusCode ?? err.name}), ` +
-          `retrying in ${backoffMs}ms: ${err.message}`,
+        `    [generate] transient error on the ${what} call ` +
+          `(${err.statusCode ?? err.name}), retrying in ${backoffMs}ms: ${err.message}`,
       );
       await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
   throw lastError;
+}
+
+async function ask(prompt) {
+  return withRetries("text", () => askOnce(prompt));
+}
+
+/** The `AskImage` every OCR call in this script is injected with. */
+async function askImage(prompt, image, label = "ocr") {
+  return withRetries("OCR", () => askImageOnce(prompt, image, label));
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +486,9 @@ export function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 // OCR cache. Keyed by the file's own content hash, not its path or mtime, so
 // the same bundle under a different name reuses the same work and an edited
-// file never serves a stale page.
+// file never serves a stale page -- and by the engine that wrote the entry, so
+// switching engines cannot serve one engine's text to the other's run. See
+// OCR_ENGINE_TAG above for why that second half is not optional.
 // ---------------------------------------------------------------------------
 
 async function loadCache() {
@@ -304,6 +513,44 @@ async function saveCache(cache) {
 // ---------------------------------------------------------------------------
 
 /**
+ * One page through the Gemini OCR path: encode, ask, convert, report.
+ *
+ * The conversion itself lives in `src/lib/pipeline/gemini-ocr.ts` and is
+ * shared verbatim with `/api/ocr`, so the browser and this script cannot drift
+ * into two different readings of the same reply. All this adds is the log line
+ * the operator judges the run by.
+ *
+ * `interpolated` is worth printing per page rather than only in aggregate.
+ * Gemini returns paragraph BLOCKS, not visual lines, so per-line boxes inside
+ * a multi-line block are sliced arithmetically rather than measured. A page or
+ * two of that is the expected case; a run where nearly every line is
+ * interpolated has quietly become "trust the model's block box with a 12px
+ * pad", which is a different design from the one that was measured, and the
+ * printed counts are how anybody would notice.
+ */
+async function ocrPageWithModel(rendered, sourceName, pageInDoc) {
+  const image = await pageToPng(rendered);
+  const { lines, report } = await ocrPageWithGemini(image, askImage);
+
+  console.log(
+    `    [generate ocr] ${sourceName} page ${pageInDoc}: ` +
+      `${(image.bytes.length / 1024 / 1024).toFixed(2)}MB png, ` +
+      `${report.blocks} blocks -> ${report.segments} bands -> ${report.lines} lines ` +
+      `(interpolated=${report.interpolatedLines}, dropped=${report.droppedEntries})`,
+  );
+  if (report.degraded) {
+    // Not fatal: `linesFromGeminiReply` throws outright when enough entries
+    // fail validation to mean the reply is in the wrong coordinate convention.
+    // What reaches here is a page that converted, with something about it worth
+    // a human's attention before its crops are signed.
+    console.warn(
+      `    [generate ocr] DEGRADED page: ${report.reasons.join("; ")}`,
+    );
+  }
+  return lines;
+}
+
+/**
  * Appends this round's pages to the run's global page list and returns just
  * the ones it added.
  *
@@ -312,52 +559,147 @@ async function saveCache(cache) {
  * renumber the pages round 1's zones already point at. `index` therefore
  * always equals the page's position in `pages`, which several helpers below
  * rely on.
+ *
+ * WHICH IS WHY THE POOL BELOW BUFFERS. Up to `OCR_CONCURRENCY` pages are read
+ * at once, and they finish in whatever order the model answers -- but they are
+ * pushed onto `pages` strictly in page order, because the push order IS the
+ * global page number. A page appended out of turn does not produce a
+ * mis-ordered list; it gives some other page's number to this one, and every
+ * zone, crop, citation and xlsx note that names a page number afterwards names
+ * the wrong page while looking entirely normal. Same reasoning, same shape, as
+ * `src/lib/browser/ingest.ts`; the two loops are deliberately alike.
+ *
+ * The cache write happens in that same ordered step rather than inside a
+ * worker, so concurrent pages cannot interleave two `writeFile`s of the whole
+ * cache object onto one path and leave truncated JSON behind.
  */
 async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
   const added = [];
 
   for (const sourceIndex of sourceIndexes) {
     const source = sources[sourceIndex];
-    for (let pageInDoc = 0; pageInDoc < source.doc.numPages; pageInDoc++) {
-      const key = `${source.hash}:${DEFAULT_DPI}:${pageInDoc}`;
-      let entry = FORCE_FRESH ? undefined : cache[key];
+    const total = source.doc.numPages;
+    const concurrency = Math.max(1, Math.min(OCR_CONCURRENCY, total));
 
-      if (entry) {
-        console.log(
-          `  ${source.name} page ${pageInDoc}: cached OCR, ${entry.lines.length} lines`,
-        );
-      } else {
-        const started = Date.now();
-        const page = await source.doc.getPage(pageInDoc + 1); // pdf.js is 1-based
-        const rendered = await renderPageUpright(page, DEFAULT_DPI, nodeContext);
-        const lines = await ocrToLines(rendered, "ind", {
-          langPath: TESSERACT_ASSETS,
-          gzip: true,
-          // Without this tesseract.js decompresses the vendored .traineddata.gz
-          // into process.cwd() and leaves it there.
-          cacheMethod: "none",
-        });
-        entry = { width: rendered.width, height: rendered.height, lines };
-        cache[key] = entry;
-        await saveCache(cache);
-        console.log(
-          `  ${source.name} page ${pageInDoc}: ${rendered.width}x${rendered.height}, ` +
-            `${lines.length} lines, ${((Date.now() - started) / 1000).toFixed(1)}s`,
-        );
-      }
+    /** Finished pages waiting for their turn, keyed by page-in-document. */
+    const ready = new Map();
+    /** The next page-in-document that may be appended. */
+    let nextToAppend = 0;
 
-      const page = {
-        source: sourceIndex,
-        sourceName: source.name,
-        pageInDoc,
-        index: pages.length, // the global page number every zone refers to
-        width: entry.width,
-        height: entry.height,
-        lines: entry.lines,
-      };
-      pages.push(page);
-      added.push(page);
+    // One chain, so the appends -- and the cache writes and log lines that go
+    // with them -- happen one at a time and in page order.
+    let appends = Promise.resolve();
+    function appendWhatIsReady() {
+      appends = appends.then(async () => {
+        for (;;) {
+          const done = ready.get(nextToAppend);
+          if (!done) return;
+          const pageInDoc = nextToAppend;
+          ready.delete(pageInDoc);
+          nextToAppend += 1;
+
+          if (done.fresh) {
+            cache[done.key] = done.entry;
+            await saveCache(cache);
+            console.log(
+              `  ${source.name} page ${pageInDoc}: ` +
+                `${done.entry.width}x${done.entry.height}, ` +
+                `${done.entry.lines.length} lines, ` +
+                `${(done.elapsedMs / 1000).toFixed(1)}s`,
+            );
+          } else {
+            console.log(
+              `  ${source.name} page ${pageInDoc}: cached OCR, ` +
+                `${done.entry.lines.length} lines`,
+            );
+          }
+
+          const page = {
+            source: sourceIndex,
+            sourceName: source.name,
+            pageInDoc,
+            index: pages.length, // the global page number every zone refers to
+            width: done.entry.width,
+            height: done.entry.height,
+            lines: done.entry.lines,
+          };
+          pages.push(page);
+          added.push(page);
+        }
+      });
+      return appends;
     }
+
+    // A shared cursor rather than a slice per worker: a cached page costs
+    // nothing and a fresh one costs seconds, so a fixed split would leave
+    // workers idle behind whichever one drew the uncached pages.
+    let nextToStart = 0;
+    let failure;
+
+    async function worker() {
+      while (failure === undefined) {
+        const pageInDoc = nextToStart;
+        if (pageInDoc >= total) return;
+        nextToStart += 1;
+
+        const key = `${source.hash}:${DEFAULT_DPI}:${pageInDoc}:${OCR_ENGINE_TAG}`;
+        const cached = FORCE_FRESH ? undefined : cache[key];
+
+        if (cached) {
+          ready.set(pageInDoc, { key, entry: cached, fresh: false });
+        } else {
+          const started = Date.now();
+          const page = await source.doc.getPage(pageInDoc + 1); // pdf.js is 1-based
+          try {
+            const rendered = await renderPageUpright(
+              page,
+              DEFAULT_DPI,
+              nodeContext,
+            );
+            const lines =
+              OCR_ENGINE === "gemini"
+                ? await ocrPageWithModel(rendered, source.name, pageInDoc)
+                : await ocrToLines(rendered, "ind", {
+                    langPath: TESSERACT_ASSETS,
+                    gzip: true,
+                    // Without this tesseract.js decompresses the vendored
+                    // .traineddata.gz into process.cwd() and leaves it there.
+                    cacheMethod: "none",
+                  });
+            ready.set(pageInDoc, {
+              key,
+              entry: { width: rendered.width, height: rendered.height, lines },
+              fresh: true,
+              elapsedMs: Date.now() - started,
+            });
+          } finally {
+            // pdf.js caches the page's operator list and its decoded images on
+            // the proxy, and `source.doc` stays open for the whole run, so
+            // without this the bundle's pixels accumulate inside pdf.js for
+            // pass 2 to sit on top of.
+            page.cleanup();
+          }
+        }
+
+        await appendWhatIsReady();
+      }
+    }
+
+    // `allSettled`, not `all`: `all` would return while other pages are still
+    // rendering, and the next source's pages would then be appended alongside
+    // stragglers from this one.
+    const settled = await Promise.allSettled(
+      Array.from({ length: concurrency }, async () => {
+        try {
+          await worker();
+        } catch (error) {
+          failure ??= error;
+          throw error;
+        }
+      }),
+    );
+    const rejected = settled.find((result) => result.status === "rejected");
+    if (rejected) throw rejected.reason;
   }
 
   return added;
@@ -618,6 +960,11 @@ export function outstandingSlots(template, zones, reasons = new Map()) {
   return outstanding;
 }
 
+/** The default `conflictReason`: what a conflict means when the entry does not
+ * say, which is `reconcileFieldValues`' own case. */
+const DISAGREEING_DOCUMENTS_REASON =
+  "found more than once and the answers disagree";
+
 /**
  * Every xlsx row a PDF is supposed to back that came back without a value.
  *
@@ -631,15 +978,21 @@ export function outstandingFields(template, values) {
       .map((value) => value.fieldKey),
   );
 
-  // A key `reconcileFieldValues` blanked because two documents disagreed is
-  // outstanding for a reason nobody could guess from "searched, not found" --
-  // it was found twice, and the answers were not the same thing. Naming both
-  // spellings here is what lets the operator settle it without rerunning the
-  // pipeline.
+  // A key blanked because two readings disagreed is outstanding for a reason
+  // nobody could guess from "searched, not found". Naming both readings here
+  // is what lets the operator settle it without rerunning the pipeline.
+  //
+  // There are two producers of a conflict and they mean different things:
+  // `reconcileFieldValues` blanks a key two DOCUMENTS answered differently,
+  // and `verifyCitedValues` blanks one whose crop re-read disagreed with the
+  // page reading -- found once, read twice. The entry carries its own
+  // `conflictReason` when it is not the first case, because printing "found
+  // more than once" over the second one is a false statement beside a blank
+  // cell, which the operator would act on and could not check.
   const conflicts = new Map(
     values
       .filter((value) => value.conflict?.length)
-      .map((value) => [value.fieldKey, value.conflict]),
+      .map((value) => [value.fieldKey, value]),
   );
 
   const outstanding = [];
@@ -656,7 +1009,7 @@ export function outstandingFields(template, values) {
       reason: NEVER_EXTRACTED.has(row.fieldKey)
         ? NEVER_EXTRACTED_REASON
         : conflict
-          ? `found more than once and the answers disagree (${conflict
+          ? `${conflict.conflictReason ?? DISAGREEING_DOCUMENTS_REASON} (${conflict.conflict
               .map((value) => JSON.stringify(value))
               .join(" vs ")}); ships blank until the operator picks one`
           : "searched, not found",
@@ -741,11 +1094,27 @@ export async function searchRound({
           `  ${slot.key}: whole page ${page.index} ` +
             `(${sourceLabel(page)}), no model call`,
         );
+        // THE RANGE IS WRITTEN FROM THE ARRAY LENGTH BUT READ BY LINE NUMBER,
+        // which only agrees while `lines[k].i === k`. This script never calls
+        // `assertLinesWellFormed`, and `boxForLineRange` -- which would throw
+        // on the count -- is never called for a whole-page capture, so this
+        // one comparison is the ONLY thing standing between a differently
+        // numbered page and a citation that quietly names different text than
+        // the picture above it shows. Same guard as `wholePageZone` in
+        // src/app/api/propose/handler.ts.
+        const last = page.lines.length - 1;
+        if (last >= 0 && page.lines[last].i !== last) {
+          throw new Error(
+            `page ${page.index} (${sourceLabel(page)}) has its last line ` +
+              `numbered ${page.lines[last].i}, not ${last}: a whole-page ` +
+              "citation is written from the array length",
+          );
+        }
         zones.push({
           key: slot.key,
           pageIndex: page.index,
           box: { x: 0, y: 0, w: page.width, h: page.height },
-          lineRange: [0, Math.max(0, page.lines.length - 1)],
+          lineRange: [0, Math.max(0, last)],
         });
       }
       continue;
@@ -828,7 +1197,17 @@ async function cutCrops(zones, pages, sources) {
     for (const { zone, position } of byPage.get(pageIndex)) {
       const widthPx = Math.round(zone.box.w);
       const heightPx = Math.round(zone.box.h);
-      const png = await cropToPng(rendered, zone.box);
+      // The dimensions the box was MEASURED against, which are not necessarily
+      // the ones it is being applied to: `rendered` above is a PASS 2
+      // re-render, while the zone was computed on pass 1's pixels or served
+      // from the OCR cache. Both use DEFAULT_DPI today, so this agrees; the
+      // point is that a DPI or `/Rotate` drift between the two passes would
+      // otherwise produce a clean picture of a region nobody chose, with
+      // nothing downstream able to tell.
+      const png = await cropToPng(rendered, zone.box, {
+        width: meta.width,
+        height: meta.height,
+      });
       filled[position] = { key: zone.key, png, widthPx, heightPx };
       console.log(
         `  ${zone.key}: page ${pageIndex}, ${widthPx}x${heightPx}px, ` +
@@ -1136,6 +1515,10 @@ async function main() {
   const { rounds, outDir } = parseArgs(process.argv.slice(2));
 
   console.log(`Model:  ${MODEL_TARGET}`);
+  // Named on every run, because which engine read the pixels is the first
+  // thing anyone comparing two runs' crops needs to know, and the deliverables
+  // themselves do not say.
+  console.log(`OCR:    ${OCR_ENGINE} (cache tag ${OCR_ENGINE_TAG})`);
   console.log(`OCR cache: ${OCR_CACHE_PATH}${FORCE_FRESH ? " (bypassed)" : ""}`);
   console.log();
 
@@ -1231,14 +1614,69 @@ async function main() {
     console.warn(`  extraction FAILED -- ${error.message}`);
     extractionError = error.message;
   }
+
+  // -------------------------------------------------------------------------
+  // The crop-level second pass, between extraction and the exporters.
+  //
+  // Every value that carries a validated citation is re-read from a picture of
+  // the very lines it cites, and a disagreement blanks the cell with both
+  // readings recorded rather than picking a winner. The whole argument, the
+  // probe numbers behind it, and -- read this part -- the plain statement that
+  // it verifies VALUES AND NOT CROPS live in src/lib/pipeline/verify.ts. A
+  // crop of the wrong region, re-read perfectly, agrees with itself; only
+  // `pnpm measure:locate` catches that, and this pass never makes the gate
+  // optional.
+  //
+  // It runs before the log loop below on purpose, so a cell blanked here is
+  // reported by the same CONFLICT line as one blanked by reconciliation and
+  // there is exactly one place a reader has to look for "why is this empty".
+  // -------------------------------------------------------------------------
+  /** @type {{ fieldKey: string, reason: string }[]} */
+  let unverified = [];
+  if (!VERIFY_VALUES) {
+    console.log("Crop verification is OFF (GENERATE_VERIFY=0).\n");
+  } else if (values.some((v) => v.source && !v.conflict?.length)) {
+    console.log("Verifying cited values against a re-read of their crops...");
+    const verified = await verifyCitedValues(values, pages, {
+      // Pass 2's re-render, once per distinct cited page. `verifyCitedValues`
+      // groups by page and holds one at a time, for the same reason the OCR
+      // pass drops its pixels: 33MB of RGBA each.
+      renderPage: async (pageIndex) => {
+        const meta = pages[pageIndex];
+        const page = await sources[meta.source].doc.getPage(meta.pageInDoc + 1);
+        return await renderPageUpright(page, DEFAULT_DPI, nodeContext);
+      },
+      ask: (prompt, image) => askImage(prompt, image, "verify"),
+      log: (line) => console.log(line),
+    });
+    values = verified.values;
+    unverified = verified.report.unverified;
+    console.log(
+      `  ${verified.report.checked} checked, ${verified.report.agreed} agreed, ` +
+        `${verified.report.disagreed} blanked on disagreement, ` +
+        `${unverified.length} not verified`,
+    );
+    // Loud, per value. An unverified value ships exactly as it would have
+    // before this pass existed -- an unreachable model is not evidence that a
+    // value is wrong -- so the only thing standing between it and a validator
+    // is this line and the summary count below.
+    for (const entry of unverified) {
+      console.warn(`  ${entry.fieldKey} NOT VERIFIED -- ${entry.reason}`);
+    }
+    console.log();
+  }
+
   for (const value of values) {
-    // A key the documents answered two incompatible ways ships blank with the
-    // rejected spellings named, so the operator sees a decision that was NOT
-    // made rather than an arbitrary winner. See reconcileFieldValues.
+    // A key two readings answered incompatibly ships blank with both readings
+    // named, so the operator sees a decision that was NOT made rather than an
+    // arbitrary winner. Two things produce that: reconcileFieldValues, when
+    // two documents disagree, and verifyCitedValues, when a crop re-read
+    // disagrees with the page reading. The entry says which.
     if (value.conflict?.length) {
       console.log(
-        `  ${value.fieldKey} = "" -- CONFLICT between ` +
-          `${value.conflict.map((v) => JSON.stringify(v)).join(" and ")}; ` +
+        `  ${value.fieldKey} = "" -- CONFLICT (` +
+          `${value.conflictReason ?? "found more than once and the answers disagree"}` +
+          `) between ${value.conflict.map((v) => JSON.stringify(v)).join(" and ")}; ` +
           "shipping blank",
       );
       continue;
@@ -1336,6 +1774,15 @@ async function main() {
   }
   console.log();
   console.log(`crops: ${filled.length} cut, ${values.length} text fields extracted`);
+  if (unverified.length > 0) {
+    // Repeated down here because the per-value warnings are thousands of lines
+    // up by now, and "how much of this workbook was never checked" is a thing
+    // the operator has to see before signing rather than scroll back for.
+    console.log(
+      `UNVERIFIED (${unverified.length}) -- shipped without a crop re-read: ` +
+        unverified.map((entry) => entry.fieldKey).join(", "),
+    );
+  }
 
   if (report.outstanding.length > 0) {
     console.log(

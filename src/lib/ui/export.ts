@@ -25,6 +25,14 @@ export type PlannedCrop = {
   label: string;
   pageId: string;
   box: Box;
+  /**
+   * The page size the zone's box was measured against, carried so `cropToPng`
+   * can refuse to cut it out of a re-render of a different size. Pixels are
+   * not stored, only OCR lines, so the bitmap this crop is taken from is a
+   * SECOND render of the same PDF page -- and a second render at another DPI
+   * would produce a perfectly good picture of the wrong region.
+   */
+  expect: { width: number; height: number };
   state: SlotState;
 };
 
@@ -80,6 +88,10 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
         label: slot.label,
         pageId: resolved.page.id,
         box: state.zone.box,
+        expect: {
+          width: resolved.page.widthPx,
+          height: resolved.page.heightPx,
+        },
         state,
       });
       cut += 1;
@@ -136,7 +148,11 @@ export async function buildDeliverables(
       for (const crop of crops) {
         cut.push({
           at: order.get(crop) ?? 0,
-          png: await cropToPng(rendered, crop.box),
+          // `crop.expect` is the size the zone was measured on. `rendered` is
+          // a fresh render of the same page, so handing both over is what
+          // turns a DPI or rotation drift into an error instead of a
+          // plausible picture of the wrong region.
+          png: await cropToPng(rendered, crop.box, crop.expect),
           crop,
         });
         done += 1;

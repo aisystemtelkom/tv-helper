@@ -2,23 +2,29 @@
  * The render-and-OCR Web Worker: the browser half of the headless pipeline
  * `pnpm generate` runs in Node.
  *
- * It exists because the work is measured in minutes. OCR of one real 300 DPI
- * page takes 4-5 seconds and a bundle is 29 pages, so doing this on the main
- * thread would freeze the tab for the whole run.
+ * It exists because the work is measured in minutes. Rendering a 300 DPI page
+ * and getting its text back takes seconds and a bundle is 29 pages, so doing
+ * this on the main thread would freeze the tab for the whole run.
  *
- * THE BROWSER MUST CONTACT NOTHING BUT THIS APP, and both libraries here
- * default to a CDN if you let them:
+ * THE BROWSER MUST CONTACT NOTHING BUT THIS APP, and that property SURVIVES the
+ * move to Gemini OCR even though "documents stay on the device" does not. The
+ * two were always separate claims and they are worth separating here:
  *
  *   - pdf.js keeps its bundled worker. `GlobalWorkerOptions.workerSrc` is
  *     resolved from the installed package through `new URL(..., import.meta.url)`
- *     so the bundler emits it as an app asset. It must never be a CDN URL.
- *   - tesseract.js reads the assets `scripts/vendor-ocr.mjs` copies into
- *     `public/tesseract`. Those paths come from `ocrAssetsFor()` in
- *     `src/lib/pipeline/ocr.ts`, which is also the file that documents why
- *     this worker used to get them silently wrong.
+ *     so the bundler emits it as an app asset. It must never be a CDN URL. This
+ *     rule is untouched by the OCR change: it is about third-party HOSTS in the
+ *     request path, not about where a document is processed.
+ *   - OCR is a POST of one rendered page image to THIS APP'S OWN `/api/ocr`,
+ *     which forwards it to the Gemini API server-side. The page image leaves
+ *     the device; the PDF does not, the credential never reaches the browser,
+ *     and the browser still talks to no host but this one.
  *
  * Verify with `performance.getEntriesByType("resource")` in the page: zero
- * external hosts, with a document ingested.
+ * external hosts, with a document ingested. That check still passes, and it is
+ * now a check about hosts only -- it says nothing about what those requests
+ * carry. `src/app/privacy/page.tsx` is the statement about that, and it was
+ * rewritten in the same commit as this route.
  *
  * This module is deliberately thin. Everything decidable is in `ingest.ts`,
  * which takes pdf.js and the canvas as arguments so `node --test` can drive
@@ -27,7 +33,8 @@
  */
 
 import * as pdfjs from "pdfjs-dist";
-import { ocrToLines } from "../pipeline/ocr.ts";
+import type { Line } from "../pipeline/geometry.ts";
+import { pageToPng } from "../pipeline/gemini-ocr.ts";
 import {
   DEFAULT_DPI,
   renderPageUpright,
@@ -78,8 +85,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
  * them, and no external host.
  *
  * The real consequence is only that PDF parsing shares this worker's thread
- * instead of getting one of its own, which is nothing next to the 40 seconds
- * a page costs in OCR. Setting `workerSrc` remains correct and required: the
+ * instead of getting one of its own, which is nothing next to the seconds a
+ * page costs to render and to have read. (This sentence used to name 40
+ * seconds a page, a figure the rest of the tree contradicted at four to five;
+ * neither was measured on the current engine, so it now names none.)
+ * Setting `workerSrc` remains correct and required: the
  * fake worker imports it, and pdf.js's own default is a CDN URL.
  */
 
@@ -214,10 +224,11 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
   const source = await getSource(sourceId);
   if (!source) {
     throw new Error(
-      `source ${sourceId} is not in this device's storage. Documents are ` +
-        "never uploaded, so a run opened in a different browser or profile " +
-        "has its OCR text but not its pages; the document has to be added " +
-        "again.",
+      `source ${sourceId} is not in this device's storage. The PDF itself is ` +
+        "never uploaded -- only a rendered page image goes to this app's own " +
+        "server for text recognition -- so a run opened in a different browser " +
+        "or profile has its OCR text but not its pages; the document has to be " +
+        "added again.",
     );
   }
 
@@ -262,10 +273,98 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
   return task.promise;
 }
 
-async function ocr(page: RenderedPage) {
-  // Indonesian: every document in this pipeline is one. `ocrToLines` supplies
-  // the vendored asset paths itself through `ocrAssetsFor()`.
-  return ocrToLines(page, "ind");
+/**
+ * The route's own words, whatever shape the failure took.
+ *
+ * THE SHAPE IS `{error, message, hint?, cause?}` AND `message` IS THE PROSE.
+ * `error` is a machine slug -- `"bad-request"`, `"unusable-reply"`,
+ * `"unauthenticated"`, `"model-unreachable"` -- and `message` is the sentence
+ * written to be read by an operator mid-ingest: which credential to check, and
+ * whether the pages already committed are still good. Reading `error` first
+ * showed the operator the bare token `bad-request` and threw away the
+ * explanation, which is the only part of the error worth having; it read as
+ * working because exactly one of the four failure statuses happened to carry
+ * its prose in `error`. `hint` is appended rather than replaced because it
+ * carries the reassurance the operator actually needs ("Nothing in your run has
+ * been changed"), which is a different sentence from the diagnosis.
+ *
+ * Falling back to `error` still matters: it is what a caller that only has the
+ * slug is left with, and a slug beats "OCR failed".
+ *
+ * A response that is not JSON is its own diagnosis and is reported as such: the
+ * one that matters is an HTML sign-in page, which is what a redirected
+ * unauthenticated request delivers where JSON was expected.
+ */
+async function messageFrom(res: Response): Promise<string> {
+  const where = `POST /api/ocr answered ${res.status}`;
+  if (res.redirected || !res.headers.get("content-type")?.includes("json")) {
+    return (
+      `${where} with ${res.headers.get("content-type") ?? "no content type"}` +
+      (res.redirected ? `, after a redirect to ${res.url}` : "") +
+      ". That is almost always a signed-out session: sign in again and re-add " +
+      "the document."
+    );
+  }
+  try {
+    const body = await res.json();
+    const cause = body?.cause ? ` (${body.cause})` : "";
+    const hint = body?.hint ? ` ${body.hint}` : "";
+    return `${body?.message ?? body?.error ?? where}${cause}${hint}`;
+  } catch {
+    return `${where} with a body that is not JSON.`;
+  }
+}
+
+/**
+ * OCR: the page's pixels to this app's own `/api/ocr`, and numbered lines back.
+ *
+ * THE ENTIRE BROWSER SIDE OF THE GEMINI OCR MIGRATION IS THIS FUNCTION, because
+ * `IngestDeps.ocr` was already `(page: RenderedPage) => Promise<Line[]>` and
+ * already injected. Three rules hold it in place:
+ *
+ *  1. NO FALLBACK TO A LOCAL ENGINE ON ERROR. There is no second OCR path here
+ *     and there must not be one: falling back on failure silently mixes two
+ *     engines' geometry inside one bundle, and turns a broken deploy into a
+ *     very slow run that nobody reports. A failure throws, and reaches the
+ *     operator through the `failed` protocol message.
+ *  2. `credentials: "same-origin"` is stated even though it is the default. A
+ *     dedicated worker's fetch carries the session cookie the same way the
+ *     page's does, and this route is inside `src/proxy.ts`'s matcher, so a
+ *     signed-out ingest is refused rather than silently unauthenticated.
+ *  3. THE DIMENSION ASSERTION IS NOT OPTIONAL. The server reads width and
+ *     height from the PNG's own IHDR and returns them; if they are not this
+ *     page's dimensions then OCR measured one coordinate space and every crop
+ *     will be cut from another. Everything downstream of that looks completely
+ *     normal -- boxes on the page, crops that render, a document that opens --
+ *     which is precisely why it is checked here and not trusted.
+ */
+async function ocr(page: RenderedPage): Promise<Line[]> {
+  const image = await pageToPng(page);
+
+  const res = await fetch(new URL("/api/ocr", location.origin), {
+    method: "POST",
+    headers: { "content-type": "image/png" },
+    // `BodyInit` insists on an ArrayBuffer-backed view, while `Uint8Array` on
+    // its own widens to `ArrayBufferLike` (which includes SharedArrayBuffer).
+    // Both producers in `pageToPng` -- `encodePng` and `convertToBlob` -- hand
+    // back plain ArrayBuffer-backed bytes, so this narrows a fact that already
+    // holds rather than asserting a new one. Same reason as the `ImageData`
+    // narrowing inside `pageToPng` itself.
+    body: image.bytes as Uint8Array<ArrayBuffer>,
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new Error(await messageFrom(res));
+
+  const body = await res.json();
+  if (body.width !== page.width || body.height !== page.height) {
+    throw new Error(
+      `OCR measured ${body.width}x${body.height}, page is ${page.width}x${page.height}. ` +
+        "Zone boxes are in the pixel space of a page rendered at DEFAULT_DPI, " +
+        "so a mismatch means every rectangle for this page would be cut from " +
+        "the wrong coordinate space.",
+    );
+  }
+  return body.lines as Line[];
 }
 
 /**

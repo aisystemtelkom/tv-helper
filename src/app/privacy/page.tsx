@@ -28,10 +28,22 @@
  *
  * Everything below is a claim about what the code does, and a privacy policy
  * that drifts from the code is worse than none. The load-bearing sentences are
- * that documents stay on the device and that only OCR text -- never a page
- * image -- reaches the model on the validator path. If either stops being true,
- * this page is part of that change. See "THE COMMON PATH SENDS TEXT, NOT
- * IMAGES" in AGENTS.md.
+ * now narrower than they were, and the narrowing is the point:
+ *
+ *   - The PDF still never leaves the device. pdf.js renders it in the tab, the
+ *     run lives in IndexedDB, and every evidence crop is cut from the device's
+ *     own pixels.
+ *   - ONE RENDERED PAGE IMAGE PER PAGE DOES LEAVE, to this app's own
+ *     `/api/ocr`, which forwards it to the Gemini API for text recognition.
+ *     That is new as of 2026-09-02 and it replaced on-device OCR.
+ *   - Finding a field inside those pages is still text only: numbered OCR
+ *     lines go up, a line range comes back.
+ *
+ * This page was rewritten in the same commit as `src/app/api/ocr/route.ts`,
+ * deliberately. Shipping that route without this edit would have published a
+ * dated, false statement about where customer scans go, in two languages, to
+ * an OAuth reviewer and to the client's own staff. If the boundary moves
+ * again, this page moves with it in the same commit.
  */
 
 export const metadata = {
@@ -62,19 +74,30 @@ export default function PrivacyPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold">
-          Dokumen Anda tidak diunggah
+          Berkas PDF tetap di perangkat Anda
         </h2>
         <p className="text-sm leading-6">
-          Berkas PDF yang Anda buka tetap berada di perangkat Anda. Proses
-          konversi halaman, perenderan gambar, dan pengenalan teks (OCR)
-          seluruhnya berjalan di dalam peramban Anda. Hasilnya disimpan pada
-          penyimpanan lokal peramban (IndexedDB) di komputer Anda sendiri.
-          Tidak ada berkas dokumen yang dikirim ke server aplikasi ini maupun
-          disimpan di layanan penyimpanan awan.
+          Berkas PDF yang Anda buka tidak pernah diunggah. Pembacaan dan
+          perenderan halaman berjalan di dalam peramban Anda, hasil kerja
+          disimpan pada penyimpanan lokal peramban (IndexedDB) di komputer Anda
+          sendiri, dan pemotongan gambar bukti dilakukan dari piksel di
+          perangkat Anda. Tidak ada berkas PDF yang disimpan di server aplikasi
+          ini maupun di layanan penyimpanan awan.
+        </p>
+        <p className="text-sm leading-6">
+          <strong>Yang dikirim keluar adalah gambar halaman.</strong> Sejak 2
+          September 2026 pengenalan teks (OCR) tidak lagi berjalan di peramban.
+          Untuk setiap halaman, aplikasi mengirimkan satu gambar halaman hasil
+          render ke server aplikasi ini, dan server meneruskannya ke Google
+          Gemini API untuk dibaca teksnya. Yang kembali adalah baris-baris teks
+          beserta koordinatnya. Perubahan ini dilakukan atas keputusan pemilik
+          proses, setelah penilaian mereka sendiri terhadap Google sebagai
+          pemroses.
         </p>
         <p className="text-sm leading-6">
           Menghapus data situs pada peramban akan menghapus dokumen dan hasil
-          kerja Anda secara permanen, karena tidak ada salinan di tempat lain.
+          kerja Anda secara permanen, karena tidak ada salinan lengkap di tempat
+          lain.
         </p>
       </section>
 
@@ -83,11 +106,18 @@ export default function PrivacyPage() {
           Yang dikirim ke layanan model bahasa
         </h2>
         <p className="text-sm leading-6">
-          Untuk menemukan letak sebuah data di dalam dokumen, aplikasi
-          mengirimkan <strong>teks hasil OCR</strong> berupa baris-baris
-          bernomor ke Google Gemini API, lalu menerima jawaban berupa rentang
-          baris. Gambar halaman tidak ikut dikirim pada alur ini. Pemotongan
-          gambar bukti dilakukan di perangkat Anda berdasarkan koordinat baris
+          Ada dua jenis kiriman, dan keduanya melalui server aplikasi ini:
+        </p>
+        <p className="text-sm leading-6">
+          <strong>Pertama, gambar halaman untuk pengenalan teks.</strong> Satu
+          gambar per halaman dikirim ke Google Gemini API, dan jawabannya adalah
+          teks yang terbaca beserta kotak koordinatnya.
+        </p>
+        <p className="text-sm leading-6">
+          <strong>Kedua, teks hasil pengenalan untuk mencari letak data.</strong>{" "}
+          Pada tahap ini aplikasi mengirimkan baris-baris teks bernomor, bukan
+          gambar, lalu menerima jawaban berupa rentang baris. Pemotongan gambar
+          bukti tetap dilakukan di perangkat Anda berdasarkan koordinat baris
           tersebut.
         </p>
         <p className="text-sm leading-6">
@@ -147,12 +177,16 @@ export default function PrivacyPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-semibold">Summary in English</h2>
         <p className="text-sm leading-6">
-          Internal tool for authorised staff. Your PDF documents are never
-          uploaded: page rendering and OCR run entirely in your browser and the
-          results are held in that browser&apos;s local storage. To locate a
-          field, OCR <em>text</em> (numbered lines) is sent to the Google Gemini
-          API and a line range comes back; page images are not sent on this
-          path, and cropping happens on your device. Signing in uses the basic{" "}
+          Internal tool for authorised staff. Your PDF files are never uploaded:
+          they are rendered in your browser and the run is held in that
+          browser&apos;s local storage, and evidence crops are cut from your own
+          device&apos;s pixels. What does leave your device, one page at a time,
+          is a <em>rendered page image</em>: since 2 September 2026 text
+          recognition no longer runs in the browser, so each page image is sent
+          to this application&apos;s own server, which forwards it to the Google
+          Gemini API and returns the recognised text with its coordinates. The
+          later step that locates a field sends OCR <em>text</em> (numbered
+          lines) only, and a line range comes back. Signing in uses the basic{" "}
           <code className="text-xs">openid email profile</code> scopes; the only
           account data stored is your email address and its role, used as the
           access list. No Gmail, Drive or Contacts access. No third-party

@@ -17,6 +17,20 @@ export type FieldValue = {
    * act on and one that looks like nothing was tried.
    */
   conflict?: string[];
+  /**
+   * Why `conflict` is set, in a sentence a consumer can print. Absent means
+   * `reconcileFieldValues` set it, and the reason is its own: two documents
+   * answered this key differently.
+   *
+   * It exists because a second producer of conflicts arrived --
+   * `verify.ts`'s crop-level re-read, where a key was found ONCE and read
+   * twice -- and the standing wording ("found more than once and the answers
+   * disagree") is a plainly false statement about that case. A false
+   * explanation beside a blank cell is the same failure class as a false
+   * citation beside a filled one: the operator acts on it and cannot tell it
+   * apart from a true one without rerunning the pipeline.
+   */
+  conflictReason?: string;
   source?: {
     pageIndex: number;
     lineRange: [number, number];

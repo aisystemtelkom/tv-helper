@@ -116,6 +116,28 @@ export type Citation = {
   /** `L 31-58`, or a plain statement that there is no line citation. */
   lines: string;
   lineCount: number;
+  /**
+   * How many of the cited lines had their rectangle SLICED rather than
+   * measured -- `Line.origin === "interpolated"`.
+   *
+   * Gemini returns paragraph blocks, not printed lines, so a block covering
+   * several lines is cut into equal vertical bands and each band becomes a
+   * line. The text is the engine's; the top and bottom edges are arithmetic.
+   * Within a paragraph that is close to the true leading, but a block whose
+   * lines are not evenly spaced (a heading followed by body text, a table cell
+   * wrapping) puts the boundary somewhere the page does not have one, and the
+   * crop then clips a descender or takes a slice of the next line.
+   *
+   * The operator is the only one who can see that, so the number is surfaced
+   * rather than acted on: a sliced rectangle presented as a measured one is
+   * this project's failure class in miniature.
+   *
+   * `origin` is optional, and undefined means NOT RECORDED -- runs ingested
+   * before the migration have no origin on any line. Counting those as
+   * interpolated would put the chip on every capture of every old run, which
+   * is the alarm fatigue the `ambiguous` flag already caused once.
+   */
+  interpolatedLines: number;
   /** Physical size of the crop at the render DPI, e.g. `4.1 x 1.3 in`. */
   size: string;
   /** Share of the page's height the crop covers, 0-1. */
@@ -168,6 +190,13 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
     page: `p ${resolved.pageInDoc + 1}/${resolved.pagesInDoc}`,
     lines: cited ? `L ${from}-${to}` : "drawn by hand, no line citation",
     lineCount: cited ? to - from + 1 : 0,
+    // Only over a real citation: a hand-drawn zone cites no lines at all, and
+    // the plate already says so in as many words ("free pixels").
+    interpolatedLines: cited
+      ? resolved.page.lines.filter(
+          (l) => l.i >= from && l.i <= to && l.origin === "interpolated",
+        ).length
+      : 0,
     size: sizeInInches(zone.box),
     heightShare,
     spansPage: !wholePage && heightShare >= SPANS_PAGE_RATIO,

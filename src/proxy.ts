@@ -93,9 +93,19 @@ export const config = {
    * `_next/static`, `_next/image` and everything in `public/`, which would put
    * an auth redirect in front of the CSS and -- the reason this project cares --
    * in front of the vendored tesseract wasm and `ind.traineddata` under
-   * `/tesseract/`. Those are fetched by a Web Worker that does not carry the
-   * session cookie the way a document request does, and a redirect there is an
-   * OCR failure with no obvious cause.
+   * `/tesseract/`. Those are fetched by the render/OCR Web Worker, and a
+   * redirect to an HTML sign-in page arriving where a wasm binary was expected
+   * is an OCR failure with no obvious cause.
+   *
+   * THAT FAILURE HAS MOVED, AND THE RECORD OF IT IS WHY THIS PARAGRAPH STAYS.
+   * Since the Gemini OCR migration the same Web Worker POSTs each rendered page
+   * to `/api/ocr` instead of loading a wasm engine, so the request that must
+   * not be silently redirected is now an API call. `/api/ocr` is deliberately
+   * INSIDE this matcher: the branch above answers any unauthenticated `/api/`
+   * request with a 401 JSON body rather than a 307, so the worker sees a status
+   * it can report instead of a 200 full of markup. Adding `api/ocr` to the
+   * exclusions would remove that refusal for no gain -- the route gates itself
+   * with `requireApiUser()` regardless, which is the check that decides.
    *
    * `api/auth` and `signin` are excluded because the sign-in flow itself must
    * be reachable while signed out; excluding both is what stops the redirect

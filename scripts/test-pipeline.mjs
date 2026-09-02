@@ -920,6 +920,58 @@ test("cropToPng throws on a box that escapes the page", async () => {
   );
 });
 
+test("cropToPng throws on a NaN box instead of encoding an empty picture", async () => {
+  // MEASURED, not theorised. Both guards above are comparisons, and NaN loses
+  // every comparison: `w <= 0` is false, `x + w > page.width` is false. A NaN
+  // box therefore reached `new Uint8ClampedArray(NaN * NaN * 4)`, which is a
+  // ZERO-LENGTH buffer, copied no rows, and returned a valid 65-byte PNG whose
+  // IHDR said 0x0. The docx opened, the cell held a picture, and there was
+  // nothing in it -- a validation packet that looks complete and carries no
+  // evidence is the exact failure this project is organised against.
+  const canvas = createCanvas(20, 20);
+  const ctx = canvas.getContext("2d");
+  const rendered = {
+    data: ctx.getImageData(0, 0, 20, 20).data,
+    width: 20,
+    height: 20,
+  };
+
+  for (const box of [
+    { x: NaN, y: NaN, w: NaN, h: NaN },
+    { x: 0, y: 0, w: NaN, h: 10 },
+    { x: 0, y: Infinity, w: 10, h: 10 },
+  ]) {
+    await assert.rejects(() => cropToPng(rendered, box), /not finite/);
+  }
+});
+
+test("cropToPng refuses a page that is not the size the box was measured on", async () => {
+  // The browser stores OCR lines, never pixels, so a crop is cut from a SECOND
+  // render of the same PDF page. A re-render at another DPI produces a
+  // perfectly good picture of the wrong region and nothing downstream can
+  // tell. `expect` is the size the zone was measured against.
+  const canvas = createCanvas(20, 20);
+  const ctx = canvas.getContext("2d");
+  const rendered = {
+    data: ctx.getImageData(0, 0, 20, 20).data,
+    width: 20,
+    height: 20,
+  };
+
+  await assert.rejects(
+    () => cropToPng(rendered, { x: 0, y: 0, w: 10, h: 10 }, { width: 40, height: 40 }),
+    /different ruler/,
+  );
+  // The agreeing case still cuts, so the guard cannot be satisfied by never
+  // passing `expect`.
+  const png = await cropToPng(
+    rendered,
+    { x: 0, y: 0, w: 10, h: 10 },
+    { width: 20, height: 20 },
+  );
+  assert.ok(png.length > 0);
+});
+
 test("buildDocx emits every section, including the empty ones", async () => {
   const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
 

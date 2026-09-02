@@ -300,8 +300,11 @@ export async function deleteRun(id: string): Promise<void> {
  * actually stored for it -- which is the truth, and is visible, rather than a
  * record that claims to be complete.
  *
- * `onProgress` fires per page because OCR of one real page takes 4-5 seconds:
- * without it a bundle looks like a hung tab for several minutes.
+ * `onProgress` fires per page because a bundle is minutes of work: without it
+ * the tab looks hung. It counts pages RELEASED by `ingestPdf`, which reads up
+ * to `DEFAULT_CONCURRENCY` pages at once but hands them over strictly in
+ * ascending index -- so the bar never goes backwards and never runs ahead of
+ * what is actually stored, even though several pages are in flight behind it.
  *
  * `deps.ingestSource` IS INJECTABLE SO A TEST CAN EXECUTE THIS FUNCTION, and
  * that is not a nicety. The revision sequence below used to be wrong in a way
@@ -344,8 +347,42 @@ export async function ingestDocument(
     let writes: Promise<void> = Promise.resolve();
     let writeError: unknown;
 
+    // The arrival-order net, and it guards the one thing in this file that
+    // fails silently. `order` below is the page's ARRIVAL position and
+    // `withAppendedPage` pushes to the END of `run.pages`, both ignoring the
+    // page's own `index`; `Zone.pageIndex` is a position in that array. So a
+    // page arriving out of order does not produce a mis-ordered list -- it
+    // repoints every zone the run already holds at a different scan, and the
+    // deliverable opens fine with a crop of the wrong page in it.
+    //
+    // `ingestPdf` buffers and releases in ascending index for exactly this
+    // reason, and `postMessage` preserves order on the way here, so this
+    // should never fire. It is here because the consequence of the day one of
+    // those two stops being true is invisible, and because a source's pages
+    // are always 0..n-1 of that document, which makes the check one integer.
+    //
+    // Recorded, not thrown: this callback runs inside the worker client's
+    // `message` listener, where a throw is an uncaught error that leaves the
+    // ingest promise pending forever -- a progress bar that simply stops. The
+    // page is dropped instead and the error is raised below, once the worker
+    // has finished and every page that DID arrive in order is committed.
+    let expectedIndex = 0;
+    let orderError: unknown;
+
     try {
       await deps.ingestSource(sourceId, (page, done, total) => {
+        if (page.index !== expectedIndex) {
+          orderError ??= new Error(
+            `Pages arrived out of order: expected page ${expectedIndex} of ` +
+              `${name}, got ${page.index}. This run kept the ${expectedIndex} ` +
+              "page(s) that did arrive in order and took no more, because " +
+              "appending a page out of order repoints every zone already " +
+              "found at the wrong scan.",
+          );
+          return;
+        }
+        expectedIndex += 1;
+
         const stored: StoredPage = {
           id: crypto.randomUUID(),
           sourceId,
@@ -405,6 +442,9 @@ export async function ingestDocument(
       await writes;
     }
 
+    // The order error first: a write that failed after a page was dropped is
+    // the consequence, and the cause is the one worth reporting.
+    if (orderError) throw orderError;
     if (writeError) throw writeError;
 
     return run;

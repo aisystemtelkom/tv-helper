@@ -1,10 +1,16 @@
 /**
  * Minimal PNG encoder with no image-processing dependency (no `sharp`, no
- * `pngjs`). tesseract.js has no raw-pixel entry point -- it writes bytes to a
- * virtual file and calls `SetImageFile`, which needs a decodable image
- * header, so OCR cannot run without this. `scripts/png.mjs` used to keep its
- * own copy of the CRC and chunk-writing logic for its solid-colour
- * smoke-test PNG; it now imports `chunk` from here instead.
+ * `pngjs`).
+ *
+ * It was written for tesseract.js, which has no raw-pixel entry point -- it
+ * writes bytes to a virtual file and calls `SetImageFile`, which needs a
+ * decodable image header. That caller is on its way out and this file is not:
+ * it is needed MORE now, because a rendered page is encoded here before it is
+ * uploaded for OCR (`pageToPng` in `src/lib/pipeline/gemini-ocr.ts`, Node
+ * branch), and because `cropToPng` and `scripts/png.mjs` already depend on it.
+ * `scripts/png.mjs` used to keep its own copy of the CRC and chunk-writing
+ * logic for its solid-colour smoke-test PNG; it now imports `chunk` from here
+ * instead.
  */
 
 const SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -95,9 +101,15 @@ async function deflate(raw: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
 
 /**
  * Encodes raw RGBA pixels (as produced by `CanvasRenderingContext2D.
- * getImageData`) into a PNG byte stream. tesseract.js's `SetImageFile` needs
- * a decodable image header; raw pixels handed to it directly become a
- * zero-length buffer and it throws.
+ * getImageData`) into a PNG byte stream.
+ *
+ * Three callers, and the header it writes matters to all of them. The docx
+ * exporter needs a real PNG because `ImageRun` refuses anything else.
+ * tesseract.js's `SetImageFile` needs a decodable image header; raw pixels
+ * handed to it directly become a zero-length buffer and it throws. And the
+ * OCR upload path reads its own width and height back out of the IHDR this
+ * writes (`pngDimensions`), so that the coordinate space the model's boxes are
+ * scaled against comes from the image rather than from a caller's claim.
  */
 export async function encodePng(
   rgba: Uint8ClampedArray,

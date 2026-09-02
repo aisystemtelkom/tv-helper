@@ -27,8 +27,9 @@
  *
  * "The ground-truth crop's own OCR text" is not a hand-picked
  * phrase -- it is produced by OCR-ing each of the twelve crop PNGs
- * (word/media/imageN.png inside the sample docx) with the same `ocrToLines`
- * pipeline used on the full pages, so the comparison is real text against
+ * (word/media/imageN.png inside the sample docx) with whichever engine
+ * `OCR_ENGINE` selects, the same one that read the full pages, so the
+ * comparison is real text against
  * real text, from the same OCR engine, not a human's guess at a
  * "representative" substring. See the normalisation/matching comment above
  * `lineAppearsInCrop` below for exactly how OCR variance between the two
@@ -72,23 +73,49 @@
  * script's own env defaults can drift from the app's. Check both before
  * reading a gate result as a statement about the app.
  *
- * Three on-disk caches make iteration cheap, and they are NOT symmetric.
- * Read this before trusting a score:
+ * WHICH OCR ENGINE THIS SCORES. `OCR_ENGINE` selects it, defaulting to
+ * "tesseract"; `OCR_ENGINE=gemini` runs `ocrPageWithGemini` instead, on BOTH
+ * sides of the comparison -- the 29 full pages and the twelve ground-truth
+ * crops. Moving only one side was considered and rejected: it would compare
+ * Gemini page geometry against tesseract crop text through
+ * `findRequiredLineRange`'s 25%-of-signature fuzzy tolerance, which is tuned
+ * for a different engine's error modes, and this harness reports a miss there
+ * as "no window matched ... (OCR-quality issue, not necessarily a locate
+ * failure)" rather than as a regression. A diagnostic that hides the thing
+ * being measured is worse than no comparison. "Real text against real text
+ * from the same engine", below, is the entire reason these numbers mean
+ * anything, and it is a property of the pair, not of either side.
+ *
+ * Three on-disk caches make iteration cheap. They used to be asymmetric in a
+ * way that could silently fake a result; they are not any more, and the fix
+ * was structural rather than a louder warning:
  *  - Model-reply cache (tmpdir): keyed by slot name plus a sha256 of the
  *    exact prompt sent, so it only ever serves a reply to the identical
- *    question. Re-running to tweak scoring math re-spends nothing.
- *    MEASURE_LOCATE_FORCE=1 bypasses THIS ONE, and only this one.
- *  - OCR cache (tmpdir): rendering+OCR-ing 29 full 300 DPI pages is slow
- *    (many minutes). Keyed by the document's ROLE plus 0-based page index --
- *    "merged:0", "splitba:1" -- not by filename and not by content. It
- *    returns a hit unconditionally; FORCE_FRESH is not consulted.
- *  - Crop OCR cache (tmpdir): the same, keyed by the image name inside the
- *    sample docx.
+ *    question. Safe by construction across an engine change too: new OCR text
+ *    means a new prompt, which misses. Re-running to tweak scoring math
+ *    re-spends nothing.
+ *  - OCR cache (tmpdir): rendering+OCR-ing 29 full 300 DPI pages is slow (many
+ *    minutes under tesseract, real money under Gemini). Keyed by the
+ *    document's role, the sha256 OF ITS BYTES, the 0-based page index and the
+ *    engine tag.
+ *  - Crop OCR cache (tmpdir): keyed by the sample docx's own content hash, the
+ *    image name inside it, and the same engine tag.
  *
- * So RE-EXPORTING A DOCUMENT SILENTLY SCORES ITS NEW PAGES AGAINST THE OLD
- * OCR, under any filename, and the run looks entirely normal. There is no
- * bypass for that: delete the temp cache file by hand. All three paths are
- * printed when the run starts.
+ * MEASURE_LOCATE_FORCE=1 now bypasses ALL THREE. It used to be consulted only
+ * in `makeCachedAsk`.
+ *
+ * Why that mattered enough to change. Both OCR caches were keyed on a role
+ * string ("merged:0", "splitba:1") that depended on neither the bytes, the
+ * filename, nor the engine, and both returned a hit unconditionally. So
+ * re-exporting a document silently scored its new pages against the old OCR --
+ * and, once the engine became a variable, running the gate on Gemini with
+ * either file present would have scored Gemini's proposals against TESSERACT's
+ * line numbering, on both sides, and printed a plausible total. The run looks
+ * entirely normal. AGENTS.md's standing mitigation for this was "delete the
+ * temp cache files by hand", which is a hazard that requires remembering, and
+ * that is not a mitigation. Every key now carries everything its entry depends
+ * on, so a stale entry is unhittable rather than merely undesirable. All three
+ * paths and the engine tag are printed when the run starts.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -103,6 +130,11 @@ const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const { default: JSZip } = await import("jszip");
 import { renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
+import {
+  ocrPageWithGemini,
+  pageToPng,
+  OCR_PROMPT_VERSION,
+} from "../src/lib/pipeline/gemini-ocr.ts";
 import {
   locateSlot,
   CROP_PADDING_PX,
@@ -184,16 +216,71 @@ loadDotEnvLocal();
 
 // ---------------------------------------------------------------------------
 // Gemini `ask`: (prompt: string) => Promise<string>, matching the `Ask` type
-// classify.ts/locate.ts already define. Text only -- no images are sent for
-// any of the 12 slots this harness scores, consistent with the design's
-// "Locate sends text alone for the text-anchored slots" and with the fact
-// that Task 6's locate.ts has no image-fallback parameter at all yet.
+// classify.ts/locate.ts already define. Text only, and that is still true of
+// every one of the 12 locate calls this harness scores: `Ask` has no image
+// parameter, and locate.ts has no image-fallback parameter at all yet.
+//
+// `askImage` below is the one image-carrying call, and it is the OCR stage
+// only -- the same split `src/lib/pipeline/gemini-ocr.ts` draws by declaring
+// `AskImage` in its own file rather than beside `Ask`. Reading a page costs an
+// image; deciding which lines of it answer a slot does not.
 // ---------------------------------------------------------------------------
 
 const GEMINI_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 const MODEL_ID = process.env.MODEL_ID ?? "gemini-3.5-flash";
 const THINKING_LEVEL = (process.env.GEMINI_THINKING_LEVEL ?? "low").toUpperCase();
 const MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS ?? 2048);
+
+/**
+ * The OCR-scoped output cap, read straight from the environment rather than
+ * imported from `src/lib/model.ts` -- see the file header for why this harness
+ * deliberately does not go through the provider boundary, and for the
+ * consequence (this script's defaults can drift from the app's; check both).
+ * The default matches `model.ts`'s `OCR_MAX_OUTPUT_TOKENS`.
+ *
+ * It is separate from MAX_OUTPUT_TOKENS above because the two calls are not
+ * the same shape: a locate reply is a four-field JSON verdict, where 2048 is a
+ * real runaway guard, while a dense 300 DPI page's line list was measured at
+ * 2554 output tokens and would be truncated by it.
+ */
+const OCR_MAX_OUTPUT_TOKENS = Number(
+  process.env.GEMINI_OCR_MAX_OUTPUT_TOKENS ?? 16384,
+);
+
+/**
+ * Which OCR engine both sides of the comparison use. See the file header:
+ * moving one side alone would score Gemini geometry against tesseract text
+ * through a tolerance tuned for tesseract's error modes, and this harness
+ * would report the mismatch as an OCR-quality note rather than a regression.
+ *
+ * Defaults to tesseract so an un-flagged run keeps measuring what it measured
+ * before, which is what makes a before/after pair on the same machine mean
+ * something.
+ */
+const OCR_ENGINE = process.env.OCR_ENGINE ?? "tesseract";
+if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
+  console.error(`OCR_ENGINE must be "tesseract" or "gemini", got "${OCR_ENGINE}"`);
+  process.exit(1);
+}
+
+/**
+ * The engine identity that goes into both OCR cache keys.
+ *
+ * Everything the stored text depends on, and nothing it does not: under Gemini
+ * that is the model id and the prompt version, so a model swap or a bumped
+ * `OCR_PROMPT_VERSION` misses by construction instead of serving text produced
+ * by different wording. Under tesseract the engine is pinned by the lockfile
+ * and the vendored traineddata, so the bare word carries it.
+ */
+const OCR_ENGINE_TAG =
+  OCR_ENGINE === "gemini" ? `gemini:${MODEL_ID}:${OCR_PROMPT_VERSION}` : "tesseract";
+
+/** sha256 of some bytes, hex, truncated -- a cache-key ingredient, not a
+ * security boundary. 16 hex characters is 64 bits; collisions between two
+ * revisions of one client bundle are not a thing that happens. */
+function shortHash(bytes) {
+  return createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+}
 
 if (!GEMINI_API_KEY) {
   console.error(
@@ -203,14 +290,39 @@ if (!GEMINI_API_KEY) {
   process.exit(1);
 }
 
-async function geminiAskOnce(prompt, timeoutMs = 120_000) {
+/**
+ * One call. `image`, when given, rides along as a second `inline_data` part.
+ *
+ * Base64 is the REST surface's only inline form, so a 2.2MB page PNG costs a
+ * 33% encoding tax on the wire here. `/api/ocr` avoids that by taking raw
+ * bytes; this harness cannot, because it talks to Google directly.
+ */
+async function geminiAskOnce(prompt, options = {}) {
+  const {
+    image = null,
+    maxOutputTokens = MAX_OUTPUT_TOKENS,
+    timeoutMs = 120_000,
+    tag = "gemini",
+    // Only the OCR path refuses a non-STOP finish. See `askImage` below.
+    requireStop = false,
+  } = options;
+
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent` +
     `?key=${GEMINI_API_KEY}`;
+  const parts = [{ text: prompt }];
+  if (image) {
+    parts.push({
+      inline_data: {
+        mime_type: image.mediaType,
+        data: Buffer.from(image.bytes).toString("base64"),
+      },
+    });
+  }
   const body = {
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    contents: [{ role: "user", parts }],
     generationConfig: {
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      maxOutputTokens,
       responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: THINKING_LEVEL },
     },
@@ -231,14 +343,31 @@ async function geminiAskOnce(prompt, timeoutMs = 120_000) {
     }
     const json = await res.json();
     const usage = json.usageMetadata ?? {};
+    const finishReason = json.candidates?.[0]?.finishReason;
     console.log(
-      `    [gemini] in=${usage.promptTokenCount ?? "?"} out=${usage.candidatesTokenCount ?? "?"} ` +
-        `thoughts=${usage.thoughtsTokenCount ?? 0} total=${usage.totalTokenCount ?? "?"}`,
+      `    [${tag}] in=${usage.promptTokenCount ?? "?"} out=${usage.candidatesTokenCount ?? "?"} ` +
+        `thoughts=${usage.thoughtsTokenCount ?? 0} total=${usage.totalTokenCount ?? "?"} ` +
+        `finish=${finishReason ?? "?"}`,
     );
-    const parts = json.candidates?.[0]?.content?.parts ?? [];
-    const text = parts.map((p) => p.text ?? "").join("");
+    // A truncated locate reply fails to parse loudly a moment later. A
+    // truncated LINE LIST does not: it is a syntactically fine JSON object
+    // holding a page's first N lines, and it reads downstream as a short page
+    // whose later content simply is not there. Refuse it here, before anything
+    // parses it, rather than letting it become the ground truth a slot is
+    // scored against.
+    if (requireStop && finishReason && finishReason !== "STOP") {
+      throw new Error(
+        `Gemini stopped with finishReason=${finishReason}, not STOP. The reply is ` +
+          `not usable as OCR: a truncated or withheld line list reads as a short ` +
+          `page. (If MAX_TOKENS: raise GEMINI_OCR_MAX_OUTPUT_TOKENS, currently ` +
+          `${maxOutputTokens}.)`,
+      );
+    }
+    const text = (json.candidates?.[0]?.content?.parts ?? [])
+      .map((p) => p.text ?? "")
+      .join("");
     if (!text.trim()) {
-      throw new Error(`Gemini returned no text. finishReason=${json.candidates?.[0]?.finishReason}`);
+      throw new Error(`Gemini returned no text. finishReason=${finishReason}`);
     }
     return text;
   } finally {
@@ -246,7 +375,7 @@ async function geminiAskOnce(prompt, timeoutMs = 120_000) {
   }
 }
 
-async function geminiAsk(prompt) {
+async function geminiAsk(prompt, options = {}) {
   // Six attempts with a longer backoff, not three. Gemini returned repeated
   // HTTP 503 "high demand" during the first scored run and killed three slots
   // outright, which scores an availability blip as a localization failure --
@@ -256,17 +385,55 @@ async function geminiAsk(prompt) {
   let lastError;
   for (let i = 0; i < attempts; i++) {
     try {
-      return await geminiAskOnce(prompt);
+      return await geminiAskOnce(prompt, options);
     } catch (err) {
       lastError = err;
-      const transient = /HTTP 503|HTTP 429|AbortError|abort/i.test(String(err));
+      // RECITATION and OTHER join the transient set, measured rather than
+      // assumed: OCR-ing merged page 0 three times returned STOP, RECITATION
+      // (no text at all), then STOP. Whatever RECITATION means on a scan of a
+      // printed contract, it is intermittent for identical bytes, and a
+      // one-in-three abort on page 7 of 29 would end a run that has already
+      // paid for six pages. MAX_TOKENS and the safety reasons are deliberately
+      // NOT here: those are properties of the request, so another identical
+      // call buys nothing but another image upload.
+      const transient =
+        /HTTP 503|HTTP 429|AbortError|abort|finishReason=(RECITATION|OTHER)/i.test(
+          String(err),
+        );
       if (!transient || i === attempts - 1) throw err;
       const backoffMs = Math.min(2000 * 2 ** i, 30_000);
-      console.log(`    [gemini] transient error, retrying in ${backoffMs}ms: ${err.message}`);
+      console.log(
+        `    [${options.tag ?? "gemini"}] transient error, retrying in ${backoffMs}ms: ${err.message}`,
+      );
       await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
   throw lastError;
+}
+
+/**
+ * The `AskImage` `ocrPageWithGemini` takes: (prompt, image) => reply text.
+ *
+ * The same six-attempt backoff as the text ask, for the same reason -- a 503
+ * blip mid-bundle would otherwise abandon a run that has already paid for
+ * twenty pages -- plus two OCR-specific differences.
+ *
+ * One: `OCR_MAX_OUTPUT_TOKENS`, because a dense page's line list was measured
+ * at 2554 output tokens and the locate cap is 2048.
+ *
+ * Two: `requireStop`. A truncated line list is the quiet failure this harness
+ * exists to avoid producing, not merely to avoid scoring: it becomes the OCR
+ * both the model's prompt and the ground-truth matcher are built from, so a
+ * silently short page would move a slot's required range without anything in
+ * the log to say so.
+ */
+async function askImage(prompt, image) {
+  return geminiAsk(prompt, {
+    image,
+    maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+    tag: "gemini-ocr",
+    requireStop: true,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -333,26 +500,25 @@ function makeCachedAsk(slotName, modelCache) {
 }
 
 // ---------------------------------------------------------------------------
-// OCR cache: keyed by the document's ROLE ("merged"/"splitba") + 0-based page
-// index. Rendering and OCR-ing a 3507x2480 scan is slow -- this is a real
-// necessity, not a nicety: the merged contract scan is 27 pages and the
-// SPLITBA scan is 2, so 29 pages must be OCR'd once for the whole run.
+// OCR, under whichever engine OCR_ENGINE names, and its cache.
 //
-// The key depends on neither the filename nor the bytes, and the lookup below
-// ignores FORCE_FRESH, so a re-exported document scores its new pages against
-// this cache's old text with nothing in the log to say so. Deleting
-// OCR_CACHE_PATH by hand is the only way out. See the file header.
+// One helper for both callers below -- the 29 full pages and the twelve
+// ground-truth crops -- because the whole point of the gate is that the two
+// sides are read by the SAME engine with the SAME settings. Two near-identical
+// copies of this branch is how they would drift apart.
 // ---------------------------------------------------------------------------
 
-const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-measure-locate-ocr-cache.json");
-
-async function ocrPageCached(pdfDoc, pdfKey, pageIndex, ocrCache) {
-  const key = `${pdfKey}:${pageIndex}`;
-  if (ocrCache[key]) return ocrCache[key];
-
-  const started = Date.now();
-  const page = await pdfDoc.getPage(pageIndex + 1); // pdf.js pages are 1-based
-  const rendered = await renderPageUpright(page, 300, nodeContext);
+/**
+ * `{ data, width, height }` in, `{ lines, report }` out. `report` is null
+ * under tesseract, which has nothing to report; under Gemini it carries the
+ * block/segment/interpolated/dropped counts the design's guardrails are read
+ * from.
+ */
+async function ocrRendered(rendered) {
+  if (OCR_ENGINE === "gemini") {
+    const image = await pageToPng(rendered);
+    return await ocrPageWithGemini(image, askImage);
+  }
   const lines = await ocrToLines(rendered, "ind", {
     langPath: TESSERACT_ASSETS,
     gzip: true,
@@ -361,16 +527,76 @@ async function ocrPageCached(pdfDoc, pdfKey, pageIndex, ocrCache) {
     // process.cwd(), which would otherwise leave a stray file behind here.
     cacheMethod: "none",
   });
+  return { lines, report: null };
+}
+
+// ---------------------------------------------------------------------------
+// Page OCR cache. Rendering and OCR-ing a 3507x2480 scan is slow -- this is a
+// real necessity, not a nicety: the merged contract scan is 27 pages and the
+// SPLITBA scan is 2, so 29 pages must be OCR'd once for the whole run, and
+// under Gemini each of those is a paid image call rather than local CPU.
+//
+// The key carries the document's role, the sha256 OF ITS BYTES, the page index
+// and the engine tag, and the lookup honours FORCE_FRESH. Every one of those
+// four was missing at some point and each absence had the same shape: a stale
+// entry served silently under a run that looked entirely normal. See the file
+// header for the full account, including the engine-swap case that is the
+// reason this was made structural rather than documented harder.
+//
+// The DPI is not in the key because it is not a variable here: this harness
+// renders at 300 in exactly one place, three lines below.
+// ---------------------------------------------------------------------------
+
+const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-measure-locate-ocr-cache.json");
+
+/** The one place the page-cache key is spelled, so the writer below and the
+ * reader in `allBundlePages` cannot disagree about its shape. */
+function pageCacheKey(pdfKey, pdfHash, pageIndex) {
+  return `${pdfKey}:${pdfHash}:${pageIndex}:${OCR_ENGINE_TAG}`;
+}
+
+async function ocrPageCached(pdfDoc, pdfKey, pdfHash, pageIndex, ocrCache) {
+  const key = pageCacheKey(pdfKey, pdfHash, pageIndex);
+  if (!FORCE_FRESH && ocrCache[key]) return ocrCache[key];
+
+  const started = Date.now();
+  const page = await pdfDoc.getPage(pageIndex + 1); // pdf.js pages are 1-based
+  const rendered = await renderPageUpright(page, 300, nodeContext);
+  const { lines, report } = await ocrRendered(rendered);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
     `  OCR ${pdfKey} page ${pageIndex}: ${rendered.width}x${rendered.height}, ` +
-      `${lines.length} lines, ${seconds}s`,
+      `${lines.length} lines, ${seconds}s${describeReport(report)}`,
   );
 
-  const entry = { width: rendered.width, height: rendered.height, lines };
+  const entry = { width: rendered.width, height: rendered.height, lines, report };
   ocrCache[key] = entry;
   await saveJsonCache(OCR_CACHE_PATH, ocrCache);
   return entry;
+}
+
+/**
+ * The part of an `OcrReport` worth a line in the run log: how much of this
+ * page's geometry was SLICED out of a multi-line block rather than returned by
+ * the model, and how many entries were dropped for failing box validation.
+ *
+ * Printed rather than asserted, deliberately. If interpolation turns out to be
+ * the common path rather than the exception, the design has quietly become
+ * "trust the model's block box with a 12px pad" -- which the probe supports
+ * (99 of 104 blocks contained their glyphs within that pad) but which is not
+ * what was specified, and the difference is only visible if somebody can see
+ * the number. The bundle-wide totals are summarised at the end of the run too,
+ * because these per-page lines only print on a cache MISS.
+ */
+function describeReport(report) {
+  if (!report) return "";
+  const parts = [
+    `${report.blocks} blocks`,
+    `${report.interpolatedLines} interpolated`,
+  ];
+  if (report.droppedEntries > 0) parts.push(`${report.droppedEntries} dropped`);
+  if (report.degraded) parts.push(`DEGRADED: ${report.reasons.join("; ")}`);
+  return `  [${parts.join(", ")}]`;
 }
 
 /**
@@ -383,11 +609,37 @@ async function ocrPageCached(pdfDoc, pdfKey, pageIndex, ocrCache) {
  * kept alongside so a failure can still be reported as "merged page 19",
  * which is what a person opens.
  */
-function allBundlePages(ocrCache, docPageCounts) {
+/**
+ * How much of THIS slot's proposal rests on a sliced box rather than a
+ * measured one.
+ *
+ * `Line.origin` was ruled in over a block id precisely because it would have
+ * two real readers, and this is the second one (the first is the operator
+ * plate's chip). The bundle-wide interpolation rate the summary prints cannot
+ * answer the question that matters when a slot fails -- whether the rectangle
+ * under THAT crop was returned by the model or arithmetic from a paragraph
+ * block -- and that is the number Task 7 has to read to decide whether the
+ * design has quietly degraded to "trust the block box with a 12px pad".
+ *
+ * Prints nothing under tesseract, whose lines carry no `origin` at all: an
+ * unconditional "interp 0/12" would read as a measured zero rather than as an
+ * engine that never had the concept.
+ */
+function interpolationOf(result, pages) {
+  if (!result) return "";
+  const page = pages[result.zone.pageIndex];
+  if (!page || !page.lines.some((l) => l.origin)) return "";
+  const [from, to] = result.zone.lineRange;
+  const covered = page.lines.filter((l) => l.i >= from && l.i <= to);
+  const interpolated = covered.filter((l) => l.origin === "interpolated").length;
+  return `, ${interpolated}/${covered.length} interpolated`;
+}
+
+function allBundlePages(ocrCache, docPageCounts, docHashes) {
   const pages = [];
   for (const docKey of DOC_ORDER) {
     for (let pageInDoc = 0; pageInDoc < docPageCounts[docKey]; pageInDoc++) {
-      const entry = ocrCache[`${docKey}:${pageInDoc}`];
+      const entry = ocrCache[pageCacheKey(docKey, docHashes[docKey], pageInDoc)];
       if (!entry) throw new Error(`page ${docKey}:${pageInDoc} was never OCR'd`);
       pages.push({
         index: pages.length,
@@ -396,6 +648,10 @@ function allBundlePages(ocrCache, docPageCounts) {
         width: entry.width,
         height: entry.height,
         lines: entry.lines,
+        // null under tesseract; the OcrReport under Gemini. Carried this far
+        // so the summary can print the bundle-wide interpolation rate even on
+        // a fully cached run, where no per-page OCR line was ever logged.
+        report: entry.report ?? null,
       });
     }
   }
@@ -416,8 +672,10 @@ function globalIndexOf(pages, docKey, pageInDoc) {
 // hand-picked phrase -- see the file header comment. The twelve crop PNGs
 // live at word/media/imageN.png inside the sample docx; each is small
 // (a cropped screenshot, not a full page), so OCR-ing all twelve is quick
-// relative to the 29 full pages above. Cached separately by image filename
-// so re-running this script never re-OCRs them either.
+// relative to the 29 full pages above. Cached separately, keyed by the sample
+// docx's own content hash, the image name inside it and the engine tag, so
+// re-running this script never re-OCRs them and a re-exported sample cannot be
+// scored against the previous sample's crop text.
 //
 // CROP_OCR_UPSCALE exists because these crops are NOT rendered at the 300
 // DPI the rest of this pipeline assumes. Measured directly: image1.png (the
@@ -434,21 +692,44 @@ function globalIndexOf(pages, docKey, pageInDoc) {
 // text quality against the crops' own known content, before any live model
 // reply was scored against it, and was not revised afterward. See
 // task-7-report.md.
+//
+// EVERY WORD OF THAT PARAGRAPH IS ABOUT TESSERACT, and the upscale is left at
+// 3 anyway for this landing. The probe measured Gemini reading crops
+// PERFECTLY -- it is whole-page tokenization, not small print, that makes it
+// confabulate -- so 3x is very probably an unnecessary resample that changes
+// results for nothing. It is deliberately not re-tuned here: this task moves
+// the engine and only the engine, because a run that changes the engine and a
+// preprocessing constant together cannot tell a gain from a regression, which
+// is the one thing this harness exists to do. Task 8 re-derives it (and
+// `foldConfusables`, which is likewise a tesseract-shaped tolerance) against
+// the post-migration baseline, once, deliberately.
 // ---------------------------------------------------------------------------
 
 const CROP_OCR_CACHE_PATH = join(tmpdir(), "tv-helper-measure-locate-crop-ocr-cache.json");
 const CROP_OCR_UPSCALE = 3;
 
-let docxZipPromise;
-function loadDocxZip() {
-  docxZipPromise ??= readFile(DOCX_PATH).then((bytes) => JSZip.loadAsync(bytes));
-  return docxZipPromise;
+/**
+ * The sample docx, opened once, alongside the hash of the bytes it was opened
+ * from. The hash is what makes a re-exported sample miss the crop cache
+ * instead of quietly reusing the previous sample's ground-truth text: the
+ * crops ARE the ground truth, so serving stale ones moves the target the
+ * proposals are scored against with nothing in the log to say so. Same failure
+ * shape as the page cache, same structural fix.
+ */
+let docxPromise;
+function loadDocx() {
+  docxPromise ??= readFile(DOCX_PATH).then(async (bytes) => ({
+    zip: await JSZip.loadAsync(bytes),
+    hash: shortHash(bytes),
+  }));
+  return docxPromise;
 }
 
 async function ocrCropCached(imageName, cropCache) {
-  if (cropCache[imageName]) return cropCache[imageName];
+  const { zip, hash } = await loadDocx();
+  const key = `${hash}:${imageName}:${OCR_ENGINE_TAG}`;
+  if (!FORCE_FRESH && cropCache[key]) return cropCache[key];
 
-  const zip = await loadDocxZip();
   const file = zip.file(`word/media/${imageName}`);
   if (!file) throw new Error(`docx is missing word/media/${imageName}`);
   const pngBytes = await file.async("nodebuffer");
@@ -462,19 +743,20 @@ async function ocrCropCached(imageName, cropCache) {
   ctx.drawImage(image, 0, 0, width, height);
   const { data } = ctx.getImageData(0, 0, width, height);
 
-  const lines = await ocrToLines(
-    { data, width, height },
-    "ind",
-    { langPath: TESSERACT_ASSETS, gzip: true, cacheMethod: "none" },
-  );
+  // The upscaled bitmap, not the docx's original PNG bytes, so both engines
+  // are handed byte-for-byte the same pixels. Under Gemini `ocrRendered`
+  // re-encodes them through the production `pageToPng`, which is also what
+  // gives `pngDimensions` a coordinate space that provably matches the image
+  // the model was shown.
+  const { lines, report } = await ocrRendered({ data, width, height });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
     `  OCR crop ${imageName}: ${image.width}x${image.height} upscaled ${CROP_OCR_UPSCALE}x to ` +
-      `${width}x${height}, ${lines.length} lines, ${seconds}s`,
+      `${width}x${height}, ${lines.length} lines, ${seconds}s${describeReport(report)}`,
   );
 
-  const entry = { width, height, lines };
-  cropCache[imageName] = entry;
+  const entry = { width, height, lines, report };
+  cropCache[key] = entry;
   await saveJsonCache(CROP_OCR_CACHE_PATH, cropCache);
   return entry;
 }
@@ -490,6 +772,15 @@ async function ocrCropCached(imageName, cropCache) {
 // (collapsed to single spaces between normalised tokens), and two classes of
 // characters tesseract commonly confuses at small sizes -- {l, i, 1} and
 // {o, 0} -- each folded to one representative before comparison.
+//
+// `foldConfusables` is therefore, like CROP_OCR_UPSCALE above, a tolerance
+// shaped around one engine's error modes. It is left alone in the engine-move
+// commit for the same reason and is re-derived in Task 8. Worth knowing which
+// way it is likely to be wrong: the two folds are glyph confusions rather than
+// tesseract quirks (an "l" and a "1" genuinely look alike at 8pt), so they
+// probably stay useful; what changes is that a VLM's mistakes are whole wrong
+// WORDS rather than single wrong characters, which a character-level
+// Levenshtein tolerance prices differently.
 //
 // A first version of this matcher (see git history) tokenised both sides and
 // asked, per page line independently, "are most of this line's words
@@ -900,7 +1191,7 @@ const GROUND_TRUTH = [
  */
 const OVERSHOOT_MULTIPLE = 2;
 
-function evaluate(entry, result, pages, cropOcrCache) {
+function evaluate(entry, result, pages, cropEntries) {
   if (!result) {
     return { pass: false, detail: "model returned no match (null pageIndex)" };
   }
@@ -923,7 +1214,11 @@ function evaluate(entry, result, pages, cropOcrCache) {
   const pageEntry = pages[chosenPage];
   if (!pageEntry) throw new Error(`page ${chosenPage} is not in the bundle`);
 
-  const cropEntry = cropOcrCache[entry.image];
+  // Keyed by bare image name here, not by the crop cache's own key: the cache
+  // key carries the docx hash and the engine tag so a stale entry cannot be
+  // served, which is a producer concern. What the scorer needs is "the crop
+  // this run OCR'd", and `main` hands it exactly that.
+  const cropEntry = cropEntries.get(entry.image);
   if (!cropEntry) throw new Error(`crop ${entry.image} was never OCR'd`);
   const cropSig = cropSignature(cropEntry.lines);
 
@@ -1134,9 +1429,20 @@ function footerTailLines(pageLines) {
 
 async function main() {
   console.log(`Model: ${MODEL_ID}  thinkingLevel=${THINKING_LEVEL}  maxOutputTokens=${MAX_OUTPUT_TOKENS}`);
-  console.log(`OCR cache: ${OCR_CACHE_PATH}`);
-  console.log(`Crop OCR cache: ${CROP_OCR_CACHE_PATH}`);
-  console.log(`Model-reply cache: ${MODEL_CACHE_PATH}${FORCE_FRESH ? " (forcing fresh calls)" : ""}`);
+  // The engine tag is printed, not just the engine name, because it IS the
+  // cache key's engine half: a reader comparing two runs can see at a glance
+  // whether they could possibly have shared an OCR entry.
+  console.log(
+    `OCR engine: ${OCR_ENGINE}  tag=${OCR_ENGINE_TAG}` +
+      (OCR_ENGINE === "gemini" ? `  ocrMaxOutputTokens=${OCR_MAX_OUTPUT_TOKENS}` : ""),
+  );
+  const forcing = FORCE_FRESH ? " (forcing fresh)" : "";
+  console.log(`OCR cache: ${OCR_CACHE_PATH}${forcing}`);
+  console.log(`  key: <doc role>:<sha256 of its bytes>:<page>:<engine tag>`);
+  console.log(`Crop OCR cache: ${CROP_OCR_CACHE_PATH}${forcing}`);
+  console.log(`  key: <sha256 of the sample docx>:<image name>:<engine tag>`);
+  console.log(`Model-reply cache: ${MODEL_CACHE_PATH}${forcing}`);
+  console.log(`  key: <slot>:<sha256 of the exact prompt sent>`);
   console.log();
 
   const ocrCache = await loadJsonCache(OCR_CACHE_PATH);
@@ -1153,11 +1459,15 @@ async function main() {
 
   const docs = {};
   const docPageCounts = {};
+  // The hash of each PDF's own bytes, half the page cache key. Taken here
+  // because this is the one place the bytes are already in hand.
+  const docHashes = {};
   for (const [key, path] of Object.entries(PDFS)) {
     const bytes = new Uint8Array(await readFile(path));
+    docHashes[key] = shortHash(bytes);
     docs[key] = await getDocument({ data: bytes }).promise;
     docPageCounts[key] = docs[key].numPages;
-    console.log(`${key}: ${docs[key].numPages} pages (${path})`);
+    console.log(`${key}: ${docs[key].numPages} pages, ${docHashes[key]} (${path})`);
   }
   console.log();
 
@@ -1166,15 +1476,15 @@ async function main() {
   // header), so "which pages does this slot need" is no longer a question
   // this harness is allowed to answer in advance. Even under
   // MEASURE_LOCATE_ONLY: one slot still sees the whole bundle.
-  console.log("Running OCR (cached pages are skipped)...");
+  console.log(`Running OCR with ${OCR_ENGINE} (cached pages are skipped)...`);
   for (const docKey of DOC_ORDER) {
     for (let pageInDoc = 0; pageInDoc < docPageCounts[docKey]; pageInDoc++) {
-      await ocrPageCached(docs[docKey], docKey, pageInDoc, ocrCache);
+      await ocrPageCached(docs[docKey], docKey, docHashes[docKey], pageInDoc, ocrCache);
     }
   }
   console.log("OCR complete.\n");
 
-  const pages = allBundlePages(ocrCache, docPageCounts);
+  const pages = allBundlePages(ocrCache, docPageCounts, docHashes);
   console.log(
     `Bundle: ${pages.length} pages, numbered 0-${pages.length - 1} across ` +
       `${DOC_ORDER.join(" then ")}.\n`,
@@ -1192,9 +1502,18 @@ async function main() {
   // OCR every ground-truth crop image any slot-to-run needs, once, up front.
   // This is what the score is measured against -- see the file header and
   // the "Ground-truth crop OCR" section above.
-  console.log("Running OCR on ground-truth crop images (cached crops are skipped)...");
+  //
+  // Same engine as the pages above, always. See the file header: scoring
+  // Gemini page geometry against tesseract crop text runs the comparison
+  // through a fuzzy tolerance tuned for tesseract's error modes, and this
+  // harness reports a failure there as an OCR-quality note rather than as a
+  // regression -- so the mismatch would hide the very thing being measured.
+  console.log(
+    `Running OCR on ground-truth crop images with ${OCR_ENGINE} (cached crops are skipped)...`,
+  );
+  const cropEntries = new Map();
   for (const entry of slotsToRun) {
-    await ocrCropCached(entry.image, cropOcrCache);
+    cropEntries.set(entry.image, await ocrCropCached(entry.image, cropOcrCache));
   }
   console.log("Crop OCR complete.\n");
 
@@ -1223,6 +1542,22 @@ async function main() {
       // No model call is made here at all: the proposal is the whole page.
       const pageEntry = pages[entry.acceptedPages[0]];
       const lastLine = pageEntry.lines.length - 1;
+      // Written from the array LENGTH, read back by line NUMBER. Those agree
+      // only while `lines[k].i === k`, nothing in this harness calls
+      // `assertLinesWellFormed`, and `boxForLineRange` -- whose count check
+      // would throw -- is never reached for a whole-page capture. Without this
+      // one comparison a differently numbered page scores against a range
+      // naming different text than the rectangle covers, and the gate reports
+      // a plausible number. Same guard as `wholePageZone` in
+      // src/app/api/propose/handler.ts and the whole-page branch of
+      // scripts/generate.mjs.
+      if (lastLine >= 0 && pageEntry.lines[lastLine].i !== lastLine) {
+        throw new Error(
+          `page ${pageEntry.index} has its last line numbered ` +
+            `${pageEntry.lines[lastLine].i}, not ${lastLine}: a whole-page ` +
+            "citation is written from the array length",
+        );
+      }
       console.log("    [whole-document] captured the full page, no model call");
       result = {
         zone: {
@@ -1243,13 +1578,16 @@ async function main() {
 
     const verdict = error
       ? { pass: false, detail: `locateSlot threw: ${error.message}` }
-      : evaluate(entry, result, pages, cropOcrCache);
+      : evaluate(entry, result, pages, cropEntries);
 
     results.push({ entry, result, verdict });
 
     const want = entry.acceptedPages.join(" or ");
     const rangeStr = result ? `page ${result.zone.pageIndex}, lines [${result.zone.lineRange.join(",")}]` : "no proposal";
-    console.log(`  -> ${verdict.pass ? "PASS" : "FAIL"}  ${rangeStr}  (expected page ${want})`);
+    console.log(
+      `  -> ${verdict.pass ? "PASS" : "FAIL"}  ${rangeStr}` +
+        `${interpolationOf(result, pages)}  (expected page ${want})`,
+    );
     if (result) {
       const chosen = pages[result.zone.pageIndex];
       if (chosen) console.log(`     that is ${chosen.doc} page ${chosen.pageInDoc}`);
@@ -1259,7 +1597,10 @@ async function main() {
   }
 
   console.log("=".repeat(78));
-  console.log("SUMMARY");
+  // The engine is in the heading so a pasted transcript is self-labelling.
+  // Task 8 requires each recorded gate run to say which engine measured it,
+  // and a number without that label is not comparable to anything.
+  console.log(`SUMMARY  (OCR engine: ${OCR_ENGINE_TAG})`);
   console.log("=".repeat(78));
   console.log(
     `${"Slot".padEnd(20)} ${"Verdict".padEnd(6)} ${"Page".padEnd(16)} ${"Lines".padEnd(12)} Detail`,
@@ -1378,6 +1719,45 @@ async function main() {
           "footer this bundle demonstrates.",
   );
   console.log();
+
+  // How much of this bundle's geometry the model MEASURED and how much the
+  // producer SLICED. Aggregated here rather than left to the per-page OCR log
+  // lines, which only print on a cache miss -- so on the second run of a
+  // comparison, the run whose numbers get read, they are not printed at all.
+  //
+  // Read as a proportion, not as a total. The design says a multi-line block
+  // is split into equal vertical bands and the resulting per-line boxes are
+  // computed rather than returned; the 12px CROP_PADDING_PX absorbs the error
+  // the probe measured, and `trimRunningFooter` then divides by a median that
+  // mixes real inter-block pitch with arithmetic within-block pitch. If
+  // interpolation is the common path rather than the exception, the design has
+  // quietly become "trust the model's block box with a 12px pad" -- which the
+  // probe supports but which is not what was specified, and which would also
+  // make the operator plate's "interpolated" chip appear on nearly every
+  // proposal and stop carrying information.
+  const reports = pages.map((p) => p.report).filter(Boolean);
+  if (reports.length > 0) {
+    const sum = (f) => reports.reduce((acc, r) => acc + f(r), 0);
+    const totalLines = sum((r) => r.lines);
+    const interpolated = sum((r) => r.interpolatedLines);
+    const share = totalLines > 0 ? (100 * interpolated) / totalLines : 0;
+    console.log(
+      `OCR geometry across ${reports.length} pages: ${sum((r) => r.blocks)} model entries -> ` +
+        `${totalLines} lines, of which ${interpolated} (${share.toFixed(0)}%) were sliced out of a ` +
+        `multi-line block rather than returned. ${sum((r) => r.droppedEntries)} entries dropped.`,
+    );
+    const degraded = pages.filter((p) => p.report?.degraded);
+    if (degraded.length > 0) {
+      console.log(
+        `  WARNING: ${degraded.length} page(s) came back degraded: ` +
+          degraded
+            .map((p) => `${p.doc} p${p.pageInDoc} (${p.report.reasons.join("; ")})`)
+            .join(", "),
+      );
+    }
+    console.log();
+  }
+
   if (!only) {
     console.log(
       "Note: this scores 12 individually-locatable crops, not the 11 the brief and\n" +
@@ -1392,6 +1772,12 @@ async function main() {
   // miss (`KB / ToP (2)`, the remittance-account block, whose human crop
   // starts at the page letterhead) is a known, recorded miss rather than
   // headroom. Leaving the bar at 9 would let two slots regress silently.
+  //
+  // 11 is calibrated against TESSERACT's line numbering, on this bundle. It is
+  // deliberately not moved in the commit that adds the engine switch: a
+  // threshold retuned in the same run as the change it is meant to judge
+  // measures nothing. The plan's Task 8 re-sets it against the post-migration
+  // baseline and rewrites this comment with the engine it was set from.
   const PASS_THRESHOLD = 11;
   process.exitCode = only || passCount >= PASS_THRESHOLD ? 0 : 1;
 }

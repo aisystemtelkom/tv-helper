@@ -117,6 +117,21 @@ function CaptureRow({
               free pixels
             </span>
           ) : null}
+          {/* A sliced rectangle, said out loud. Gemini returns paragraph
+              blocks rather than printed lines, so a multi-line block's lines
+              get equal vertical bands: the text is measured, the top and
+              bottom edges are arithmetic. The operator is the only one who
+              can look at the crop and see whether the cut landed where the
+              page actually breaks, so the count is shown rather than acted
+              on. Nothing is rendered at zero -- and a run ingested before the
+              migration records no origin at all, so it counts none and shows
+              none. */}
+          {cite && cite.interpolatedLines > 0 ? (
+            <span className="lt-mono text-xs" style={{ color: "var(--lt-mark)" }}>
+              {cite.interpolatedLines} of {cite.lineCount} lines sliced, not
+              measured
+            </span>
+          ) : null}
         </div>
 
         {state.zone ? <Cite cite={cite} /> : null}

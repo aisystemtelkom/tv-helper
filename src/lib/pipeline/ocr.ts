@@ -442,15 +442,29 @@ export async function ocrToWords(
         for (const line of paragraph.lines ?? []) {
           for (const w of line.words ?? []) {
             if (!w.text.trim()) continue;
-            words.push({
-              text: w.text,
-              box: {
-                x: w.bbox.x0,
-                y: w.bbox.y0,
-                w: w.bbox.x1 - w.bbox.x0,
-                h: w.bbox.y1 - w.bbox.y0,
-              },
-            });
+            const box = {
+              x: w.bbox.x0,
+              y: w.bbox.y0,
+              w: w.bbox.x1 - w.bbox.x0,
+              h: w.bbox.y1 - w.bbox.y0,
+            };
+            // TESSERACT EMITS DEGENERATE BOXES on speckle -- `x1 === x0`, so a
+            // zero-width word -- and this producer used to pass them straight
+            // through. If such a word is alone on its row, `groupWordsIntoLines`
+            // unions it into a zero-area LINE, which is invisible to
+            // `linesTouchedBy` (an operator's drag over it cites nothing) and
+            // which `assertLinesWellFormed` now refuses at `/api/propose`'s body
+            // parser -- rejecting the whole 29-page request over one speck.
+            //
+            // Dropped rather than clamped, because a word with no area has no
+            // ink to cite and inventing a pixel of height would be geometry the
+            // engine never measured. This is the producer half of the contract
+            // `assertLinesWellFormed` states: the Gemini producer asserts it and
+            // this one must satisfy it too, or the two are held to different
+            // rules by the same boundary.
+            if (!Number.isFinite(box.w) || !Number.isFinite(box.h)) continue;
+            if (box.w <= 0 || box.h <= 0) continue;
+            words.push({ text: w.text, box });
           }
         }
       }

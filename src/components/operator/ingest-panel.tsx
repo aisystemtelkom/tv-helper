@@ -3,11 +3,17 @@
 /**
  * Screen 1: take the PDFs and watch them being read.
  *
- * OCR runs about four to five seconds a page and a bundle is around thirty
- * pages, so this screen shows COUNTABLE progress: one tick per page, filled as
- * that page finishes. A spinner for two and a half minutes is indistinguishable
- * from a hang, and a smooth bar is a claim the app cannot actually make -- it
- * only ever learns about whole pages.
+ * Reading a bundle of around thirty scanned pages takes minutes, so this
+ * screen shows COUNTABLE progress: one tick per page, filled as that page is
+ * committed. A spinner for minutes is indistinguishable from a hang, and a
+ * smooth bar is a claim the app cannot actually make -- it only ever learns
+ * about whole pages.
+ *
+ * The ticks lag the work on purpose. Four pages are read at once, but
+ * `ingestPdf` releases them strictly in page order, because the order pages
+ * arrive in is the order they are stored in and a zone's page number is a
+ * position in that list. So the count is what is SAFELY STORED, not what has
+ * finished -- which is the number an operator who closes the tab needs.
  */
 
 import { useRef, useState } from "react";
@@ -147,8 +153,9 @@ export function IngestPanel({
           </div>
           <FilmStrip done={progress.done} total={progress.total} />
           <p className="text-xs" style={{ color: "var(--lt-faint)" }}>
-            About four to five seconds a page. Leave this tab open; the work
-            happens here, not on a server.
+            Four pages are read at a time, and each one is saved as it lands.
+            Leave this tab open: the PDF itself stays on this device, and the
+            rendered pages are read by this app&apos;s own server.
           </p>
         </div>
       ) : null}
