@@ -189,3 +189,32 @@ test("a plain error, and the non-errors, are not transient", () => {
   // Neither is a truthy-but-not-`true` isRetryable.
   assert.equal(isTransient({ isRetryable: "yes" }), false);
 });
+
+test("a transport failure is transient, and it carries no status to find", () => {
+  // THE SHAPE THAT KILLED A RUN. A 29-page OCR run died at page 13 with
+  // exactly this: Node's fetch rejects with a TypeError whose message is the
+  // useless "fetch failed", and the real reason is an errno Error on `cause`.
+  // There is no statusCode and no isRetryable anywhere in it, so every other
+  // branch of isTransient returns false and the run ends having already paid
+  // for twelve pages.
+  const reset = new Error("read ECONNRESET") as Error & { code: string };
+  reset.code = "ECONNRESET";
+  const wrapped = new TypeError("fetch failed") as TypeError & {
+    cause: unknown;
+  };
+  wrapped.cause = reset;
+  assert.equal(isTransient(wrapped), true);
+
+  // The same code directly on the thrown error, not behind `cause`.
+  assert.equal(isTransient({ code: "ETIMEDOUT" }), true);
+  assert.equal(isTransient({ code: "EAI_AGAIN" }), true);
+  // undici's own names, which is what an AI SDK rejection wraps.
+  assert.equal(isTransient({ code: "UND_ERR_CONNECT_TIMEOUT" }), true);
+
+  // A code that is NOT a transport failure stays a verdict. ENOENT means a
+  // file is missing; retrying reads the same missing file.
+  assert.equal(isTransient({ code: "ENOENT" }), false);
+  assert.equal(isTransient({ code: "ERR_INVALID_ARG_TYPE" }), false);
+  // A non-string code is not a code.
+  assert.equal(isTransient({ code: 104 }), false);
+});
