@@ -26,9 +26,11 @@ runs it end to end with no UI and no browser involved.
 **`pnpm dev` now serves the OPERATOR UI, not the chat.** `src/app/page.tsx`
 renders `<OperatorApp />` behind the auth gate. The assistant-ui chat that used
 to live there is gone: its vendored components were deleted and nothing renders
-a thread any more. Read the "Not built yet" section before believing the
-operator screens do what they appear to do -- they are currently driven by a
-stub.
+a thread any more. The screens run on the REAL runtime -- real files, real OCR,
+real proposals through `/api/propose`. This paragraph used to warn that they
+were driven by a stub; that stopped being true and the warning outlived it, so
+check `src/lib/ui/wiring.test.mts` rather than trusting either version of this
+sentence.
 
 **What is left of the chat scaffolding is one live route and a set of orphans.**
 `/api/chat` still works, is still gated, and is still the only part of the
@@ -592,32 +594,37 @@ Recorded so nobody reads a design statement as a description of the code.
   `KB / ToP (2)` -- Terms of Payment -- a different slot from `TTD Pejabat`,
   and text-heavy. The recorded 11/12 names `KB / ToP (2)` as the only miss,
   which means `TTD Pejabat` is currently passing text-only.)
-- **THE OPERATOR UI IS WIRED TO A STUB, AND THAT IS THE MOST MISLEADING THING
-  IN THE TREE.** `src/components/operator/operator-app.tsx` holds
-  `const runtime = createStubRuntime();`. `src/lib/ui/stub-runtime.ts` invents
-  pages, invents OCR lines and paints its own "scans", so signing in and
-  driving the whole flow -- upload, proposals, zone editing, outstanding,
-  export -- succeeds against data that came from nowhere. Its
-  `ingestDocument` never reads the uploaded file's bytes: it sleeps, adds three
-  synthetic pages and marks slots found. Runs live in an in-memory `Map`, so
-  nothing reaches IndexedDB and a reload loses the lot. Check that one line
-  before reading any screenshot of this app as evidence that something works.
-- **The two tracks have not been snapped together.** `src/lib/ui/runtime.ts`
-  is a hand-copied MIRROR of the contract rather than an import, written that
-  way so the UI and runtime tracks would not collide on one file; its own
-  header gives the two-edit merge recipe (re-export from
-  `../browser/runtime.ts`, then pass the real module to `RuntimeProvider`).
-  The mirror has since drifted and `tsc` will say so when it is re-exported:
-  `BrowserRun` gained `rev`, and `saveRun` returns the stored run rather than
-  `void`. Both are deliberate -- see the storage gotchas -- and the UI's
-  `commit()` needs to keep what `saveRun` returns.
-- **Nothing proposes a zone in the browser.** `src/lib/browser/runtime.ts`
-  never asks the model anything, by design: `src/lib/model.ts` is the only file
-  that may know how the model is reached, so the search has to come from a
-  server route. **There is no `/api/locate` route** -- `src/app/api/` holds
-  only `auth/[...nextauth]` and `chat`. The real runtime can therefore ingest,
-  render and OCR a bundle on the device, and every slot then stays `"pending"`
-  forever. This is the gap between the operator UI and a working product.
+- **THE OPERATOR UI IS WIRED TO THE REAL RUNTIME. This bullet used to say the
+  opposite and it was believed for too long.** `operator-app.tsx` holds
+  `const runtime = liveRuntime;`, and `src/lib/ui/live-runtime.ts` binds that
+  to `import * as browserRuntime from "../browser/runtime.ts"`. The stub still
+  exists at `src/lib/ui/stub-runtime.ts` but nothing shipped imports it, and it
+  refuses to construct in a production build.
+
+  **Do not re-derive the old warning from the file's existence.**
+  `src/lib/ui/wiring.test.mts` pins all three facts -- that `liveRuntime` is
+  identical to the browser runtime function by function, that the operator app
+  imports it and not the stub, and that the stub throws in production. The app
+  ran on `createStubRuntime()` for an entire track and nothing failed, which is
+  why the binding is now a value a test can assert on rather than a line in a
+  `.tsx` no test could import.
+- **The two tracks ARE snapped together.** `src/lib/ui/runtime.ts` re-exports
+  the contract from `../browser/runtime.ts` instead of hand-copying it, so a
+  signature that drifts is a `tsc` error rather than a runtime
+  `undefined is not a function` in front of an operator. The drift the old
+  bullet warned about is resolved: `BrowserRun` carries `rev`, `saveRun`
+  returns the stored run, and the UI's `commit()` keeps what it returns.
+- **The browser DOES propose zones, through `/api/propose`.** The old bullet
+  said no such route existed and named `/api/locate`, which was never built.
+  `src/app/api/propose/` is: `src/lib/ui/propose.ts` posts the run's numbered
+  OCR lines to it, and `applyProposals` folds the answer back into the run. The
+  boundary rule is intact -- the route runs server-side and is the only place
+  the model is reached, so `src/lib/model.ts` stays the one file that knows how.
+
+  Verified against the deployed service on 2026-09-02: a request naming
+  `kb.nomor` returned a zone whose box was the union of the answered line range
+  padded by `CROP_PADDING_PX`, and a slot it could not find came back in
+  `outstanding` rather than as an invented zone.
 - **`pnpm generate` writes its three output files unreviewed.** The design's
   "the app never emits an unreviewed zone" describes the UI's target, not this
   command.
