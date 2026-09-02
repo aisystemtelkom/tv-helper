@@ -315,7 +315,12 @@ export function describeOutstanding(
     return {
       state,
       def: found?.slot,
-      sectionTitle: found?.section.title ?? "Not in this template",
+      // Operator-visible, so Bahasa Indonesia like every other string that
+      // reaches a screen. It names the case where a run holds a capture under
+      // a key the template no longer declares: the exporter will not place it,
+      // and it is listed rather than dropped so that nothing an operator
+      // confirmed disappears without being mentioned.
+      sectionTitle: found?.section.title ?? "Tidak ada di template ini",
       label: state.label || found?.slot.label || state.key,
     };
   });

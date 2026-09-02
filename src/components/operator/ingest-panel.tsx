@@ -1,111 +1,312 @@
 "use client";
 
 /**
- * Screen 1: take the PDFs and watch them being read.
+ * Screen 1: MUAT DOKUMEN ORDER. Take the PDFs, read them, then process them.
  *
- * Reading a bundle of around thirty scanned pages takes minutes, so this
- * screen shows COUNTABLE progress: one tick per page, filled as that page is
- * committed. A spinner for minutes is indistinguishable from a hang, and a
- * smooth bar is a claim the app cannot actually make -- it only ever learns
- * about whole pages.
+ * This is the empty state of the whole product, so it is an invitation to act
+ * rather than a form. The drop target is the screen's subject and gets the
+ * space to say so; everything else here is either the promise made at the
+ * moment of hand-over, the count of what is safely stored, or a plain account
+ * of what this pekerjaan now holds.
  *
- * The ticks lag the work on purpose. Four pages are read at once, but
- * `ingestPdf` releases them strictly in page order, because the order pages
- * arrive in is the order they are stored in and a zone's page number is a
- * position in that list. So the count is what is SAFELY STORED, not what has
- * finished -- which is the number an operator who closes the tab needs.
+ * THE SCREEN IS TWO MOVES, AND THEY ARE DELIBERATELY NOT ONE. Move one hands
+ * the documents over and reads their pages. Move two, `Process` below, is the
+ * search that turns those pages into usulan, and it is an explicit click
+ * because it costs minutes of model calls over every page of the bundle: an
+ * operator who has just noticed a missing document must be able to add it
+ * BEFORE paying for that pass, which is impossible if handing a file over
+ * starts one. The trigger used to live on the review screen, where the
+ * operator had to find it after arriving at a sheet that looked simply empty.
+ *
+ * MOVE TWO HAS NO BAR, AND THAT IS A RULE RATHER THAN AN OMISSION. The film
+ * strip below is honest because the app genuinely learns about whole pages,
+ * one at a time. The search is ONE request for the whole run (`requestProposals`
+ * in `src/lib/ui/propose.ts`), so there is no per-bagian progress to read and
+ * no way to invent one that is not fiction. What it can say instead is
+ * countable and true: how many bagian are being searched, how many halaman of
+ * text went up, and how long it has been running.
+ *
+ * THE FILM STRIP IS COUNTABLE, NEVER SMOOTH, and that is load-bearing rather
+ * than stylistic. Reading a bundle of around thirty scanned pages takes
+ * minutes. A spinner for minutes is indistinguishable from a hang, and a
+ * percentage would be a claim this app cannot make: it only ever learns about
+ * WHOLE PAGES.
+ *
+ * THE TICKS LAG THE WORK ON PURPOSE. Four pages are read at once, but
+ * `ingestDocument` releases them strictly in page order, because the order
+ * pages arrive in is the order they are stored in and a zone's page number is
+ * a position in that list. So the count is what is SAFELY STORED, not what has
+ * finished, which is the number an operator who closes the tab needs.
+ *
+ * WHAT THE PROMISE ON THIS SCREEN IS ALLOWED TO SAY. The screen used to carry
+ * two contradictory sentences forty lines apart: "read in this browser and
+ * never uploaded" beside "the rendered pages are read by this app's own
+ * server". Since the Gemini OCR migration the second one is the true one. The
+ * accurate sentence is now stated once, inside `DocumentDrop`, so that every
+ * point of hand-over in the product carries it and none of them can drift: the
+ * PDF itself never leaves the device, the pages are rendered here, and only a
+ * rendered page image goes to this application's own server to be read.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-import type { BrowserRun } from "@/lib/ui/runtime";
+import type {
+  BrowserRun,
+  RunSource,
+  RunSummary,
+  StoredPage,
+} from "@/lib/ui/runtime";
 
-import { Btn, Eyebrow, Notice } from "./chrome";
+import {
+  Advisory,
+  Btn,
+  Interruption,
+  Lede,
+  Note,
+  Notice,
+  Title,
+  shortenFileName,
+} from "./chrome";
+import { Denah } from "./denah";
 
-export type IngestProgress = { name: string; done: number; total: number };
+/**
+ * What the shell knows about an ingest in flight.
+ *
+ * `name`, `done` and `total` are the original contract and are unchanged.
+ * `fileIndex` and `fileCount` are OPTIONAL additions for a multi-file drop:
+ * the shell ingests files one after another, so without them three dropped
+ * PDFs produce one file name and a rail that silently restarts twice, which an
+ * operator cannot tell from a stuck one. Optional, so a caller that does not
+ * supply them still type-checks and still renders correctly.
+ */
+export type IngestProgress = {
+  name: string;
+  done: number;
+  total: number;
+  fileIndex?: number;
+  fileCount?: number;
+};
 
+/** A file this app can actually read. */
+function isPdf(file: File): boolean {
+  // Both tests, not the extension alone. A scan handed over through a chat app
+  // or a mail client commonly arrives with the right MIME type and no
+  // extension at all, and refusing that would be refusing a real document.
+  return (
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+/**
+ * The place you put paper.
+ *
+ * Exported because the dokumen tambahan loop hands documents over too, and
+ * both hand-over points must make the same promise in the same words.
+ *
+ * A FILE THAT IS NOT A PDF IS REFUSED OUT LOUD. It used to be dropped in
+ * silence: `files.length > 0` guarded the callback, so dropping a JPG of a
+ * scan produced no reaction whatsoever. That is this project's own failure
+ * class moved into the interaction layer, because the operator walks away
+ * believing the document is in the run, and the bagian it was meant to fill
+ * ships empty on the record.
+ */
 export function DocumentDrop({
   label,
   hint,
   disabled,
   onFiles,
+  size = "hero",
 }: {
   label: string;
   hint: string;
   disabled?: boolean;
   onFiles: (files: File[]) => void;
+  /** `inline` is the same target at a smaller height, for a secondary screen. */
+  size?: "hero" | "inline";
 }) {
   const input = useRef<HTMLInputElement>(null);
+  // A drag over a CHILD element fires dragleave on the parent, so a boolean
+  // toggled by those two events flickers the whole time the pointer is inside.
+  // Counting enter against leave is the only version that stays lit.
+  const depth = useRef(0);
   const [over, setOver] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const inputId = useId();
+  const labelId = useId();
 
   const take = (list: FileList | null) => {
-    const files = [...(list ?? [])].filter((f) =>
-      f.name.toLowerCase().endsWith(".pdf"),
-    );
-    if (files.length > 0) onFiles(files);
+    const all = [...(list ?? [])];
+    const pdfs = all.filter(isPdf);
+    const others = all.filter((file) => !isPdf(file));
+
+    if (all.length === 0) {
+      setRefusal(
+        "Tidak ada berkas yang terbaca dari yang Anda jatuhkan. Coba pilih berkasnya lewat tombol di bawah.",
+      );
+      return;
+    }
+
+    if (others.length > 0) {
+      const names = others
+        .map((file) => shortenFileName(file.name, 28))
+        .join(", ");
+      setRefusal(
+        pdfs.length > 0
+          ? `Hanya berkas PDF yang bisa dibaca di sini, jadi yang ini dilewati: ${names}.`
+          : `Bukan berkas PDF, jadi tidak ada yang dimuat: ${names}. Simpan dokumennya sebagai PDF dulu, lalu coba lagi.`,
+      );
+    } else {
+      setRefusal(null);
+    }
+
+    if (pdfs.length > 0) onFiles(pdfs);
   };
 
   return (
-    <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        if (!disabled) take(e.dataTransfer.files);
-      }}
-      className="lt-card flex flex-col items-start gap-3 p-5"
-      style={over ? { borderColor: "var(--lt-mark)" } : undefined}
-    >
-      <div>
-        <Eyebrow>{label}</Eyebrow>
-        <p className="pt-1 text-sm" style={{ color: "var(--lt-dim)" }}>
+    <div className="flex flex-col gap-3">
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (disabled) return;
+          depth.current += 1;
+          setOver(true);
+        }}
+        onDragOver={(event) => {
+          // Always prevented, even while disabled: without it the browser
+          // treats the drop as a navigation and opens the operator's PDF over
+          // the top of a running ingest.
+          event.preventDefault();
+          event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+        }}
+        onDragLeave={() => {
+          depth.current = Math.max(0, depth.current - 1);
+          if (depth.current === 0) setOver(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          depth.current = 0;
+          setOver(false);
+          if (disabled) {
+            // The card used to light amber on drag over while disabled and
+            // then discard the file without a word. Saying no is the point.
+            setRefusal(
+              "Sedang membaca dokumen. Tunggu sampai pembacaan selesai, lalu tambahkan berkasnya.",
+            );
+            return;
+          }
+          take(event.dataTransfer.files);
+        }}
+        className={`flex flex-col items-center gap-4 rounded-[4px] border-2 border-dashed px-6 text-center ${
+          size === "hero" ? "py-12" : "py-7"
+        }`}
+        style={{
+          // THE DRAG TARGET IS INK, NEVER AMBER. Amber means a decision is
+          // owed on a piece of evidence; where the pointer happens to be is
+          // not that, and the two sharing one colour is what taught an
+          // operator to stop reading amber at all.
+          borderColor: over ? "var(--ink)" : "var(--line-strong)",
+          background: over
+            ? "color-mix(in oklch, var(--ink), transparent 93%)"
+            : "transparent",
+          transition: "border-color 90ms ease, background-color 90ms ease",
+        }}
+      >
+        <svg
+          width={40}
+          height={40}
+          viewBox="0 0 40 40"
+          aria-hidden="true"
+          fill="none"
+          stroke="var(--ink-3)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M11 4.5h11l7 7v24h-18z" />
+          <path d="M22 4.5v7h7" />
+          <path d="M20 17.5v11" />
+          <path d="M15.5 24l4.5 4.5 4.5-4.5" />
+        </svg>
+
+        <h3 id={labelId} className="text-[1.0625rem] font-semibold">
+          {label}
+        </h3>
+
+        <p
+          className="max-w-[52ch] text-[0.9375rem]"
+          style={{ color: "var(--ink-2)" }}
+        >
           {hint}
         </p>
+
+        <label htmlFor={inputId} className="sr-only">
+          Pilih berkas PDF dari komputer Anda
+        </label>
+        <input
+          ref={input}
+          id={inputId}
+          type="file"
+          accept="application/pdf,.pdf"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            take(event.target.files);
+            // Cleared, so choosing the same file twice still fires `change`.
+            event.target.value = "";
+          }}
+        />
+        <Btn
+          tone="primary"
+          disabled={disabled}
+          onClick={() => input.current?.click()}
+        >
+          Pilih berkas PDF
+        </Btn>
+
+        {/* Safety copy, so it never uses `--ink-3`. This sentence is the one
+            the client's whole constraint story rests on, and it was previously
+            set in the least readable colour in the system at 12px. */}
+        <p
+          className="max-w-[62ch] text-[0.8125rem]"
+          style={{ color: "var(--ink-2)" }}
+        >
+          Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya
+          gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.
+        </p>
       </div>
-      <input
-        ref={input}
-        type="file"
-        accept="application/pdf,.pdf"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          take(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <Btn
-        tone="primary"
-        disabled={disabled}
-        onClick={() => input.current?.click()}
-      >
-        Choose PDFs
-      </Btn>
-      <p className="text-xs" style={{ color: "var(--lt-faint)" }}>
-        Or drop them here. Documents are read in this browser and never
-        uploaded.
-      </p>
+
+      {/* The live region sits in the DOM before it has anything to say, so a
+          refusal is announced when it appears rather than when the region is
+          first inserted. */}
+      <div role="status" aria-live="polite">
+        {refusal ? <Notice tone="stop">{refusal}</Notice> : null}
+      </div>
     </div>
   );
 }
 
+/**
+ * ONE TICK PER PAGE, filled as that page is committed to storage.
+ *
+ * Before the first page lands the runtime has not said how many there are, so
+ * the rail is EMPTY rather than full width at nothing. A trough with no ticks
+ * is honest about a total nobody knows yet, where "halaman 0 dari 0" over a
+ * bar was the first thing an operator saw after handing over a 29 page bundle.
+ */
 function FilmStrip({ done, total }: { done: number; total: number }) {
-  // Before the first page finishes the runtime has not said how many there
-  // are. An empty rail is honest about that; a full-width bar at 0% would be
-  // a claim about a total nobody knows yet.
-  if (total <= 0) return <div className="lt-sunken h-3 w-full" />;
+  if (total <= 0) return <div className="lt-well h-6 w-full" />;
 
   return (
     <div
-      className="lt-sunken flex h-3 w-full overflow-hidden p-0"
+      className="lt-well flex h-6 w-full overflow-hidden p-0"
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={total}
       aria-valuenow={done}
-      aria-label="Pages read"
+      aria-valuetext={`${done} dari ${total} halaman tersimpan`}
+      aria-label="Halaman yang sudah tersimpan"
     >
       {Array.from({ length: total }, (_, i) => (
         <div
@@ -119,68 +320,656 @@ function FilmStrip({ done, total }: { done: number; total: number }) {
   );
 }
 
+/** The block the operator watches for minutes. */
+function Reading({ progress }: { progress: IngestProgress }) {
+  const named = progress.name.length > 0;
+  const counting = progress.total <= 0;
+
+  return (
+    <section
+      className="flex flex-col gap-4 border-y py-5"
+      style={{ borderColor: "var(--line)" }}
+      aria-labelledby="ingest-reading"
+    >
+      {/* Announced once per FILE rather than once per page: a screen reader
+          user waiting several minutes wants to know which document is being
+          read, not to be interrupted twenty-nine times. The page count lives
+          on the progressbar, where it can be asked for. */}
+      <div aria-live="polite">
+        <h3 id="ingest-reading" className="text-[0.9375rem] font-semibold">
+          {named ? (
+            <>
+              Membaca{" "}
+              <span className="lt-figure" title={progress.name}>
+                {shortenFileName(progress.name)}
+              </span>
+            </>
+          ) : (
+            "Membaca dokumen"
+          )}
+        </h3>
+        {progress.fileCount && progress.fileCount > 1 ? (
+          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+            Berkas ke-<span className="lt-figure">{progress.fileIndex ?? 1}</span>{" "}
+            dari <span className="lt-figure">{progress.fileCount}</span> yang
+            Anda berikan.
+          </p>
+        ) : null}
+      </div>
+
+      <FilmStrip done={progress.done} total={progress.total} />
+
+      <p className="text-[0.9375rem]" style={{ color: "var(--ink)" }}>
+        {counting ? (
+          "Membuka berkas dan menghitung halamannya."
+        ) : (
+          <>
+            <span className="lt-figure">{progress.done}</span> dari{" "}
+            <span className="lt-figure">{progress.total}</span> halaman sudah
+            tersimpan.
+          </>
+        )}
+      </p>
+
+      <Advisory>
+        <span>
+          Setiap halaman disimpan begitu selesai dibaca. Kalau pembacaan
+          berhenti di tengah jalan, halaman yang sudah masuk tidak hilang.
+          Biarkan tab ini terbuka sampai selesai.
+        </span>
+      </Advisory>
+    </section>
+  );
+}
+
+type SourceTally = {
+  source: RunSource;
+  pages: StoredPage[];
+  /** The document's own length, recorded from the first page message on. */
+  expected: number;
+};
+
+function tally(run: BrowserRun): SourceTally[] {
+  return run.sources.map((source) => ({
+    source,
+    pages: run.pages.filter((page) => page.sourceId === source.id),
+    expected: source.pageCount,
+  }));
+}
+
+/**
+ * What this pekerjaan now holds, and where it is short.
+ *
+ * THE RECONCILIATION IS THE POINT. An interrupted ingest records the
+ * document's own length on the source and stores only the pages that actually
+ * landed, so "29 halaman" and "19 halaman terbaca" are both true, and they
+ * used to sit two lines apart as equals. A run that is genuinely incomplete
+ * looked complete, and every bagian living on the ten unread pages comes back
+ * `tidak ditemukan` for a reason the operator reads as "the document does not
+ * contain it".
+ *
+ * THE PAGE PLANS ARE HERE FOR THE REASON THEY ARE ON THE REVIEW SHEET. This is
+ * the first moment the operator can catch a wrong file, a blank page or a scan
+ * that would not read, and catching it here costs seconds where catching it
+ * after the search costs a whole pass. They are free: `StoredPage` already
+ * carries the line boxes, so this is inline SVG and no bitmap, no blob URL and
+ * no model call.
+ */
+function RunContents({ run }: { run: BrowserRun }) {
+  const tallies = tally(run);
+  const expected = tallies.reduce((sum, one) => sum + one.expected, 0);
+  const read = run.pages.length;
+  const short = Math.max(0, expected - read);
+  const unreadable = run.pages.filter((page) => page.lines.length === 0).length;
+  const names = run.sources.map((source) => source.name);
+  const duplicated = new Set(names).size !== names.length;
+
+  return (
+    <section
+      className="flex flex-col gap-4 border-t pt-5"
+      style={{ borderColor: "var(--line)" }}
+      aria-labelledby="ingest-contents"
+    >
+      <h3 id="ingest-contents" className="text-[0.9375rem] font-semibold">
+        Isi pekerjaan ini
+      </h3>
+
+      {run.sources.length === 0 ? (
+        <p style={{ color: "var(--ink-2)" }}>
+          Pekerjaan ini belum berisi berkas apa pun. Taruh berkas PDF di kotak
+          di atas untuk mulai.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-5">
+          {tallies.map(({ source, pages, expected: length }) => {
+            const missing = Math.max(0, length - pages.length);
+            return (
+              <li key={source.id} className="flex flex-col gap-2">
+                <p className="lt-figure text-[0.9375rem]" title={source.name}>
+                  {shortenFileName(source.name, 44)}
+                </p>
+
+                <p
+                  className="text-[0.8125rem]"
+                  style={{ color: "var(--ink-2)" }}
+                >
+                  {length === 0 && pages.length === 0 ? (
+                    "Belum ada halaman yang terbaca dari berkas ini."
+                  ) : missing > 0 ? (
+                    <span style={{ color: "var(--gap)" }}>
+                      <span className="lt-figure">{pages.length}</span> dari{" "}
+                      <span className="lt-figure">{length}</span> halaman
+                      terbaca, <span className="lt-figure">{missing}</span>{" "}
+                      halaman belum masuk.
+                    </span>
+                  ) : (
+                    <>
+                      <span className="lt-figure">{pages.length}</span> halaman
+                      terbaca.
+                    </>
+                  )}
+                </p>
+
+                {pages.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {pages.map((page) => (
+                      <Denah
+                        key={page.id}
+                        page={page}
+                        size="sm"
+                        label={`Halaman ${page.index + 1} dari ${source.name}`}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* The total is only worth stating once there is something to total, and
+          the "no berkas at all" sentence above already covers an empty run. */}
+      {run.sources.length === 0 ? null : read > 0 ? (
+        <p style={{ color: "var(--ink)" }}>
+          <span className="lt-figure">{read}</span> halaman dari{" "}
+          <span className="lt-figure">{run.sources.length}</span> berkas siap
+          diperiksa.
+        </p>
+      ) : (
+        <p style={{ color: "var(--ink)" }}>
+          Belum ada satu halaman pun yang tersimpan di pekerjaan ini. Muat ulang
+          berkasnya untuk mencoba lagi.
+        </p>
+      )}
+
+      {short > 0 ? (
+        <Advisory>
+          <span>
+            <span className="lt-figure">{short}</span> halaman belum terbaca.
+            Bagian yang ada di halaman itu akan tercatat tidak ditemukan. Muat
+            ulang berkas yang kurang sebelum melanjutkan.
+          </span>
+        </Advisory>
+      ) : null}
+
+      {unreadable > 0 ? (
+        <Advisory>
+          <span>
+            <span className="lt-figure">{unreadable}</span> halaman terbaca
+            gambarnya, tetapi tidak ada satu pun teks di dalamnya yang terbaca.
+            Halaman itu bergaris coret di denahnya. Periksa apakah halaman itu
+            memang kosong.
+          </span>
+        </Advisory>
+      ) : null}
+
+      {duplicated ? (
+        <Advisory>
+          <span>
+            Ada dua berkas dengan nama yang sama di pekerjaan ini. Periksa
+            apakah salah satunya termuat dua kali.
+          </span>
+        </Advisory>
+      ) : null}
+    </section>
+  );
+}
+
+/** Seconds, ticking, in its own component so only this node re-renders. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = String(seconds % 60).padStart(2, "0");
+
+  return (
+    <span className="lt-figure" style={{ color: "var(--ink)" }}>
+      Sudah {minutes}:{rest} berjalan.
+    </span>
+  );
+}
+
+/**
+ * MOVE TWO: the search, on the screen that produced the pages.
+ *
+ * It is a multi-minute wait with one honest thing to show for it, and a
+ * spinner and a hang are the same picture. What this block prints is what the
+ * app actually knows: the number of bagian in the request, the number of
+ * halaman of text it carries, and the seconds since it started. There is
+ * deliberately NO filling rectangle. `requestProposals` is a single POST for
+ * the whole run, so a bar here would be a drawing of a number nobody has.
+ *
+ * The button is `Proses`, and every state word this block produces uses that
+ * same stem, because an action that changes its name half way through the
+ * flow is an action the operator cannot follow.
+ */
+function Process({
+  pages,
+  wanted,
+  searching,
+  startedAt,
+  note,
+  busy,
+  onProcess,
+}: {
+  pages: number;
+  wanted: number;
+  searching: boolean;
+  startedAt: number | null;
+  note: string | null;
+  busy: boolean;
+  onProcess: () => void;
+}) {
+  // ONE PARAGRAPH, WHATEVER THE STATE, and the button is described by it in
+  // every state. A greyed control with nothing beside it is this product's own
+  // failure moved into the interaction layer; two paragraphs saying the same
+  // thing in different words is the other half of the same mistake.
+  const blocked = busy || wanted === 0;
+  const why = "ingest-process-why";
+
+  return (
+    <section
+      className="flex flex-col gap-4 border-t pt-5"
+      style={{ borderColor: "var(--line)" }}
+      aria-labelledby="ingest-process"
+    >
+      <h3 id="ingest-process" className="text-[0.9375rem] font-semibold">
+        Proses halaman menjadi usulan
+      </h3>
+
+      {/* Mounted before it has anything to say, so the change of state is
+          announced when it happens rather than when the region appears. The
+          ticking figure is kept OUT of it on purpose: a seconds counter inside
+          a live region is read aloud once per second. */}
+      <div role="status" aria-live="polite">
+        {searching ? (
+          <p style={{ color: "var(--ink)" }}>
+            Mencari bukti untuk <span className="lt-figure">{wanted}</span>{" "}
+            bagian, dari teks <span className="lt-figure">{pages}</span> halaman
+            yang sudah dibaca.
+          </p>
+        ) : note ? (
+          <Notice>{note}</Notice>
+        ) : null}
+      </div>
+
+      {/* Safety copy, so never `--ink-3`, and never further from the button
+          than this. */}
+      <p
+        id={why}
+        className="max-w-[68ch] text-[0.9375rem]"
+        style={{ color: "var(--ink-2)" }}
+      >
+        {searching ? (
+          <>
+            {startedAt !== null ? (
+              <>
+                <Elapsed since={startedAt} />{" "}
+              </>
+            ) : null}
+            Perlu beberapa menit. Biarkan tab ini terbuka sampai selesai.
+          </>
+        ) : busy ? (
+          "Pembacaan halaman belum selesai. Memproses sekarang akan melewatkan halaman yang belum masuk, jadi tunggu sampai pembacaan berhenti."
+        ) : wanted === 0 ? (
+          "Setiap bagian sudah punya usulan atau sudah Anda putuskan, jadi tidak ada lagi yang perlu dicari di sini."
+        ) : (
+          <>
+            <span className="lt-figure">{wanted}</span> bagian belum punya
+            usulan. Teks <span className="lt-figure">{pages}</span> halaman ini
+            dikirim ke server aplikasi, lalu tiap bagian dapat satu usulan area
+            atau tercatat tidak ditemukan. Perlu beberapa menit, dan tab ini
+            harus tetap terbuka sampai selesai.
+          </>
+        )}
+      </p>
+
+      <div>
+        <Btn
+          tone="primary"
+          disabled={searching || blocked}
+          aria-describedby={why}
+          onClick={onProcess}
+        >
+          {searching ? "Sedang memproses..." : "Proses"}
+        </Btn>
+      </div>
+    </section>
+  );
+}
+
+const WAKTU = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/**
+ * `listRuns` builds a run's label in `src/lib/browser/runtime.ts` (`labelFor`)
+ * and builds it in English: "(no documents yet)", and "<name> +2 more" for a
+ * bundle. That file is not this screen's to edit, and an English string in the
+ * operator's own list of work is a defect either way, so the two shapes it
+ * emits are translated here.
+ *
+ * THE REAL FIX IS IN `labelFor`. Delete this the moment it speaks Bahasa.
+ */
+function runName(label: string): string {
+  if (label === "(no documents yet)") return "(belum ada dokumen)";
+  return label.replace(/ \+(\d+) more$/, " +$1 berkas lain");
+}
+
+/** The file name is shortened from the middle; the "+2 berkas lain" is not. */
+function shortenRunName(label: string): string {
+  const parts = /^(.*?)( \+\d+ berkas lain)$/.exec(label);
+  if (!parts) return shortenFileName(label, 30);
+  return `${shortenFileName(parts[1], 24)}${parts[2]}`;
+}
+
+/**
+ * The work saved on this device, so an order started yesterday can be picked
+ * up today.
+ *
+ * A run is opened BY NAME, and its name is the documents in it, because
+ * opening the wrong order and confirming crops into it is the expensive
+ * mistake this list can cause. `createdAt` is shown for the same reason: two
+ * runs of one customer's paperwork are otherwise indistinguishable rows, and
+ * it was fetched and never displayed.
+ *
+ * THE OPEN RUN IS MARKED IN INK AND IN WORDS, never in amber. Amber is
+ * reserved for a decision that is owed, and this list previously used it for
+ * three unrelated things at once: the open run, the active phase, and a file
+ * being dragged over a card.
+ */
+function RunsList({
+  runs,
+  loading,
+  openId,
+  onOpenRun,
+  onStartNewRun,
+}: {
+  runs: RunSummary[];
+  loading: boolean;
+  openId: string | null;
+  onOpenRun: (id: string) => void;
+  onStartNewRun?: () => void;
+}) {
+  // Newest first: these are day-to-day work items, and recency is how people
+  // actually find them.
+  const ordered = [...runs].sort((a, b) => b.createdAt - a.createdAt);
+
+  return (
+    <aside
+      className="lt-panel flex h-fit flex-col gap-3 p-4"
+      aria-labelledby="ingest-runs"
+    >
+      <h3 id="ingest-runs" className="text-[0.9375rem] font-semibold">
+        Pekerjaan tersimpan
+      </h3>
+
+      <div aria-live="polite">
+        {loading ? (
+          /* Not "belum ada pekerjaan" while the list is still being read. A
+             returning operator used to be told, briefly but every single time,
+             that they had no saved work. */
+          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+            Memuat daftar pekerjaan.
+          </p>
+        ) : ordered.length === 0 ? (
+          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+            Belum ada pekerjaan tersimpan. Menaruh berkas PDF akan memulai satu.
+          </p>
+        ) : (
+          <ul className="flex max-h-[24rem] flex-col gap-1 overflow-y-auto">
+            {ordered.map((summary) => {
+              const open = summary.id === openId;
+              const name = runName(summary.label);
+              return (
+                <li key={summary.id}>
+                  <button
+                    type="button"
+                    aria-current={open ? "true" : undefined}
+                    onClick={() => onOpenRun(summary.id)}
+                    data-on={open ? "true" : undefined}
+                    className="lt-btn w-full flex-col items-start gap-0.5 px-2 py-2 text-left"
+                  >
+                    <span
+                      className="lt-figure w-full text-[0.8125rem]"
+                      title={name}
+                    >
+                      {shortenRunName(name)}
+                    </span>
+                    {/* 13px, not 12: nothing in this product is set smaller,
+                        because the date is how one order of a customer's
+                        paperwork is told from another. */}
+                    <span
+                      className="text-[0.8125rem] font-normal"
+                      style={{ color: "var(--ink-2)" }}
+                    >
+                      {WAKTU.format(summary.createdAt)}
+                      {open ? ", sedang dibuka" : ""}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {onStartNewRun ? (
+        <div
+          className="flex flex-col gap-2 border-t pt-3"
+          style={{ borderColor: "var(--line)" }}
+        >
+          <Btn onClick={onStartNewRun}>Mulai pekerjaan lain</Btn>
+          <Note>
+            Pekerjaan yang sekarang tetap tersimpan dan bisa dibuka lagi dari
+            daftar di atas.
+          </Note>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
 export function IngestPanel({
   run,
   progress,
   busy,
   error,
   onFiles,
+  runs = [],
+  runsLoading = false,
+  onOpenRun,
+  onStartNewRun,
+  onContinue,
+  onProcess,
+  searching = false,
+  searchStartedAt = null,
+  searchNote = null,
+  wanted = 0,
+  searched = false,
 }: {
   run: BrowserRun | null;
   progress: IngestProgress | null;
   busy: boolean;
+  /**
+   * The ingest that just failed, as the runtime reported it. Deployer-facing
+   * text: it goes behind `Detail teknis`, never into the sentence the operator
+   * is meant to act on.
+   */
   error: string | null;
   onFiles: (files: File[]) => void;
+  /** The runs list is omitted entirely when the shell does not supply it. */
+  runs?: RunSummary[];
+  runsLoading?: boolean;
+  onOpenRun?: (id: string) => void;
+  onStartNewRun?: () => void;
+  /** The stated next move, once the search has run. */
+  onContinue?: () => void;
+  /** MOVE TWO. Omitted, the block is not offered at all. */
+  onProcess?: () => void;
+  searching?: boolean;
+  /** When the running search started, for the elapsed reading. */
+  searchStartedAt?: number | null;
+  /** What the last search found, in one sentence. Outlives the search. */
+  searchNote?: string | null;
+  /** How many bagian the next search would look for. */
+  wanted?: number;
+  /**
+   * Whether a search has already run over this pekerjaan. It gates the move to
+   * Periksa, and it is derived by the shell FROM THE RUN, so a reload does not
+   * lock a run that was already searched.
+   */
+  searched?: boolean;
 }) {
+  const pages = run?.pages.length ?? 0;
+  // `busy` can lead `progress` by a moment, because the shell sets one before
+  // the other. Reading without a name yet is still reading, and an empty
+  // screen for that moment reads as a refusal to start.
+  const reading: IngestProgress | null =
+    progress ?? (busy ? { name: "", done: 0, total: 0 } : null);
+
   return (
-    <div className="flex flex-col gap-5">
-      <DocumentDrop
-        label="Step 1 - the order bundle"
-        hint="Every PDF that came with this order. They are rendered upright at 300 DPI and read page by page."
-        disabled={busy}
-        onFiles={onFiles}
-      />
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <Title>Muat dokumen order</Title>
+        <Lede>
+          Berikan semua berkas PDF yang datang bersama order ini. Halaman
+          diluruskan dan dibaca satu per satu, lalu disimpan di perangkat ini.
+          Kalau semua berkas sudah masuk, klik Proses untuk mencari bukti tiap
+          bagian.
+        </Lede>
+      </header>
 
-      {error ? <Notice tone="stop">{error}</Notice> : null}
-
-      {progress ? (
-        <div className="lt-card flex flex-col gap-3 p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <Eyebrow>Reading {progress.name}</Eyebrow>
-            <p className="lt-mono text-sm">
-              page {progress.done} of {progress.total}
-            </p>
-          </div>
-          <FilmStrip done={progress.done} total={progress.total} />
-          <p className="text-xs" style={{ color: "var(--lt-faint)" }}>
-            Four pages are read at a time, and each one is saved as it lands.
-            Leave this tab open: the PDF itself stays on this device, and the
-            rendered pages are read by this app&apos;s own server.
-          </p>
-        </div>
+      {error ? (
+        <Interruption detail={error}>
+          {pages > 0
+            ? "Pembacaan berhenti sebelum semua halaman selesai. Halaman yang sudah terbaca tetap tersimpan, dan pekerjaan ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
+            : "Pembacaan berhenti sebelum satu halaman pun tersimpan. Pekerjaan yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
+        </Interruption>
       ) : null}
 
-      {run && run.sources.length > 0 ? (
-        <div className="lt-card flex flex-col gap-3 p-5">
-          <Eyebrow>In this run</Eyebrow>
-          <ul className="flex flex-col gap-1">
-            {run.sources.map((source) => (
-              <li
-                key={source.id}
-                className="lt-mono flex items-baseline justify-between gap-4 text-xs"
-                style={{ color: "var(--lt-dim)" }}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="flex flex-col gap-6">
+          {reading ? (
+            /* The drop target stands down while an ingest runs. It cannot
+               accept anything, and leaving a dead target on screen is the same
+               refusal-in-silence the file filter used to make. */
+            <Reading progress={reading} />
+          ) : (
+            <DocumentDrop
+              label={
+                pages > 0
+                  ? "Tambahkan berkas ke pekerjaan ini"
+                  : "Taruh berkas order di sini"
+              }
+              hint={
+                pages > 0
+                  ? "Berkas baru ditambahkan ke pekerjaan yang sedang terbuka. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
+                  : "Semua berkas sekaligus juga bisa. Hasil pindaian yang terputar akan diluruskan lebih dulu, jadi halaman yang miring tetap terbaca."
+              }
+              disabled={busy}
+              onFiles={onFiles}
+            />
+          )}
+
+          {run ? <RunContents run={run} /> : null}
+
+          {/* Move two only exists once there is something to process. On the
+              empty state the screen stays one invitation with one target. */}
+          {onProcess && pages > 0 ? (
+            <Process
+              pages={pages}
+              wanted={wanted}
+              searching={searching}
+              startedAt={searchStartedAt}
+              note={searchNote}
+              busy={busy}
+              onProcess={onProcess}
+            />
+          ) : null}
+
+          {/* THE GATE. It is on the search having RUN, not on it having found
+              everything: a pass that left bagian tidak ditemukan has finished,
+              and the top of the lembar periksa is where that is settled. Until
+              then the control is disabled AND SAYS WHY, in the same viewport,
+              because a sheet reached before any search is an empty screen the
+              operator has to explain to themselves.
+
+              A LATER round does not close it again. Once a pass has landed
+              there are usulan to review, and the search deliberately survives
+              the operator working during it: it re-reads the run from storage
+              and re-checks every slot before applying its answer. */}
+          {onContinue && pages > 0 && !busy ? (
+            <div className="flex flex-col items-start gap-2">
+              <Btn
+                tone="primary"
+                disabled={!searched}
+                aria-describedby={searched ? undefined : "ingest-continue-locked"}
+                onClick={onContinue}
               >
-                <span style={{ color: "var(--lt-ink)" }}>{source.name}</span>
-                <span>{source.pageCount} pages</span>
-              </li>
-            ))}
-          </ul>
-          <p className="lt-mono text-xs" style={{ color: "var(--lt-faint)" }}>
-            {run.pages.length} pages read · {run.slots.length} slot captures
-            tracked
-          </p>
+                Buka lembar periksa
+              </Btn>
+              {searched ? (
+                <Note>
+                  Berikutnya: memeriksa usulan satu per satu, lalu membuat
+                  berkas hasil.
+                </Note>
+              ) : (
+                <p
+                  id="ingest-continue-locked"
+                  className="max-w-[68ch] text-[0.8125rem]"
+                  style={{ color: "var(--ink-2)" }}
+                >
+                  {searching
+                    ? "Proses sedang berjalan. Lembar periksa terbuka begitu prosesnya selesai."
+                    : "Belum ada usulan untuk diperiksa. Klik Proses dulu, dan lembar periksa akan terisi begitu prosesnya selesai."}
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+
+        {onOpenRun ? (
+          <RunsList
+            runs={runs}
+            loading={runsLoading}
+            openId={run?.id ?? null}
+            onOpenRun={onOpenRun}
+            onStartNewRun={run ? onStartNewRun : undefined}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

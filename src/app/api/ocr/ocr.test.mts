@@ -263,7 +263,10 @@ test("every failure body names its prose in `message`, which is what the worker 
   const shapes = [
     { error: "bad-request", message: "the request body is not a PNG.", hint: "x" },
     { error: "unusable-reply", message: "the reply produced no lines at all.", cause: "y" },
-    { error: "unauthenticated", message: "Sign in with Google to continue." },
+    {
+      error: "unauthenticated",
+      message: "Anda belum masuk. Masuk dengan Akun Google untuk melanjutkan.",
+    },
     { error: "model-unreachable", message: "Could not reach the model.", hint: "z" },
   ];
   for (const body of shapes) {

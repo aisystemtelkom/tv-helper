@@ -213,16 +213,16 @@ export function createAllowlist(
     async add({ email, role, addedBy }) {
       const normalized = normalizeEmail(email);
       if (!normalized || !normalized.includes("@")) {
-        throw new Error(`"${email}" is not an email address.`);
+        throw new Error(`"${email}" bukan alamat email.`);
       }
       if (!isRole(role)) {
-        throw new Error(`"${role}" is not one of ${ROLES.join(", ")}.`);
+        throw new Error(`"${role}" bukan peran yang dikenal (${ROLES.join(", ")}).`);
       }
       if (normalized === BOOTSTRAP_OWNER_EMAIL) {
         throw new Error(
-          `${BOOTSTRAP_OWNER_EMAIL} is the hardcoded bootstrap owner. Its ` +
-            "access does not come from this collection, so writing it here " +
-            "would change nothing.",
+          `${BOOTSTRAP_OWNER_EMAIL} adalah pemilik bawaan yang ditulis di ` +
+            "dalam kode. Aksesnya tidak berasal dari daftar ini, jadi " +
+            "menambahkannya di sini tidak mengubah apa pun.",
         );
       }
       const entry: AllowlistEntry = {
@@ -240,9 +240,9 @@ export function createAllowlist(
       const normalized = normalizeEmail(email);
       if (normalized === BOOTSTRAP_OWNER_EMAIL) {
         throw new Error(
-          `${BOOTSTRAP_OWNER_EMAIL} cannot be removed. It is admitted by ` +
-            "code, not by this collection, so deleting a row here would " +
-            "report success and revoke nothing.",
+          `${BOOTSTRAP_OWNER_EMAIL} tidak bisa dihapus. Akunnya diizinkan ` +
+            "oleh kode, bukan oleh daftar ini, jadi menghapus barisnya akan " +
+            "melaporkan berhasil tanpa mencabut akses apa pun.",
         );
       }
       await reader.remove(normalized);

@@ -20,7 +20,7 @@ import {
   citeZone,
   hasLineCitation,
   resolvePage,
-  sizeInInches,
+  cropSize,
   textForLineRange,
   zonePageRef,
 } from "./evidence.ts";
@@ -165,10 +165,14 @@ test("citeZone cites the source file and line range, and sizes the crop", () => 
   });
   assert.ok(cite);
   assert.equal(cite.source, "LOP999001_merged.pdf");
-  assert.equal(cite.page, "p 1/3");
-  assert.equal(cite.lines, "L 31-58");
+  assert.equal(cite.page, 1);
+  assert.equal(cite.pagesInDoc, 3);
+  assert.deepEqual(cite.lines, [31, 58]);
   assert.equal(cite.lineCount, 28);
-  assert.equal(cite.size, "4.1 x 1.3 in");
+  // Centimetres with a comma decimal: the operators are in Indonesia holding
+  // A4, so this is a size they can put two fingers on. Display only, and the
+  // exporter still works in pixels.
+  assert.equal(cite.size, "10,4 x 3,3 cm");
   assert.equal(cite.spansPage, false);
 });
 
@@ -202,7 +206,7 @@ test("a whole-page capture is described, not flagged as a runaway range", () => 
   assert.equal(cite.wholePage, true);
   assert.equal(cite.spansPage, false);
   // Still a real citation: the page it names is still the thing to check.
-  assert.equal(cite.lines, "L 0-93");
+  assert.deepEqual(cite.lines, [0, 93]);
 });
 
 test("a hand-drawn zone with no lines carries no line citation", () => {
@@ -215,9 +219,13 @@ test("a hand-drawn zone with no lines carries no line citation", () => {
   const cite = citeZone(RUN, zone);
   assert.ok(cite);
   assert.equal(cite.lineCount, 0);
-  assert.match(cite.lines, /hand/);
-  // And it must never read as a citation of line 0.
-  assert.doesNotMatch(cite.lines, /L 0/);
+  // A hand-drawn zone cites no lines at all, and null is the only honest
+  // answer. The old shape put the excuse in the field itself, as the string
+  // "drawn by hand, no line citation", which meant the one place a caller
+  // could read a range was also a place that sometimes held a sentence. It
+  // must never read as a citation of line 0 either, which is what a `[0, 0]`
+  // placeholder would have looked like from the outside.
+  assert.equal(cite.lines, null);
 });
 
 test("citeZone counts the cited lines whose box was sliced, not measured", () => {
@@ -305,8 +313,8 @@ test("a hand-drawn zone reports no sliced lines, because it cites none", () => {
   assert.equal(cite.interpolatedLines, 0);
 });
 
-test("sizeInInches converts pixels at the render DPI", () => {
-  assert.equal(sizeInInches({ x: 0, y: 0, w: 600, h: 300 }), "2.0 x 1.0 in");
+test("cropSize converts pixels at the render DPI, in cm", () => {
+  assert.equal(cropSize({ x: 0, y: 0, w: 600, h: 300 }), "5,1 x 2,5 cm");
 });
 
 test("textForLineRange reads the page in line order, not array order", () => {
@@ -615,6 +623,7 @@ test("describeOutstanding names the section a missing slot belongs to", () => {
   );
   assert.equal(first.sectionTitle, "Evidence");
   assert.equal(first.def?.crops, 2);
-  assert.equal(ghost.sectionTitle, "Not in this template");
+  // Operator-visible, so Bahasa like every other string that reaches a screen.
+  assert.equal(ghost.sectionTitle, "Tidak ada di template ini");
   assert.equal(ghost.def, undefined);
 });

@@ -192,10 +192,19 @@ function metaOf(run: BrowserRun): RunMeta {
   };
 }
 
+/**
+ * The label a run wears in the operator's list of saved work.
+ *
+ * Bahasa Indonesia, because this string is read by an operator rather than by
+ * a developer: it is the only text on a row they choose between. Everything
+ * else in this module stays English, as code does.
+ */
 function labelFor(sources: RunSource[]): string {
-  if (sources.length === 0) return "(no documents yet)";
+  if (sources.length === 0) return "(belum ada dokumen)";
   const [first, ...rest] = sources;
-  return rest.length === 0 ? first.name : `${first.name} +${rest.length} more`;
+  return rest.length === 0
+    ? first.name
+    : `${first.name} +${rest.length} berkas lagi`;
 }
 
 /**

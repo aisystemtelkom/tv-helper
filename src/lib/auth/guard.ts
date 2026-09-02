@@ -46,18 +46,74 @@ export type DenialReason =
   | "lookup-failed"
   | "not-admin";
 
+/**
+ * A refusal, in two halves, because it has two audiences.
+ *
+ * `message` is the sentence an OPERATOR reads. Bahasa Indonesia, and it names
+ * the one thing they can do next, which is nearly always "ask an administrator
+ * to add your address". It must stand alone: a caller is free to render
+ * nothing else.
+ *
+ * `detail` is for whoever DEPLOYED the app: a binding, a service account, a
+ * path into the runbook. It is rendered SEPARATELY (`TechnicalDetail` in
+ * `src/components/operator/chrome.tsx` is the pattern, and
+ * `src/app/signin/query.ts` splits its own failures the same way), never
+ * appended to the operator's sentence. `lookup-failed` used to carry "check
+ * the Firestore binding" inside the refusal itself, which told an operator to
+ * go and repair a database they have never heard of.
+ */
+export type DenialText = {
+  message: string;
+  detail?: string;
+};
+
 export type AuthorizeResult =
   | { ok: true; user: AuthorizedUser }
-  | { ok: false; status: 401 | 403; reason: DenialReason; message: string };
+  | {
+      ok: false;
+      status: 401 | 403;
+      reason: DenialReason;
+      message: string;
+      /**
+       * Deployer-facing, and absent on the refusals an operator causes.
+       * Render it apart from `message` or not at all; never concatenate it.
+       */
+      detail?: string;
+    };
 
-const DENIAL_MESSAGE: Record<DenialReason, string> = {
-  unauthenticated: "Sign in with Google to continue.",
-  "no-email": "Your Google account did not return an email address.",
-  "not-listed": "This account is not on the allowlist. Ask an admin to add it.",
-  "lookup-failed":
-    "The allowlist could not be read, so access is denied. This is a server " +
-    "problem, not a permissions one -- check the Firestore binding.",
-  "not-admin": "This page is for admins only.",
+const DENIAL_TEXT: Record<DenialReason, DenialText> = {
+  unauthenticated: {
+    message: "Anda belum masuk. Masuk dengan Google untuk melanjutkan.",
+  },
+  "no-email": {
+    message:
+      "Akun Google Anda tidak memberikan alamat email, jadi tidak ada yang " +
+      "bisa dicocokkan dengan daftar izin akses. Masuk lagi memakai akun " +
+      "Google yang punya alamat email.",
+  },
+  "not-listed": {
+    message:
+      "Alamat email ini belum terdaftar di daftar izin akses. Minta " +
+      "administrator menambahkannya, lalu masuk lagi.",
+  },
+  "lookup-failed": {
+    message:
+      "Daftar izin akses tidak dapat dibaca, jadi akses ditolak. Ini masalah " +
+      "server, bukan masalah izin Anda. Coba lagi beberapa saat lagi, dan " +
+      "beri tahu administrator kalau tetap gagal.",
+    // Same register as the sign-in page's technical half: an Indonesian
+    // sentence carrying the names a deployer needs to search for.
+    detail:
+      "Firestore: pembacaan daftar izin akses gagal, jadi semua akun selain " +
+      "pemilik bootstrap ditolak. Periksa binding Firestore dan akses " +
+      "service account ke koleksi allowlist. Lihat docs/runbook-deploy.md.",
+  },
+  "not-admin": {
+    message:
+      "Halaman ini hanya untuk administrator. Minta bantuan administrator " +
+      "untuk perubahan ini, lalu kembali ke halaman utama untuk melanjutkan " +
+      "pekerjaan Anda.",
+  },
 };
 
 /**
@@ -122,11 +178,23 @@ export type Guard = {
  * because an API caller following a redirect to markup gets a confusing 200
  * instead of an error. `src/proxy.ts` sends the same shape for the same reason,
  * so a caller sees one answer whether or not proxy ran.
+ *
+ * That second sentence is a standing obligation, not an observation: proxy
+ * HAND-COPIES the unauthenticated body, `message` string and all, because it
+ * runs in a runtime this module is deliberately kept out of. Change the
+ * `unauthenticated` text here and proxy's copy has to move with it, or one
+ * request in two answers in a different language.
  */
 export function denialResponse(result: AuthorizeResult): Response | null {
   if (result.ok) return null;
   return Response.json(
-    { error: result.reason, message: result.message },
+    {
+      error: result.reason,
+      message: result.message,
+      // Only when there is one, so a caller can test for the key rather than
+      // rendering an empty `Detail teknis` disclosure on every refusal.
+      ...(result.detail ? { detail: result.detail } : {}),
+    },
     { status: result.status },
   );
 }
@@ -135,12 +203,24 @@ export function denialResponse(result: AuthorizeResult): Response | null {
 export class AuthorizationError extends Error {
   readonly status: 401 | 403;
   readonly reason: DenialReason;
+  /**
+   * The deployer's half of the refusal, kept off `message` on purpose:
+   * `src/app/admin/actions.ts` returns `error.message` straight to the screen,
+   * so anything folded into it is read by an operator.
+   */
+  readonly detail?: string;
 
-  constructor(status: 401 | 403, reason: DenialReason, message: string) {
+  constructor(
+    status: 401 | 403,
+    reason: DenialReason,
+    message: string,
+    detail?: string,
+  ) {
     super(message);
     this.name = "AuthorizationError";
     this.status = status;
     this.reason = reason;
+    this.detail = detail;
   }
 }
 
@@ -148,7 +228,17 @@ function deny(
   status: 401 | 403,
   reason: DenialReason,
 ): AuthorizeResult & { ok: false } {
-  return { ok: false, status, reason, message: DENIAL_MESSAGE[reason] };
+  const text = DENIAL_TEXT[reason];
+  return {
+    ok: false,
+    status,
+    reason,
+    message: text.message,
+    // Spread rather than assigned, so a refusal with no deployer half has no
+    // `detail` KEY at all. `detail: undefined` is a different object under
+    // `assert.deepEqual` and a different JSON body.
+    ...(text.detail ? { detail: text.detail } : {}),
+  };
 }
 
 export function createGuard(deps: GuardDeps): Guard {
@@ -203,7 +293,12 @@ export function createGuard(deps: GuardDeps): Guard {
   async function requireUser(): Promise<AuthorizedUser> {
     const result = await authorize();
     if (!result.ok) {
-      throw new AuthorizationError(result.status, result.reason, result.message);
+      throw new AuthorizationError(
+        result.status,
+        result.reason,
+        result.message,
+        result.detail,
+      );
     }
     return result.user;
   }
@@ -211,7 +306,8 @@ export function createGuard(deps: GuardDeps): Guard {
   async function requireAdmin(): Promise<AuthorizedUser> {
     const user = await requireUser();
     if (!user.isAdmin) {
-      throw new AuthorizationError(403, "not-admin", DENIAL_MESSAGE["not-admin"]);
+      const text = DENIAL_TEXT["not-admin"];
+      throw new AuthorizationError(403, "not-admin", text.message, text.detail);
     }
     return user;
   }

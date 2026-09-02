@@ -3,14 +3,66 @@
 @import "shadcn/tailwind.css";
 @import "tw-shimmer";
 
-@custom-variant dark (&:is(.dark *));
+/* =========================================================================
+   MEJA PERIKSA -- the inspection table.
+
+   The argument for all of this is in docs/design-system.md. The short form:
+
+   ONE IDEA. This application is a work surface and documents lie on it. A
+   crop of a scan is a piece of paper on the table. The privacy policy is a
+   sheet on the table. Nothing else in the interface is allowed to look like
+   paper, catch the light, or cast a shadow.
+
+   WHY THE SURFACE IS DARK, on every page including the ones that show no
+   scans. The content is white paper. A scan's own white ground bleeds into a
+   white interface, and the crop's edge -- the exact boundary the operator is
+   being asked to judge -- stops being visible. On a toned graphite every crop
+   is a lit rectangle with a hard edge. Functional, so it is not offered as a
+   preference. The ground is deliberately NOT a near-black: it sits at oklch
+   lightness 0.235 with a faint green cast, because warm photocopy white on a
+   blue-black ground reads cold.
+
+   TWO HUES IN THE WHOLE PRODUCT.
+     `--mark`  amber. A decision is owed here. Nothing else, ever.
+     `--gap`   red.   A fault, or a refusal. Absent from a healthy screen.
+   Confirmed work has NO colour at all: it is an ink paraf in a ruled box.
+   A finished packet is a screen with no saturated colour left on it, and
+   that is the point -- the remaining colour is the remaining work.
+
+   THREE THINGS THIS STYLESHEET WILL NOT DO, because each was a tell:
+     - No tracked-out uppercase labels. Positive letter-spacing appears in
+       exactly two places below (the wordmark and a stamp), both of which are
+       quoting something rather than labelling something.
+     - No shadow except on `.lt-paper`. If a new component wants one, no.
+     - No card. A block is the space between two rules. `.lt-panel` exists
+       for genuinely grouped forms and is the exception, not the default.
+   ====================================================================== */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+
+  /* The self-referential `--font-sans: var(--font-sans)` that used to sit here
+     resolved to nothing, so `@apply font-sans` on `html` fell through to the
+     browser's default SERIF and every page outside the operator screens was
+     set in Times. Point these at the variables `next/font` actually defines. */
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-figure);
+  --font-heading: var(--font-ui);
+
+  --color-surface: var(--surface);
+  --color-surface-sunk: var(--surface-sunk);
+  --color-surface-rail: var(--surface-rail);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-mark: var(--mark);
+  --color-gap: var(--gap);
+  --color-paper: var(--paper);
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -40,345 +92,746 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+
+  /* WHOLE PIXELS, not multiples of a 4px base. The inherited scale was
+     `calc(var(--radius) * 0.6)` and friends, which at a 4px radius produced
+     2.4px, 3.2px, 5.6px, 7.2px, 8.8px and 10.4px: six values a browser rounds
+     inconsistently against a 1px border, so a corner shimmers next to a
+     straight edge. Radius carries meaning in this system (2px is paper, which
+     is cut; 4px is a control; 6px is a grouped block) and a meaning cannot be
+     a fraction of a pixel. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
+  --radius-3xl: 10px;
+  --radius-4xl: 12px;
+
   @keyframes collapsible-down {
-  from {
-    height: 0;
-    }
-  to {
-    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
+    from { height: 0; }
+    to { height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto)); }
   }
   @keyframes collapsible-up {
-  from {
-    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
-    }
-  to {
-    height: 0;
-    }
+    from { height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto)); }
+    to { height: 0; }
+  }
+  /* The paraf being drawn: one stroke, dashed out and then in. */
+  @keyframes lt-paraf {
+    from { stroke-dashoffset: var(--paraf-length, 60); }
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes lt-tick-in {
+    from { opacity: 0.15; }
+    to { opacity: 1; }
   }
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  /* ---- the table -------------------------------------------------------
+     Four values of one graphite, distinguished by ROLE and never mixed up.
+     Sunk is under the table (things the app READ: OCR text, inputs). Rail is
+     chrome you never read for meaning. Raised is a grouped block. Paper is
+     the only lit material. */
+  --surface: oklch(0.235 0.011 168);
+  --surface-sunk: oklch(0.196 0.010 168);
+  --surface-rail: oklch(0.272 0.011 168);
+  --surface-raised: oklch(0.306 0.011 168);
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* The rule. Warm against a cool ground (hue 70, not 168) so a rule reads as
+     a line drawn on a form rather than as the border of a UI box. This is the
+     structural workhorse: blocks are separated by rules, not by fills. */
+  --line: oklch(0.405 0.012 70);
+  --line-strong: oklch(0.545 0.014 70);
+
+  /* ---- ink -------------------------------------------------------------
+     Three values, and `--ink-3` IS THE FLOOR. It measures 5.0:1 on
+     `--surface-raised`, the lightest ground any of this text sits on. It was
+     0.622 and measured 3.7:1, which put the advisories the whole product
+     depends on in the least readable colour in the system.
+
+     THE RULE THAT FOLLOWS: quietness is bought with SIZE AND POSITION, never
+     with a lower contrast, and safety copy never uses `--ink-3` at all. Every
+     string this product wants to whisper is a sentence like "periksa apakah
+     halamannya benar", and there is no honest way to whisper that. */
+  --ink: oklch(0.966 0.004 168);
+  --ink-2: oklch(0.784 0.011 168);
+  --ink-3: oklch(0.70 0.012 168);
+
+  /* ---- the two hues ----------------------------------------------------
+     `--mark` is amber and means exactly one thing: a decision is owed here.
+     It is not focus, not the active phase, not a hover, not a drag target,
+     not a heading, and not a warning about a measurement. Asking one colour
+     to mean act-on-this and be-suspicious-of-this at once, which is what the
+     old `--lt-mark` did across five unrelated signals, teaches an operator to
+     read neither.
+
+     `--gap` is the correction pen. A fault or a refusal: a coretan struck
+     through a row, a search that found nothing, a save that was refused. It
+     is used as rules, strokes and text, NEVER as a fill, so red never becomes
+     a background the eye adapts to and stops reading. A healthy screen has
+     none of it. */
+  --mark: oklch(0.845 0.155 92);
+  --gap: oklch(0.72 0.165 27);
+
+  /* ---- paper -----------------------------------------------------------
+     Warm off-white rather than pure white, so a true-white scan laid on a
+     sheet still shows its own edge. The only lit material, and the only
+     shadow in this stylesheet. */
+  --paper: #fcfbf8;
+  --paper-ink: oklch(0.245 0.012 70);
+  --paper-ink-2: oklch(0.455 0.012 70);
+  --paper-edge: oklch(0.58 0.012 70);
+  --lift:
+    0 1px 0 oklch(0.12 0.01 168 / 0.8),
+    0 18px 36px -18px oklch(0.08 0.01 168 / 0.92);
+
+  /* ---- shadcn primitives, pointed at the same tokens -------------------
+     src/components/ui/* is styled from these names. Mapping them here is what
+     stops the app carrying two parallel design systems, which is what it had:
+     a `Button` primitive nothing used, hardwired to a light palette, and a
+     hand-rolled button class beside it that looked nothing like it. */
+  --background: var(--surface);
+  --foreground: var(--ink);
+  --card: var(--surface-raised);
+  --card-foreground: var(--ink);
+  --popover: var(--surface-rail);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--surface);
+  --secondary: var(--surface-rail);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-rail);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--surface-raised);
+  --accent-foreground: var(--ink);
+  --destructive: var(--gap);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--ink);
+  --chart-1: var(--mark);
+  --chart-2: var(--ink-2);
+  --chart-3: var(--gap);
+  --chart-4: var(--ink-3);
+  --chart-5: var(--line-strong);
+  --radius: 0.25rem;
+  --sidebar: var(--surface-rail);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--surface);
+  --sidebar-accent: var(--surface-raised);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--ink);
+
+  color-scheme: dark;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+    /* 15px, not 14. The operator reads a citation and a scan side by side for
+       hours, and the citation is the half of that pair we control. Nothing in
+       this product is smaller than 13px, because every small string here is
+       safety copy. */
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
-  html {
-    @apply font-sans;
+
+  /* FOCUS IS INK, NEVER AMBER. Amber means a decision is owed on this piece
+     of evidence; a keyboard position is not that, and letting the two share a
+     colour means a focused control reads as a slot demanding attention. */
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--mark), transparent 74%);
+    color: var(--ink);
+  }
+
+  * {
+    scrollbar-color: var(--line) transparent;
+    scrollbar-width: thin;
   }
 }
 
+@custom-variant dark (&:is(.dark *));
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
-
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
 
-/* =========================================================================
-   THE LIGHT TABLE -- the operator screens (src/components/operator/*).
-   Scoped to `.lt`, so the admin and sign-in pages keep the app's ordinary
-   light chrome and nothing here can reach them.
-
-   Why these screens are dark when the rest of the app is not: their content
-   is white paper. A scan's own white ground bleeds into a white interface
-   and the crop's edge -- the exact boundary the operator is being asked to
-   judge -- stops being visible. On graphite every crop is a lit rectangle
-   with a hard edge, which is how a proof sheet has always been read. The
-   only saturated colour on the screen is the operator's own marks.
-
-   Everything lives in `@layer components` so Tailwind utilities still win.
-   ====================================================================== */
 @layer components {
-  .lt {
-    --lt-ground: oklch(0.235 0.008 255);
-    --lt-rail: oklch(0.285 0.009 255);
-    --lt-plate: oklch(0.318 0.009 255);
-    --lt-edge: oklch(0.42 0.013 255);
-    --lt-ink: oklch(0.97 0.003 255);
-    --lt-dim: oklch(0.76 0.008 255);
-    --lt-faint: oklch(0.6 0.009 255);
+  /* =====================================================================
+     TYPE
 
-    /* Awaiting a decision. The working state, so it is the loudest. */
-    --lt-mark: oklch(0.82 0.15 79);
-    /* Confirmed by a person. */
-    --lt-ok: oklch(0.78 0.14 158);
-    /* Searched, not found: a gap in the record. */
-    --lt-gap: oklch(0.72 0.17 30);
-    /* Shipped empty on purpose. */
-    --lt-void: oklch(0.66 0.03 255);
+     Two members of one family. Atkinson Hyperlegible was drawn by the Braille
+     Institute so that no character can be mistaken for another, which is the
+     difference between 1 and l, 0 and O, and rn and m in a quote number a
+     validator signs. The split of the two carries meaning:
 
-    --lt-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
-    color: var(--lt-ink);
-    /* Named outright rather than left to `font-sans`: the theme maps
-       `--font-sans` to itself and nothing defines it, so an inherited
-       `font-sans` lands on the browser's default serif. Stated here so these
-       screens are not at the mercy of that. */
-    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  }
+       the SANS is the application talking to the operator;
+       the MONO is the document's own voice.
 
-  .lt-shell {
-    background: var(--lt-ground);
-    color: var(--lt-ink);
-    min-height: 100dvh;
-  }
+     The mono rule is a promise with a one-line test: IF TWO INSTANCES OF THE
+     STRING WOULD EVER BE READ AGAINST EACH OTHER DOWN A COLUMN, IT IS MONO,
+     OTHERWISE IT IS NOT. Page numbers, line ranges, sizes, counts, file
+     names, quote and LOP identifiers, email addresses in the allowlist. Never
+     prose, never a button, never a status word, and never merely to make a
+     small label look technical, which is what the old system did to filenames,
+     nav pills, chips and placeholder prose.
 
-  .lt-rail {
-    background: var(--lt-rail);
-    border-color: var(--lt-edge);
-  }
+     UPPERCASE IS RESERVED FOR QUOTING THE DOCUMENT: DOKUMEN VALIDASI, the
+     stamps a clerk presses. The interface never puts a label in caps to give
+     it rank. That one rule retires every tracked-out eyebrow in the tree and
+     replaces it with something that carries information.
+     ================================================================== */
 
-  .lt-card {
-    background: var(--lt-plate);
-    border: 1px solid var(--lt-edge);
-    border-radius: 10px;
-  }
-
-  .lt-sunken {
-    background: color-mix(in oklch, var(--lt-ground), black 12%);
-    border: 1px solid var(--lt-edge);
-    border-radius: 8px;
-  }
-
-  /* Every citation, key, box and count. Tabular so a wrong page number
-     breaks the column's rhythm instead of hiding in it. */
-  .lt-mono {
-    font-family: var(--lt-mono);
+  .lt-figure {
+    font-family: var(--font-figure), ui-monospace, "SFMono-Regular", monospace;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.005em;
   }
 
-  .lt-eyebrow {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.14em;
+  .lt-wordmark {
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--lt-faint);
+    color: var(--ink);
   }
 
-  /* Paper stays paper. A crop sits on white so its own margins read as
-     margins rather than as part of the interface. */
-  .lt-paper {
-    background: #ffffff;
-    border: 1px solid var(--lt-edge);
+  /* A screen or section title. Sentence case, real weight, sitting on a rule.
+     No label floats above it in caps: the title IS the label. */
+  .lt-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+
+  /* The question being asked: the field the operator is ruling on. The
+     largest thing on a plate after the picture, because nobody should have to
+     re-read to know which field they are judging. It was 14px. */
+  .lt-field-name {
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  .lt-lede {
+    color: var(--ink-2);
+    max-width: 66ch;
+  }
+
+  .lt-note {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--ink-3);
+    max-width: 68ch;
+  }
+
+  /* The label column of a form or a register. Subordinate by size and colour,
+     not by being shouted in caps. */
+  .lt-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--ink-3);
+  }
+
+  /* =====================================================================
+     MATERIALS. Five, and each declares what it is. A control and a piece of
+     evidence are physically different objects.
+     ================================================================== */
+
+  /* Chrome. Never holds a fact you read for meaning, so: zero radius, a
+     hairline edge, no shadow. If information ends up here it is in the wrong
+     place. */
+  .lt-rail {
+    background: var(--surface-rail);
+    border-color: var(--line);
+  }
+
+  /* Recessed into the table: things the app READ rather than things it is
+     telling you. Inputs, the OCR transcript, technical detail behind a
+     disclosure, the trough a progress strip runs in. */
+  .lt-well {
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
     border-radius: 4px;
   }
 
-  .lt-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    padding: 0.05rem 0.5rem;
-    font-family: var(--lt-mono);
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    white-space: nowrap;
+  /* A genuinely grouped block: a form, a list with its own heading. The
+     exception to "a block is the space between two rules", not the default.
+     Flat. No shadow, ever. */
+  .lt-panel {
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-radius: 6px;
   }
-  .lt-chip::before {
-    content: "";
-    width: 0.4rem;
-    height: 0.4rem;
-    border-radius: 999px;
-    background: currentColor;
-  }
-  .lt-chip[data-status="proposed"] { color: var(--lt-mark); }
-  .lt-chip[data-status="confirmed"] { color: var(--lt-ok); }
-  .lt-chip[data-status="partial"] { color: var(--lt-mark); }
-  .lt-chip[data-status="outstanding"] { color: var(--lt-gap); }
-  .lt-chip[data-status="unfilled"] { color: var(--lt-void); }
-  .lt-chip[data-status="pending"] { color: var(--lt-faint); }
 
-  /* A slot shipped empty on purpose is HATCHED, never blank. A blank cell
-     and a cell nobody looked at are the same picture, and telling those two
-     apart is the whole point of the tambahan loop. */
+  /* PAPER. The only lit material and the only shadow in this stylesheet.
+     A crop, a rendered page, and the single sheet that carries sign-in, the
+     privacy policy, the allowlist register and the failure screens. */
+  .lt-paper {
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 2px;
+    box-shadow: var(--lift);
+
+    /* THE INK TOKENS ARE REBOUND INSIDE PAPER, and that is not a convenience.
+       The one global `:focus-visible` rule draws its outline in `var(--ink)`,
+       which is near-white: on a sheet of paper it was an invisible focus ring,
+       on exactly the surfaces a keyboard user meets first (sign in, the
+       allowlist register, the failure screens). `::selection` had the same
+       problem. Rebinding here fixes every descendant at once, including any
+       component that was written for the graphite ground and later placed on
+       a sheet, which is the case that would otherwise keep re-breaking. */
+    --ink: var(--paper-ink);
+    --ink-2: var(--paper-ink-2);
+    --ink-3: var(--paper-ink-2);
+    --line: var(--paper-edge);
+    --line-strong: var(--paper-ink-2);
+
+    /* THE TWO HUES NEED PAPER VALUES TOO, and this is the half that is easy to
+       forget. Both were chosen to carry on graphite and neither survives the
+       trip: the table's `--gap` measures about 2.6:1 on this warm white and the
+       table's `--mark` about 1.6:1, so a refusal set in red on a sheet is a
+       pale smudge and an amber mark is very nearly not there. The meanings do
+       not change, only the values that carry them. */
+    --gap: oklch(0.43 0.15 27);
+    --mark: oklch(0.52 0.13 75);
+
+    color: var(--paper-ink);
+  }
+
+  /* A deliberate absence, on the record. A blank cell and a cell nobody
+     looked at must never be the same picture, and telling those two apart is
+     the entire point of the dokumen tambahan loop. */
   .lt-hatch {
     background-image: repeating-linear-gradient(
       -45deg,
-      color-mix(in oklch, var(--lt-void), transparent 82%) 0 6px,
-      transparent 6px 13px
+      color-mix(in oklch, var(--ink-3), transparent 84%) 0 6px,
+      transparent 6px 14px
     );
-    border: 1px dashed color-mix(in oklch, var(--lt-void), transparent 40%);
-    border-radius: 6px;
+    border: 1px dashed color-mix(in oklch, var(--ink-3), transparent 55%);
+    border-radius: 2px;
   }
+
+  /* =====================================================================
+     THE REGISTER (blok keterangan): where a crop came from.
+
+     Replaces `file.pdf · p 1/2 · L 0-7 · 8 lines · 6.3 x 2.5 in`, which
+     buried the page number -- the value this product's failure class is
+     named after -- third in an undifferentiated grey run.
+
+     Label, then value, on stacked rows with the values sharing one left
+     edge and set in tabular figures. Twelve captures down the sheet put
+     twelve `halaman` values in one column, so a crop taken from the wrong
+     page is a digit that does not belong in a column of digits. The
+     wrongness becomes structural instead of chromatic, which is the only
+     kind a tired operator catches reliably.
+     ================================================================== */
+
+  .lt-register {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    row-gap: 0.3rem;
+    align-items: baseline;
+  }
+  .lt-register dt {
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+  }
+  .lt-register dd {
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8125rem;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+    min-width: 0;
+  }
+
+  /* The one value pulled out of the register and set large, because it is the
+     one this product's failure class is named after. */
+  .lt-page-figure {
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+
+  /* The one display figure in the product: how many decisions you still owe.
+     If a second number wants this size, one of the two is not an instruction. */
+  .lt-count {
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+
+  /* =====================================================================
+     ADVISORIES about the crop's own geometry.
+
+     They wear no colour. Amber already means "a decision is owed here", and
+     these were previously set in the dimmest token in the system, which put
+     the tells the product depends on in the least readable place on screen.
+     An advisory earns attention by being the only full-strength small text
+     near the picture, and it always ends in something to do.
+     ================================================================== */
+
+  .lt-advisory {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: var(--ink);
+    max-width: 60ch;
+  }
+  .lt-advisory::before {
+    content: "";
+    flex: none;
+    width: 2px;
+    align-self: stretch;
+    background: var(--line-strong);
+    border-radius: 1px;
+  }
+
+  /* =====================================================================
+     THE STATE MARKS
+
+     Six states, six SHAPES, in one ruled box at one size in one fixed
+     position. The shapes are drawn in `chrome.tsx` as inline SVG; this is
+     only the box they sit in and the colour each is allowed.
+
+     THE STATE THAT OWES YOU SOMETHING IS THE ONE WITH NO MARK. In a column
+     of initialled boxes an empty box is the loudest thing on the page, which
+     is exactly how a missing paraf is caught on a real contract. That is why
+     the most urgent state in the product needs almost no hue: it is
+     reinforced by area and light instead, because an undecided capture is
+     the only plate that is open at full size while settled ones are filed to
+     a strip.
+
+     Printed in greyscale the six are six different silhouettes: dashed and
+     empty, solid and empty, one stroke, a split box, a diagonal, a word.
+     Nothing is lost. Colour is redundant with shape in every case.
+     ================================================================== */
+
+  .lt-mark-box {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    color: var(--ink-2);
+    background: transparent;
+  }
+  .lt-mark-box[data-status="pending"] {
+    border-style: dashed;
+  }
+  .lt-mark-box[data-status="proposed"],
+  .lt-mark-box[data-status="partial"] {
+    border-color: var(--mark);
+    color: var(--mark);
+  }
+  .lt-mark-box[data-status="outstanding"] {
+    border-color: color-mix(in oklch, var(--gap), transparent 45%);
+    color: var(--gap);
+  }
+  .lt-mark-box[data-status="confirmed"] {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+  .lt-mark-box[data-status="unfilled"] {
+    border-style: dashed;
+    color: var(--ink-3);
+  }
+
+  /* The paraf itself: one stroke, drawn rather than faded, and only in answer
+     to the operator's own click. `--paraf-length` is set by the component
+     from the path length. */
+  .lt-paraf[data-fresh="true"] {
+    stroke-dasharray: var(--paraf-length, 60);
+    animation: lt-paraf 240ms cubic-bezier(0.35, 0.9, 0.4, 1) both;
+  }
+
+  /* A clerk's stamp. The ONE place the interface generates uppercase and
+     positive tracking, and it is quoting a rubber stamp rather than labelling
+     a block. Rotated, because a stamp is pressed by a hand. */
+  .lt-stamp {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border: 1.5px solid currentColor;
+    border-radius: 2px;
+    transform: rotate(-3deg);
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* The coretan: a clerk voids a line by striking it, so nothing can be
+     written into it afterwards. Used where something is being taken out
+     rather than merely hidden, and it is the honest picture of the
+     allowlist's sixty-second revocation window: visibly struck, and visibly
+     still live. */
+  .lt-coretan {
+    position: relative;
+    color: var(--ink-3);
+  }
+  .lt-coretan::after {
+    content: "";
+    position: absolute;
+    inset-inline: -0.25rem;
+    top: 50%;
+    height: 2px;
+    background: var(--gap);
+    transform: rotate(-0.4deg);
+    pointer-events: none;
+  }
+
+  .lt-state {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .lt-state[data-status="proposed"],
+  .lt-state[data-status="partial"] { color: var(--mark); }
+  .lt-state[data-status="outstanding"] { color: var(--gap); }
+
+  /* =====================================================================
+     THE DENAH HALAMAN: a plan of the page, with the crop knocked out.
+
+     The single cheapest thing in this product that attacks its named failure
+     directly. Every OCR line of the page is drawn as a bar at its true
+     position, and the cut rectangle is drawn over them. A signature block, a
+     Pasal table and a printed email have completely different line patterns,
+     so an operator recognises the wrong page from the SHAPE of the plan
+     before reading a single number, and a crop that ran on into a footer is a
+     rectangle visibly touching the bottom of the sheet.
+
+     It costs nothing: no bitmap, no blob URL, no network, no model call. One
+     inline SVG built from `StoredPage.lines`, which the run already holds.
+     ================================================================== */
+
+  .lt-denah {
+    display: block;
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 1px;
+  }
+  .lt-denah .lt-denah-line {
+    fill: color-mix(in oklch, var(--paper-ink), transparent 62%);
+  }
+  .lt-denah .lt-denah-cut {
+    fill: color-mix(in oklch, var(--mark), transparent 72%);
+    stroke: var(--paper-ink);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+  }
+
+  /* =====================================================================
+     CONTROLS
+     ================================================================== */
 
   .lt-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.375rem;
-    border: 1px solid var(--lt-edge);
-    border-radius: 7px;
-    padding: 0.3rem 0.7rem;
+    gap: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.36rem 0.8rem;
     font-size: 0.8125rem;
-    font-weight: 500;
+    font-weight: 600;
     line-height: 1.4;
-    color: var(--lt-ink);
-    background: color-mix(in oklch, var(--lt-plate), white 4%);
-    transition: background-color 120ms ease, border-color 120ms ease;
+    color: var(--ink);
+    background: transparent;
+    transition:
+      background-color 90ms ease,
+      border-color 90ms ease,
+      color 90ms ease;
   }
   .lt-btn:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--lt-plate), white 12%);
+    background: color-mix(in oklch, var(--ink), transparent 92%);
+    border-color: var(--line-strong);
   }
   .lt-btn:disabled {
-    opacity: 0.45;
+    opacity: 0.42;
     cursor: not-allowed;
   }
-  .lt-btn[data-tone="accept"] {
-    color: color-mix(in oklch, var(--lt-ok), white 15%);
-    border-color: color-mix(in oklch, var(--lt-ok), transparent 55%);
-    background: color-mix(in oklch, var(--lt-ok), transparent 88%);
-  }
-  .lt-btn[data-tone="accept"]:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--lt-ok), transparent 78%);
-  }
-  .lt-btn[data-tone="reject"] {
-    color: color-mix(in oklch, var(--lt-gap), white 15%);
-    border-color: color-mix(in oklch, var(--lt-gap), transparent 55%);
-    background: color-mix(in oklch, var(--lt-gap), transparent 90%);
-  }
-  .lt-btn[data-tone="reject"]:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--lt-gap), transparent 80%);
-  }
+
+  /* The action a screen wants you to take, including Terima, which is the
+     common case and the one the hand reaches for. Bright on dark: it is the
+     light switch on a dark panel. It carries no hue, because accepting is not
+     a state that owes anything. */
   .lt-btn[data-tone="primary"] {
-    color: var(--lt-ground);
-    background: var(--lt-ink);
-    border-color: var(--lt-ink);
+    color: var(--surface);
+    background: var(--ink);
+    border-color: var(--ink);
   }
   .lt-btn[data-tone="primary"]:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--lt-ink), var(--lt-mark) 25%);
+    background: var(--ink-2);
+    border-color: var(--ink-2);
   }
 
-  .lt :focus-visible {
-    outline: 2px solid var(--lt-mark);
-    outline-offset: 2px;
+  /* Refusing is a smaller, rarer claim than accepting, so it is outlined
+     where accept is filled. It carries the correction pen because that is
+     what a refusal is. */
+  .lt-btn[data-tone="reject"] {
+    color: color-mix(in oklch, var(--gap), white 20%);
+    border-color: color-mix(in oklch, var(--gap), transparent 55%);
+  }
+  .lt-btn[data-tone="reject"]:hover:not(:disabled) {
+    background: color-mix(in oklch, var(--gap), transparent 90%);
+    border-color: var(--gap);
+  }
+
+  /* A toggle that is currently on. */
+  .lt-btn[data-on="true"] {
+    color: var(--ink);
+    border-color: var(--line-strong);
+    background: color-mix(in oklch, var(--ink), transparent 88%);
   }
 
   .lt-input {
-    background: color-mix(in oklch, var(--lt-ground), black 10%);
-    border: 1px solid var(--lt-edge);
-    border-radius: 6px;
-    padding: 0.35rem 0.55rem;
-    color: var(--lt-ink);
-    font-family: var(--lt-mono);
+    background: var(--surface-sunk);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.42rem 0.6rem;
+    color: var(--ink);
+    font-family: var(--font-figure), ui-monospace, monospace;
     font-size: 0.8125rem;
     width: 100%;
+    transition: border-color 90ms ease;
   }
-  .lt-input::placeholder { color: var(--lt-faint); }
+  .lt-input:hover {
+    border-color: var(--line-strong);
+  }
+  .lt-input::placeholder {
+    color: var(--ink-3);
+    font-family: var(--font-ui), sans-serif;
+  }
 
-  /* The ingest film strip: one tick per page, so progress is countable
-     rather than a smooth bar that could be lying. */
+  /* =====================================================================
+     NOTICES AND THE INTERRUPTION BAND
+
+     A save that failed cannot be a tinted paragraph at the top of a scrolling
+     column. `.lt-band` is bracketed by rules with the ground unchanged, it
+     pushes content down rather than overlaying it so it can never be scrolled
+     past, and it carries role="alert".
+
+     Blocking and advisory must be different objects. A stop-toned rectangle
+     sitting beside a live button, which is what the export screen shipped,
+     teaches an operator that stop means nothing.
+     ================================================================== */
+
+  .lt-notice {
+    border-inline-start: 2px solid var(--line-strong);
+    padding: 0.15rem 0 0.15rem 0.85rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 74ch;
+  }
+  .lt-notice[data-tone="warn"] {
+    border-inline-start-color: var(--mark);
+    color: var(--ink);
+  }
+  .lt-notice[data-tone="stop"] {
+    border-inline-start-color: var(--gap);
+    color: var(--ink);
+  }
+
+  .lt-band {
+    border-block: 2px solid var(--gap);
+    background: color-mix(in oklch, var(--gap), transparent 94%);
+    padding: 0.85rem 0;
+  }
+
+  /* =====================================================================
+     COUNTABLE PROGRESS, never a percentage.
+
+     A smooth bar would be a claim this app cannot make: it only ever learns
+     about whole pages and whole slots, and the operator's real question is
+     "how many are left", which is a number of ticks.
+     ================================================================== */
+
   .lt-tick {
     height: 100%;
-    border-right: 1px solid var(--lt-ground);
-    background: color-mix(in oklch, var(--lt-ground), black 20%);
+    border-right: 1px solid var(--surface);
+    background: var(--surface-sunk);
   }
   .lt-tick[data-done="true"] {
-    background: var(--lt-mark);
-    animation: lt-tick-in 220ms ease-out both;
-  }
-  @keyframes lt-tick-in {
-    from { opacity: 0.2; }
-    to { opacity: 1; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .lt-tick[data-done="true"] { animation: none; }
+    background: var(--mark);
+    animation: lt-tick-in 200ms ease-out both;
   }
 
-  /* Zone editor: the page dims, the chosen rectangle does not. */
+  /* =====================================================================
+     THE ZONE EDITOR: the page dims, the chosen rectangle does not.
+     ================================================================== */
+
   .lt-scrim {
     position: absolute;
-    background: color-mix(in oklch, var(--lt-ground), transparent 35%);
+    background: color-mix(in oklch, var(--surface-sunk), transparent 25%);
     pointer-events: none;
   }
   .lt-zone {
     position: absolute;
-    outline: 2px solid var(--lt-mark);
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--lt-ground), transparent 30%);
+    outline: 2px solid var(--mark);
+    /* INSIDE THE BOX, NOT AROUND IT. An outline paints outside the element by
+       default, so the rectangle the operator sees was 2px larger on every side
+       than the rectangle that actually gets cut. On this screen that is not a
+       cosmetic difference: the drawn rectangle is a claim about what the crop
+       will contain, and a claim that is two pixels generous is a picture of a
+       lie. Everything else about the overlay is already expressed in
+       percentages of the page for the same reason. */
+    outline-offset: -2px;
+    box-shadow: 0 0 0 1px color-mix(in oklch, var(--surface-sunk), transparent 20%);
     pointer-events: none;
   }
   .lt-guide {
     position: absolute;
     left: 0;
     right: 0;
-    border-top: 1px solid color-mix(in oklch, var(--lt-mark), transparent 65%);
+    border-top: 1px solid color-mix(in oklch, var(--mark), transparent 68%);
     pointer-events: none;
+  }
+}
+
+/* One rule at the end, so nothing above has to remember it, and so the
+   primitives in src/components/ui/ (which animated unconditionally) are
+   covered too. Motion in this app answers an action: a paraf being drawn, a
+   page being counted. It never announces a section's arrival. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

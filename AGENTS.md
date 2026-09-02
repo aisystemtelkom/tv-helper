@@ -428,12 +428,12 @@ and looks for the same slots in any document.*
 - **`src/components/*` IS NO LONGER VENDORED.** It used to hold assistant-ui's
   generated thread components, which is why this file said not to hand-edit
   them. Those files are deleted; what is there now is `operator/` (this
-  project's own screens, edit freely) and `ui/` (seven shadcn primitives).
-  `eslint.config.mjs` still narrows rules for five paths --
-  `src/components/attachment.tsx`, `file.tsx`, `image.tsx`, `reasoning.tsx`,
-  `thread.tsx` -- **none of which exist any more**. The block is inert rather
-  than wrong, and it is the thing to delete if you are tidying, not a reason to
-  leave the operator components unlinted.
+  project's own screens, edit freely) and `ui/` (seven shadcn primitives, now
+  styled from the same tokens as everything else). The `eslint.config.mjs`
+  block that narrowed rules for five paths that no longer existed
+  (`attachment.tsx`, `file.tsx`, `image.tsx`, `reasoning.tsx`, `thread.tsx`)
+  **has been deleted**; `globalIgnores` is untouched and both of its globs are
+  still load-bearing.
 - **`createLocalStorageAdapter`'s history adapter lacks `withFormat`**, which
   `useChatRuntime` hard-requires and throws without. `src/lib/threads/history.ts`
   supplies one and `store.tsx` patches it in. Replacing that with the stock
@@ -448,6 +448,79 @@ and looks for the same slots in any document.*
 - **The API key lives in `.env.local`, which is gitignored.** `.env.example` is
   the committed template, deliberately un-ignored by a `!.env.example` rule.
   Never put a real key in it.
+
+## The operator UI
+
+Redesigned wholesale (branch `ui-rehaul`). The argument lives in
+`docs/design-system.md` and the language in `docs/ui-bahasa.md`; read the first
+before you move a token and the second before you write a string. What follows
+is only the part that bites.
+
+**THE OPERATOR UI IS IN BAHASA INDONESIA.** Screen copy, labels, status words,
+errors, empty states. Code, identifiers, comments, commit messages, this file
+and the specs stay English. The operator-visible strings are NOT all in
+`src/components/`: five refusal sentences live in `src/lib/auth/guard.ts`, four
+sign-in errors in `src/app/signin/query.ts`, the allowlist's validation throws
+in `src/lib/auth/allowlist.ts` (which `src/app/admin/actions.ts` classifies by
+matching a **fragment** of, so rewording one means rewording both), the run-list
+label in `src/lib/browser/runtime.ts`, and the 401 body in `src/proxy.ts`, which
+hand-copies the guard's wording because it runs in a different runtime. A
+components-only translation leaves half the product in English, and several
+tests assert on these strings.
+
+The packet's own names are NOT translations to invent: `BA Permintaan`, `KB
+(lanjutan)`, `Jangka Waktu`, `TTD Pejabat`, `Nama Proyek` are transcribed from
+the sample and must keep matching it.
+
+**Two hues in the whole product.** `--mark` (amber) means "a decision is owed
+here" and nothing else, ever. `--gap` (red) means a fault or a refusal and is
+absent from a healthy screen. Confirmed work has NO colour: it is an ink paraf
+in a ruled box, so a finished packet is a screen with no colour left on it. The
+old `--lt-mark` carried five unrelated signals at once, which teaches an
+operator to read none of them.
+
+- **Focus is ink, never amber.** A keyboard position is not a decision that is
+  owed.
+- **`.lt-paper` rebinds the ink tokens, and that is load-bearing.** Every token
+  is defined against the graphite table, so on a white sheet `--ink` is
+  invisible: the global `:focus-visible` rule drew a near-white outline on
+  paper, measured at about 1.08:1, on the sign-in button among others. `--gap`
+  and `--mark` get paper values there too, for the same reason.
+- **`--ink-3` is the AA floor, measured, not estimated** (5.0:1 on
+  `--surface-raised`, the lightest ground any of it sits on). It was 3.7:1 while
+  carrying every safety advisory on screen. Quietness is bought with size and
+  position, never with lower contrast, and nothing in the product is under 13px.
+- **Only `.lt-paper` casts a shadow.** If a new component wants one, no.
+- **Uppercase is reserved for quoting the document.** The interface never puts
+  a label in caps to give it rank, which is what retires the tracked-out eyebrow
+  labels. Positive letter-spacing appears in exactly two rules, the wordmark and
+  `.lt-stamp`, both quotations.
+
+**The denah halaman** (`denah.tsx`) is the hero device: a plan of the page drawn
+from `StoredPage.lines[].box`, with the crop knocked out. It answers "is this
+the right page" with a picture rather than a better-typeset number, and it is
+free (no bitmap, no blob, no network). **A page whose OCR returned nothing must
+never render as an empty sheet** -- that would be a new wrong-and-quiet surface
+built by the thing meant to close one -- so it draws an outline with a struck
+rule, and a never-searched capture draws a third, different silhouette.
+
+**The paraf finishes when the write does.** `Mark`/`Paraf` take `drawing` and
+`saved`; the stroke sits at 40% opacity until `saveRun` resolves. This codebase
+already refuses stale and page-losing writes and the operator previously had no
+signal that a decision reached disk.
+
+**The flow is three phases, not four**: `1 Muat`, `2 Periksa`, `3 Berkas`. The
+search runs from Muat as `Proses` (one word for one action, everywhere), and
+Periksa is gated until it has run. The tambahan loop is no longer a phase: it is
+the head of Periksa, and answering "yes" opens the ingest drop in a dialog.
+
+**Fonts are Atkinson Hyperlegible Next and Mono**, self-hosted by `next/font`,
+which is what keeps `performance.getEntriesByType("resource")` showing only this
+origin. `adjustFontFallback: false` is deliberate and commented: Next has no
+metrics for these families, and the alternative was a permanent build warning.
+The mono is the DOCUMENT's voice (section and field names, page and line
+numbers, sizes, identifiers), the sans is the app's; using mono to make a small
+label look technical is the habit that was removed.
 
 ## What a request costs
 
@@ -556,6 +629,12 @@ src/lib/browser/worker-client.ts    the page's side of it
 src/lib/storage/runs.ts        IndexedDB: runs, pages, PDF bytes; the rev check
 src/lib/storage/indexeddb.ts   the chat scaffolding's separate key/value DB
 
+src/app/globals.css            THE DESIGN SYSTEM: tokens, materials, marks
+docs/design-system.md          the argument for it; read before moving a token
+docs/ui-bahasa.md              the operator UI's language and its glossary
+src/components/operator/chrome.tsx  Mark, Paraf, Cite, Advisory, Interruption
+src/components/operator/denah.tsx   the page plan, with the crop knocked out
+
 src/lib/ui/runtime.ts          a MIRROR of the runtime contract, not an import
 src/lib/ui/stub-runtime.ts     a fake runtime that invents scans (see below)
 src/lib/ui/slots.ts, evidence.ts, export.ts, snap.ts, crops.ts
@@ -647,8 +726,10 @@ Recorded so nobody reads a design statement as a description of the code.
   outstanding slots while keeping earlier zones (`searchRound`, `mergeZones`);
   the loop is the operator re-running the command. In the UI:
   `outstanding-panel.tsx` asks the question and `zone-editor.tsx` is the manual
-  zone selection the design calls the terminal state -- both real code, both
-  currently driven by the stub.
+  zone selection the design calls the terminal state. Both are real code on the
+  real runtime. As of the UI rehaul the panel is no longer a phase of its own:
+  it is rendered as the `head` of the review sheet, and answering "yes" opens
+  the ingest drop in a dialog.
 - **Deployment is built, and its own doc is `docs/runbook-deploy.md`.**
   `Dockerfile`, `output: "standalone"` in `next.config.ts`, `src/proxy.ts`,
   Auth.js under `src/lib/auth/`, and the Firestore allowlist all exist. This

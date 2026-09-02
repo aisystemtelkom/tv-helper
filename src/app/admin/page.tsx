@@ -3,15 +3,35 @@
  *
  * It renders its own denial rather than throwing, so a member who follows a
  * link here gets a sentence instead of a stack trace. The mutations in
- * `actions.ts` re-check independently -- rendering a page is not what
- * authorizes a write.
+ * `actions.ts` re-check independently: rendering a page is not what authorizes
+ * a write.
+ *
+ * FOUR THINGS CAN GO WRONG ON THE WAY TO THE REGISTER, and they are not the
+ * same kind of thing, so they must not look the same. They used to: four
+ * different conditions all rendered as the same amber or red bordered
+ * paragraph, whether the cause was "you are not an admin" (expected, benign,
+ * the visitor's own answer) or "the allowlist could not be read" (Firestore is
+ * down, nobody can sign in, this is an incident). So a routine refusal is a
+ * quiet sentence and an outage is an `Interruption`, the band that pushes the
+ * page down and carries role="alert".
+ *
+ * THE RED AUTH_DISABLED BANNER THAT USED TO SIT AT THE BOTTOM OF THIS FILE
+ * COULD NEVER RENDER, and deleting it is a fix rather than a tidy-up. When
+ * `AUTH_DISABLED` is on, `createGuard` returns `via: "auth-disabled"` with
+ * `isAdmin: false`, so the not-an-admin branch always returned first and the
+ * banner below it was unreachable. The warning now lives in that branch, where
+ * the state actually arrives, and it is the loudest thing this page can say:
+ * an open deployment is the one condition under which strangers can open
+ * client scans.
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 
-import { isAuthDisabled } from "@/lib/auth/guard";
+import { Interruption, TechnicalDetail } from "@/components/operator/chrome";
+import type { Role } from "@/lib/auth/allowlist";
 import { allowlist } from "@/lib/auth/instance";
-import { authorize } from "@/lib/auth/require-user";
+import { authorize, type AuthorizedUser } from "@/lib/auth/require-user";
 
 import { AllowlistEditor } from "./allowlist-editor";
 
@@ -20,50 +40,184 @@ import { AllowlistEditor } from "./allowlist-editor";
 // render time must not be allowed to turn this into a cached page.
 export const dynamic = "force-dynamic";
 
-function Shell({ children }: { children: React.ReactNode }) {
+export const metadata = {
+  title: "Daftar Izin Akses - tv-validator",
+};
+
+/**
+ * The roles in the words an admin uses.
+ *
+ * Kept in step with the same map in `allowlist-editor.tsx` BY HAND. That file
+ * is a client component and this one is a server component, so importing the
+ * map across the boundary would either hand this file a client reference it
+ * cannot read or drag the Firestore client into the browser bundle. Three
+ * short strings are the cheaper price.
+ */
+const ROLE_LABEL: Record<Role, string> = {
+  owner: "Pemilik",
+  admin: "Administrator",
+  member: "Operator",
+};
+
+/** How the guard admitted this person, said in words rather than as an enum. */
+const VIA_LABEL: Record<AuthorizedUser["via"], string> = {
+  allowlist: "lewat daftar izin akses",
+  bootstrap: "sebagai pemilik bawaan",
+  "auth-disabled": "tanpa autentikasi",
+};
+
+/**
+ * The application strip and one measure for the page under it.
+ *
+ * Chrome, so `.lt-rail`: flat, hairline, no shadow, and it never holds a fact
+ * you read for meaning. It exists here mostly to carry the way home. Nothing
+ * in the app linked to `/admin` and this page linked back with one underlined
+ * word, so an admin arrived by typing a URL and left the same way.
+ *
+ * This wants to be the product's one shared strip rather than a local copy;
+ * see the report that landed this screen.
+ */
+function Shell({
+  account,
+  children,
+}: {
+  account?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold">Allowlist</h1>
-        <p className="text-sm text-neutral-600">
-          Who may sign in to tv-helper. Changes take effect within 60 seconds on
-          every running instance.
-        </p>
+    <>
+      <header className="lt-rail border-b">
+        <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-3">
+          <Link href="/" className="lt-wordmark">
+            tv-validator
+          </Link>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {account}
+            <Link href="/" className="lt-btn">
+              Kembali ke aplikasi
+            </Link>
+          </div>
+        </div>
       </header>
-      {children}
-      <footer className="text-sm">
-        <Link href="/" className="underline">
-          Back to the app
+      <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-8">
+        {children}
+      </main>
+    </>
+  );
+}
+
+/**
+ * A refusal: the sentence, the way out, and nothing else.
+ *
+ * The old shell kept the heading "Allowlist" and the subtitle about 60 seconds
+ * above every denial, describing a table the visitor was never going to see.
+ */
+function Refusal({
+  title,
+  children,
+  detail,
+  incident = false,
+  signIn = false,
+}: {
+  title: string;
+  children: ReactNode;
+  /** Deployer-facing text: variable names, paths, a raw exception. */
+  detail?: string;
+  /** An outage rather than an answer, so it gets the band and role="alert". */
+  incident?: boolean;
+  /** The way out is the sign-in form rather than the app. */
+  signIn?: boolean;
+}) {
+  return (
+    <Shell>
+      <h1 className="lt-title">{title}</h1>
+      {incident ? (
+        <Interruption detail={detail}>{children}</Interruption>
+      ) : (
+        <>
+          <p className="lt-lede">{children}</p>
+          {detail ? <TechnicalDetail>{detail}</TechnicalDetail> : null}
+        </>
+      )}
+      {/* One way out, and it goes where the sentence just told the visitor to
+          go: a refusal that says "masuk dulu" and then offers only a link back
+          to the page that refused them is a loop. */}
+      <p className="text-[0.9375rem]">
+        <Link
+          href={signIn ? "/signin" : "/"}
+          className="underline underline-offset-4"
+        >
+          {signIn ? "Masuk dengan Google" : "Kembali ke aplikasi"}
         </Link>
-      </footer>
-    </main>
+      </p>
+    </Shell>
   );
 }
 
 export default async function AdminPage() {
   const result = await authorize();
 
+  // Not signed in, not on the list, no email, or the store did not answer.
+  // The sentences are written once, in Bahasa Indonesia, in
+  // `src/lib/auth/guard.ts`, and its `detail` half is the deployer's; keeping
+  // them apart is that module's rule and this page honours it rather than
+  // concatenating the two.
   if (!result.ok) {
     return (
-      <Shell>
-        <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {result.message}
-        </p>
-      </Shell>
+      <Refusal
+        title={
+          result.reason === "lookup-failed"
+            ? "Daftar izin akses tidak dapat dibaca"
+            : "Halaman ini tidak bisa dibuka"
+        }
+        detail={
+          result.detail
+            ? `${result.reason}\n\n${result.detail}`
+            : `${result.reason}`
+        }
+        incident={result.reason === "lookup-failed"}
+        signIn={
+          result.reason === "unauthenticated" || result.reason === "no-email"
+        }
+      >
+        {result.message}
+      </Refusal>
+    );
+  }
+
+  // AUTH_DISABLED. The guard admits everyone as an anonymous member, so this
+  // arrives here rather than in an admin branch, and it is not a permission
+  // message: while it is on, anyone who knows the address can open this
+  // deployment and the client scans an operator loads into it.
+  if (result.user.via === "auth-disabled") {
+    return (
+      <Refusal
+        title="Aplikasi ini sedang berjalan tanpa autentikasi"
+        detail={
+          "AUTH_DISABLED=true dan AUTH_GOOGLE_ID belum diisi, jadi " +
+          "`createGuard` meloloskan setiap permintaan sebagai member " +
+          "anonim dan `requireAdmin` selalu menolak. Ini mode bootstrap " +
+          "sekali pakai untuk mendapatkan URL Cloud Run yang dibutuhkan " +
+          "OAuth client. Selesaikan pemasangan OAuth di " +
+          "docs/runbook-deploy.md, lepas AUTH_DISABLED, lalu deploy ulang."
+        }
+        incident
+      >
+        Tidak ada yang perlu masuk untuk membuka aplikasi ini, jadi tidak ada
+        administrator dan daftar izin akses tidak bisa diubah. Selama begini,
+        siapa pun yang tahu alamatnya bisa membuka aplikasi ini beserta dokumen
+        yang dibuka di dalamnya. Beri tahu yang memasang aplikasi ini sekarang.
+      </Refusal>
     );
   }
 
   if (!result.user.isAdmin) {
     return (
-      <Shell>
-        <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {result.user.via === "auth-disabled"
-            ? "Authentication is disabled on this deployment, so there is no " +
-              "admin to be. Finish the OAuth setup in docs/runbook-deploy.md " +
-              "and redeploy."
-            : `Signed in as ${result.user.email} (${result.user.role}). This page is for admins only.`}
-        </p>
-      </Shell>
+      <Refusal title="Halaman ini hanya untuk administrator">
+        Anda masuk sebagai {result.user.email} ({ROLE_LABEL[result.user.role]}),
+        dan hanya Pemilik atau Administrator yang boleh mengubah daftar izin
+        akses. Minta administrator kalau ada orang yang perlu ditambahkan.
+      </Refusal>
     );
   }
 
@@ -72,32 +226,50 @@ export default async function AdminPage() {
     entries = await allowlist().list();
   } catch (error) {
     return (
-      <Shell>
-        <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
-          The allowlist could not be read:{" "}
-          {error instanceof Error ? error.message : String(error)}. You are
-          seeing this page because{" "}
-          {result.user.via === "bootstrap"
-            ? "you are the hardcoded bootstrap owner, which is what that rule exists for."
-            : "your allowlist entry was still cached."}
-        </p>
-      </Shell>
+      <Refusal
+        title="Daftar izin akses tidak dapat dibaca"
+        detail={
+          (error instanceof Error ? error.message : String(error)) +
+          "\n\nFirestore: pembacaan koleksi allowlist gagal. Periksa binding " +
+          "Firestore dan akses service account ke koleksi itu. Lihat " +
+          "docs/runbook-deploy.md."
+        }
+        incident
+      >
+        Isinya tidak bisa ditampilkan, jadi tidak ada yang bisa ditambah atau
+        dihapus dari sini sampai penyimpanannya bisa dibaca lagi. Ini masalah
+        server, bukan masalah izin Anda. Halaman ini masih terbuka untuk Anda
+        karena{" "}
+        {result.user.via === "bootstrap"
+          ? "Anda pemilik bawaan, yang memang diloloskan lewat kode supaya daftar yang kosong atau tidak terbaca tidak pernah mengunci pemilik di luar"
+          : "jawaban daftar izin untuk akun Anda masih tersimpan di ingatan sementara server"}
+        .
+      </Refusal>
     );
   }
 
   return (
-    <Shell>
-      {isAuthDisabled() ? (
-        <p className="rounded border border-red-400 bg-red-50 px-3 py-2 text-sm font-medium text-red-900">
-          AUTH_DISABLED is set and no OAuth client is configured. Every request
-          is being served without authentication. This is bootstrap mode only.
+    <Shell
+      account={
+        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+          Masuk sebagai{" "}
+          <span className="lt-figure" style={{ color: "var(--ink)" }}>
+            {result.user.email}
+          </span>{" "}
+          ({ROLE_LABEL[result.user.role]}, {VIA_LABEL[result.user.via]})
         </p>
-      ) : null}
-      <p className="text-sm text-neutral-600">
-        Signed in as {result.user.email} ({result.user.role}, via{" "}
-        {result.user.via}).
-      </p>
-      <AllowlistEditor entries={entries} />
+      }
+    >
+      <div className="flex flex-col gap-1">
+        <h1 className="lt-title">Daftar Izin Akses</h1>
+        <p className="lt-lede">
+          Siapa saja yang boleh masuk ke tv-validator. Setiap perubahan di
+          halaman ini adalah perubahan hak akses, dan tercatat atas nama akun
+          yang sedang masuk.
+        </p>
+      </div>
+
+      <AllowlistEditor entries={entries} currentEmail={result.user.email} />
     </Shell>
   );
 }

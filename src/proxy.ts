@@ -70,7 +70,15 @@ export async function proxy(request: NextRequest) {
   // 200 full of markup instead of an error. Say 401 and let the caller decide.
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json(
-      { error: "unauthenticated", message: "Sign in with Google to continue." },
+      {
+        error: "unauthenticated",
+        // Deliberately the same sentence as the guard's `unauthenticated`
+        // arm in src/lib/auth/guard.ts. This file cannot import it (Proxy
+        // runs in a different runtime), so the two are hand-kept in step,
+        // and a request answered in two languages depending on which layer
+        // refused it is the reason that coupling is worth the duplication.
+        message: "Anda belum masuk. Masuk dengan Akun Google untuk melanjutkan.",
+      },
       { status: 401 },
     );
   }

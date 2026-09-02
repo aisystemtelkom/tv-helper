@@ -10,15 +10,26 @@
  * Both files are built here rather than on the server because the documents
  * never leave the device. `docx` and `exceljs` are loaded on demand so a run
  * that never exports never pays for them.
+ *
+ * THE PLAN IS AN INVENTORY, NOT AN EXCEPTION REPORT. It used to answer three
+ * questions (which crops, which zones cannot be resolved, which fillable slots
+ * ship empty), so the export screen could only report a count. A count is the
+ * unit in which the failure this file's own grouping comment describes stays
+ * invisible: a two-capture slot shipping one picture appears in no list,
+ * contributes one crop, and the packet looks complete. The plan therefore also
+ * walks every section and every slot IN TEMPLATE ORDER and records every
+ * capture with a standing, whether or not anything is wrong with it. The three
+ * original fields are kept, derived from that same single pass, because
+ * callers and tests read them.
  */
 
 import type { HeaderFields } from "../export/docx.ts";
-import type { Template } from "../forms/template.ts";
+import type { SectionDef, Template } from "../forms/template.ts";
 import type { Box } from "../pipeline/render.ts";
 import { resolvePage } from "./evidence.ts";
 import { slotKeyOf } from "./runtime.ts";
 import type { BrowserRun, SlotState } from "./runtime.ts";
-import { templateSlots } from "./slots.ts";
+import { requiredCrops, unmatchedStates } from "./slots.ts";
 
 export type PlannedCrop = {
   key: string;
@@ -34,6 +45,122 @@ export type PlannedCrop = {
    */
   expect: { width: number; height: number };
   state: SlotState;
+  /**
+   * Where this capture's state sits in `run.slots`.
+   *
+   * Carried rather than recovered later with `indexOf`, for the reason
+   * `PlacedSlot` in `./slots.ts` spells out: the contract promises key, label
+   * and status, it does not promise that two captures of one slot are two
+   * distinct objects, and `indexOf` over a shared reference would key both
+   * captures' pictures to the first one. The screen keys a thumbnail by it.
+   */
+  stateIndex: number;
+  /** 1-based position within its own slot: the order the docx stacks them. */
+  ordinal: number;
+};
+
+/**
+ * What will become of one capture when the files are written.
+ *
+ * Five of these are runtime statuses and one is not. `lost` is a capture the
+ * operator CONFIRMED whose evidence cannot reach the file: either the run no
+ * longer holds the page the zone points at, or the state carries no zone at
+ * all. It is deliberately its own word rather than being folded back into a
+ * status, because the old plan reported such a slot as `empty` with status
+ * `confirmed`, and the screen printed both readings in one row: confirmed, and
+ * shipping empty. Whichever half a reader believed, one of them was wrong, and
+ * the reassuring one was the false one.
+ */
+export type CaptureStanding =
+  | "ships"
+  | "proposed"
+  | "pending"
+  | "outstanding"
+  | "unfilled"
+  | "lost";
+
+export type PlannedCapture = {
+  /** Position in `run.slots`, or -1 for a capture the run has never seen. */
+  stateIndex: number;
+  /** 1-based within its slot. */
+  ordinal: number;
+  standing: CaptureStanding;
+  /** Set only when `standing` is `ships`. Nothing else prints a picture. */
+  crop: PlannedCrop | null;
+  /** For `lost`: the page the zone named, or null when it carried no zone. */
+  lostPageIndex: number | null;
+  /**
+   * The capture holds a zone that will NOT be printed.
+   *
+   * `onUnfill` patches the status and leaves `zone` in place, so an `unfilled`
+   * capture can still carry a rectangle the operator drew and accepted, and
+   * the export drops it. Saying so is the whole job of this flag: a picture on
+   * the export screen must mean a picture in the docx, or the screen is
+   * wrong in the direction that gets a packet signed.
+   */
+  strandedZone: boolean;
+};
+
+export type PlannedSlot = {
+  key: string;
+  /** The template's own label. May carry `{{quote}}`; see `displayLabel`. */
+  label: string;
+  fillable: boolean;
+  /** How many captures the template expects. */
+  required: number;
+  /** How many of them will carry a picture. */
+  ships: number;
+  captures: PlannedCapture[];
+};
+
+export type PlannedSection = {
+  title: string;
+  layout: SectionDef["layout"];
+  slots: PlannedSlot[];
+};
+
+/**
+ * EVERY NUMBER SAYS WHETHER IT COUNTS SLOTS OR CAPTURES.
+ *
+ * The screen used to print "12 confirmed crops - 3 slots shipping empty": two
+ * units in one line, which is exactly how a slot shipping one of its two
+ * pictures hides. Slots and captures are counted separately here and named
+ * separately on screen (`bagian` and `potongan`).
+ *
+ * All of these count FILLABLE slots only, for the reason `progressOf` gives:
+ * the EPIC and spreadsheet rows are cells the operator pastes into by hand, so
+ * counting them as missing would report a finished run as unfinished.
+ *
+ * `capturesExtra` is the reconciliation term: confirmed captures on
+ * NON-fillable slots. They do reach the docx and they sit outside every count
+ * above, which is why `crops.length` and `capturesShipping` can differ. The
+ * old plan had that same gap and no term for it, so the headline count and the
+ * list of empties were computed over two different populations with nothing
+ * saying so.
+ */
+export type ExportTally = {
+  fillableSlots: number;
+  slotsComplete: number;
+  slotsPartial: number;
+  slotsBlank: number;
+  capturesRequired: number;
+  capturesShipping: number;
+  capturesExtra: number;
+};
+
+/**
+ * Evidence stored under a key this template does not declare.
+ *
+ * A stored run can outlive the slot list that made it, and the exporter places
+ * a crop by key, so these reach no cell in the deliverable. Dropping them from
+ * the plan without a word was the same class of silent loss `unresolved` was
+ * written for.
+ */
+export type Orphan = {
+  key: string;
+  label: string;
+  status: SlotState["status"];
+  hasZone: boolean;
 };
 
 export type ExportPlan = {
@@ -42,6 +169,10 @@ export type ExportPlan = {
   unresolved: { key: string; pageIndex: number }[];
   /** Fillable slots shipping with no evidence, and why. */
   empty: { key: string; label: string; status: SlotState["status"] | "pending" }[];
+  /** Every section and slot the template declares, in template order. */
+  sections: PlannedSection[];
+  tally: ExportTally;
+  orphans: Orphan[];
 };
 
 /**
@@ -60,53 +191,236 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
   // over two accepted zones -- a deliverable that looks complete, is missing
   // evidence, and gets signed. That is the failure this project is organised
   // against, so the grouping is not a stylistic choice.
-  const byKey = new Map<string, SlotState[]>();
-  for (const state of run.slots) {
+  const byKey = new Map<string, { state: SlotState; index: number }[]>();
+  run.slots.forEach((state, index) => {
     const key = slotKeyOf(state.key);
     const existing = byKey.get(key);
-    if (existing) existing.push(state);
-    else byKey.set(key, [state]);
-  }
+    if (existing) existing.push({ state, index });
+    else byKey.set(key, [{ state, index }]);
+  });
 
   const crops: PlannedCrop[] = [];
   const unresolved: { key: string; pageIndex: number }[] = [];
   const empty: ExportPlan["empty"] = [];
+  const sections: PlannedSection[] = [];
+  const tally: ExportTally = {
+    fillableSlots: 0,
+    slotsComplete: 0,
+    slotsPartial: 0,
+    slotsBlank: 0,
+    capturesRequired: 0,
+    capturesShipping: 0,
+    capturesExtra: 0,
+  };
 
-  for (const { slot } of templateSlots(template)) {
-    const states = byKey.get(slot.key) ?? [];
-    let cut = 0;
+  for (const section of template.sections) {
+    const planned: PlannedSlot[] = [];
 
-    for (const state of states) {
-      if (state.status !== "confirmed" || !state.zone) continue;
-      const resolved = resolvePage(run, state.zone.pageIndex);
-      if (!resolved) {
-        unresolved.push({ key: slot.key, pageIndex: state.zone.pageIndex });
-        continue;
+    for (const slot of section.slots) {
+      const placed = byKey.get(slot.key) ?? [];
+      const required = requiredCrops(slot);
+      const captures: PlannedCapture[] = [];
+      let ships = 0;
+
+      placed.forEach(({ state, index }, position) => {
+        const ordinal = position + 1;
+
+        if (state.status === "confirmed") {
+          const resolved = state.zone
+            ? resolvePage(run, state.zone.pageIndex)
+            : null;
+
+          if (state.zone && resolved) {
+            const crop: PlannedCrop = {
+              key: slot.key,
+              label: slot.label,
+              pageId: resolved.page.id,
+              box: state.zone.box,
+              expect: {
+                width: resolved.page.widthPx,
+                height: resolved.page.heightPx,
+              },
+              state,
+              stateIndex: index,
+              ordinal,
+            };
+            crops.push(crop);
+            ships += 1;
+            captures.push({
+              stateIndex: index,
+              ordinal,
+              standing: "ships",
+              crop,
+              lostPageIndex: null,
+              strandedZone: false,
+            });
+            return;
+          }
+
+          if (state.zone) {
+            unresolved.push({ key: slot.key, pageIndex: state.zone.pageIndex });
+          }
+          captures.push({
+            stateIndex: index,
+            ordinal,
+            standing: "lost",
+            crop: null,
+            lostPageIndex: state.zone ? state.zone.pageIndex : null,
+            strandedZone: false,
+          });
+          return;
+        }
+
+        captures.push({
+          stateIndex: index,
+          ordinal,
+          standing: state.status,
+          crop: null,
+          lostPageIndex: null,
+          strandedZone: Boolean(state.zone),
+        });
+      });
+
+      if (slot.fillable && ships === 0) {
+        empty.push({
+          key: slot.key,
+          label: slot.label,
+          status: placed[0]?.state.status ?? "pending",
+        });
       }
-      crops.push({
+
+      if (slot.fillable) {
+        tally.fillableSlots += 1;
+        tally.capturesRequired += required;
+        tally.capturesShipping += ships;
+        if (ships >= required) tally.slotsComplete += 1;
+        else if (ships > 0) tally.slotsPartial += 1;
+        else tally.slotsBlank += 1;
+      } else {
+        tally.capturesExtra += ships;
+      }
+
+      planned.push({
         key: slot.key,
         label: slot.label,
-        pageId: resolved.page.id,
-        box: state.zone.box,
-        expect: {
-          width: resolved.page.widthPx,
-          height: resolved.page.heightPx,
-        },
-        state,
+        fillable: slot.fillable,
+        required,
+        ships,
+        captures,
       });
-      cut += 1;
     }
 
-    if (slot.fillable && cut === 0) {
-      empty.push({
-        key: slot.key,
-        label: slot.label,
-        status: states[0]?.status ?? "pending",
-      });
+    sections.push({
+      title: section.title,
+      layout: section.layout,
+      slots: planned,
+    });
+  }
+
+  const orphans = unmatchedStates(run, template).map((state) => ({
+    key: state.key,
+    label: state.label || state.key,
+    status: state.status,
+    hasZone: Boolean(state.zone),
+  }));
+
+  return { crops, unresolved, empty, sections, tally, orphans };
+}
+
+/**
+ * One thing standing between this run and its two files.
+ *
+ * `stateIndex` is -1 for a fillable slot the run holds no state for at all,
+ * which is a real case rather than a defensive one: the template can declare a
+ * slot a stored run has never seen.
+ */
+export type BlockingItem = {
+  kind: "proposed" | "pending" | "lost";
+  sectionTitle: string;
+  label: string;
+  ordinal: number;
+  required: number;
+  stateIndex: number;
+};
+
+/**
+ * WHAT STOPS AN EXPORT, AND WHAT MERELY LEAVES IT INCOMPLETE.
+ *
+ * Blocking, each for its own reason:
+ *
+ *  - `proposed`. The design's own rule and the reason this gate exists: the
+ *    app never emits a zone nobody ruled on.
+ *  - `pending`. A slot nobody has looked for evidence for is not a decision
+ *    anyone made. The gate used to read `proposed > 0` and nothing else, so a
+ *    run on which the search had never been started was exportable, and it
+ *    produced a complete-looking packet containing no evidence whatsoever.
+ *    This is the same standard the dokumen tambahan loop applies to
+ *    `outstanding`: the operator answers on the record, rather than the packet
+ *    answering by default. The remedy is reachable from the review sheet
+ *    (search for it, draw it by hand, or ship it empty deliberately).
+ *  - `lost`. Evidence the operator personally accepted that cannot reach the
+ *    file. It used to render a stop-toned notice beside a live build button,
+ *    which teaches an operator that a stop colour stops nothing.
+ *
+ * NOT blocking, deliberately: `outstanding` and `unfilled`. Both are answers
+ * the operator gave. The tambahan loop's whole point is that a slot may ship
+ * empty on the record, and `hasUnreviewedProposals` in `./slots.ts` carries
+ * the same rule for the same reason.
+ */
+export function blockingItems(plan: ExportPlan): BlockingItem[] {
+  const items: BlockingItem[] = [];
+
+  for (const section of plan.sections) {
+    for (const slot of section.slots) {
+      // Non-fillable slots are the cells the operator pastes into by hand.
+      // Nothing can back them, so nothing about them can be decided here.
+      if (!slot.fillable) continue;
+
+      if (slot.captures.length === 0) {
+        items.push({
+          kind: "pending",
+          sectionTitle: section.title,
+          label: slot.label,
+          ordinal: 1,
+          required: slot.required,
+          stateIndex: -1,
+        });
+        continue;
+      }
+
+      for (const capture of slot.captures) {
+        if (
+          capture.standing !== "proposed" &&
+          capture.standing !== "pending" &&
+          capture.standing !== "lost"
+        ) {
+          continue;
+        }
+        items.push({
+          kind: capture.standing,
+          sectionTitle: section.title,
+          label: slot.label,
+          ordinal: capture.ordinal,
+          required: slot.required,
+          stateIndex: capture.stateIndex,
+        });
+      }
     }
   }
 
-  return { crops, unresolved, empty };
+  return items;
+}
+
+/**
+ * The label as the docx will print it.
+ *
+ * The Konfigurasi table labels one row with the quote number itself, stored as
+ * the literal `{{quote}}`. `buildDocx` substitutes it before writing the cell,
+ * so a screen that prints the raw token is showing the operator something the
+ * deliverable does not contain.
+ */
+export function displayLabel(label: string, quote: string): string {
+  return label.replace("{{quote}}", quote);
 }
 
 export type Deliverables = { docx: Uint8Array; xlsx: Uint8Array };
@@ -195,4 +509,15 @@ export function deliverableNames(header: HeaderFields, runId: string): {
     docx: `Form_Validasi_${stem}.docx`,
     xlsx: `${stem}_ORDER_Config.xlsx`,
   };
+}
+
+/**
+ * True when both names fall back to the run id, which is a UUID.
+ *
+ * An operator files these by name and a UUID is unfileable. The screen used to
+ * show the name only on the Save button, after the build, so the fallback was
+ * discovered at the point where fixing it means building again.
+ */
+export function namesAreFallback(header: HeaderFields): boolean {
+  return !header.idEpic && !header.quote;
 }

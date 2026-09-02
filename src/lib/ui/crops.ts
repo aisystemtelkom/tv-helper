@@ -43,16 +43,25 @@ export function bitmapToRenderedPage(bitmap: ImageBitmap): RenderedPage {
 }
 
 /**
- * A crop, scaled down for the contact sheet.
+ * A crop, scaled for the review sheet.
  *
  * Scaled for the screen only. The exporter cuts from the full-resolution page
  * so the deliverable keeps every dot of the 300 DPI scan -- the whole reason
  * the pipeline renders that high is to keep small print readable.
+ *
+ * 1100, raised from 560. The review sheet gives the crop most of the row now
+ * rather than a 272px thumbnail column, and the operator is being asked to
+ * read Indonesian small print off a photocopy to decide whether it is the
+ * right region. A picture rendered at half the width it is displayed at makes
+ * that judgement on a blurred copy, which is the same failure as showing the
+ * wrong page, only harder to notice. The cost is bounded: these are PNGs of
+ * mostly white paper, held one per proposed zone, and the page bitmap they
+ * are cut from is released either way.
  */
 export async function cropToDisplayUrl(
   bitmap: ImageBitmap,
   box: Box,
-  maxWidth = 560,
+  maxWidth = 1100,
 ): Promise<string> {
   const w = Math.max(1, Math.round(box.w));
   const h = Math.max(1, Math.round(box.h));
@@ -78,10 +87,16 @@ export async function cropToDisplayUrl(
   return await toBlobUrl(ctx.canvas);
 }
 
-/** A whole page, scaled to something a screen can hold, for the zone editor. */
+/**
+ * A whole page, scaled to something a screen can hold, for the zone editor.
+ *
+ * Only one of these is alive at a time (the editor shows one page), so it can
+ * afford to be sharper than a crop: the operator is dragging a rectangle over
+ * lines of text they have to be able to read while they drag.
+ */
 export async function pageToDisplayUrl(
   bitmap: ImageBitmap,
-  maxWidth = 1400,
+  maxWidth = 1600,
 ): Promise<{ url: string; scale: number }> {
   const scale = Math.min(1, maxWidth / bitmap.width);
   const outW = Math.max(1, Math.round(bitmap.width * scale));

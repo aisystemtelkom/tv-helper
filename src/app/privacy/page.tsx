@@ -22,7 +22,9 @@
  * It renders no image, no icon font and no external stylesheet, for the reason
  * `signin/page.tsx` records at greater length: this project's standing proof is
  * `performance.getEntriesByType("resource")` showing no host but this one, and
- * the cheapest way to keep that true is to leave nothing to fetch.
+ * the cheapest way to keep that true is to leave nothing to fetch. There is no
+ * client component here either, so the whole page renders for a reviewer or a
+ * link unfurler running no JavaScript at all.
  *
  * ## Keep it TRUE
  *
@@ -44,161 +46,494 @@
  * dated, false statement about where customer scans go, in two languages, to
  * an OAuth reviewer and to the client's own staff. If the boundary moves
  * again, this page moves with it in the same commit.
+ *
+ * ## How it is set
+ *
+ * A SHEET OF PAPER LYING ON THE TABLE. `docs/design-system.md` allows exactly
+ * one lit material, `.lt-paper`, and only for documents: a crop, a rendered
+ * page, the sign-in sheet and this one. Everywhere else in this product a
+ * person GLANCES at evidence, which is why the work surface is a toned
+ * graphite; this is the one page where a person READS, continuously, for
+ * several minutes. So the policy is set on paper, at a reading measure, and
+ * the graphite is left to be the table it lies on.
+ *
+ * Five details that are decisions rather than accidents:
+ *
+ *   - `--ink` IS REMAPPED TO `--paper-ink` on the sheet. The one global
+ *     `:focus-visible` rule draws its outline in `var(--ink)`, which is
+ *     near-white: right on the graphite ground and INVISIBLE on paper, so
+ *     every link on this page would have had no visible keyboard focus at all.
+ *     The rule itself is not overridden (it is the product's single focus
+ *     treatment, and forking it per surface is how a product ends up with
+ *     three); the sheet supplies the value of ink that is true for its own
+ *     ground. `::selection`, which also names `--ink`, is corrected by the
+ *     same line. Every paper surface in this app has the same problem, so it
+ *     probably belongs on `.lt-paper` in `globals.css`.
+ *   - THE DATE IS TWO CONSTANTS, NOT THREE LITERALS. It used to be written out
+ *     in `UPDATED`, again in the Indonesian body and again in the English
+ *     summary, so the next boundary change had to find all three, and a policy
+ *     that contradicts itself about a date is worse than one carrying no date.
+ *     Two constants and not one, because they are two different facts that
+ *     merely coincide today: when this policy was last revised, and when OCR
+ *     moved off the device.
+ *   - SECTION NUMBERS COME FROM ONE ARRAY, which the contents list and the
+ *     headings both read. Numbering a long document by hand in two places is
+ *     the same defect as the date, one release later.
+ *   - THE ENGLISH SUMMARY MIRRORS THE INDONESIAN SECTIONS and its numerals are
+ *     CROSS-REFERENCES into them, not clause numbers of its own. It is a
+ *     summary, not a second policy, and it used to be a single twenty-line
+ *     paragraph summarising eight titled sections: the reader least able to
+ *     read the body was handed the least navigable version of it. It carries
+ *     `lang="en"` inside a `lang="id"` document so a screen reader stops
+ *     pronouncing it with Indonesian phonemes.
+ *   - THE CHROME IS `print:hidden`. A policy gets archived, and a printed or
+ *     PDF-ed copy should be the document, not a wordmark and a link back to an
+ *     app that paper cannot open.
  */
+
+import Link from "next/link";
+import type { CSSProperties, ReactNode } from "react";
 
 export const metadata = {
   title: "Kebijakan Privasi - tv-validator",
+  description:
+    "Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.",
 };
 
+/** When this policy was last revised. */
 const UPDATED = "2 September 2026";
+
+/**
+ * When text recognition stopped running in the browser.
+ *
+ * The same day as `UPDATED` today, and deliberately a separate constant: a
+ * later revision moves one of these and not the other, and the body says
+ * "sejak <this date>" about a boundary change, never about an edit.
+ */
+const OCR_MOVED = "2 September 2026";
+
+const CONTACT = "aisystemtelkom@gmail.com";
+
+/**
+ * The document's own structure, in order. The contents list and every heading
+ * are rendered from this, so a section cannot be renumbered in one place and
+ * left alone in the other.
+ */
+const SECTIONS = [
+  { id: "ringkasan", title: "Ringkasan" },
+  { id: "berkas-pdf", title: "Berkas PDF tetap di perangkat Anda" },
+  { id: "layanan-model", title: "Yang dikirim ke layanan model bahasa" },
+  { id: "data-akun", title: "Data akun" },
+  { id: "pelacakan", title: "Pelacakan" },
+  { id: "penghapusan-akses", title: "Penghapusan akses" },
+  { id: "kontak", title: "Kontak" },
+] as const;
+
+type SectionId = (typeof SECTIONS)[number]["id"];
+
+const EN_ID = "summary-in-english";
+
+function sectionAt(id: SectionId) {
+  const index = SECTIONS.findIndex((section) => section.id === id);
+  return { n: index + 1, title: SECTIONS[index].title };
+}
+
+/**
+ * The measure of the sheet: about 66 characters of body text once the sheet's
+ * own padding is taken off, which is the width a long document can be read at
+ * without the eye losing the line it is returning to.
+ */
+const SHEET = "w-full max-w-[42rem]";
+
+/** A numeral: the paper numbering itself, so the mono face, quietly. */
+const NUMERAL = "lt-figure text-[0.9375rem]";
+
+function Section({ id, children }: { id: SectionId; children: ReactNode }) {
+  const { n, title } = sectionAt(id);
+  return (
+    <section id={id} className="flex scroll-mt-8 flex-col gap-3">
+      <h2 className="flex items-baseline gap-3 text-[1.1875rem] leading-snug font-bold tracking-[-0.015em]">
+        <span className={NUMERAL} style={{ color: "var(--paper-ink-2)" }}>
+          {n}
+        </span>
+        <span>{title}</span>
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * One item of the English summary, numbered by the Indonesian section it
+ * summarises rather than by its own position in the summary.
+ */
+function EnItem({
+  of,
+  title,
+  children,
+}: {
+  of: SectionId;
+  title: string;
+  children: ReactNode;
+}) {
+  const { n } = sectionAt(of);
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="flex items-baseline gap-3 text-[1.0625rem] leading-snug font-bold">
+        <span className={NUMERAL} style={{ color: "var(--paper-ink-2)" }}>
+          {n}
+        </span>
+        <span>{title}</span>
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * An identifier quoted inside prose: an OAuth scope, an address. Mono, because
+ * that is the document's own voice, and set at the size of the text around it
+ * rather than two steps down, because this is the paragraph a Google reviewer
+ * reads most carefully.
+ */
+function Code({ children }: { children: ReactNode }) {
+  return (
+    <code
+      className="lt-figure rounded-[2px] px-1 text-[0.9375em]"
+      style={{
+        background: "color-mix(in oklch, var(--paper-ink), transparent 92%)",
+      }}
+    >
+      {children}
+    </code>
+  );
+}
+
+function Rule() {
+  return (
+    <hr
+      className="border-0 border-t"
+      style={{ borderColor: "var(--paper-edge)" }}
+    />
+  );
+}
+
+/**
+ * The way back into the app, which this page has never had.
+ *
+ * `prefetch={false}` on purpose: most readers of this page carry no session,
+ * `/` is behind the guard, and prefetching it would spend a request on a
+ * redirect to the sign-in page that nobody asked for. It still renders a plain
+ * `<a href="/">`, so it works for a reader with no JavaScript.
+ */
+function BackLink() {
+  return (
+    <Link className="lt-btn" href="/" prefetch={false}>
+      Kembali ke aplikasi
+    </Link>
+  );
+}
 
 export default function PrivacyPage() {
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 p-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold">Kebijakan Privasi</h1>
-        <p className="text-sm text-neutral-600">
-          tv-validator, alat bantu validasi dokumen order. Diperbarui {UPDATED}.
-        </p>
-      </header>
+    <main className="flex flex-1 flex-col items-center gap-5 px-4 py-10 sm:px-8">
+      <div
+        className={`${SHEET} flex items-center justify-between gap-4 print:hidden`}
+      >
+        <span className="lt-wordmark">tv-validator</span>
+        <BackLink />
+      </div>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Ringkasan</h2>
-        <p className="text-sm leading-6">
-          Aplikasi ini dipakai secara internal oleh staf yang diberi izin untuk
-          menyusun dokumen validasi dari berkas order hasil pemindaian.
-          Aplikasi tidak terbuka untuk umum, tidak menayangkan iklan, dan tidak
-          menjual data kepada siapa pun.
-        </p>
-      </section>
+      <article
+        className={`lt-paper ${SHEET} flex flex-col gap-8 p-7 text-[1rem] leading-[1.75] sm:p-11 print:shadow-none`}
+        /* See the header comment: the global focus outline and ::selection are
+           both drawn in `--ink`, which is near-white and vanishes on paper. The
+           rule stays exactly as it is; the sheet says what ink means here. */
+        style={{ "--ink": "var(--paper-ink)" } as CSSProperties}
+      >
+        <header className="flex flex-col gap-2">
+          <h1 className="text-[1.75rem] leading-tight font-bold tracking-[-0.02em]">
+            Kebijakan Privasi
+          </h1>
+          <p style={{ color: "var(--paper-ink-2)" }}>
+            tv-validator, alat bantu validasi dokumen order.
+          </p>
+          <p className="text-[0.875rem]" style={{ color: "var(--paper-ink-2)" }}>
+            Diperbarui <span className="lt-figure">{UPDATED}</span>.
+          </p>
+        </header>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">
-          Berkas PDF tetap di perangkat Anda
-        </h2>
-        <p className="text-sm leading-6">
-          Berkas PDF yang Anda buka tidak pernah diunggah. Pembacaan dan
-          perenderan halaman berjalan di dalam peramban Anda, hasil kerja
-          disimpan pada penyimpanan lokal peramban (IndexedDB) di komputer Anda
-          sendiri, dan pemotongan gambar bukti dilakukan dari piksel di
-          perangkat Anda. Tidak ada berkas PDF yang disimpan di server aplikasi
-          ini maupun di layanan penyimpanan awan.
+        {/* The one thing anyone opens this page to find out, above the contents
+            and above section 1. It used to be the second section, split across
+            three paragraphs. The wording is the sentence docs/ui-bahasa.md
+            fixes for this claim, plus the onward hop it does not cover. */}
+        <p
+          className="border-l-2 pl-4 text-[1.0625rem] leading-[1.7]"
+          style={{ borderColor: "var(--paper-ink)" }}
+        >
+          Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya
+          gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.
+          Server aplikasi meneruskannya ke Google Gemini API.
         </p>
-        <p className="text-sm leading-6">
-          <strong>Yang dikirim keluar adalah gambar halaman.</strong> Sejak 2
-          September 2026 pengenalan teks (OCR) tidak lagi berjalan di peramban.
-          Untuk setiap halaman, aplikasi mengirimkan satu gambar halaman hasil
-          render ke server aplikasi ini, dan server meneruskannya ke Google
-          Gemini API untuk dibaca teksnya. Yang kembali adalah baris-baris teks
-          beserta koordinatnya. Perubahan ini dilakukan atas keputusan pemilik
-          proses, setelah penilaian mereka sendiri terhadap Google sebagai
-          pemroses.
-        </p>
-        <p className="text-sm leading-6">
-          Menghapus data situs pada peramban akan menghapus dokumen dan hasil
-          kerja Anda secara permanen, karena tidak ada salinan lengkap di tempat
-          lain.
-        </p>
-      </section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">
-          Yang dikirim ke layanan model bahasa
-        </h2>
-        <p className="text-sm leading-6">
-          Ada dua jenis kiriman, dan keduanya melalui server aplikasi ini:
-        </p>
-        <p className="text-sm leading-6">
-          <strong>Pertama, gambar halaman untuk pengenalan teks.</strong> Satu
-          gambar per halaman dikirim ke Google Gemini API, dan jawabannya adalah
-          teks yang terbaca beserta kotak koordinatnya.
-        </p>
-        <p className="text-sm leading-6">
-          <strong>Kedua, teks hasil pengenalan untuk mencari letak data.</strong>{" "}
-          Pada tahap ini aplikasi mengirimkan baris-baris teks bernomor, bukan
-          gambar, lalu menerima jawaban berupa rentang baris. Pemotongan gambar
-          bukti tetap dilakukan di perangkat Anda berdasarkan koordinat baris
-          tersebut.
-        </p>
-        <p className="text-sm leading-6">
-          Google bertindak sebagai pemroses untuk keperluan inferensi ini.
-          Permintaan dikirim dari server aplikasi, bukan langsung dari peramban
-          Anda, dan kredensial API tidak pernah dikirim ke peramban.
-        </p>
-      </section>
+        <nav
+          aria-label="Isi halaman"
+          className="flex flex-col gap-2 border-y py-4"
+          style={{ borderColor: "var(--paper-edge)" }}
+        >
+          <p
+            className="text-[0.8125rem] font-semibold"
+            style={{ color: "var(--paper-ink-2)" }}
+          >
+            Isi halaman
+          </p>
+          <ol className="flex flex-col gap-1.5">
+            {SECTIONS.map((section, index) => (
+              <li key={section.id} className="flex items-baseline gap-3">
+                <span
+                  className={NUMERAL}
+                  style={{ color: "var(--paper-ink-2)" }}
+                >
+                  {index + 1}
+                </span>
+                <a
+                  className="underline decoration-1 underline-offset-4"
+                  href={`#${section.id}`}
+                >
+                  {section.title}
+                </a>
+              </li>
+            ))}
+            <li className="flex items-baseline gap-3">
+              <span
+                aria-hidden="true"
+                className={NUMERAL}
+                style={{ color: "var(--paper-ink-2)" }}
+              >
+                EN
+              </span>
+              <a
+                className="underline decoration-1 underline-offset-4"
+                href={`#${EN_ID}`}
+                lang="en"
+              >
+                Summary in English
+              </a>
+            </li>
+          </ol>
+        </nav>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Data akun</h2>
-        <p className="text-sm leading-6">
-          Saat masuk dengan Akun Google, aplikasi meminta izin dasar:{" "}
-          <code className="text-xs">openid</code>,{" "}
-          <code className="text-xs">email</code>, dan{" "}
-          <code className="text-xs">profile</code>. Yang disimpan aplikasi hanya
-          alamat email Anda beserta perannya, sebagai daftar siapa saja yang
-          boleh masuk. Aplikasi tidak membaca Gmail, Drive, Kontak, atau layanan
-          Google lainnya, dan tidak menyimpan token akses jangka panjang.
-        </p>
-        <p className="text-sm leading-6">
-          Sesi disimpan dalam cookie bertanda tangan yang berlaku 12 jam.
-        </p>
-      </section>
+        <div className="flex flex-col gap-8">
+          <Section id="ringkasan">
+            <p>
+              Aplikasi ini dipakai secara internal oleh staf yang diberi izin
+              untuk menyusun dokumen validasi dari berkas order hasil
+              pemindaian. Aplikasi tidak terbuka untuk umum, tidak menayangkan
+              iklan, dan tidak menjual data kepada siapa pun.
+            </p>
+          </Section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Pelacakan</h2>
-        <p className="text-sm leading-6">
-          Tidak ada analitik pihak ketiga, tidak ada cookie iklan, dan tidak ada
-          pelacak. Halaman aplikasi hanya memuat sumber daya dari domain
-          aplikasi ini sendiri.
-        </p>
-      </section>
+          <Section id="berkas-pdf">
+            <p>
+              Berkas PDF yang Anda buka tidak pernah diunggah. Pembacaan dan
+              perenderan halaman berjalan di dalam peramban Anda, hasil kerja
+              disimpan pada penyimpanan lokal peramban (IndexedDB) di komputer
+              Anda sendiri, dan pemotongan gambar bukti dilakukan dari piksel di
+              perangkat Anda. Tidak ada berkas PDF yang disimpan di server
+              aplikasi ini maupun di layanan penyimpanan awan.
+            </p>
+            <p>
+              <strong>Yang dikirim keluar adalah gambar halaman.</strong> Sejak{" "}
+              {OCR_MOVED} pengenalan teks (OCR) tidak lagi berjalan di peramban.
+              Untuk setiap halaman, aplikasi mengirimkan satu gambar halaman
+              hasil render ke server aplikasi ini, dan server meneruskannya ke
+              Google Gemini API untuk dibaca teksnya. Yang kembali adalah
+              baris-baris teks beserta koordinatnya. Perubahan ini dilakukan
+              atas keputusan pemilik proses, setelah penilaian mereka sendiri
+              terhadap Google sebagai pemroses.
+            </p>
+            <p>
+              Menghapus data situs pada peramban akan menghapus dokumen dan
+              hasil kerja Anda secara permanen, karena tidak ada salinan lengkap
+              di tempat lain.
+            </p>
+          </Section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Penghapusan akses</h2>
-        <p className="text-sm leading-6">
-          Administrator dapat menghapus alamat email dari daftar izin kapan
-          saja; akses berhenti dalam waktu paling lama 60 detik. Anda juga dapat
-          mencabut izin aplikasi melalui halaman Akun Google Anda.
-        </p>
-      </section>
+          <Section id="layanan-model">
+            <p>
+              Ada dua jenis kiriman, dan keduanya melalui server aplikasi ini:
+            </p>
+            <p>
+              <strong>Pertama, gambar halaman untuk pengenalan teks.</strong>{" "}
+              Satu gambar per halaman dikirim ke Google Gemini API, dan
+              jawabannya adalah teks yang terbaca beserta kotak koordinatnya.
+            </p>
+            <p>
+              <strong>
+                Kedua, teks hasil pengenalan untuk mencari letak data.
+              </strong>{" "}
+              Pada tahap ini aplikasi mengirimkan baris-baris teks bernomor,
+              bukan gambar, lalu menerima jawaban berupa rentang baris.
+              Pemotongan gambar bukti tetap dilakukan di perangkat Anda
+              berdasarkan koordinat baris tersebut.
+            </p>
+            <p>
+              Google bertindak sebagai pemroses untuk keperluan inferensi ini.
+              Permintaan dikirim dari server aplikasi, bukan langsung dari
+              peramban Anda, dan kredensial API tidak pernah dikirim ke
+              peramban.
+            </p>
+          </Section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Kontak</h2>
-        <p className="text-sm leading-6">
-          Pertanyaan mengenai kebijakan ini dapat dikirim ke{" "}
-          <a className="underline" href="mailto:aisystemtelkom@gmail.com">
-            aisystemtelkom@gmail.com
-          </a>
-          .
-        </p>
-      </section>
+          <Section id="data-akun">
+            <p>
+              Saat masuk dengan Akun Google, aplikasi meminta izin dasar:{" "}
+              <Code>openid</Code>, <Code>email</Code>, dan <Code>profile</Code>.
+              Yang disimpan aplikasi hanya alamat email Anda beserta perannya,
+              sebagai daftar siapa saja yang boleh masuk. Aplikasi tidak membaca
+              Gmail, Drive, Kontak, atau layanan Google lainnya, dan tidak
+              menyimpan token akses jangka panjang.
+            </p>
+            <p>
+              Sesi disimpan dalam cookie bertanda tangan yang berlaku 12 jam.
+            </p>
+          </Section>
 
-      <hr className="border-neutral-200" />
+          <Section id="pelacakan">
+            <p>
+              Tidak ada analitik pihak ketiga, tidak ada cookie iklan, dan tidak
+              ada pelacak. Halaman aplikasi hanya memuat sumber daya dari domain
+              aplikasi ini sendiri.
+            </p>
+          </Section>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-base font-semibold">Summary in English</h2>
-        <p className="text-sm leading-6">
-          Internal tool for authorised staff. Your PDF files are never uploaded:
-          they are rendered in your browser and the run is held in that
-          browser&apos;s local storage, and evidence crops are cut from your own
-          device&apos;s pixels. What does leave your device, one page at a time,
-          is a <em>rendered page image</em>: since 2 September 2026 text
-          recognition no longer runs in the browser, so each page image is sent
-          to this application&apos;s own server, which forwards it to the Google
-          Gemini API and returns the recognised text with its coordinates. The
-          later step that locates a field sends OCR <em>text</em> (numbered
-          lines) only, and a line range comes back. Signing in uses the basic{" "}
-          <code className="text-xs">openid email profile</code> scopes; the only
-          account data stored is your email address and its role, used as the
-          access list. No Gmail, Drive or Contacts access. No third-party
-          analytics, advertising cookies or trackers. Sessions last 12 hours. An
-          administrator can remove your access at any time, effective within 60
-          seconds. Contact{" "}
-          <a className="underline" href="mailto:aisystemtelkom@gmail.com">
-            aisystemtelkom@gmail.com
-          </a>
-          .
-        </p>
-      </section>
+          <Section id="penghapusan-akses">
+            <p>
+              Administrator dapat menghapus alamat email dari daftar izin kapan
+              saja; akses berhenti dalam waktu paling lama 60 detik. Anda juga
+              dapat mencabut izin aplikasi melalui halaman Akun Google Anda.
+            </p>
+          </Section>
+
+          <Section id="kontak">
+            <p>
+              Pertanyaan mengenai kebijakan ini dapat dikirim ke{" "}
+              <a
+                className="lt-figure underline decoration-1 underline-offset-4"
+                href={`mailto:${CONTACT}`}
+              >
+                {CONTACT}
+              </a>
+              .
+            </p>
+          </Section>
+        </div>
+
+        <Rule />
+
+        <section id={EN_ID} className="flex scroll-mt-8 flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <h2
+              className="text-[1.1875rem] leading-snug font-bold tracking-[-0.015em]"
+              lang="en"
+            >
+              Summary in English
+            </h2>
+            <p
+              className="text-[0.875rem]"
+              style={{ color: "var(--paper-ink-2)" }}
+            >
+              Ringkasan bagian 1 sampai 7 di atas, untuk pembaca yang tidak
+              berbahasa Indonesia. Teks lengkapnya adalah bagian 1 sampai 7 itu
+              sendiri, dan nomor di bawah menunjuk ke sana.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-5" lang="en">
+            <EnItem of="ringkasan" title="What this tool is">
+              <p>
+                An internal tool for authorised staff, used to assemble
+                validation documents from scanned order files. It is not open to
+                the public, it carries no advertising, and it sells data to
+                nobody.
+              </p>
+            </EnItem>
+
+            <EnItem of="berkas-pdf" title="Your PDF files stay on your device">
+              <p>
+                Your PDF files are never uploaded: they are rendered in your
+                browser, the run is held in that browser&apos;s local storage
+                (IndexedDB) on your own computer, and evidence crops are cut
+                from your own device&apos;s pixels. No PDF is stored on this
+                application&apos;s server or in cloud storage. Clearing your
+                browser&apos;s site data deletes your documents and your work
+                permanently, because no complete copy exists anywhere else.
+              </p>
+            </EnItem>
+
+            <EnItem
+              of="layanan-model"
+              title="What is sent to the language model service"
+            >
+              <p>
+                What does leave your device, one page at a time, is a{" "}
+                <em>rendered page image</em>. Text recognition no longer runs in
+                the browser: since {OCR_MOVED} each page image is sent to this
+                application&apos;s own server, which forwards it to the Google
+                Gemini API and returns the recognised text with its
+                coordinates. The later step that locates a field sends OCR{" "}
+                <em>text</em> (numbered lines) only, and a line range comes
+                back; the crop is still cut on your device. Google acts as a
+                processor for this inference. Requests are made from the server,
+                not from your browser, and the API credential never reaches the
+                browser.
+              </p>
+            </EnItem>
+
+            <EnItem of="data-akun" title="Account data">
+              <p>
+                Signing in uses the basic <Code>openid email profile</Code>{" "}
+                scopes; the only account data stored is your email address and
+                its role, used as the access list. No Gmail, Drive or Contacts
+                access, and no long-lived access tokens are kept. Sessions are
+                held in a signed cookie and last 12 hours.
+              </p>
+            </EnItem>
+
+            <EnItem of="pelacakan" title="Tracking">
+              <p>
+                No third-party analytics, advertising cookies or trackers. Pages
+                load resources only from this application&apos;s own domain.
+              </p>
+            </EnItem>
+
+            <EnItem of="penghapusan-akses" title="Removing access">
+              <p>
+                An administrator can remove your address from the allowlist at
+                any time, effective within 60 seconds. You can also revoke this
+                application&apos;s access from your Google Account page.
+              </p>
+            </EnItem>
+
+            <EnItem of="kontak" title="Contact">
+              <p>
+                Questions about this policy:{" "}
+                <a
+                  className="lt-figure underline decoration-1 underline-offset-4"
+                  href={`mailto:${CONTACT}`}
+                >
+                  {CONTACT}
+                </a>
+                .
+              </p>
+            </EnItem>
+          </div>
+        </section>
+      </article>
+
+      <div className={`${SHEET} print:hidden`}>
+        <BackLink />
+      </div>
     </main>
   );
 }

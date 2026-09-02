@@ -238,7 +238,10 @@ test("adding rejects a non-email and an unknown role", async () => {
 
   await assert.rejects(
     () => list.add({ email: "not-an-email", role: "member", addedBy: null }),
-    /is not an email address/,
+    // Bahasa: this message reaches the admin's screen through
+    // `describe()` in src/app/admin/actions.ts, which matches the same
+    // fragment. If you reword the throw, both move together.
+    /bukan alamat email/,
   );
   await assert.rejects(
     () =>
@@ -248,7 +251,7 @@ test("adding rejects a non-email and an unknown role", async () => {
         role: "superuser" as never,
         addedBy: null,
       }),
-    /is not one of/,
+    /bukan peran yang dikenal/,
   );
 });
 
@@ -259,13 +262,13 @@ test("the bootstrap owner cannot be added or removed through the store", async (
   await assert.rejects(
     () =>
       list.add({ email: BOOTSTRAP_OWNER_EMAIL, role: "owner", addedBy: null }),
-    /would change nothing/,
+    /tidak mengubah apa pun/,
   );
   // The dangerous version of this is a delete that reports success and revokes
   // nothing, leaving an admin believing access was withdrawn.
   await assert.rejects(
     () => list.remove(BOOTSTRAP_OWNER_EMAIL.toUpperCase()),
-    /cannot be removed/,
+    /tidak bisa dihapus/,
   );
 });
 
@@ -418,7 +421,7 @@ test("auth-disabled admits anonymously but never as an admin", async () => {
 
   // The allowlist must stay un-editable during the bootstrap window, or the
   // one deploy that is briefly open is also the one that can grant access.
-  await assert.rejects(() => guard.requireAdmin(), /admins only/);
+  await assert.rejects(() => guard.requireAdmin(), /hanya untuk administrator/);
 });
 
 test("isAuthDisabled needs the flag AND an unconfigured OAuth client", async () => {
@@ -447,7 +450,11 @@ test("isAuthDisabled needs the flag AND an unconfigured OAuth client", async () 
 // runtime imports precisely so it loads here under plain `node --test`.
 
 import { createChatHandler } from "../../app/api/chat/handler.ts";
-import { safeCallbackUrl, signInErrorMessage } from "../../app/signin/query.ts";
+import {
+  safeCallbackUrl,
+  signInErrorDetail,
+  signInErrorMessage,
+} from "../../app/signin/query.ts";
 
 /** A POST shaped like the one assistant-ui sends. */
 function chatRequest(body = '{"messages":[],"system":"be brief"}'): Request {
@@ -492,9 +499,13 @@ test("an unauthenticated POST to the chat route is refused even though proxy nev
   // JSON, not a redirect to an HTML sign-in page: an API caller following a
   // 307 to markup gets a confusing 200 full of markup instead of an error.
   assert.match(response.headers.get("content-type") ?? "", /application\/json/);
+  // Deep-equal, not a substring match, so the absence of `detail` is asserted
+  // too: a refusal an operator caused carries no deployer half, and a caller
+  // that renders one would be showing an empty disclosure on every 401.
+  // `src/proxy.ts` hand-copies this exact body, so the two move together.
   assert.deepEqual(await response.json(), {
     error: "unauthenticated",
-    message: "Sign in with Google to continue.",
+    message: "Anda belum masuk. Masuk dengan Google untuk melanjutkan.",
   });
 
   assert.equal(calls.length, 0, "the model must not be reached");
@@ -576,10 +587,85 @@ test("denialResponse carries the guard's own status and reason", async () => {
     ok: false,
     status: 403,
     reason: "not-admin",
-    message: "This page is for admins only.",
+    message: "Halaman ini hanya untuk administrator.",
   });
   assert.equal(forbidden?.status, 403);
   assert.equal((await forbidden?.json()).error, "not-admin");
+});
+
+test("a refusal keeps the deployer's half out of the operator's sentence", async () => {
+  // `lookup-failed` used to read "check the Firestore binding" INSIDE the
+  // refusal, so an operator whose only fault was arriving during an outage was
+  // told to go and repair a database they have never heard of. The two halves
+  // now travel as separate fields: `message` is the sentence they read,
+  // `detail` is for whoever deployed the app and is rendered apart from it.
+  const guard = guardFor(sessionFor("op@gmail.com"), [entry("op@gmail.com")], {
+    fail: true,
+  });
+
+  const result = await guard.authorize();
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.match(result.message, /Daftar izin akses tidak dapat dibaca/);
+  assert.doesNotMatch(result.message, /Firestore/);
+  assert.match(result.detail ?? "", /Firestore/);
+
+  // Both halves reach a route handler, still apart, so an API caller can show
+  // the operator's sentence and log the rest.
+  const body = await denialResponse(result)?.json();
+  assert.equal(body.message, result.message);
+  assert.equal(body.detail, result.detail);
+
+  // And the throwing path carries it too: `src/app/admin/actions.ts` puts
+  // `error.message` straight on the screen, so `detail` must not be folded in.
+  await assert.rejects(() => guard.requireUser(), (error: unknown) => {
+    assert.ok(error instanceof AuthorizationError);
+    assert.equal(error.message, result.message);
+    assert.equal(error.detail, result.detail);
+    return true;
+  });
+});
+
+test("every refusal an operator reads is Bahasa Indonesia and carries no double hyphen", async () => {
+  const messages: string[] = [];
+  for (const guard of [
+    guardFor(null),
+    guardFor({ user: { email: null, name: "Nameless" } }),
+    guardFor(sessionFor("stranger@gmail.com")),
+    guardFor(sessionFor("op@gmail.com"), [entry("op@gmail.com")], {
+      fail: true,
+    }),
+  ]) {
+    const result = await guard.authorize();
+    assert.equal(result.ok, false);
+    if (!result.ok) messages.push(result.message);
+  }
+  const member = guardFor(sessionFor("op@gmail.com"), [
+    entry("op@gmail.com", "member"),
+  ]);
+  await assert.rejects(() => member.requireAdmin(), (error: unknown) => {
+    assert.ok(error instanceof AuthorizationError);
+    messages.push(error.message);
+    return true;
+  });
+
+  // One per DenialReason, so a new reason with an untranslated message fails
+  // this count before anyone has to notice its wording.
+  assert.equal(messages.length, 5);
+  for (const message of messages) {
+    // Not typographic fussiness. The double hyphen stood in for an em dash in
+    // exactly the sentence that told an operator to check a Firestore binding,
+    // and this asserts the split that removed it has not been undone.
+    assert.doesNotMatch(message, /--|\u2014/, message);
+    // These are read by Indonesian operators reading Indonesian contracts. A
+    // refusal still saying "Sign in" or "allowlist" was never translated.
+    assert.doesNotMatch(
+      message,
+      /\b(sign in|allowlist|admins only|account)\b/i,
+      message,
+    );
+  }
 });
 
 // --- the sign-in page's query string --------------------------------------
@@ -602,14 +688,39 @@ test("safeCallbackUrl accepts only a same-origin path", () => {
   assert.equal(safeCallbackUrl(["https://evil.example", "/admin"]), "/");
 });
 
-test("signInErrorMessage explains an allowlist refusal and never swallows a code", () => {
+test("signInErrorMessage explains a code it knows and never swallows one it does not", () => {
   assert.equal(signInErrorMessage(undefined), null);
-  assert.match(signInErrorMessage("AccessDenied") ?? "", /not on the allowlist/);
-  assert.match(signInErrorMessage("Configuration") ?? "", /AUTH_GOOGLE_ID/);
-  // An unrecognised code stays visible: it is the only searchable string an
-  // operator has.
+
+  // WORDING IS DELIBERATELY NOT ASSERTED HERE. These strings live in
+  // `src/app/signin/query.ts`, they are Bahasa Indonesia now, and the
+  // deployer's half of a failure (Auth.js codes, environment variable names,
+  // the runbook path) has moved out of the sentence into `signInErrorDetail`
+  // for a `Detail teknis` disclosure. This test used to match /not on the
+  // allowlist/ and /AUTH_GOOGLE_ID/, which pinned the English AND pinned the
+  // deployer text into the operator's sentence: it would have failed the
+  // translation and argued against the split. What must hold is the
+  // behaviour below.
+  assert.equal(signInErrorDetail(undefined), null);
+
+  for (const code of ["AccessDenied", "Configuration", "Verification"]) {
+    const message = signInErrorMessage(code) ?? "";
+    assert.ok(message.length > 0, `${code} must say something`);
+    // A code the page recognises earns a written explanation, and the raw
+    // code never appears in the sentence the operator reads: it arrives from
+    // the query string, so whoever writes the link would otherwise choose the
+    // loudest words on the page.
+    assert.doesNotMatch(
+      message,
+      new RegExp(code),
+      `${code} must get an explanation, not the raw code`,
+    );
+  }
+
+  // An unrecognised code stays VISIBLE, in the technical half: it is the only
+  // searchable string an operator can quote to whoever deploys this.
+  assert.ok((signInErrorMessage("OAuthCallbackError") ?? "").length > 0);
   assert.match(
-    signInErrorMessage("OAuthCallbackError") ?? "",
+    signInErrorDetail("OAuthCallbackError") ?? "",
     /OAuthCallbackError/,
   );
 });

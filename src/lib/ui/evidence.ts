@@ -108,13 +108,26 @@ export function zonePageRef(run: BrowserRun, page: StoredPage): number {
   return run.pages.indexOf(page);
 }
 
+/**
+ * Where a crop came from, as DATA rather than as a sentence.
+ *
+ * `page` and `lines` used to be pre-joined display strings (`"p 1/3"`,
+ * `"L 31-58"`, `"drawn by hand, no line citation"`), which put English, and a
+ * layout decision, inside a module the screens are supposed to format. The
+ * citation is now rendered as an aligned table of tabular figures, so a wrong
+ * page number breaks the column's rhythm instead of hiding third in a
+ * dot-joined grey run, and the operator UI can say all of it in Bahasa
+ * Indonesia. Keep the parts here; keep the wording in the component.
+ */
 export type Citation = {
   /** The file a reviewer would open. */
   source: string;
   /** That file's own page number, 1-based, as a reader would count it. */
-  page: string;
-  /** `L 31-58`, or a plain statement that there is no line citation. */
-  lines: string;
+  page: number;
+  /** How many pages that file has, so `page` can be shown out of a total. */
+  pagesInDoc: number;
+  /** The cited line range, or null for a zone drawn by hand over free pixels. */
+  lines: readonly [from: number, to: number] | null;
   lineCount: number;
   /**
    * How many of the cited lines had their rectangle SLICED rather than
@@ -165,11 +178,17 @@ export type Citation = {
   wholePage: boolean;
 };
 
-/** Crops are cut at the render DPI, so a pixel box has a real physical size. */
-export function sizeInInches(box: Box, dpi: number = DEFAULT_DPI): string {
-  const w = box.w / dpi;
-  const h = box.h / dpi;
-  return `${w.toFixed(1)} x ${h.toFixed(1)} in`;
+/**
+ * Crops are cut at the render DPI, so a pixel box has a real physical size.
+ *
+ * Centimetres, and a comma for the decimal mark. The operators are in
+ * Indonesia holding A4 paper, so `16,0 x 6,4 cm` is a size they can put two
+ * fingers on and `6.3 x 2.5 in` is not. This is display only: nothing
+ * downstream measures in either unit, and the exporter works in pixels.
+ */
+export function cropSize(box: Box, dpi: number = DEFAULT_DPI): string {
+  const cm = (px: number) => ((px / dpi) * 2.54).toFixed(1).replace(".", ",");
+  return `${cm(box.w)} x ${cm(box.h)} cm`;
 }
 
 /** Above this share of page height a crop is flagged as covering the page. */
@@ -187,8 +206,9 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
 
   return {
     source: resolved.sourceName,
-    page: `p ${resolved.pageInDoc + 1}/${resolved.pagesInDoc}`,
-    lines: cited ? `L ${from}-${to}` : "drawn by hand, no line citation",
+    page: resolved.pageInDoc + 1,
+    pagesInDoc: resolved.pagesInDoc,
+    lines: cited ? [from, to] : null,
     lineCount: cited ? to - from + 1 : 0,
     // Only over a real citation: a hand-drawn zone cites no lines at all, and
     // the plate already says so in as many words ("free pixels").
@@ -197,7 +217,7 @@ export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
           (l) => l.i >= from && l.i <= to && l.origin === "interpolated",
         ).length
       : 0,
-    size: sizeInInches(zone.box),
+    size: cropSize(zone.box),
     heightShare,
     spansPage: !wholePage && heightShare >= SPANS_PAGE_RATIO,
     wholePage,

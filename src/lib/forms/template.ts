@@ -32,6 +32,29 @@ export type SlotDef = {
    * document's, and say plainly what it is NOT.
    */
   hint: string;
+  /**
+   * The same field, said to the OPERATOR instead of to the model. Bahasa
+   * Indonesia, and NEVER sent anywhere near a prompt: `locateSlot` is handed
+   * `slot.label` and `slot.hint` and nothing else, so no wording here can
+   * move a proposal.
+   *
+   * It exists because `hint` cannot do this job. A hint is a prompt: it is
+   * English, it is written to beat a look-alike, and AGENTS.md forbids
+   * retuning one without re-running the measurement gate. So the definition
+   * the operator is judging against was in the repository and never on the
+   * screen, and they were asked to rule on whether a crop matches a
+   * specification they could not read. `catatan` is that specification
+   * condensed for the person, and it can be reworded freely because no
+   * measurement depends on it.
+   *
+   * `adalah` says what to look for. `bukan` names the look-alike, which is
+   * the half the operator actually applies: the failure this product is
+   * organised against is a crop of a plausible wrong thing.
+   *
+   * Optional because a slot that is not `fillable` ships blank and nobody
+   * ever rules on it.
+   */
+  catatan?: { adalah: string; bukan?: string };
   fillable: boolean;
   /**
    * How many images this slot holds. Defaults to 1 when absent, so every
@@ -115,6 +138,14 @@ export const AO_TEMPLATE: Template = {
           label: "BA Permintaan",
           docType: "BAPermintaan",
           hint: "the whole Berita Acara Permintaan Order page",
+          catatan: {
+            adalah:
+              "Satu halaman penuh Berita Acara Permintaan Order, diambil " +
+              "sebagai tangkapan satu halaman.",
+            bukan:
+              "Bukan area di dalam halaman, dan bukan Berita Acara lain " +
+              "seperti BA Splitting atau BASO.",
+          },
           fillable: true,
         },
       ],
@@ -128,6 +159,14 @@ export const AO_TEMPLATE: Template = {
           label: "SP",
           docType: "SP",
           hint: "the whole Surat Penunjukan page",
+          catatan: {
+            adalah:
+              "Halaman pertama Surat Penunjukan, diambil utuh sebagai " +
+              "tangkapan satu halaman.",
+            bukan:
+              "Bukan Perjanjian Kerjasama, bukan Berita Acara Permintaan " +
+              "Order, dan bukan halaman lanjutan Surat Penunjukan.",
+          },
           fillable: true,
         },
         {
@@ -135,6 +174,14 @@ export const AO_TEMPLATE: Template = {
           label: "SP (lanjutan)",
           docType: "SP",
           hint: "the second whole page of the Surat Penunjukan",
+          catatan: {
+            adalah:
+              "Halaman lanjutan Surat Penunjukan, juga diambil utuh sebagai " +
+              "tangkapan satu halaman.",
+            bukan:
+              "Bukan halaman pertama yang sudah dipakai pada bagian SP di " +
+              "atasnya.",
+          },
           fillable: true,
         },
       ],
@@ -152,6 +199,14 @@ export const AO_TEMPLATE: Template = {
             "agreement's opening title block, above the parties. Not a " +
             "reference number on a covering letter, an appointment letter " +
             "(Surat Penunjukan), a memo, an order form or an email.",
+          catatan: {
+            adalah:
+              "Nomor Perjanjian Kerjasama itu sendiri, di blok judul pembuka " +
+              "perjanjian, di atas para pihak.",
+            bukan:
+              "Bukan nomor surat pengantar, Surat Penunjukan, memo, formulir " +
+              "order, atau email.",
+          },
           fillable: true,
         },
         {
@@ -164,6 +219,15 @@ export const AO_TEMPLATE: Template = {
             "names, addresses and representatives. Not an email header, a " +
             "distribution list, a recipient block on a letter, or a " +
             "signature block.",
+          catatan: {
+            adalah:
+              "Blok yang memperkenalkan kedua pihak Perjanjian Kerjasama, " +
+              "PIHAK PERTAMA dan PIHAK KEDUA, lengkap dengan nama, alamat, " +
+              "dan wakilnya.",
+            bukan:
+              "Bukan kepala email, daftar distribusi, blok penerima surat, " +
+              "atau blok tanda tangan.",
+          },
           fillable: true,
         },
         {
@@ -175,6 +239,14 @@ export const AO_TEMPLATE: Template = {
             "opening states it (the hari/tanggal sentence). Not a letter " +
             "date, an email date, a print or scan date, or a date inside a " +
             "payment or delivery clause.",
+          catatan: {
+            adalah:
+              "Tanggal Perjanjian Kerjasama ditandatangani, pada kalimat hari " +
+              "dan tanggal di pembukaannya.",
+            bukan:
+              "Bukan tanggal surat, tanggal email, tanggal cetak atau pindai, " +
+              "dan bukan tanggal di dalam pasal pembayaran atau pengiriman.",
+          },
           fillable: true,
         },
         {
@@ -187,6 +259,15 @@ export const AO_TEMPLATE: Template = {
             "payment period, a delivery deadline, or a service period on an " +
             "order form. Start at the clause's own number line (the 'Pasal N' " +
             "line), not at the title beneath it.",
+          catatan: {
+            adalah:
+              "Pasal Jangka Waktu Perjanjian: kapan perjanjian mulai berlaku " +
+              "dan berapa lama berjalan, dimulai dari baris nomor pasalnya, " +
+              "bukan dari judul di bawahnya.",
+            bukan:
+              "Bukan jangka waktu pembayaran, batas waktu pengiriman, atau " +
+              "masa layanan pada formulir order.",
+          },
           fillable: true,
         },
       ],
@@ -205,6 +286,15 @@ export const AO_TEMPLATE: Template = {
             "and amounts. Not a quotation, a price list, or a configuration " +
             "table on an order form. Start at the clause's own number line " +
             "(the 'Pasal N' line), not at the title beneath it.",
+          catatan: {
+            adalah:
+              "Pasal Ruang Lingkup dan Harga Pekerjaan pada Perjanjian " +
+              "Kerjasama, biasanya berupa tabel rincian pekerjaan dan " +
+              "nilainya, dimulai dari baris nomor pasalnya.",
+            bukan:
+              "Bukan penawaran harga, daftar harga, atau tabel konfigurasi " +
+              "pada formulir order.",
+          },
           fillable: true,
         },
         {
@@ -217,6 +307,16 @@ export const AO_TEMPLATE: Template = {
             "is raised and by when it is paid. Not a price table, and not a " +
             "billing period on an order form. Start at the clause's own " +
             "number line (the 'Pasal N' line), not at the title beneath it.",
+          catatan: {
+            adalah:
+              "Pasal Pembayaran Pekerjaan pada Perjanjian Kerjasama, dimulai " +
+              "dari baris nomor pasalnya, yang menyebut kapan tagihan " +
+              "diterbitkan dan kapan harus dibayar; potongan keduanya adalah " +
+              "blok rekening tujuan pembayaran.",
+            bukan:
+              "Bukan tabel harga, dan bukan periode penagihan pada formulir " +
+              "order.",
+          },
           fillable: true,
           // The sample stacks two images in this one cell (rId17/image9.png
           // and rId18/image10.png). See the `crops` doc comment on SlotDef.
@@ -240,6 +340,14 @@ export const AO_TEMPLATE: Template = {
             "where the officials of both parties sign, with their names and " +
             "titles. Not the signature on an appointment letter (Surat " +
             "Penunjukan), on a Berita Acara, or in an email footer.",
+          catatan: {
+            adalah:
+              "Blok tanda tangan penutup Perjanjian Kerjasama, tempat pejabat " +
+              "kedua pihak menandatangani lengkap dengan nama dan jabatannya.",
+            bukan:
+              "Bukan tanda tangan pada Surat Penunjukan, pada Berita Acara, " +
+              "atau di kaki email.",
+          },
           fillable: true,
         },
       ],
@@ -310,6 +418,14 @@ export const AO_TEMPLATE: Template = {
           label: "Email",
           docType: "Email",
           hint: "the whole printed email thread page",
+          catatan: {
+            adalah:
+              "Satu halaman penuh cetakan utas email yang meminta order ini, " +
+              "diambil sebagai tangkapan satu halaman.",
+            bukan:
+              "Bukan lampiran email yang tercetak di halaman terpisah, dan " +
+              "bukan surat atau berita acara.",
+          },
           fillable: true,
         },
       ],
