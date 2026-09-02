@@ -392,6 +392,26 @@ here has seen. Rejecting it would silently drop a real order type, which is the
 wrong-and-quiet direction. The field is already a `datalist` and not a
 `select`, for exactly this reason, and it must stay one.
 
+**There are FOUR origins to render, not three, and the fourth is the
+interesting one.** Alongside flag / env / request / inferred there is
+**refused**: the resolver saw something that looked like an answer and would
+not trust it. That must not share wording with "we found nothing", because it
+means the opposite in practice: the form has a jenis order printed on it and
+the operator should go and look. "Tidak ditemukan" would send them away from
+the one page that has the answer.
+
+**And `inferred` earns weaker phrasing than the other three, on evidence.**
+Reproduced over 22 real spellings, the first version of this inference was
+wrong on nine. It answered `DAN` for "JENIS ORDER DAN LAYANAN", `YANG` for
+"JENIS ORDER YANG DIMINTA", `BARU` for "Jenis Order Baru", and it read a blank
+printed option menu, `JENIS ORDER  AO  MO  DO` with nothing ticked, as a
+confident answer of `AO`. That last one is the shape to design against: an
+autofilled value on a form where the operator had not chosen yet is worse than
+an empty field, because an empty field asks to be filled and a filled one does
+not. The rules were rewritten and the failures fixed, and the phrasing still
+has to carry the difference between "this was stated" and "this was read off a
+page".
+
 ## The constraint that outranks all of this
 
 The browser talks to nothing but this app.
