@@ -24,6 +24,7 @@
  */
 
 import type { HeaderFields } from "../export/docx.ts";
+import type { FieldValue } from "../pipeline/fields.ts";
 import type { SectionDef, Template } from "../forms/template.ts";
 import type { Box } from "../pipeline/render.ts";
 import { resolvePage } from "./evidence.ts";
@@ -467,6 +468,19 @@ export async function buildDeliverables(
   deps: {
     pageBitmap: (runId: string, pageId: string) => Promise<ImageBitmap>;
     onProgress?: (done: number, total: number) => void;
+    /**
+     * The extracted values for column E, when the caller has them.
+     *
+     * OPTIONAL, AND THE DEFAULT IS STILL AN EMPTY COLUMN, because a blank the
+     * operator was warned about is the posture this file already takes for
+     * rows no PDF can back. What changed is that the blank is no longer
+     * MANDATORY: this used to pass `[]` unconditionally with a comment saying
+     * the browser runtime carried no field values, which was true and stopped
+     * being true when `/api/extract` shipped. It stayed passing `[]` anyway,
+     * so every run's column E was empty by construction whatever the
+     * documents said.
+     */
+    values?: readonly FieldValue[];
   },
 ): Promise<Deliverables> {
   const { bitmapToRenderedPage } = await import("./crops.ts");
@@ -517,14 +531,12 @@ export async function buildDeliverables(
 
   return {
     docx: await buildDocx(template, header, filled),
-    // Column E is written from extracted field values, and the browser
-    // runtime contract carries none: a `BrowserRun` holds pages and slots,
-    // not `FieldValue`s. So every backed row ships VISIBLY BLANK rather than
-    // guessed at, which is the posture the design already takes for the rows
-    // no PDF can back. The export screen says so in as many words -- a blank
-    // column nobody was warned about is the failure this project cares most
-    // about.
-    xlsx: await buildXlsx(template, []),
+    // Column E, from whatever the caller extracted. A row with no value still
+    // ships VISIBLY BLANK rather than guessed at, which is the posture this
+    // design takes for every row no document can back, and the export screen
+    // says which rows those are: a blank column nobody was warned about is
+    // the failure this project cares most about.
+    xlsx: await buildXlsx(template, [...(deps.values ?? [])]),
   };
 }
 

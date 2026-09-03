@@ -27,6 +27,11 @@ import {
 import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
 import { zoneFingerprint } from "../browser/captures.ts";
 import {
+  buildExtractRequest,
+  fillableValues,
+  noteForField,
+} from "./extract.ts";
+import {
   captureLabel,
   aggregateStatus,
   describeOutstanding,
@@ -823,4 +828,182 @@ test("a capture's name does not change when a LATER one is discovered", () => {
   assert.deepEqual(two, ["ToP", "ToP (lanjutan)"]);
   assert.deepEqual(three, ["ToP", "ToP (lanjutan)", "ToP (lanjutan 2)"]);
   assert.deepEqual(three.slice(0, 2), two);
+});
+
+/* ------------------------------------------------------------- extraction */
+
+test("the extract request numbers pages by POSITION IN THE RUN, and names their files", () => {
+  const request = buildExtractRequest(RUN);
+
+  // The wire contract is that a page's position in the array IS its
+  // run-global index, which is what `Zone.pageIndex` means everywhere else.
+  // `StoredPage.index` restarts at 0 per source, so sending that instead
+  // would tell the route that two different pages are both page 0.
+  assert.deepEqual(
+    request.pages.map((p) => p.index),
+    [0, 1, 2, 3, 4],
+  );
+
+  // And the file each page came from, so a citation can name the document a
+  // reviewer would open rather than a uuid. The route falls back to the
+  // sourceId, which is unambiguous and unreadable.
+  assert.equal(request.pages[0].sourceName, "SPLITBA_LOP999001.pdf");
+  assert.equal(request.pages[4].sourceName, "LOP999001_merged.pdf");
+
+  // `answered` is omitted rather than sent empty: the route treats its
+  // presence as "the order request already covered these".
+  assert.equal(request.answered, undefined);
+  assert.deepEqual(buildExtractRequest(RUN, ["cc"]).answered, ["cc"]);
+});
+
+test("a blank value never overwrites a cell, whatever its status says", () => {
+  // THE TRAP THIS PINS. `not-searched` arrives with an empty value for two
+  // different reasons: the key nothing ever searches (namaProyek), and a key
+  // THE ORDER REQUEST ALREADY ANSWERED, where the run genuinely holds a
+  // value and the route was told not to hunt for a second one. Writing "" in
+  // because the status was not `cited` would erase what the operator gave us.
+  const values = fillableValues([
+    { fieldKey: "cc", value: "", status: "not-searched", confidence: "low" },
+    { fieldKey: "order", value: "", status: "not-found", confidence: "low" },
+    { fieldKey: "quote", value: "   ", status: "uncited", confidence: "low" },
+    { fieldKey: "idEpic", value: "LOP999001", status: "cited", confidence: "high" },
+  ]);
+
+  assert.equal(values.has("cc"), false);
+  assert.equal(values.has("order"), false);
+  assert.equal(values.has("quote"), false, "whitespace is not a value");
+  assert.equal(values.get("idEpic"), "LOP999001");
+});
+
+test("a cited field is told WHERE to look, and is not told to be careful", () => {
+  // The citation is the check, and a better one than a warning: it says where
+  // to look instead of saying worry. An operator warned on every filled cell
+  // stops reading the warning.
+  const note = noteForField({
+    fieldKey: "idEpic",
+    value: "LOP999001",
+    status: "cited",
+    confidence: "high",
+    source: {
+      pageIndex: 3,
+      lineRange: [9, 12],
+      sourceName: "LOP999001_merged.pdf",
+      pageInDoc: 1,
+    },
+  });
+
+  assert.equal(note.warn, false);
+  assert.match(note.text, /LOP999001_merged\.pdf/);
+  assert.match(note.text, /hal 2/, "pageInDoc is 0-based and printed 1-based");
+  assert.match(note.text, /baris 9-12/);
+  assert.doesNotMatch(note.text, /Periksa dulu/);
+});
+
+test("a citation that names no document prints no page number either", () => {
+  // `sourceName` and `pageInDoc` are optional, and a page number without the
+  // document it belongs to is worse than no page number: for every page after
+  // the first source file the bare number points into the wrong document.
+  const note = noteForField({
+    fieldKey: "quote",
+    value: "1-70000000001",
+    status: "cited",
+    confidence: "high",
+    source: { pageIndex: 3, lineRange: [4, 5] },
+  });
+
+  assert.match(note.text, /baris 4-5/);
+  assert.doesNotMatch(note.text, /hal/);
+});
+
+test("a capped field keeps its citation AND gains a look-first", () => {
+  // Low confidence on a CITED field means the key is capped rather than the
+  // citation being doubtful. namaProyek's recorded failure was a citation
+  // that PASSED validation while naming the wrong document's title, so
+  // validation proves the lines exist, never that the model picked right.
+  const note = noteForField({
+    fieldKey: "namaProyek",
+    value: "PSB VPN IP KCP Contoh",
+    status: "cited",
+    confidence: "low",
+    source: {
+      pageIndex: 0,
+      lineRange: [2, 3],
+      sourceName: "SPLITBA_LOP999001.pdf",
+      pageInDoc: 0,
+    },
+  });
+
+  assert.equal(note.warn, true);
+  assert.match(note.text, /SPLITBA_LOP999001\.pdf/);
+  assert.match(note.text, /Periksa dulu/);
+});
+
+test("a confabulated citation is reported as one, not as a missing citation", () => {
+  // `citation-invalid` and `uncited` both leave a value with no usable
+  // reference and they are opposite kinds of evidence. The first means the
+  // model NAMED A PLACE AND THE PLACE WAS WRONG, which is evidence about the
+  // VALUE. Collapsing them hides a confabulation on the record.
+  const invalid = noteForField({
+    fieldKey: "cc",
+    value: "BANK CONTOH NUSANTARA",
+    status: "citation-invalid",
+    confidence: "low",
+    reason: "Sumbernya tidak cocok.",
+    claimed: { pageIndex: 6, from: 3, to: 9 },
+  });
+  const uncited = noteForField({
+    fieldKey: "cc",
+    value: "BANK CONTOH NUSANTARA",
+    status: "uncited",
+    confidence: "low",
+    reason: "Model tidak menyebut sumber.",
+  });
+
+  assert.equal(invalid.warn, true);
+  assert.match(invalid.text, /hal 7/, "the claim is printed 1-based");
+  assert.match(invalid.text, /baris 3-9/);
+  assert.notEqual(invalid.text, uncited.text);
+  assert.doesNotMatch(uncited.text, /hal/);
+});
+
+test("a conflict lists both spellings and asks the operator to choose", () => {
+  // A conflict blanks the cell on purpose: shipping either candidate would be
+  // a coin toss printed as evidence. What the operator needs is both.
+  const note = noteForField({
+    fieldKey: "cc",
+    value: "",
+    status: "conflict",
+    confidence: "low",
+    reason: "Dua dokumen menjawab berbeda.",
+    conflict: ["BANK CONTOH NUSANTARA", "BANK CONTOH NUSANTARA (Persero)"],
+  });
+
+  assert.equal(note.warn, true);
+  assert.match(note.text, /BANK CONTOH NUSANTARA \(Persero\)/);
+  assert.match(note.text, /Pilih sendiri/);
+});
+
+test("a field nothing looked for does not read as a field that was searched", () => {
+  // The pair `/api/propose` was already bitten by: reporting an unsearched
+  // slot as searched sent an operator hunting for documents to fill it.
+  // Neither warns, because neither is a value to distrust; both are blanks
+  // the operator fills.
+  const notFound = noteForField({
+    fieldKey: "order",
+    value: "",
+    status: "not-found",
+    confidence: "low",
+    reason: "Sudah dicari, tidak ada di dokumen ini.",
+  });
+  const notSearched = noteForField({
+    fieldKey: "namaProyek",
+    value: "",
+    status: "not-searched",
+    confidence: "low",
+    reason: "Tidak pernah dicari otomatis.",
+  });
+
+  assert.equal(notFound.warn, false);
+  assert.equal(notSearched.warn, false);
+  assert.notEqual(notFound.text, notSearched.text);
 });

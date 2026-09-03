@@ -847,6 +847,35 @@ Recorded so nobody reads a design statement as a description of the code.
   `kb.nomor` returned a zone whose box was the union of the answered line range
   padded by `CROP_PADDING_PX`, and a slot it could not find came back in
   `outstanding` rather than as an invented zone.
+- **`/api/extract` HAS A CLIENT NOW, and the years it did not are worth
+  recording.** The route was built, tested and gated, and NOTHING IN THE APP
+  CALLED IT: the browser's only fetch sites were `propose.ts` and the ingest
+  worker, and `src/lib/ui/export.ts` built the workbook with
+  `buildXlsx(template, [])`, a literally empty array with a comment explaining
+  that the browser runtime carried no field values. That was true when it was
+  written and stopped being true when the route shipped. The consequence was
+  invisible and total: the header table sat blank and the whole of xlsx column
+  E was empty BY CONSTRUCTION, for every run, whatever the documents said, and
+  it read to an operator exactly like extraction failing.
+
+  `src/lib/ui/extract.ts` is the wire. The export screen reads once per order
+  (the shell holds the answer so a phase switch does not re-bill a 29-page
+  call), fills only fields that are genuinely EMPTY, and never overwrites a
+  filename-derived guess or an operator's typing. Column E takes the
+  extraction's own values.
+
+  **A blank value is never written, whatever its status.** `not-searched`
+  arrives empty for two different reasons: the key nothing searches, and a key
+  THE ORDER REQUEST ALREADY ANSWERED, where the run holds a value and the
+  route was told not to hunt for a second one. `fillableValues` drops every
+  blank for that reason and `ui.test.mts` pins it.
+
+  **A cited field is told WHERE to look and is not told to be careful.** The
+  citation is the check and a better one than a warning. What a validated
+  citation is NOT is proof the value is right: `namaProyek`'s recorded failure
+  was a citation that PASSED validation, which is why `confidence` is capped
+  per key independently of it.
+
 - **`pnpm generate` writes its three output files unreviewed.** The design's
   "the app never emits an unreviewed zone" describes the UI's target, not this
   command.

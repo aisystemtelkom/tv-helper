@@ -70,6 +70,7 @@ import {
 import type { BrowserRun, RunSummary, SlotState } from "@/lib/ui/runtime";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
+import type { ExtractedField } from "@/lib/ui/extract";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
 import { ContactSheet } from "./contact-sheet";
@@ -319,6 +320,23 @@ function Workspace({
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [run, setRun] = useState<BrowserRun | null>(null);
   const say = useSay();
+  /*
+   * THE EXTRACTED VALUES, HELD BY THE SHELL RATHER THAN BY THE EXPORT SCREEN.
+   *
+   * `ExportPanel` is mounted only while Berkas is open and unmounted the
+   * moment the operator leaves it, so state that lives there is re-fetched
+   * every visit. This particular fetch reads every page of the run with the
+   * model: on the sample bundle that is 29 pages of OCR text, and an operator
+   * flicking back to Periksa to check one crop and returning would pay for it
+   * again, silently, with nothing on screen suggesting they had.
+   *
+   * Keyed by run id so opening a different order does not inherit the last
+   * one's values, which would be a wrong-and-quiet fill on a signed document.
+   */
+  const [extracted, setExtracted] = useState<{
+    runId: string;
+    fields: ExtractedField[];
+  } | null>(null);
   const [phase, setPhase] = useState<Phase>("ingest");
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [rounds, setRounds] = useState<RoundLog[]>([]);
@@ -513,6 +531,10 @@ function Workspace({
    */
   const closeRun = () => {
     setRun(null);
+    // Same reason `pending` and `fresh` are cleared: it is keyed to the run
+    // that is going away, and values from the last order shown against the
+    // next one is the failure this product is organised against.
+    setExtracted(null);
     setRounds([]);
     setPending(new Set());
     setFresh(new Set());
@@ -1180,7 +1202,12 @@ function Workspace({
             }
           />
         ) : (
-          <ExportPanel run={run} onGoToSheet={() => setPhase("sheet")} />
+          <ExportPanel
+            run={run}
+            onGoToSheet={() => setPhase("sheet")}
+            extracted={extracted?.runId === run.id ? extracted.fields : null}
+            onExtracted={(fields) => setExtracted({ runId: run.id, fields })}
+          />
         )}
 
         {/* NOT WHILE THE ZONE EDITOR IS OPEN, and not on Berkas.

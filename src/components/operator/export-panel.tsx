@@ -142,6 +142,8 @@ import {
   type JenisOrderPage,
 } from "@/lib/pipeline/jenis-order";
 import { cropToDisplayUrl, downloadBytes, revokeUrls } from "@/lib/ui/crops";
+import { fillableValues, noteForField } from "@/lib/ui/extract";
+import type { ExtractedField } from "@/lib/ui/extract";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type {
   CaptureStanding,
@@ -1112,12 +1114,59 @@ function SectionBlock({
 
 /* --------------------------------------------------------------- the screen */
 
+/**
+ * The extracted values folded into the header, WITHOUT overwriting anything.
+ *
+ * Two things may already be in a field: a value read off a file name, and a
+ * value the operator typed. The first is a guess and the second is a
+ * decision, and replacing either from under them on a cover page a validator
+ * signs is the wrong-and-quiet failure this project is organised against. So
+ * only a genuinely empty field is filled.
+ *
+ * `fillableValues` drops every field whose value is blank, which is what
+ * stops a `not-searched` key from writing an empty string over a cell. That
+ * matters more than it looks: `not-searched` is returned both for the key
+ * nothing ever searches and for a key the ORDER REQUEST already answered,
+ * where the run genuinely holds a value.
+ */
+function withExtracted(
+  prev: HeaderFields,
+  fields: readonly ExtractedField[],
+): HeaderFields {
+  const values = fillableValues(fields);
+  const next = { ...prev };
+  let changed = false;
+  for (const key of ["namaProyek", "cc", "order", "jenisOrder"] as const) {
+    const found = values.get(key);
+    if (found && next[key] === "") {
+      next[key] = found;
+      changed = true;
+    }
+  }
+  return changed ? next : prev;
+}
+
+/**
+ * An unknown throw as one readable line.
+ *
+ * Local rather than imported: the shell has its own copy for the same reason,
+ * and this file must not grow a dependency on a screen it sits beside.
+ */
+function messageOf(problem: unknown): string {
+  return problem instanceof Error ? problem.message : String(problem);
+}
+
 export function ExportPanel({
   run,
   onGoToSheet,
+  extracted,
+  onExtracted,
 }: {
   run: BrowserRun;
   onGoToSheet: () => void;
+  /** What `/api/extract` said, or null when nothing has asked yet. */
+  extracted: ExtractedField[] | null;
+  onExtracted: (fields: ExtractedField[]) => void;
 }) {
   const runtime = useRuntime();
   const derived = useMemo(
@@ -1175,6 +1224,76 @@ export function ExportPanel({
      */
     jenisOrder: jenis.value,
   });
+  /*
+   * SEEDED AT MOUNT AS WELL AS FILLED ON ARRIVAL, and both are needed.
+   *
+   * `useState` runs once, so a run whose values the shell already holds (the
+   * operator went to Periksa and came back) would otherwise show empty fields
+   * beside a completed reading. Filling it in an effect instead is what the
+   * `react-hooks/set-state-in-effect` rule forbids, and rightly: the value is
+   * derivable at mount, so it belongs in the initialiser.
+   */
+  const [seeded, setSeeded] = useState(false);
+  if (!seeded && extracted) {
+    setSeeded(true);
+    setHeader((prev) => withExtracted(prev, extracted));
+  }
+  /*
+   * READ THE VALUES ONCE PER ORDER, when this screen first opens on a run
+   * that has pages.
+   *
+   * WHY IT IS AUTOMATIC RATHER THAN A BUTTON. The operator asked that the
+   * product "try to fill as much of these fields as possible", and a button
+   * they have to find first fills nothing until they find it. It is bounded
+   * to one call per order because the shell holds the result: see the comment
+   * on `extracted` in operator-app.tsx.
+   *
+   * IT NEVER OVERWRITES A FIELD THAT ALREADY HAS SOMETHING IN IT. Two things
+   * can already be there: a value read off a file name, and a value the
+   * operator typed. The first is a guess and the second is a decision, and
+   * replacing either from under them on a cover page a validator signs is
+   * exactly the wrong-and-quiet failure this project is organised against.
+   * Only genuinely empty fields are filled.
+   */
+  const [reading, setReading] = useState(false);
+  const [readFailed, setReadFailed] = useState<string | null>(null);
+  const asked = useRef(false);
+
+  useEffect(() => {
+    if (extracted || asked.current || run.pages.length === 0) return;
+    asked.current = true;
+    const abort = new AbortController();
+    setReading(true);
+    setReadFailed(null);
+    void (async () => {
+      try {
+        const { requestExtraction } = await import("@/lib/ui/extract");
+        const answer = await requestExtraction(run, [], abort.signal);
+        if (!abort.signal.aborted) {
+          onExtracted(answer.fields);
+          setHeader((prev) => withExtracted(prev, answer.fields));
+        }
+      } catch (problem) {
+        if (!abort.signal.aborted) {
+          // Not an Interruption: nothing is lost and the operator can still
+          // type every field by hand, which is the state they were in before
+          // this call existed. It is reported where the fields are, in one
+          // line, rather than as a band over the whole screen.
+          setReadFailed(messageOf(problem));
+        }
+      } finally {
+        if (!abort.signal.aborted) setReading(false);
+      }
+    })();
+    return () => abort.abort();
+  }, [extracted, onExtracted, run]);
+
+  const notes = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof noteForField>>();
+    for (const field of extracted ?? []) out.set(field.fieldKey, noteForField(field));
+    return out;
+  }, [extracted]);
+
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "working"; done: number; total: number }
@@ -1289,6 +1408,22 @@ export function ExportPanel({
       const files = await buildDeliverables(run, AO_TEMPLATE, header, plan, {
         pageBitmap: runtime.pageBitmap,
         onProgress: (done, total) => setState({ kind: "working", done, total }),
+        /*
+         * COLUMN E, from what the reading found. It used to be `[]` here by
+         * construction, so every workbook shipped a blank column whatever the
+         * documents said.
+         *
+         * The HEADER's values are the operator's, not the model's: whatever
+         * they see in the fields above is what goes into the docx, because
+         * they may have corrected any of it. Column E takes the extraction's
+         * own values, which is why a conflict (blank value, both spellings
+         * recorded) still writes nothing rather than picking a side.
+         */
+        values: (extracted ?? []).map((field) => ({
+          fieldKey: field.fieldKey,
+          value: field.value,
+          ...(field.conflict ? { conflict: field.conflict } : {}),
+        })),
       });
       // Built, not downloaded. Two files handed over back to back is two
       // programmatic downloads in a row, which a browser blocks after the
@@ -1366,6 +1501,25 @@ export function ExportPanel({
         owes={namesAreFallback(header) ? "decision" : undefined}
       >
         <div className="flex flex-col gap-4">
+          {/* WHAT THE READING IS DOING, where the fields it fills are. A
+              spinner rather than a sentence, for the reason the search state
+              carries one: a line of prose does not tell somebody who is not
+              already reading that something is happening. */}
+          {reading ? (
+            <p className="flex items-center gap-2 text-[0.8125rem] text-ink-2">
+              <span className="lt-spinner" aria-hidden="true" />
+              AI sedang membaca nilai dari dokumen.
+            </p>
+          ) : null}
+          {readFailed ? (
+            /* Not an Interruption. Nothing was lost and every field is still
+               typeable by hand, which is the state the screen was in before
+               this reading existed, so it says so in one line where the
+               fields are rather than as a band over the whole screen. */
+            <p className="text-[0.8125rem] text-gap">
+              Nilai tidak bisa dibaca otomatis, jadi isi sendiri di bawah.
+            </p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               id="header-id-epic"
@@ -1385,7 +1539,10 @@ export function ExportPanel({
               label="Nama Proyek"
               value={header.namaProyek}
               onChange={(value) => set({ namaProyek: value })}
-              note="Tidak pernah terisi otomatis. Isi sendiri."
+              note={
+                notes.get("namaProyek")?.text ??
+                "Tidak pernah terisi otomatis. Isi sendiri."
+              }
             />
             <Field
               id="header-quote"
@@ -1405,14 +1562,16 @@ export function ExportPanel({
               label="CC"
               value={header.cc}
               onChange={(value) => set({ cc: value })}
-              note="Nama pelanggan pada order ini. Isi sendiri."
+              note={
+                notes.get("cc")?.text ?? "Nama pelanggan pada order ini. Isi sendiri."
+              }
             />
             <Field
               id="header-order"
               label="Order"
               value={header.order}
               onChange={(value) => set({ order: value })}
-              note="Boleh kosong."
+              note={notes.get("order")?.text ?? "Boleh kosong."}
             />
             <Field
               id="header-jenis-order"
