@@ -32,7 +32,7 @@
  */
 
 import { Popover } from "@base-ui/react/popover";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 import { PARAF_D, Tanya } from "./icons";
@@ -217,10 +217,34 @@ export function Stamp({
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   tone?: "default" | "primary" | "reject";
   on?: boolean;
+  /**
+   * WHY THIS CONTROL WILL NOT ANSWER, shown on hover and on focus instead of
+   * printed beside it.
+   *
+   * The rule has not changed: a disabled control never appears without its
+   * reason available. What changed is where. The reason used to be a sentence
+   * in the layout next to the key, and an operator's objection was that those
+   * sentences "are redundant too. The user know they can't proceed since the
+   * button is already disabled". They are right about the ordinary case: the
+   * key is down, that reads as unavailable, and a paragraph restating it is
+   * furniture on every screen forever.
+   *
+   * So the reason moves onto the control, where it costs nothing until it is
+   * wanted. It reaches a pointer, a keyboard (the wrapper is focusable, which
+   * a disabled button is not) and a screen reader (`aria-describedby`), so no
+   * modality loses it.
+   *
+   * ONLY USE THIS FOR A REASON THAT IS ROUTINE. A refusal, a fault, or
+   * anything the operator must act on still belongs on the page in prose:
+   * `Interruption` exists for those and does not go away until it is dealt
+   * with. The test is the same one `toast.tsx` states: may the operator miss
+   * this entirely and be no worse off.
+   */
+  reason?: string;
 };
 
-export function Btn({ tone = "default", on, className, ...props }: BtnProps) {
-  return (
+export function Btn({ tone = "default", on, className, reason, ...props }: BtnProps) {
+  const key = (
     <button
       type="button"
       data-tone={tone}
@@ -228,6 +252,74 @@ export function Btn({ tone = "default", on, className, ...props }: BtnProps) {
       className={`lt-btn ${className ?? ""}`}
       {...props}
     />
+  );
+
+  // The wrapper exists only while the reason is live. A disabled element
+  // receives no pointer events in any browser, so the hover has to belong to
+  // something around it; wrapping unconditionally would put a focusable span
+  // in the tab order beside every enabled control in the product.
+  const disabled = props.disabled === true || props["aria-disabled"] === "true";
+  if (!reason || !disabled) return key;
+  return <Sebab reason={reason}>{key}</Sebab>;
+}
+
+/**
+ * A hover-and-focus explanation attached to something that cannot be clicked.
+ *
+ * Separate from `Hint` because `Hint` IS the trigger (a question mark the
+ * operator goes to) and this one WRAPS a trigger that is already on screen and
+ * already says something by being down.
+ */
+function Sebab({ reason, children }: { reason: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const grace = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const id = useId();
+
+  const clear = useCallback(() => {
+    if (grace.current !== null) {
+      clearTimeout(grace.current);
+      grace.current = null;
+    }
+  }, []);
+  const leave = useCallback(() => {
+    clear();
+    grace.current = setTimeout(() => setOpen(false), 160);
+  }, [clear]);
+  const enter = useCallback(() => {
+    clear();
+    setOpen(true);
+  }, [clear]);
+  useEffect(() => clear, [clear]);
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        render={
+          <span
+            // Focusable, because the thing it wraps is not. Without this the
+            // reason would be pointer-only, which is the one failure this
+            // whole arrangement has to avoid.
+            tabIndex={0}
+            role="group"
+            aria-describedby={open ? id : undefined}
+            className="inline-flex"
+            onMouseEnter={enter}
+            onMouseLeave={leave}
+            onFocus={enter}
+            onBlur={leave}
+          />
+        }
+      >
+        {children}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="top" align="center" sideOffset={8}>
+          <Popover.Popup className="lt-hint-panel" id={id}>
+            {reason}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
