@@ -65,6 +65,7 @@ import {
 import {
   createRun,
   ingestDocument,
+  listRuns,
   loadRun,
   outstandingSlots,
   saveRun,
@@ -731,7 +732,7 @@ function fakeWorker(count: number) {
 }
 
 /** Fictional identifiers only: this repo is public. */
-const pdf = (name: string) =>
+const pdfFile = (name: string) =>
   new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
 
 test("ingestDocument STORES the pages it read, not just returns them", async () => {
@@ -829,4 +830,97 @@ test("a worker that dies mid-bundle keeps the pages it did finish", async () => 
   // The source says how long the document IS, not how far the ingest got, so
   // a half-read document is visible as one rather than claiming to be whole.
   assert.equal(stored.sources[0].pageCount, 9);
+});
+
+/* ------------------------------------------------------ ingesting documents */
+
+/**
+ * A stand-in for the Web Worker, which `node --test` has no way to run.
+ *
+ * It reports `pages` pages in ascending index, which is the ordering contract
+ * `ingestPdf` promises and that `ingestDocument`'s arrival-order net depends
+ * on. Nothing here renders or OCRs anything: what is under test is the RUN
+ * BOOKKEEPING around the worker, not the worker.
+ */
+function fakeIngestSource(pages: number) {
+  return async (
+    _sourceId: string,
+    onPage: (
+      page: { index: number; widthPx: number; heightPx: number; lines: [] },
+      done: number,
+      total: number,
+    ) => void,
+  ): Promise<number> => {
+    for (let i = 0; i < pages; i += 1) {
+      onPage({ index: i, widthPx: 1000, heightPx: 1414, lines: [] }, i + 1, pages);
+    }
+    return pages;
+  };
+}
+
+const pdf = (name: string) =>
+  new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
+
+test("two documents ingested into one run make ONE pekerjaan, not two", async () => {
+  /*
+   * THE OPERATOR REPORT THIS PINS: dropping several PDFs at once appeared to
+   * create one pekerjaan per document.
+   *
+   * A run holds a BUNDLE. An order arrives as a merged contract scan plus a
+   * SPLITBA plus whatever dokumen tambahan turn up later, and every one of
+   * them has to land in the same run, because a zone's `pageIndex` is a
+   * position in that run's single page list and the deliverable is assembled
+   * from all of them together. One run per document would mean an operator
+   * could never build a packet from the bundle they were given.
+   *
+   * `ingestDocument` was never covered at all before this, which is how a
+   * defect in exactly this path could go unnoticed.
+   */
+  const runId = crypto.randomUUID();
+
+  const first = await ingestDocument(runId, pdfFile("merged.pdf"), undefined, {
+    ingestSource: fakeIngestSource(3),
+  });
+  const second = await ingestDocument(runId, pdfFile("splitba.pdf"), undefined, {
+    ingestSource: fakeIngestSource(2),
+  });
+
+  assert.equal(second.id, first.id, "the second document must not mint a new run");
+  assert.equal(second.sources.length, 2, "one run, two source documents");
+  assert.deepEqual(
+    second.sources.map((s) => s.name),
+    ["merged.pdf", "splitba.pdf"],
+    "sources keep the order they were given in",
+  );
+  assert.equal(second.pages.length, 5, "pages of both documents, in one list");
+
+  // And the stored list agrees: one pekerjaan, not two. This is the half the
+  // operator actually sees.
+  const listed = await listRuns();
+  assert.equal(
+    listed.filter((r) => r.id === runId).length,
+    1,
+    "the saved list shows one pekerjaan for the bundle",
+  );
+});
+
+test("a page's run-global position is what a zone means, across two documents", async () => {
+  // `StoredPage.index` restarts at 0 for every source, so the second
+  // document's first page is index 0 and is ALSO run-global position 3. A
+  // reader that confused the two would cut every crop of the second document
+  // from a page of the first.
+  const runId = crypto.randomUUID();
+  await ingestDocument(runId, pdfFile("a.pdf"), undefined, {
+    ingestSource: fakeIngestSource(3),
+  });
+  const run = await ingestDocument(runId, pdfFile("b.pdf"), undefined, {
+    ingestSource: fakeIngestSource(2),
+  });
+
+  assert.deepEqual(
+    run.pages.map((p) => p.index),
+    [0, 1, 2, 0, 1],
+    "each source numbers its own pages from zero",
+  );
+  assert.equal(run.pages[3].sourceId, run.sources[1].id, "position 3 is b.pdf page 0");
 });
