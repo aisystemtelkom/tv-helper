@@ -92,6 +92,7 @@ import type { Box } from "@/lib/pipeline/render";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
 import type { SlotAggregate } from "@/lib/ui/slots";
+import { captureLabel } from "@/lib/ui/slots";
 
 import {
   Advisory,
@@ -473,9 +474,7 @@ function CaptureRow({
       ref={rowRef}
       tabIndex={-1}
       aria-label={
-        ordinal
-          ? `${fieldLabel}, potongan ${ordinal} dari ${required}`
-          : fieldLabel
+        ordinal ? captureLabel(fieldLabel, ordinal, required) : fieldLabel
       }
       className="flex flex-col gap-3"
     >

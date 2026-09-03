@@ -31,6 +31,36 @@ export function requiredCrops(slot: SlotDef): number {
 }
 
 /**
+ * What to CALL one capture of a slot that needs more than one.
+ *
+ * THE SECOND CAPTURE IS NOT A SECOND FIELD. A slot needs two pictures when one
+ * field's evidence runs past the bottom of a page and continues on the next
+ * one, so the two captures are the same field either side of a page break.
+ * Verified against the sample: the ToP slot's first picture is `Pasal 6
+ * PEMBAYARAN PEKERJAAN` items 1 to 3, and its second is items 4 and 5 of that
+ * same Pasal, carrying the next page's header. One clause, one payment term,
+ * two pages.
+ *
+ * "ToP 1" and "ToP 2" therefore told an operator something false -- that the
+ * document holds two Terms of Payment and only one was found -- and an
+ * operator who reads it that way goes looking for a second clause that does
+ * not exist. `lanjutan` is the word the template already uses for exactly this
+ * relationship in its section names ("KB (lanjutan)"), so it is the word the
+ * captures use too.
+ *
+ * Numbered from the SECOND capture, because the first is not a continuation of
+ * anything: a three-capture slot reads label, "(lanjutan)", "(lanjutan 2)".
+ */
+export function captureLabel(
+  label: string,
+  ordinal: number,
+  total: number,
+): string {
+  if (total <= 1 || ordinal <= 1) return label;
+  return total === 2 ? `${label} (lanjutan)` : `${label} (lanjutan ${ordinal - 1})`;
+}
+
+/**
  * `partial` is this module's own aggregate, not a runtime status: it is what a
  * two-capture slot looks like when one capture is confirmed and the other is
  * still missing. The runtime has no single status for that because its states

@@ -115,6 +115,7 @@ import {
 import type { BrowserRun } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
+import { captureLabel } from "@/lib/ui/slots";
 
 import {
   Btn,
@@ -646,9 +647,11 @@ function CapturePlate({
             <img
               className="block h-auto w-full"
               src={thumb.url}
-              alt={`Potongan ${capture.ordinal} untuk ${slot.label}${
-                cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""
-              }`}
+              alt={`Potongan untuk ${captureLabel(
+                slot.label,
+                capture.ordinal,
+                slot.required,
+              )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
             />
           </figure>
         ) : ships && thumb?.fault ? (
@@ -956,16 +959,14 @@ export function ExportPanel({
   // Named the way the packet names them, never by key: `kbLanjutan.top` is
   // system vocabulary and an operator cannot map it back to a row.
   const itemName = (item: (typeof blocking)[number]) =>
-    item.required > 1
-      ? `${item.sectionTitle} / ${item.label} (potongan ${item.ordinal} dari ${item.required})`
-      : `${item.sectionTitle} / ${item.label}`;
+    `${item.sectionTitle} / ${captureLabel(item.label, item.ordinal, item.required)}`;
 
   const blockedNames = [
     ...blocking.map(itemName),
+    // `required` is not carried on a fault, and an ordinal above one is only
+    // ever a continuation, so 2 stands in for "at least two" here.
     ...faults.map((crop) =>
-      crop.ordinal > 1
-        ? `${crop.label} (potongan ${crop.ordinal})`
-        : crop.label,
+      captureLabel(crop.label, crop.ordinal, Math.max(2, crop.ordinal)),
     ),
   ];
 
