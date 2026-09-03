@@ -123,21 +123,43 @@ roughly an order of magnitude.**
   `OCR_ENGINE=gemini`, `pnpm generate` and `pnpm measure:locate` each upload
   ~29 page images for this bundle, and every browser ingest posts one per page
   to `/api/ocr`.
-- **`GEMINI_MEDIA_RESOLUTION` is therefore the DOMINANT validator cost lever,
-  not a free one.** It used to affect only `/api/chat` and `pnpm smoke`; it now
-  bills roughly 1110 input tokens per page at HIGH, flat, times every page of
-  every bundle. The old text here said tuning it "changes no bill". That is
-  exactly backwards now.
-- **The other big driver is still the size of the OCR listing.** One locate
-  call carries every page of one document type as numbered lines: about 17k
-  input tokens for this bundle's KB contract. More pages of one doc type, or
-  more `layout: "table"` slots, multiplies that directly.
+- **`GEMINI_MEDIA_RESOLUTION` IS NOT THE DOMINANT COST LEVER, and this bullet
+  said it was for weeks.** It is about 4% of a run. Measured 2026-09-03 on the
+  sample bundle: image input is ~36k of a run's ~460k tokens, so moving HIGH to
+  LOW saves roughly Rp 800 a bundle and pays for it in exactly the small print
+  the product exists to read. The bullet was arithmetic on a remembered
+  per-image figure, never a measurement, and it sent at least one cost
+  investigation at the wrong target first. The two real levers are named below.
+- **THE DOMINANT LEVER IS WHICH MODEL READS THE SCANS.** OCR is the only call
+  whose legitimate reply is long, so it is billed almost entirely on OUTPUT,
+  and `gemini-3.5-flash` charges $9.00/M output against `gemini-3.5-flash-lite`'s
+  $2.50/M. OCR is roughly half a bundle's bill. `OCR_MODEL_ID` exists for this
+  and is a separate binding from `MODEL_ID` precisely so the cheap tier cannot
+  leak into a judgement a validator signs.
+- **The second lever is the size and ORDERING of the OCR listing.** One locate
+  call carries every page of the pool as numbered lines: measured at **23k**
+  input tokens for this bundle, not the 17k this file used to say. All seven
+  fillable table slots share one pool, so that listing was uploaded seven times
+  per run. It is now the prompt's leading text, which lets Gemini's implicit
+  prefix cache serve it at 10% of the input rate; measured 57% of a run's input
+  tokens served cached, taking locate from $0.27 to $0.11.
+- **Seven, not twenty.** `AO_TEMPLATE` has 20 `layout: "table"` slots but only
+  **7 are `fillable`**, and all 7 carry `docType: "KB"`. Counting table slots
+  instead of fillable ones overstates locate's cost by 3x.
 - The per-image numbers in the cost table are correct and now apply to the
   validator path as well as to the chat route and the smoke test.
 
-`pnpm generate` prints a `cost:` line with total calls and tokens, and every
-call logs `in= out= (thoughts=) total=` exactly as `/api/chat` does, so cost is
-visible in the run log rather than a month later on an invoice.
+**`pnpm generate` prints a PER-STAGE cost table, priced, not just a token
+total.** `src/lib/cost.ts` owns the price table and the arithmetic; the run log
+carries the stage that spent the money, its share, the model that served it,
+and how much of the input the provider served from its prefix cache. The flat
+`cost:` line is still printed and a guard fails loudly if the two accountings
+disagree. Read the table before proposing a saving: the reason this file was
+wrong about media resolution is that a total cannot say which stage spent it.
+
+An unknown model id prices as `unpriced`, never as free, and the table's date
+is printed with every figure. Add a model to `PRICES` when you point
+`MODEL_ID` or `OCR_MODEL_ID` at it.
 
 ## The measurement gate
 
@@ -157,10 +179,24 @@ the only thing that says whether the OCR migration cost accuracy:
 
 | | tesseract | gemini, 2026-09-02 | gemini, current |
 | --- | --- | --- | --- |
-| Total | 11 / 12 | 12 / 12 | **11 / 12** |
-| Field slots (model-located) | 7 / 8 | 8 / 8 | **7 / 8** |
+| Total | 11 / 12 | 12 / 12 | **11 / 9 / 11** |
+| Field slots (model-located) | 7 / 8 | 8 / 8 | **7 / 5 / 7** |
 | Whole-document (no model) | 4 / 4 | 4 / 4 | 4 / 4 |
 | Page selection | 12 / 12 | 12 / 12 | 12 / 12 |
+
+**THE CURRENT COLUMN IS THREE NUMBERS BECAUSE THE SCORE IS NOT STABLE, and a
+single number there was itself a measurement error.** Three runs of the
+identical prompt on 2026-09-03 scored 11, 9 and 11. `KB / Nomor` (answering
+[9,12] against a [2,12] crop) and `KB / Detail` ([2,42] against [2,46]) each
+failed in the 9 run and passed in the other two. `locate.ts`'s own header used
+to claim the answers move but the total holds; that stopped being true, most
+likely when `INFLATION_MULTIPLE` was added as a third independent failure
+condition on the same day.
+
+So **do not quote a one-run gate total, and do not read a one-point difference
+as a result.** Sample each arm at least three times and compare the sets. Page
+selection is the stable signal: 12/12 in every run of every arm measured so
+far, including both candidate OCR models.
 
 **THE MIDDLE COLUMN IS KEPT AS A WARNING, NOT AS A RESULT.** It was measured
 honestly and then stopped being true, because the continuation work changed
@@ -211,31 +247,48 @@ the harness, check which rule it is actually applying.
 gate.** It is the only thing that tells a gain from a regression, and the whole
 failure class here is a change that looks better and is worse.
 
-### The gate harness caches the opposite way round from `pnpm generate`
+### The gate harness's three caches
 
-Verify this in `scripts/measure-locate.mjs` before trusting a gate number;
-it is the one place a stale result can look like a fresh one.
+**THIS SECTION USED TO DESCRIBE A HAZARD THAT NO LONGER EXISTS, and the stale
+version was scarier than the truth.** It said the OCR caches were keyed by role
+plus page index, had no bypass, ignored `FORCE_FRESH`, and had to be deleted by
+hand. All four claims were checked against the code on 2026-09-03 and none of
+them holds. Verify in `scripts/measure-locate.mjs` rather than trusting either
+version of this paragraph.
 
-- **Model replies ARE cached to disk**, keyed by the slot name plus a sha256
-  of the exact prompt sent (`makeCachedAsk`). Re-running to tweak the scoring
-  math therefore re-spends nothing, and a changed prompt or hint misses the
-  cache by construction.
-- **`MEASURE_LOCATE_FORCE=1` bypasses THAT cache only**, the model-reply one.
-  It is the only bypass the harness has.
-- **The OCR caches have NO bypass at all.** `ocrPageCached` is keyed by the
-  document's *role* plus the 0-based page index -- `merged:0`, `splitba:1` --
-  and returns a hit unconditionally, `FORCE_FRESH` unread. It does not depend
-  on the filename or on the bytes. `ocrCropCached` is the same, keyed by the
-  image name inside the sample docx. So **re-exporting a document silently
-  scores the new pages against the old OCR**, under any filename, and the run
-  looks entirely normal.
-- **The fix is to delete the temp cache file by hand.** The harness prints all
-  three paths at startup (`OCR cache:`, `Crop OCR cache:`, `Model-reply
-  cache:`); delete `tv-helper-measure-locate-ocr-cache.json`, and
-  `tv-helper-measure-locate-crop-ocr-cache.json` if the sample docx changed.
+- **All three caches are content-addressed and all three honour the bypass.**
+  The page-OCR key is `role:sha256(pdf bytes):page:engineTag`, the crop-OCR key
+  is `sha256(docx bytes):imageName:engineTag`, and the model-reply key is
+  `slotName:sha256(prompt)`. `MEASURE_LOCATE_FORCE=1` is read by all three
+  lookups, not just the model-reply one. Re-exporting a document misses by
+  construction, so there is nothing to delete by hand.
+- **The engine tag carries the OCR model id and `OCR_PROMPT_VERSION`**, so
+  switching `OCR_MODEL_ID` re-reads the bundle instead of scoring a new model's
+  answers against the old model's page text.
+- **`MODEL_ID` is deliberately NOT in the model-reply key**, and that is the one
+  remaining sharp edge. A prompt change invalidates it by construction because
+  the prompt is what is hashed, but a *model* change alone does not. Under
+  `OCR_ENGINE=tesseract`, where page text is model-independent, swapping
+  `MODEL_ID` and re-running would serve the previous model's locate replies
+  while the banner named the new one. Pass `MEASURE_LOCATE_FORCE=1` when
+  changing only the reasoning model.
+- **`GEMINI_THINKING_LEVEL` and `GEMINI_MAX_OUTPUT_TOKENS` are in no key at
+  all.** Changing either needs `MEASURE_LOCATE_FORCE=1`.
+- **Ground truth is read by `MODEL_ID`, never by `OCR_MODEL_ID`.** The twelve
+  crops are the yardstick, so letting a candidate read them would move the ruler
+  and the thing measured at once. This also sidesteps a measured failure:
+  `gemini-3.5-flash-lite` read all 29 full pages cleanly and then refused one
+  crop outright with `finishReason=RECITATION`, deterministically, through six
+  retries and a 30s backoff.
+- **`GEMINI_MEDIA_RESOLUTION` is not read by this harness at all**, so its image
+  calls may bill at a different tier than the app's. Its cost line is not the
+  app's cost line.
 
-`pnpm generate` does not share this hazard: its OCR key is the file's content
-hash, and `GENERATE_FORCE=1` bypasses it as well.
+`pnpm generate`'s OCR key is also the file's content hash, and `GENERATE_FORCE=1`
+bypasses it. `GENERATE_CACHE_MODEL=1` additionally caches model replies for the
+re-run loop; it is off by default, its key carries the model id, the thinking
+level and the output cap, and any run that served from it says so loudly,
+because a cached run is not a measurement.
 
 Read the model-located number on its own. The harness reports field slots and
 whole-document slots separately, because folding the deterministic full-page
@@ -661,12 +714,61 @@ cap.
 `MEDIA_RESOLUTION_HIGH` stays the default because anything that does send an
 image here is sending a dense scan, and `MEDIUM` halves the input cost by
 discarding exactly the detail that decides a verdict. Change it only with
-accuracy measured on real scans. It is now the LARGEST lever on a
-`pnpm generate` bill rather than no lever at all; see the section above.
+accuracy measured on real scans. **It is a ~4% lever, not the largest one;**
+the paragraph that said otherwise is corrected under "ONLY THE OCR STAGE SENDS
+IMAGES" above.
 
-The three levers, all env-tunable so a deployment can trade accuracy for cost
-without editing code: `GEMINI_MEDIA_RESOLUTION` (images only, which since the
-OCR migration means every page of every run),
+### What a whole bundle costs, measured per stage
+
+Run `pnpm generate` and read its cost table rather than trusting this one. As
+of 2026-09-03 on the 29-page sample bundle, prices per million tokens
+`gemini-3.5-flash` $1.50/$9.00 and `gemini-3.8-flash` $0.75/$3.75:
+
+| stage | calls | in | out | before | after |
+| --- | --- | --- | --- | --- | --- |
+| OCR (images, 1/page) | 29 | 35.4k | **57.6k** | $0.5715 | **$0.2426** |
+| locate | 7 | 160.7k | 3.9k | $0.2759 | $0.2759 |
+| extract | 2 | 46.1k | 665 | $0.0751 | $0.0751 |
+| verify (crops) | 3 | 3.4k | 1.6k | $0.0200 | $0.0200 |
+| classify | 2 | 3.5k | 965 | $0.0139 | $0.0139 |
+| **total** | **43** | **249.1k** | **64.7k** | **$0.9564** | **$0.6274** |
+
+"After" is the shipped configuration and is a real run's printed table, not
+arithmetic: OCR on `gemini-3.8-flash`, the reasoning stages on
+`gemini-3.5-flash`. **Rp 10,353 a bundle at 16,500/USD, down from Rp 15,780,
+a 34% cut** with the gate equal-or-better (11/10/11 against 11/9/11).
+
+Note where the money actually is, because it is not where this file used to
+say: **OCR's 57.6k OUTPUT tokens** are the single largest quantity in the run,
+and `locate`'s **160.7k INPUT tokens** the second. Image input is 35.4k of
+249k.
+
+**The remaining big line is `locate`'s 162k input tokens**, which is one 23k
+page listing sent seven times because all seven fillable slots share one pool.
+Two ways to stop that were measured and one is untried:
+
+- **Prefix caching WORKS and was REVERTED.** Reordering the prompt so the
+  listing leads earns Gemini's ~90% prefix discount on 122k tokens a run
+  (`cached=20393` on six of seven calls), taking locate to $0.11 and the whole
+  run to $0.22 excluding OCR. It also turns `KB / Nomor` from an intermittent
+  failure into a certain one, in every arrangement tried. See the measurement
+  table in `src/lib/pipeline/locate.ts`'s header before trying it again.
+- **Consolidating the pool into one call is the untried option**, and the
+  measurements point at it: it saves more than caching did and keeps the
+  question BEFORE the listing, which is the ordering that matters. It is a
+  restructure, not a reordering; the same header says what it costs.
+
+**The Batch API is not applicable to this product and no code was written for
+it.** It is a flat 50% off, and it returns results within 24 hours. The
+operator path cannot use it -- pressing Proses and receiving the packet
+tomorrow is a different product -- and the two scripts have no operator to wait
+but do have a developer, for whom `GENERATE_CACHE_MODEL=1` is strictly better
+than half price a day later. Revisit only if a genuine unattended bulk queue
+ever exists.
+
+The levers, all env-tunable so a deployment can trade accuracy for cost
+without editing code: **`OCR_MODEL_ID`** (the largest, and the one with a
+measurement behind it), `GEMINI_MEDIA_RESOLUTION` (~4%; images only),
 `GEMINI_THINKING_LEVEL` (applies everywhere; `low` is the cheap win against
 Gemini's default of medium with no measured loss on field extraction), and
 `GEMINI_MAX_OUTPUT_TOKENS` (a runaway guard, not a budget: the model will
@@ -737,7 +839,9 @@ missing key would otherwise throw while Next collects routes and fail the build
 instead of the request that actually needs the credential.
 
 ```
-src/lib/model.ts               the provider boundary: model id, cost, credential
+src/lib/model.ts               the provider boundary: model ids, cost, credential
+                               MODEL_ID reasons, OCR_MODEL_ID reads scans
+src/lib/cost.ts                the price table and the per-stage cost ledger
 src/lib/forms/template.ts      AO_TEMPLATE: docx section list + xlsx row list
 src/lib/pipeline/render.ts     pdf.js, /Rotate, 300 DPI, injected canvas
 src/lib/pipeline/ocr.ts        tesseract worker, words with pixel boxes
@@ -778,6 +882,8 @@ scripts/generate.mjs           pnpm generate: the whole pipeline, one command
 scripts/measure-locate.mjs     pnpm measure:locate: the gate, real documents
 scripts/vendor-ocr.mjs         pnpm vendor:ocr: wasm + traineddata into public/
 scripts/smoke.mjs              pnpm smoke: reachability, text, streaming, vision, cost
+scripts/reply-cache.mjs        opt-in on-disk model-reply cache, scripts only
+scripts/compare-ocr.mjs        diff two gate transcripts' per-page OCR tables
 scripts/test-pipeline.mjs      the pipeline unit suite
 scripts/test-converters.mjs    xlsx/docx extraction
 

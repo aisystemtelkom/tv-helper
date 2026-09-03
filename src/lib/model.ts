@@ -17,8 +17,81 @@ import type { LanguageModel } from "ai";
  */
 export const MODEL_ID = process.env.MODEL_ID ?? "gemini-3.5-flash";
 
+/**
+ * The model that reads the scans, which is DELIBERATELY ALLOWED TO BE A
+ * DIFFERENT AND CHEAPER ONE than the model that reasons about them.
+ *
+ * ## Why this is a second binding rather than a second opinion
+ *
+ * The two jobs this app asks of a model are not the same job, and measurement
+ * says so. Per 29-page bundle, attributed by stage:
+ *
+ *   OCR       29 image calls, ~36k input, ~58k OUTPUT  -- about 70% of the bill
+ *   locate     7 text calls, ~122k input, ~1k output   -- about 22%
+ *   the rest   classify, extract, verify               -- about 8%
+ *
+ * OCR is the only call in this app whose legitimate reply is long: it returns
+ * every text block on a 300 DPI page with its box. So OCR is priced almost
+ * entirely on OUTPUT tokens, where `gemini-3.5-flash` bills $9.00/M against
+ * `gemini-3.5-flash-lite`'s $2.50/M. Everything else is priced on INPUT, where
+ * the same pair is $1.50 against $0.30.
+ *
+ * That asymmetry is the whole argument. Transcription is a perception task
+ * with a checkable answer; choosing which clause answers "Jangka Waktu" is a
+ * judgement call that a validator signs. Paying the reasoning tier's output
+ * rate to transcribe is paying for the wrong thing, and one model id for both
+ * made that impossible to express.
+ *
+ * ## Its default is INDEPENDENT of MODEL_ID, because the two were measured
+ * separately and did not come out the same
+ *
+ * Three OCR candidates were run against the gate on the sample bundle,
+ * 2026-09-03, three samples each, with the reasoning model held at
+ * `gemini-3.5-flash` and the ground-truth crops pinned to a fixed reference so
+ * the yardstick could not move:
+ *
+ *   OCR model                totals      field slots  page sel  collapsed blocks
+ *   gemini-3.5-flash         11, 9, 11   7, 5, 7      12/12     20
+ *   gemini-3.8-flash         11, 10, 11  7, 6, 7      12/12     59
+ *   gemini-3.5-flash-lite     9           5           12/12     43
+ *
+ * `gemini-3.8-flash` scores equal-or-better than the model it replaces at HALF
+ * the price, and answers a vision probe in 2.6s. It is the default.
+ *
+ * TWO CAVEATS, BOTH REAL. First, it returns coarser geometry: 59 collapsed
+ * blocks against 20, a collapsed block being a paragraph returned as one box
+ * instead of per-line boxes. That did not cost a gate slot -- widest crop
+ * inflation was 1.75x against a 2x cap -- but it is the metric to watch, and
+ * `scripts/compare-ocr.mjs` is what watches it. Second,
+ * `gemini-3.5-flash-lite` is cheaper still and was REJECTED: same character
+ * count, coarser geometry, a worse gate score, and it refused one crop
+ * outright with `finishReason=RECITATION`, deterministically, through six
+ * retries.
+ *
+ * THE REASONING SIDE WENT THE OTHER WAY, which is why this is a separate
+ * constant rather than one model id for the run. Moving the reasoning stages
+ * to `gemini-3.8-flash` as well measured 10, 10, 10 and failed
+ * `KB / Tanggal` on every sample. Same model, opposite verdict, different job.
+ * Do not "simplify" these two back into one.
+ *
+ * ## The cache hazard, which is real and is handled
+ *
+ * Both scripts' OCR caches key on the OCR model id (`OCR_ENGINE_TAG`). They
+ * used to key on `MODEL_ID`, which was the same thing until this constant
+ * existed and is now the wrong one: with `OCR_MODEL_ID` set and `MODEL_ID`
+ * unchanged, a `MODEL_ID`-keyed cache would serve one model's page text while
+ * the banner named another. Both tags were moved to `OCR_MODEL_ID` in the same
+ * change that added this.
+ */
+export const DEFAULT_OCR_MODEL_ID = "gemini-3.8-flash";
+
+export const OCR_MODEL_ID = process.env.OCR_MODEL_ID ?? DEFAULT_OCR_MODEL_ID;
+
 /** Human-readable target, for logs and error copy. */
 export const MODEL_TARGET = `${MODEL_ID} on the Gemini API`;
+
+/** The same, for the OCR binding, which may be a different model. */
+export const OCR_MODEL_TARGET = `${OCR_MODEL_ID} on the Gemini API`;
 
 /**
  * Cost controls, measured against this model:
@@ -181,17 +254,51 @@ export const providerOptions = {
  * the request that actually needs the credential.
  */
 let cached: LanguageModel | undefined;
+let cachedOcr: LanguageModel | undefined;
 
-export function chatModel(): LanguageModel {
-  if (cached) return cached;
-
+/**
+ * The credential check, shared by both bindings so that neither can drift into
+ * a different error message for the same missing key.
+ */
+function provider() {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error(
       "GOOGLE_GENERATIVE_AI_API_KEY is not set. Copy .env.example to .env.local and add the key.",
     );
   }
+  return createGoogleGenerativeAI({ apiKey });
+}
 
-  cached = createGoogleGenerativeAI({ apiKey }).languageModel(MODEL_ID);
+export function chatModel(): LanguageModel {
+  if (cached) return cached;
+  cached = provider().languageModel(MODEL_ID);
   return cached;
+}
+
+/**
+ * The binding for whole-page recognition, and for nothing else.
+ *
+ * SEPARATE FROM `chatModel` SO THE CHEAP TIER CANNOT LEAK INTO A JUDGEMENT.
+ * The saving that motivates `OCR_MODEL_ID` is on OCR's output tokens; applying
+ * the same model to locate or extract would be a second, unmeasured change
+ * riding along on the first, and the two have completely different evidence
+ * behind them. OCR quality is checkable against a page's own ink coverage and
+ * against the human-authored crops, which is what `pnpm measure:locate` prints
+ * a per-page table for. Locate quality is measured by a gate whose score moves
+ * by two slots between identical runs.
+ *
+ * The crop-level verification pass in `src/lib/pipeline/verify.ts` also sends
+ * images and deliberately does NOT use this. Its whole job is to re-read small
+ * print more carefully than the whole-page pass did, and re-reading it with the
+ * cheaper model would weaken the guard that exists to catch the cheaper
+ * model's most likely mistake.
+ */
+export function ocrModel(): LanguageModel {
+  if (cachedOcr) return cachedOcr;
+  // Same object when the ids agree, so the default configuration keeps one
+  // client and one connection pool rather than two identical ones.
+  if (OCR_MODEL_ID === MODEL_ID) return chatModel();
+  cachedOcr = provider().languageModel(OCR_MODEL_ID);
+  return cachedOcr;
 }

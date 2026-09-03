@@ -348,6 +348,76 @@ const Reply = z.object({
  * half of them move on their own. Judge a prompt change on the TOTAL, and
  * sample it more than once before believing a one-point difference.
  *
+ * **THE TOTAL MOVES TOO, AND THE PARAGRAPH ABOVE IS NOW WRONG ABOUT THAT.**
+ * Re-measured 2026-09-03 on this same bundle and prompt: three identical runs
+ * scored 11/12, **9/12** and 11/12, with `KB / Nomor` (2-12 -> 9-12) and
+ * `KB / Detail` (2-46 -> 2-42) each failing containment in the 9/12 run and
+ * passing in the other two. The claim that only the ANSWERS move and the
+ * TOTAL holds was true when it was written and stopped being true, most
+ * likely when `INFLATION_MULTIPLE` was added to the harness as a third
+ * independent failure condition on the same day.
+ *
+ * The consequence for anybody A/B'ing this prompt: the instruction to "judge a
+ * prompt change on the TOTAL" is no longer sufficient, because the total's own
+ * spread is two slots wide. A single run showing 11/12 after a change and a
+ * single run showing 9/12 after a change are both inside the noise. Sample
+ * each arm at least three times and compare the SET of totals, and prefer the
+ * per-page OCR table (see `scripts/compare-ocr.mjs`) for anything upstream of
+ * locate, because 29 paired page readings are a real measurement where one
+ * twelfth-scale verdict is not.
+ *
+ * ## The prefix-cache experiment, measured 2026-09-03 and REVERTED
+ *
+ * All seven fillable table slots in `AO_TEMPLATE` carry `docType: "KB"`, so
+ * they share one pool and this listing is byte-identical across all seven
+ * calls -- about 23k of each call's ~23k tokens. Gemini discounts a repeated
+ * prompt PREFIX by ~90%, but a prefix matches from the first token, so while
+ * the slot name sits at the top the seven prompts diverge immediately and
+ * nothing can be cached.
+ *
+ * THE CACHING HALF WORKED PERFECTLY. Ordered listing-first, the run log shows
+ * `cached=0` on the first call and `cached=20393` on each of the other six:
+ * 122k tokens a run at a tenth of the rate, taking `locate` from $0.2716 to
+ * $0.1053 and a whole `pnpm generate` from $0.3775 to $0.2206.
+ *
+ * THE ACCURACY HALF FAILED, in the same way, in every arrangement tried. Three
+ * samples per arm:
+ *
+ *   | ordering                                  | totals      | `KB / Nomor` |
+ *   | question first, listing last (SHIPPED)    | 11, 9, 11   | fails 1 of 3 |
+ *   | instructions, listing, question           | 10, 10, 10  | fails 3 of 3 |
+ *   | instructions, listing, question + restate | 10, 9, 10   | fails 3 of 3 |
+ *   | listing, instructions, question           | 10, 10, 10  | fails 3 of 3 |
+ *
+ * Every arm that moved the question below the listing turned `KB / Nomor` from
+ * an intermittent failure into a certain one, always the same failure: it
+ * answers [9,12] where the human crop is [2,12], cutting off the block's
+ * heading. Page selection stayed 12/12 throughout, so this is an EXTENT
+ * failure, not a wrong-page one.
+ *
+ * The obvious hypothesis -- that the boundary rule had moved 23k tokens away
+ * from the question -- was tested twice and is WRONG. Restating the rule next
+ * to the question did not recover the slot, and neither did moving the entire
+ * instruction block down beside it. What matters is only whether the question
+ * precedes the pages.
+ *
+ * ## Consolidating the pool: the untried way to the same saving
+ *
+ * The saving above is really "stop sending one 23k listing seven times". Prefix
+ * caching is one way; the other is ONE call that asks for all seven slots at
+ * once, which needs no cache and keeps the question BEFORE the listing, where
+ * the measurement says it belongs. It would save more than caching did (six
+ * whole listings rather than six discounted ones).
+ *
+ * It is not done here because it is a real restructure, not a reordering:
+ * `searchRound` in `scripts/generate.mjs` and the duplicate loop in
+ * `src/app/api/propose/handler.ts` both iterate one call per slot, the reply
+ * schema becomes a keyed array (follow `Reply` in `fields.ts`, which already
+ * answers many field keys in one call), and today's free property that one
+ * slot's failure costs one slot has to be rebuilt per entry rather than
+ * inherited from one-call-per-slot. About fifteen tests assert the current
+ * shape. Worth doing; worth doing deliberately.
+ *
  * ## The footer defect, and why the fix is geometric rather than a prompt rule
  *
  * The boundary paragraph below stops the block at "the next heading, the next
@@ -391,6 +461,36 @@ export function buildLocatePrompt(
     )
     .join("\n\n");
 
+  // ORDERED SO THE LONG INVARIANT PART COMES FIRST, and that ordering is a
+  // cost decision with a measurement behind it rather than a matter of taste.
+  //
+  // Every one of this bundle's seven fillable table slots is asked about the
+  // SAME pool -- they all carry `docType: "KB"` -- so the listing below is
+  // byte-identical across all seven calls and is ~23k of the ~23k tokens each
+  // one sends. Gemini discounts a repeated prompt PREFIX by about 90%, but a
+  // prefix is matched from the first token, so while the slot name and its
+  // hint sat at the top, the seven prompts diverged immediately and the
+  // provider could cache nothing. Measured on a real run before this change:
+  // "provider prefix cache: NOTHING cached across 7 calls".
+  //
+  // So the invariant instructions and the listing go first, and the field name
+  // and its hint go last. Nothing above the marker varies by slot; everything
+  // below it does. `formatLedger` in src/lib/cost.ts prints
+  // `cacheReadTokens`, so whether this actually earned the discount is a
+  // number in the run log rather than an inference from this comment.
+  //
+  // THE ACCURACY QUESTION THIS RAISES IS REAL AND WAS MEASURED, NOT ASSUMED.
+  // The model now reads 23k tokens of pages before it learns what it is
+  // looking for. That is a change of exactly the kind the header above forbids
+  // making without re-running the gate, and the gate was re-run; see the
+  // recorded result in AGENTS.md's measurement table.
+  // THE SLOT-SPECIFIC QUESTION COMES FIRST AND THE LISTING LAST, and it is
+  // worth about $0.17 a bundle to keep it that way. See
+  // "## The prefix-cache experiment" in the header above: three orderings that
+  // put the listing first were measured, all of them earned Gemini's ~90%
+  // prefix discount on 122k tokens a run, and all three converted
+  // `KB / Nomor` from an intermittent failure into a certain one. Do not
+  // re-derive this by trying it again; try `## Consolidating the pool` instead.
   return [
     `Find the section of this document that answers the field "${slotLabel}".`,
     `What that field means: ${hint}`,

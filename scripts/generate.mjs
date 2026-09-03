@@ -113,10 +113,26 @@ import {
   MODEL_ID,
   MODEL_TARGET,
   OCR_MAX_OUTPUT_TOKENS,
+  OCR_MODEL_ID,
+  THINKING_LEVEL,
   chatModel,
   isTransient,
+  ocrModel,
   providerOptions,
 } from "../src/lib/model.ts";
+// The cost ledger, and why a run prints a TABLE rather than one total. The
+// flat `calls/in/out` line this replaces was true and useless: it could not
+// say which stage spent the money, so the question "what should I change"
+// was answered by arithmetic on a remembered per-image figure -- which was
+// wrong about the dominant stage by an order of magnitude, in AGENTS.md, for
+// weeks. See src/lib/cost.ts.
+import {
+  STAGES,
+  emptyLedger,
+  formatLedger,
+  record as recordSpend,
+} from "../src/lib/cost.ts";
+import { createReplyCache, fingerprintFor } from "./reply-cache.mjs";
 import { classifyPages } from "../src/lib/pipeline/classify.ts";
 import {
   outstandingHeaderFields,
@@ -250,7 +266,7 @@ if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
  */
 const OCR_ENGINE_TAG =
   OCR_ENGINE === "gemini"
-    ? `gemini:${MODEL_ID}:${OCR_PROMPT_VERSION}`
+    ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
     : "tesseract";
 
 /**
@@ -294,6 +310,53 @@ const nodeContext = (w, h) => createCanvas(w, h).getContext("2d");
 const cost = { calls: 0, in: 0, out: 0, thoughts: 0, total: 0 };
 
 /**
+ * The same spending, attributed to the stage that did it.
+ *
+ * Kept ALONGSIDE the flat `cost` totals above rather than replacing them,
+ * because the flat line is what a reader greps for and the two disagreeing
+ * would be worse than either alone. `assertLedgerAgrees` at the end of the run
+ * checks they add up, so a call site that records to one and not the other is
+ * a failed run rather than a quietly understated bill.
+ */
+const ledger = emptyLedger();
+
+/**
+ * Rupiah per dollar, for the second column of the cost table.
+ *
+ * A CONVENIENCE FOR READING, NOT AN EXCHANGE RATE THIS SCRIPT WARRANTS. The
+ * bill that prompted the cost work arrived in rupiah while every price on the
+ * vendor's page is in dollars, and converting in one's head is how a factor of
+ * ten goes missing. Env-tunable because it is stale the day it is written, and
+ * printed with the figure so the reader can see which rate produced it.
+ */
+const IDR_PER_USD = Number(process.env.IDR_PER_USD ?? 16_500);
+
+/**
+ * A development affordance, off by default, and the default is the point.
+ *
+ * AGENTS.md's rule stands: `pnpm generate` does not cache model replies,
+ * because a stale verdict served silently is worse than paying again. What
+ * `GENERATE_CACHE_MODEL=1` buys is the re-run loop -- iterating on the
+ * exporters, the geometry or the report while the same eight questions about
+ * the same unchanged pages are re-asked and re-billed every time. The
+ * fingerprint carries the model id, the thinking level and the output cap, so
+ * changing any of those misses the cache by construction rather than serving
+ * the previous model's answers under the new model's banner. That is a real
+ * defect in the gate harness's own cache; see scripts/reply-cache.mjs.
+ */
+const replyCache = createReplyCache({
+  path: join(tmpdir(), "tv-helper-generate-reply-cache.json"),
+  enabled: process.env.GENERATE_CACHE_MODEL === "1",
+  force: FORCE_FRESH,
+  fingerprint: fingerprintFor({
+    modelId: MODEL_ID,
+    thinkingLevel: THINKING_LEVEL,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+  }),
+  log: (line) => console.log(line),
+});
+
+/**
  * How often the page-completeness assertion fired, how many pages a re-read
  * then rescued, and -- the one that stops the other two from lying -- how many
  * pages the check actually ran on.
@@ -325,7 +388,7 @@ let pagesTotal = 0;
  */
 const REQUEST_TIMEOUT_MS = Number(process.env.GENERATE_TIMEOUT_MS ?? 180_000);
 
-async function askOnce(prompt) {
+async function askOnce(prompt, stage = "locate") {
   const { text, usage, finishReason } = await generateText({
     model: chatModel(),
     prompt,
@@ -343,11 +406,17 @@ async function askOnce(prompt) {
   cost.out += usage.outputTokens ?? 0;
   cost.thoughts += thoughts;
   cost.total += usage.totalTokens ?? 0;
+  recordSpend(ledger, stage, MODEL_ID, {
+    input: usage.inputTokens ?? 0,
+    output: usage.outputTokens ?? 0,
+    thoughts,
+    cachedInput: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+  });
 
   // Same line /api/chat logs, for the same reason: every request costs money
   // and thought tokens bill at the output rate.
   console.log(
-    `    [generate] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
+    `    [generate ${stage}] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
       `out=${usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
       `total=${usage.totalTokens ?? "?"} finish=${finishReason}`,
   );
@@ -425,7 +494,12 @@ async function askImageOnce(prompt, image, schema, label = "ocr") {
   // the parse in one place is what lets the convention guard and the
   // drop-and-count live at a single seam rather than at every call site.
   const { object, usage, finishReason } = await generateObject({
-    model: chatModel(),
+    // The OCR binding for whole-page recognition, the reasoning binding for
+    // the crop-level verification pass. See `ocrModel` in src/lib/model.ts:
+    // verify exists to catch the whole-page pass confabulating small print,
+    // so re-reading with the cheaper model would weaken the guard against
+    // exactly the mistake the cheaper model is likeliest to make.
+    model: label === "ocr" ? ocrModel() : chatModel(),
     schema: jsonSchema(schema),
     messages: [
       {
@@ -449,9 +523,19 @@ async function askImageOnce(prompt, image, schema, label = "ocr") {
   cost.out += usage.outputTokens ?? 0;
   cost.thoughts += thoughts;
   cost.total += usage.totalTokens ?? 0;
+  // `label` is already exactly the stage name for both image callers -- "ocr"
+  // for whole-page recognition and "verify" for the crop-level second pass --
+  // which is why this needs no mapping table.
+  recordSpend(ledger, label, label === "ocr" ? OCR_MODEL_ID : MODEL_ID, {
+    input: usage.inputTokens ?? 0,
+    output: usage.outputTokens ?? 0,
+    thoughts,
+    cachedInput: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+  });
 
   console.log(
-    `    [generate ${label}] ${MODEL_ID} in=${usage.inputTokens ?? "?"} ` +
+    `    [generate ${label}] ${label === "ocr" ? OCR_MODEL_ID : MODEL_ID} ` +
+      `in=${usage.inputTokens ?? "?"} ` +
       `out=${usage.outputTokens ?? "?"} (thoughts=${thoughts}) ` +
       `total=${usage.totalTokens ?? "?"} finish=${finishReason}`,
   );
@@ -520,9 +604,30 @@ async function withRetries(what, attempt) {
   throw lastError;
 }
 
-async function ask(prompt) {
-  return withRetries("text", () => askOnce(prompt));
+/**
+ * A text ask, tagged with the stage that made it.
+ *
+ * The stage reaches two places: the cost ledger, so a run can say which stage
+ * spent what, and the reply cache's key, so two stages that happened to send
+ * an identical prompt could never serve each other's answer. Defaulting to
+ * "locate" keeps the bare `ask` used as an injected dependency working, and
+ * locate is the honest default because it is the only stage that calls this
+ * more than twice.
+ */
+function askFor(stage) {
+  return async function ask(prompt) {
+    return replyCache.reply(stage, prompt, () =>
+      withRetries("text", () => askOnce(prompt, stage)),
+    );
+  };
 }
+
+/**
+ * The unlabelled ask, kept because it is passed by reference in several places
+ * and because `extractTextFields`' signature takes an `askFn`. Records as
+ * "locate"; every caller that is NOT locate now passes its own.
+ */
+const ask = askFor("locate");
 
 /** The `AskImage` every OCR call in this script is injected with. */
 async function askImage(prompt, image, schema, label = "ocr") {
@@ -1008,7 +1113,7 @@ async function classifyEverything(sources, sourceIndexes, pages, byType) {
     }));
 
     console.log(`  classifying ${source.name} (${own.length} pages)...`);
-    const spans = await classifyPages(heads, ask);
+    const spans = await classifyPages(heads, askFor("classify"));
 
     for (const span of spans) {
       const list = byType.get(span.docType) ?? [];
@@ -2010,7 +2115,7 @@ async function main() {
       AO_TEMPLATE,
       byType,
       pages,
-      ask,
+      askFor("extract"),
       answeredByRequest,
     );
   } catch (error) {
@@ -2373,6 +2478,41 @@ async function main() {
     `cost: ${cost.calls} model calls, in=${cost.in} out=${cost.out} ` +
       `thoughts=${cost.thoughts} total=${cost.total}`,
   );
+
+  // THE TWO ACCOUNTINGS MUST AGREE, and this checks rather than trusting.
+  // Every call site records to both the flat totals and the ledger, so a new
+  // call site that records to one and forgets the other would otherwise
+  // produce a per-stage table that silently omits it -- an understated bill
+  // presented as an attributed one, which is worse than the flat line this
+  // replaced. A mismatch is printed loudly and does not fail the run: the
+  // deliverables are already written by this point, and a bookkeeping bug is
+  // not a reason to withhold them.
+  const attributed = STAGES.reduce(
+    (acc, stage) => ({
+      calls: acc.calls + ledger.stages[stage].calls,
+      in: acc.in + ledger.stages[stage].input,
+      out: acc.out + ledger.stages[stage].output,
+    }),
+    { calls: 0, in: 0, out: 0 },
+  );
+  if (
+    attributed.calls !== cost.calls ||
+    attributed.in !== cost.in ||
+    attributed.out !== cost.out
+  ) {
+    console.warn(
+      `  WARNING: the per-stage ledger does not match the flat totals ` +
+        `(ledger ${attributed.calls} calls / in ${attributed.in} / out ` +
+        `${attributed.out}, flat ${cost.calls} / ${cost.in} / ${cost.out}). ` +
+        "A call site is recording to one and not the other; the table below " +
+        "is incomplete.",
+    );
+  }
+
+  console.log();
+  console.log(formatLedger(ledger, { idrPerUsd: IDR_PER_USD }));
+  console.log();
+  console.log(replyCache.summary());
 }
 
 /**

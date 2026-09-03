@@ -247,6 +247,16 @@ loadDotEnvLocal();
 
 const GEMINI_API_KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 const MODEL_ID = process.env.MODEL_ID ?? "gemini-3.5-flash";
+// The OCR binding, mirroring src/lib/model.ts's OCR_MODEL_ID. Declared here
+// rather than imported because this harness deliberately reads its own env and
+// does not go through the provider boundary (see this file's header). It is in
+// OCR_ENGINE_TAG below, so pointing OCR at a cheaper model re-OCRs the bundle
+// instead of scoring the new model's locate against the old model's page text.
+// Mirrors src/lib/model.ts's DEFAULT_OCR_MODEL_ID. It is NOT MODEL_ID: the OCR
+// binding and the reasoning binding were measured separately and did not come
+// out the same model, and a gate that defaulted OCR to MODEL_ID would stop
+// measuring what production actually runs.
+const OCR_MODEL_ID = process.env.OCR_MODEL_ID ?? "gemini-3.8-flash";
 const THINKING_LEVEL = (process.env.GEMINI_THINKING_LEVEL ?? "low").toUpperCase();
 const MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS ?? 2048);
 
@@ -292,7 +302,33 @@ if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
  * and the vendored traineddata, so the bare word carries it.
  */
 const OCR_ENGINE_TAG =
-  OCR_ENGINE === "gemini" ? `gemini:${MODEL_ID}:${OCR_PROMPT_VERSION}` : "tesseract";
+  OCR_ENGINE === "gemini"
+    ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
+    : "tesseract";
+
+/**
+ * The model that reads the twelve human-authored crops into ground truth, and
+ * it is A FIXED LITERAL rather than whatever this run happens to be measuring.
+ *
+ * The first version of this pinned ground truth to `MODEL_ID`, which fixed the
+ * obvious half of the problem (a candidate OCR model must not read its own
+ * yardstick) and left the other half open: changing MODEL_ID to measure the
+ * REASONING stages would have moved the yardstick too, silently, in a run
+ * whose only intended variable was somewhere else entirely. A yardstick that
+ * depends on any variable under test is not a yardstick.
+ *
+ * So it is a constant, and it names the model the currently cached ground
+ * truth was actually produced with. Overridable only to re-establish ground
+ * truth deliberately, which is a decision to re-baseline every recorded score
+ * in AGENTS.md and not something to do while measuring something else.
+ */
+const GROUND_TRUTH_MODEL_ID =
+  process.env.GROUND_TRUTH_MODEL_ID ?? "gemini-3.5-flash";
+
+const GROUND_TRUTH_ENGINE_TAG =
+  OCR_ENGINE === "gemini"
+    ? `gemini:${GROUND_TRUTH_MODEL_ID}:${OCR_PROMPT_VERSION}`
+    : "tesseract";
 
 /** sha256 of some bytes, hex, truncated -- a cache-key ingredient, not a
  * security boundary. 16 hex characters is 64 bits; collisions between two
@@ -330,10 +366,17 @@ async function geminiAskOnce(prompt, options = {}) {
     // OCR_RESPONSE_SCHEMA in src/lib/pipeline/gemini-ocr.ts for the four
     // distinct malformations this removes.
     responseSchema = null,
+    // WHICH MODEL ANSWERS, and it is a parameter because OCR may run on a
+    // cheaper tier than the reasoning stages (see OCR_MODEL_ID above). This
+    // used to be hardcoded to MODEL_ID while OCR_ENGINE_TAG keyed the cache on
+    // OCR_MODEL_ID, so pointing OCR at another model would have re-OCR'd the
+    // bundle -- with the wrong model -- and filed the result under the right
+    // one. Both halves have to agree or the cache is worse than useless.
+    modelId = MODEL_ID,
   } = options;
 
   const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_ID}:generateContent` +
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent` +
     `?key=${GEMINI_API_KEY}`;
   const parts = [{ text: prompt }];
   if (image) {
@@ -370,9 +413,19 @@ async function geminiAskOnce(prompt, options = {}) {
     const json = await res.json();
     const usage = json.usageMetadata ?? {};
     const finishReason = json.candidates?.[0]?.finishReason;
+    // `cached=` is printed even when it is zero, and that is the point. All
+    // seven field slots ask about the same page pool, so the listing is
+    // byte-identical across them and the provider discounts a repeated prompt
+    // PREFIX by about 90% -- but only if the prompt is ORDERED so the
+    // invariant part comes first (see buildLocatePrompt in
+    // src/lib/pipeline/locate.ts). Nothing in a reply announces whether the
+    // provider took the hint, so a run that shares a prefix and caches nothing
+    // has to be able to say so out loud rather than looking like a success.
     console.log(
       `    [${tag}] in=${usage.promptTokenCount ?? "?"} out=${usage.candidatesTokenCount ?? "?"} ` +
-        `thoughts=${usage.thoughtsTokenCount ?? 0} total=${usage.totalTokenCount ?? "?"} ` +
+        `thoughts=${usage.thoughtsTokenCount ?? 0} ` +
+        `cached=${usage.cachedContentTokenCount ?? 0} ` +
+        `total=${usage.totalTokenCount ?? "?"} ` +
         `finish=${finishReason ?? "?"}`,
     );
     // A truncated locate reply fails to parse loudly a moment later. A
@@ -472,13 +525,14 @@ async function geminiAsk(prompt, options = {}) {
  * silently short page would move a slot's required range without anything in
  * the log to say so.
  */
-async function askImage(prompt, image, schema) {
+async function askImage(prompt, image, schema, modelId = OCR_MODEL_ID) {
   return geminiAsk(prompt, {
     image,
     maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
     tag: "gemini-ocr",
     requireStop: true,
     responseSchema: schema,
+    modelId,
   });
 }
 
@@ -532,8 +586,26 @@ async function saveJsonCache(path, cache) {
 function makeCachedAsk(slotName, modelCache) {
   return async function cachedAsk(prompt) {
     const hash = createHash("sha256").update(prompt).digest("hex").slice(0, 16);
-    // Repeat 0 keeps the historical bare key so the existing cache still hits.
-    const key = REPEAT === 0 ? `${slotName}:${hash}` : `${slotName}:${hash}:r${REPEAT}`;
+    // THE MODEL AND ITS SETTINGS ARE IN THE KEY, and they were not before.
+    //
+    // The key used to be the slot name plus the prompt hash alone, which is
+    // correct exactly until somebody changes the model in order to find out
+    // what it does -- the one occasion on which they are certain to be
+    // misled. Page text is what makes a locate prompt, and under
+    // `OCR_ENGINE=tesseract` (or with the page cache already warm for the
+    // candidate) the prompt is byte-identical across a reasoning-model swap,
+    // so the old key served the PREVIOUS model's answers while the banner
+    // named the new one. A plausible score for a model that was never called
+    // is this project's own named failure class aimed at its instruments.
+    //
+    // This invalidates the existing entries by design. They were produced by
+    // a model this key can now name, and re-earning them is the price of
+    // being able to trust the next comparison.
+    const settings = `${MODEL_ID}/${THINKING_LEVEL}/${MAX_OUTPUT_TOKENS}`;
+    const key =
+      REPEAT === 0
+        ? `${settings}|${slotName}:${hash}`
+        : `${settings}|${slotName}:${hash}:r${REPEAT}`;
     if (!FORCE_FRESH && modelCache[key]) {
       console.log(`    [cache] reusing cached model reply for "${slotName}"`);
       return modelCache[key];
@@ -560,10 +632,12 @@ function makeCachedAsk(slotName, modelCache) {
  * block/segment/interpolated/dropped counts the design's guardrails are read
  * from.
  */
-async function ocrRendered(rendered) {
+async function ocrRendered(rendered, modelId = OCR_MODEL_ID) {
   if (OCR_ENGINE === "gemini") {
     const image = await pageToPng(rendered);
-    return await ocrPageWithGemini(image, askImage);
+    return await ocrPageWithGemini(image, (prompt, image_, schema) =>
+      askImage(prompt, image_, schema, modelId),
+    );
   }
   const lines = await ocrToLines(rendered, "ind", {
     langPath: TESSERACT_ASSETS,
@@ -863,7 +937,10 @@ function loadDocx() {
 
 async function ocrCropCached(imageName, cropCache) {
   const { zip, hash } = await loadDocx();
-  const key = `${hash}:${imageName}:${OCR_ENGINE_TAG}`;
+  // Tagged with the REFERENCE model's tag, matching the pin below: the crop
+  // cache must not be invalidated by, or keyed to, whichever candidate is
+  // being measured.
+  const key = `${hash}:${imageName}:${GROUND_TRUTH_ENGINE_TAG}`;
   if (!FORCE_FRESH && cropCache[key]) return cropCache[key];
 
   const file = zip.file(`word/media/${imageName}`);
@@ -884,7 +961,32 @@ async function ocrCropCached(imageName, cropCache) {
   // re-encodes them through the production `pageToPng`, which is also what
   // gives `pngDimensions` a coordinate space that provably matches the image
   // the model was shown.
-  const { lines, report } = await ocrRendered({ data, width, height });
+  // GROUND TRUTH IS READ BY THE REFERENCE MODEL, NEVER BY THE CANDIDATE, and
+  // that is a measurement-design decision rather than a cost one.
+  //
+  // These twelve crops are the yardstick every candidate is scored against. If
+  // the candidate read them too, then switching OCR_MODEL_ID would move the
+  // ruler and the thing being measured at the same time, and a run's score
+  // would say nothing about which of the two had changed. Pinning it to
+  // MODEL_ID keeps one fixed yardstick across every candidate.
+  //
+  // The cost is real and is smaller than the confound: the file header's
+  // original argument was that scoring "real text against real text from the
+  // same engine" avoids cross-engine transcription differences leaking into
+  // the containment match. That still applies, but `findRequiredLineRange`
+  // aligns the two sides with a free-start/free-end Levenshtein search at a
+  // 25% tolerance, which is built precisely to absorb transcription noise --
+  // whereas nothing absorbs a moving yardstick.
+  //
+  // It also sidesteps a measured failure. `gemini-3.5-flash-lite` read all 29
+  // full pages of this bundle cleanly and then refused one crop outright with
+  // finishReason=RECITATION, deterministically, through six retries and a 30s
+  // backoff. Ground truth that a candidate can refuse to produce is not
+  // ground truth.
+  const { lines, report } = await ocrRendered(
+    { data, width, height },
+    GROUND_TRUTH_MODEL_ID,
+  );
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
     `  OCR crop ${imageName}: ${image.width}x${image.height} upscaled ${CROP_OCR_UPSCALE}x to ` +
@@ -1751,6 +1853,9 @@ function footerTailLines(pageLines) {
 
 async function main() {
   console.log(`Model: ${MODEL_ID}  thinkingLevel=${THINKING_LEVEL}  maxOutputTokens=${MAX_OUTPUT_TOKENS}`);
+  if (OCR_MODEL_ID !== MODEL_ID) {
+    console.log(`OCR model: ${OCR_MODEL_ID}  (reasoning stages stay on ${MODEL_ID})`);
+  }
   // The engine tag is printed, not just the engine name, because it IS the
   // cache key's engine half: a reader comparing two runs can see at a glance
   // whether they could possibly have shared an OCR entry.
