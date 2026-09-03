@@ -4,44 +4,70 @@
 @import "tw-shimmer";
 
 /* =========================================================================
-   MEJA PERIKSA -- the inspection table.
+   STEMPEL BASAH -- the wet stamp.
 
-   The argument for all of this is in docs/design-system.md. The short form:
+   "Stempel basah" is Indonesian officialese for an original that a person
+   signed and stamped by hand, as opposed to a photocopy of one. That is
+   literally what this product manufactures: a packet a validator signs with a
+   wet pen. So the app stops being a neutral container for scans and becomes
+   the thing it produces, a file of official paper.
 
-   ONE IDEA. This application is a work surface and documents lie on it. A
-   crop of a scan is a piece of paper on the table. The privacy policy is a
-   sheet on the table. Nothing else in the interface is allowed to look like
-   paper, catch the light, or cast a shadow.
+   WHY THE LAST TWO ATTEMPTS DID NOT LOOK LIKE ANYTHING. This system used to be
+   written entirely as PROHIBITIONS: no card, no shadow but one, no uppercase,
+   no colour on confirmed work, nothing moves, and a page listing what must not
+   get an icon. Subtract all of that and what is left is bordered HTML, which is
+   exactly what shipped. A STYLE IS A SET OF THINGS YOU ALWAYS DO, and the old
+   system named none. Below are the eight this one always does. If you are
+   adding a screen, you are not choosing how it looks; you are assembling it
+   from these.
 
-   WHY THE SURFACE IS DARK, on every page including the ones that show no
-   scans. The content is white paper. A scan's own white ground bleeds into a
-   white interface, and the crop's edge -- the exact boundary the operator is
-   being asked to judge -- stops being visible. On a dark ground every crop is
-   a lit rectangle with a hard edge. Functional, so it is not offered as a
-   preference.
+   1. EVERY BLOCK IS A SLAB. Zero radius, a 2px edge, a fill one value step
+      above its ground, and a hard offset plate 4px down and right with NO blur.
+      A stamp is a hard edge and a flat plane of ink, and so is every container
+      here. There are no floating hairline groups.
 
-   THE PLANES ARE TOLD APART BY TEMPERATURE, NOT BY LIGHTNESS, and the token
-   block below says why at length. The short version: a green-black table, a
-   blue-black recess, warm kraft chrome and dockets, sepia rules, warm toner
-   ink. The lightness steps between them are only about 1.12, so the material
-   difference is carried by hue, and blocks are separated by rules rather than
-   by fills so plane identity is never the only cue.
+   2. EVERY SLAB OPENS WITH A KOP. A header bar carrying the block's name in
+      caps, closed by the KOP SURAT DOUBLE RULE: 2px over 1px at a 3px gap,
+      which is the exact gesture at the top of every Indonesian government
+      letter. Repeating one gesture at three scales is what makes a screen read
+      as one authored thing instead of a stack of blocks.
 
-   SATURATION IS RATIONED, HUE IS NOT.
-     `--mark`  amber. A decision is owed here. Nothing else, ever.
-     `--gap`   red.   A fault, or a refusal. Absent from a healthy screen.
-   No other token exceeds chroma 0.030, against those two at 0.155 and 0.160.
-   Confirmed work has NO colour at all: it is an ink paraf in a ruled box.
-   A finished packet is a screen with no saturated colour left on it, and
-   that is the point -- the remaining colour is the remaining work.
+   3. THE KOP IS THE BLOCK'S STATUS CHANNEL. Ink by default, amber when the
+      block owes the operator a decision, red when it reports a fault. That
+      makes "an unreviewed thing cannot hide" a property of the container
+      rather than a rule fourteen components have to remember, and a block that
+      owes something is legible from across the room.
 
-   THREE THINGS THIS STYLESHEET WILL NOT DO, because each was a tell:
-     - No tracked-out uppercase labels. Positive letter-spacing appears in
-       exactly two places below (the wordmark and a stamp), both of which are
-       quoting something rather than labelling something.
-     - No shadow except on `.lt-paper`. If a new component wants one, no.
-     - No card. A block is the space between two rules. `.lt-panel` exists
-       for genuinely grouped forms and is the exception, not the default.
+   4. THERE IS NO 1PX LINE IN THIS PRODUCT. 2px is the minimum and divides
+      inside a group; 3px is structure and bounds a raised object. The old
+      hairline measured 1.47:1 and was doing every structural job at every
+      level of the hierarchy, which is why the screen read as unstyled.
+
+   5. IDENTIFIERS LIVE IN A KOTAK ISIAN. Any figure a reader compares (a page
+      number, a quote number, a file name, an email) is set in mono inside a
+      ruled box, the way a form prints a field. Never loose in a sentence.
+
+   6. EVIDENCE IS MOUNTED, NEVER PLACED. A crop sits on a sunk stage inside a
+      12px near-black mat, then a bone keyline, then a hard offset. THREE DRAWN
+      CUES for the one boundary the operator is paid to judge, so the crop edge
+      stops depending on a luminance accident and starts being a property of
+      the mount.
+
+   7. CONTROLS ANSWER THE HAND. 40px minimum, a 2px edge, a hard offset, and a
+      2px press that collapses the offset. This deliberately overrules the old
+      "nothing moves" rule for one case: a control that does not respond is the
+      most reliable unfinished tell there is.
+
+   8. SIX TYPE STEPS AND FOUR SPACES. display / title / section / body / label /
+      figure, and 8 / 16 / 24 / 48. A seventh size or a fifth gap means a
+      layout is wrong, not that the scale is short.
+
+   SATURATION IS STILL RATIONED, BUT BY HUE NOW, WHICH A READER CAN CHECK.
+   HUES 15 TO 105 BELONG TO --mark AND --gap ALONE. No other token may enter
+   that arc at any chroma. Outside it, materials may be as saturated as they
+   need to be, which is what the old blanket chroma cap was wrongly preventing:
+   it held every material at a fifth of the signals' saturation and left four
+   planes inside a 0.144 lightness range, so the screen had nothing to look at.
    ====================================================================== */
 
 @theme inline {
@@ -68,6 +94,8 @@
   --color-mark: var(--mark);
   --color-gap: var(--gap);
   --color-paper: var(--paper);
+  --color-petrol: var(--petrol);
+  --color-edge: var(--edge);
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -232,6 +260,20 @@
   --mark: oklch(0.845 0.155 92);
   --gap: oklch(0.720 0.160 24);
 
+  /* THE STRUCTURAL ACCENT, and it sits at hue 212, deliberately outside the
+     15-to-105 arc the two signals own, so it can never be mistaken for either.
+     It carries identity and interaction: the wordmark plate, the active step,
+     a primary fill, a focused field. It is not a status and never reports one.
+     Petrol, because a kraft-and-ink document file wants a cold ink against it
+     and because the ban on purple leaves the cold half of the wheel to blue
+     and teal. */
+  --petrol: oklch(0.50 0.115 212);
+  /* Hover DARKENS rather than lifts. Lifting a filled control pushes its own
+     legend below AA, which the first pass of this palette did: near-white on a
+     0.70 petrol measures 2.45:1. */
+  --petrol-lift: oklch(0.44 0.115 212);
+  --petrol-ink: oklch(0.985 0.006 212);
+
   /* The film a hand leaves: hover and pressed states. It exists because the
      mix it replaces, `color-mix(in oklch, var(--ink), transparent 92%)`, is a
      COOL white film, and on a warm kraft plane that pulls the surface back
@@ -269,9 +311,37 @@
   /* Cast in the recess blue rather than in the table's green, so a sheet reads
      as lifted off the desk rather than as bruising it. Still the only shadow
      in this stylesheet, and still only on `.lt-paper`. */
-  --lift:
-    0 1px 0 oklch(0.10 0.020 246 / 0.85),
-    0 18px 36px -18px oklch(0.06 0.024 246 / 0.94);
+  /* THE PLATE: a hard offset with no blur, which is what a stamp leaves and
+     what makes a block read as a physical part rather than a tinted rectangle.
+     A blurred shadow says "floating card"; an offset plate says "object on a
+     desk", and this app is a file of paper on a desk.
+
+     IT IS DRAWN IN `--edge`, SO IT IS BONE ON THE TABLE AND INK ON PAPER. A
+     dark offset cast onto a dark ground is not a shadow, it is nothing: the
+     table sits at lightness 0.252 and near-black measures 1.28:1 against it.
+     A light offset on a dark ground reads as a hard-lit edge, which is the
+     brutalist gesture inverted for a dark theme rather than abandoned. */
+  --plate: 4px 4px 0 0 var(--edge);
+  --plate-sm: 3px 3px 0 0 var(--edge);
+  --plate-press: 1px 1px 0 0 var(--edge);
+
+  /* The bone keyline that bounds evidence, and the mat it sits in. */
+  --keyline: oklch(0.88 0.014 84);
+  --mat: oklch(0.128 0.014 246);
+
+  /* THE EDGE EVERY SLAB IS DRAWN WITH, and it is BONE rather than ink.
+     A stamped part wants a dark printed boundary, which is what this was
+     first: near-black at lightness 0.118. Measured on the actual grounds it
+     bounds, that is 1.29:1 on the table and 1.16:1 on the rail, which is to
+     say invisible. A dark edge is a light-ground idea. On this ground the
+     boundary has to be the light one, and it measures 9:1 on the table.
+
+     Inside `.lt-paper` it rebinds to ink, so a sheet gets the dark boundary
+     the same rule wants there. One token, two grounds, no component deciding. */
+  --edge: oklch(0.82 0.020 84);
+
+  /* The kop's own ground. Dark, because a title bar is a bar of ink. */
+  --kop: oklch(0.155 0.014 246);
 
   /* ---- shadcn primitives, pointed at the same tokens -------------------
      src/components/ui/* is styled from these names. Mapping them here is what
@@ -456,17 +526,130 @@
      disclosure, the trough a progress strip runs in. */
   .lt-well {
     background: var(--surface-sunk);
-    border: 1px solid var(--line-strong);
+    border: 2px solid var(--line-strong);
     border-radius: 4px;
   }
 
-  /* A genuinely grouped block: a form, a list with its own heading. The
-     exception to "a block is the space between two rules", not the default.
-     Flat. No shadow, ever. */
+  /* =====================================================================
+     THE SLAB, and the kop that opens it.
+
+     This is the one container in the product. It is not "the exception to a
+     block being the space between two rules": that rule is gone, because it
+     is what produced a screen of bordered HTML. Every grouped thing on every
+     screen is a slab, so the app has ONE repeated form, which is the thing a
+     style actually is.
+     ================================================================== */
+
+  .lt-slab {
+    background: var(--surface-raised);
+    border: 3px solid var(--edge);
+    border-radius: 0;
+    box-shadow: var(--plate);
+  }
+
+  /* A slab that is furniture rather than content: the runs list, an aside. It
+     keeps the edge and loses the plate, so it sits ON the desk rather than
+     lifting off it. */
+  .lt-slab-flat {
+    background: var(--surface-raised);
+    border: 3px solid var(--edge);
+    border-radius: 0;
+  }
+
+  /* `.lt-panel` is the name every screen already uses, so it becomes the slab
+     rather than being deleted out from under them. That way the whole app
+     adopts the new material in one step and the migration to an explicit
+     slab-plus-kop happens screen by screen, where a kop has something to say. */
   .lt-panel {
     background: var(--surface-raised);
-    border: 1px solid var(--line);
-    border-radius: 6px;
+    border: 3px solid var(--edge);
+    border-radius: 0;
+    box-shadow: var(--plate);
+  }
+
+  /*
+   * THE KOP, and its double rule.
+   *
+   * 2px over 1px at a 3px gap is the gesture that closes the masthead of every
+   * Indonesian government letter. It is drawn here as a bottom border plus a
+   * box-shadow line rather than as two elements, so a kop is one node.
+   *
+   * IT IS ALSO THE BLOCK'S STATUS CHANNEL. Ink by default; amber when the
+   * block owes the operator a decision; red when it reports a fault. One
+   * mechanism, three values, and a block that owes something is legible from
+   * across the room without any component remembering a rule.
+   */
+  .lt-kop {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--kop);
+    color: var(--ink);
+    border-bottom: 2px solid var(--edge);
+    box-shadow: 0 3px 0 0 var(--edge);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .lt-kop[data-owes="decision"] {
+    background: var(--mark);
+    color: var(--kop);
+  }
+  .lt-kop[data-owes="fault"] {
+    background: var(--gap);
+    color: var(--kop);
+  }
+  .lt-kop[data-owes="done"] {
+    background: var(--petrol);
+    color: var(--petrol-ink);
+  }
+
+  /* The body of a slab. The 3px gap under the kop is the double rule showing
+     through, so nothing may sit in it. */
+  .lt-slab-body {
+    padding: 1rem;
+    margin-top: 3px;
+  }
+
+  /* =====================================================================
+     THE KOTAK ISIAN: a figure a reader compares, in a ruled box, the way a
+     form prints a field. Never loose in a sentence.
+     ================================================================== */
+
+  .lt-kotak {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.4rem;
+    border: 2px solid var(--line-strong);
+    background: var(--surface-sunk);
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8125rem;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  /* =====================================================================
+     THE STAGE AND THE MAT: how evidence is mounted.
+
+     Three drawn cues for the one boundary the operator is paid to judge, so
+     the crop's edge stops being a luminance accident: a sunk stage, a 12px
+     near-black mat, and a bone keyline. The old single cue was the difference
+     in brightness between white paper and a graphite ground, which works
+     until a scan is dark or a plane changes.
+     ================================================================== */
+
+  .lt-stage {
+    background: var(--surface-sunk);
+    border: 3px solid var(--edge);
+    padding: 12px;
+  }
+  .lt-mat {
+    background: var(--mat);
+    padding: 12px;
   }
 
   /* PAPER. The only lit material and the only shadow in this stylesheet.
@@ -501,11 +684,13 @@
     --line-strong: var(--paper-ink-2);
     --gap: oklch(0.455 0.150 25);
     --mark: oklch(0.505 0.100 75);
+    --edge: var(--paper-ink);
+    --kop: var(--paper-ink);
   }
 
   .lt-paper {
     background: var(--paper);
-    border: 1px solid var(--paper-edge);
+    border: 2px solid var(--paper-edge);
     border-radius: 2px;
     box-shadow: var(--lift);
     color: var(--paper-ink);
@@ -520,7 +705,7 @@
       color-mix(in oklch, var(--hatch), transparent 82%) 0 6px,
       transparent 6px 14px
     );
-    border: 1px dashed color-mix(in oklch, var(--hatch), transparent 45%);
+    border: 2px dashed color-mix(in oklch, var(--hatch), transparent 35%);
     border-radius: 2px;
   }
 
@@ -635,7 +820,7 @@
     flex: none;
     width: 1.75rem;
     height: 1.75rem;
-    border: 1px solid var(--line-strong);
+    border: 2px solid var(--line-strong);
     border-radius: 2px;
     color: var(--ink-2);
     background: transparent;
@@ -734,7 +919,7 @@
   .lt-denah {
     display: block;
     background: var(--paper);
-    border: 1px solid var(--paper-edge);
+    border: 2px solid var(--paper-edge);
     border-radius: 1px;
   }
   .lt-denah .lt-denah-line {
@@ -787,7 +972,7 @@
   .lt-hint-panel {
     max-width: 30rem;
     padding: 0.7rem 0.85rem;
-    border: 1px solid var(--line-strong);
+    border: 2px solid var(--line-strong);
     border-radius: 6px;
     background: var(--surface-rail);
     color: var(--ink-2);
@@ -804,83 +989,137 @@
      CONTROLS
      ================================================================== */
 
+  /* =====================================================================
+     CONTROLS THAT ANSWER THE HAND.
+
+     40px minimum, a 2px edge, a hard offset, and a press that TRANSLATES the
+     control into its own offset so the plate collapses under the finger. This
+     deliberately overrules the old "nothing in this product moves" rule, for
+     one case and with a reason: a control that does not respond to a pointer
+     is the single most reliable sign that nobody finished an interface, and
+     the client has now said so three times.
+
+     The old button was 32px tall, transparent, drawn with a 1px hairline, and
+     had its press state removed on purpose. Its hover set border-color to the
+     value the border already had, so half of it was dead code.
+     ================================================================== */
+
   .lt-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
-    border: 1px solid var(--line-strong);
-    border-radius: 4px;
-    padding: 0.36rem 0.8rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    line-height: 1.4;
+    gap: 0.45rem;
+    min-height: 2.5rem;
+    padding: 0 0.9rem;
+    border: 2px solid var(--edge);
+    border-radius: 0;
+    background: var(--surface-raised);
+    box-shadow: var(--plate-sm);
     color: var(--ink);
-    background: transparent;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
     transition:
       background-color 90ms ease,
-      border-color 90ms ease,
-      color 90ms ease;
+      box-shadow 90ms ease,
+      transform 90ms ease;
   }
   .lt-btn:hover:not(:disabled) {
-    background: var(--wash);
-    border-color: var(--line-strong);
+    background: color-mix(in oklch, var(--surface-raised), var(--ink) 10%);
+  }
+  .lt-btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: var(--plate-press);
   }
   .lt-btn:disabled {
-    opacity: 0.42;
+    opacity: 0.45;
+    box-shadow: none;
     cursor: not-allowed;
   }
 
-  /* The action a screen wants you to take, including Terima, which is the
-     common case and the one the hand reaches for. Bright on dark: it is the
-     light switch on a dark panel. It carries no hue, because accepting is not
-     a state that owes anything. */
+  /* The one action a screen wants. Petrol, which is identity rather than
+     status, so a primary button can never be mistaken for a decision owed. */
   .lt-btn[data-tone="primary"] {
-    color: var(--surface);
-    background: var(--ink);
-    border-color: var(--ink);
+    background: var(--petrol);
+    color: var(--petrol-ink);
+    border-color: var(--edge);
   }
   .lt-btn[data-tone="primary"]:hover:not(:disabled) {
-    background: var(--ink-2);
-    border-color: var(--ink-2);
+    background: var(--petrol-lift);
   }
 
-  /* Refusing is a smaller, rarer claim than accepting, so it is outlined
-     where accept is filled. It carries the correction pen because that is
-     what a refusal is. */
+  /* Refusing is a smaller, rarer claim than accepting, so it is outlined where
+     primary is filled, and it carries the correction pen. */
   .lt-btn[data-tone="reject"] {
-    color: color-mix(in oklch, var(--gap), white 20%);
-    border-color: color-mix(in oklch, var(--gap), transparent 55%);
+    color: color-mix(in oklch, var(--gap), white 18%);
+    border-color: var(--edge);
+    background: var(--surface-raised);
   }
   .lt-btn[data-tone="reject"]:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--gap), transparent 90%);
-    border-color: var(--gap);
+    background: color-mix(in oklch, var(--gap), transparent 86%);
   }
 
-  /* A toggle that is currently on. */
   .lt-btn[data-on="true"] {
-    color: var(--ink);
-    border-color: var(--line-strong);
-    background: var(--wash);
+    background: var(--mark);
+    color: var(--edge);
+  }
+
+  /* A control with no plate: it lives inside a kop or a dense row, where an
+     offset on every item would be noise. It keeps the press. */
+  .lt-btn[data-flat="true"] {
+    box-shadow: none;
+    min-height: 2rem;
+    border-width: 2px;
+  }
+  .lt-btn[data-flat="true"]:active:not(:disabled) {
+    transform: translate(1px, 1px);
+    box-shadow: none;
   }
 
   .lt-input {
+    min-height: 2.5rem;
+    padding: 0 0.6rem;
+    border: 2px solid var(--line-strong);
+    border-radius: 0;
     background: var(--surface-sunk);
-    border: 1px solid var(--line-strong);
-    border-radius: 4px;
-    padding: 0.42rem 0.6rem;
     color: var(--ink);
     font-family: var(--font-figure), ui-monospace, monospace;
     font-size: 0.8125rem;
     width: 100%;
-    transition: border-color 90ms ease;
+    transition: border-color 90ms ease, box-shadow 90ms ease;
   }
+  /* A REAL hover. The rule this replaces set border-color to the value the
+     border already had, so the field had no pointer response at all. */
   .lt-input:hover {
-    border-color: var(--line-strong);
+    border-color: var(--ink-3);
+  }
+  .lt-input:focus-visible {
+    outline: none;
+    border-color: var(--petrol-lift);
+    box-shadow: inset 0 0 0 2px var(--petrol);
   }
   .lt-input::placeholder {
     color: var(--ink-3);
     font-family: var(--font-ui), sans-serif;
+  }
+
+  /* =====================================================================
+     THE STEP BAR: previous and next, at the bottom, where a wizard puts them.
+
+     The product is three ordered steps and never had a way to walk them
+     except by aiming at a nav item in the top chrome. This sits at the foot of
+     the screen, states which step you are on, and says what the next one is
+     rather than only naming it.
+     ================================================================== */
+
+  .lt-steps {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-top: 3px solid var(--edge);
+    background: var(--surface-rail);
   }
 
   /* =====================================================================
@@ -932,7 +1171,7 @@
 
   .lt-tick {
     height: 100%;
-    border-right: 1px solid var(--surface);
+    border-right: 2px solid var(--edge);
     background: var(--surface-sunk);
   }
   .lt-tick[data-done="true"] {
@@ -963,14 +1202,14 @@
        lie. Everything else about the overlay is already expressed in
        percentages of the page for the same reason. */
     outline-offset: -2px;
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--surface-sunk), transparent 20%);
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--surface-sunk), transparent 10%);
     pointer-events: none;
   }
   .lt-guide {
     position: absolute;
     left: 0;
     right: 0;
-    border-top: 1px solid color-mix(in oklch, var(--mark), transparent 68%);
+    border-top: 2px solid color-mix(in oklch, var(--mark), transparent 55%);
     pointer-events: none;
   }
 }
@@ -986,5 +1225,68 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  /* =====================================================================
+     DISCLOSURES.
+
+     A bare <summary> renders the browser's own triangle, which is the single
+     most reliable sign on the web that nobody styled a page, and the client's
+     screenshot had two of them on one screen. The marker is removed and the
+     set's own chevron is drawn with a rotating box, so a disclosure looks like
+     it belongs to this product.
+     ================================================================== */
+
+  .lt-disclose > summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    list-style: none;
+    padding: 0.4rem 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .lt-disclose > summary::-webkit-details-marker { display: none; }
+  .lt-disclose > summary::marker { content: ""; }
+  .lt-disclose > summary::before {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 120ms ease;
+  }
+  .lt-disclose[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .lt-disclose > summary:hover { color: var(--ink); }
+
+  /* =====================================================================
+     THE TOAST. Transient confirmations leave the page and stop pushing the
+     work down. What may NOT become one: a consent statement, the reason a
+     control is disabled, and anything the operator has to act on.
+     ================================================================== */
+
+  .lt-toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    min-width: 18rem;
+    max-width: 26rem;
+    padding: 0.75rem 0.9rem;
+    background: var(--surface-raised);
+    border: 3px solid var(--edge);
+    box-shadow: var(--plate);
+    color: var(--ink);
+    font-size: 0.875rem;
+  }
+  .lt-toast[data-tone="fault"] {
+    border-color: var(--edge);
+    background: color-mix(in oklch, var(--surface-raised), var(--gap) 16%);
   }
 }
