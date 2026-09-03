@@ -150,17 +150,28 @@ Ground truth is not a hand-picked phrase: each of the twelve crop PNGs is
 OCR'd with the same `ocrToLines` pipeline used on the full pages, so the
 comparison is real text against real text from the same engine.
 
-**Recorded result: a transcript, not a computation.** These numbers come from
-one `pnpm measure:locate` run against `documents/`, landed by the commit
-"Record what the measured run found, and stop a half-filled slot reading
-empty" (`git log --oneline --grep "Record what the measured run found"` dates
-it). Nothing in the tree recomputes them, so the only way to tell them from
-stale ones is to run the command again.
+**Recorded result: a transcript, not a computation.** Nothing in the tree
+recomputes these, so the only way to tell them from stale ones is to run the
+command again. THEY ARE ENGINE-SPECIFIC AND BOTH ARE KEPT, because the pair is
+the only thing that says whether the OCR migration cost accuracy:
 
-- **Page selection: 12 / 12.** Every slot landed on the expected page across
-  the sample bundle.
-- **Extent: 11 / 12 by containment.** The one genuine miss is `KB / ToP (2)`,
-  the Terms of Payment slot's second capture.
+| | tesseract | gemini + completeness guard |
+| --- | --- | --- |
+| Total | 11 / 12 | **12 / 12** |
+| Field slots (model-located) | 7 / 8 | **8 / 8** |
+| Whole-document (no model) | 4 / 4 | 4 / 4 |
+| Page selection | 12 / 12 | 12 / 12 |
+
+- `KB / ToP (2)` was the tesseract run's ONLY miss, and it now passes at 1.00x
+  the human crop's height. It failed on both engines before the guard landed,
+  and `scripts/measure-locate.mjs` still carries the argument for why starting
+  every slot at line 0 fixes it and breaks four others.
+- **This table has been read as current when it was not.** A peer session
+  quoted "11/12, ToP the only miss" as the state of the tool while the Gemini
+  column already said otherwise, and briefed work on it. If you change the
+  engine, the constants, a hint or the prompt, RE-RUN AND REPLACE THE COLUMN;
+  do not add a third one, because the reason this went stale is that the old
+  number was still true of something.
 - It is twelve crops, not the eleven the original design names: `SP` and `KB /
   ToP` each supply two crops on two *different* pages, so each needs its own
   `locateSlot` call.
@@ -759,10 +770,10 @@ Recorded so nobody reads a design statement as a description of the code.
   parameter, and `Ask` is typed `(prompt: string) => Promise<string>`, so
   there is nowhere for an image to go. The gate scores all twelve slots
   text-only. Never describe it as the current path.
-  (**And do not claim it would close the gate's one miss.** That miss is
-  `KB / ToP (2)` -- Terms of Payment -- a different slot from `TTD Pejabat`,
-  and text-heavy. The recorded 11/12 names `KB / ToP (2)` as the only miss,
-  which means `TTD Pejabat` is currently passing text-only.)
+  (**And do not reach for it to close a gate miss.** The tesseract run's one
+  miss was `KB / ToP (2)`, a different slot from `TTD Pejabat` and text-heavy,
+  and the Gemini run has no miss at all -- so `TTD Pejabat` passes text-only on
+  both engines and there is currently no measurement asking for this.)
 - **THE OPERATOR UI IS WIRED TO THE REAL RUNTIME. This bullet used to say the
   opposite and it was believed for too long.** `operator-app.tsx` holds
   `const runtime = liveRuntime;`, and `src/lib/ui/live-runtime.ts` binds that
