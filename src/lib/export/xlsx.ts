@@ -43,8 +43,17 @@ export async function buildXlsx(
         `${rows.length === 1 ? "row" : "rows"} ${rows.join(", ")}, ` +
         `column ${column} (${header})`;
     } else if (value?.source) {
-      const [from, to] = value.source.lineRange;
-      const { sourceName, pageInDoc } = value.source;
+      // EVERY citation behind the cell, not just the first. A list-valued key
+      // (`Template.fieldLists`) prints several answers in one cell, and a note
+      // naming one line range for all of them is provenance that is true about
+      // part of the cell and reads as true about the whole -- the same failure
+      // shape as a citation that is simply wrong. `sources` is absent for
+      // every single-valued key, where this collapses to exactly the one note
+      // it always wrote.
+      const cited = value.sources ?? [value.source];
+      const notes = cited.map((source) => {
+      const [from, to] = source.lineRange;
+      const { sourceName, pageInDoc } = source;
       // Name the actual file and its own (1-based) page number when they
       // travelled with the value, not this run's bundle-global page index --
       // that index is 0-based across every PDF on the command line, so for
@@ -61,11 +70,13 @@ export async function buildXlsx(
       const location =
         sourceName !== undefined && pageInDoc !== undefined
           ? `${sourceName} p${pageInDoc + 1}`
-          : `bundle position ${value.source.pageIndex} (0-based; the source ` +
+          : `bundle position ${source.pageIndex} (0-based; the source ` +
             `file did not travel with this value)`;
+        return `${location}, lines ${from}-${to}`;
+      });
       // Provenance travels with the value, so a reviewer can check the claim
       // without rerunning anything.
-      added.getCell(5).note = `${location}, lines ${from}-${to}`;
+      added.getCell(5).note = notes.join("; ");
     }
   }
 

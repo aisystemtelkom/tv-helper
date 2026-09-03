@@ -215,6 +215,80 @@ export function trimRunningFooter(
   return [from, kept[kept.length - 1].i];
 }
 
+/**
+ * A `to` past the page's LAST LINE is "run to the end of the page", not a
+ * broken answer -- so it is clamped to the page rather than thrown away.
+ *
+ * ## The measurement this exists for
+ *
+ * `boxForLineRange` requires that every line of `[from, to]` be present on the
+ * page (`picked.length !== to - from + 1` throws), and the model overruns the
+ * last line number roughly half the time on this bundle. Sampled 2026-09-03,
+ * Gemini engine, twelve fresh calls for `kbLanjutan.top` over the 29-page
+ * bundle (four label/pool combinations x three repeats, so the sampling is not
+ * one prompt's quirk):
+ *
+ *   6 of 12  {"pageIndex":19,"from":11,"to":47}   page 19 ends at line 41
+ *   6 of 12  {"pageIndex":19,"from":11,"to":41}   the same block, in range
+ *
+ * Both answers name the same block and the same first line: line 11 is
+ * "Pasal 6", line 12 "PEMBAYARAN PEKERJAAN". The model located the payment
+ * clause correctly every single time. Half of those answers were then
+ * discarded by an exception, and `/api/propose` turns that exception into an
+ * outstanding capture -- so a slot that was found reads to the operator as
+ * "searched and not there". THAT is the defect; the search was never the
+ * problem.
+ *
+ * ## Why clamping is the right reading, not a papering-over
+ *
+ * The prompt tells the model to stop at "the next heading, the next unrelated
+ * section, OR THE END OF THE PAGE", and to "prefer taking a few lines too many
+ * over cutting the block short". A `to` beyond the last line is that
+ * instruction followed with an arithmetic slip about where the listing ends --
+ * the one number in the reply the model has to count for rather than read off.
+ * There is exactly one thing it can mean, and clamping says it.
+ *
+ * It cannot invent evidence: the clamped range names only lines the page
+ * actually has, and the box, the `lineRange` citation and the `text`
+ * transcript are all still derived from the same one range further down. The
+ * crop can only grow toward the bottom of a page it was already on.
+ *
+ * ## What it deliberately does NOT do
+ *
+ *  - It does not clamp `from`. A `from` the page does not have is not "start
+ *    at the top", it is a citation of text the model was never shown, and
+ *    `boxForLineRange` still refuses it.
+ *  - It does not bound the overshoot with a tolerance constant. A "clamp only
+ *    if `to` is within N of the end" rule would be a number with no
+ *    measurement behind it, which is exactly how the retired "at most 2 extra
+ *    lines" gate rule went wrong (AGENTS.md, the measurement gate). Past the
+ *    last line there is only one page to clamp to, however far past it is.
+ *  - It does not pass silently. `locateSlot` returns `confidence: "low"` when
+ *    it fires, so the operator's review surface can mark the one capture whose
+ *    extent rests on a repair rather than on the model's own number.
+ *
+ * Returns the range to use and whether the clamp fired. `lastLine` is the
+ * largest `Line.i` on the page rather than `lines.length - 1`: `OcrPage.lines`
+ * is a plain array a caller supplies, and reading a line NUMBER off an array
+ * LENGTH is the assumption `wholePageZone` and the gate both guard separately.
+ */
+export function clampRangeToPage(
+  lines: Line[],
+  from: number,
+  to: number,
+): { range: [number, number]; clamped: boolean } {
+  let lastLine = -1;
+  for (const line of lines) if (line.i > lastLine) lastLine = line.i;
+
+  // Nothing to clamp to (an empty page), `from` is off the page too, or the
+  // range already fits: hand it back untouched and let `boxForLineRange` rule
+  // on it exactly as before.
+  if (lastLine < 0 || from > lastLine || to <= lastLine) {
+    return { range: [from, to], clamped: false };
+  }
+  return { range: [from, lastLine], clamped: true };
+}
+
 const Reply = z.object({
   pageIndex: z.number().int().min(0).nullable(),
   from: z.number().int().min(0).nullable(),
@@ -373,6 +447,18 @@ export async function locateSlot(
     );
   }
 
+  // "To the end of the page", counted a few lines wrong. See
+  // `clampRangeToPage`: measured at 6 of 12 fresh calls for this bundle's ToP
+  // slot, and every one of those answers had already found the right block.
+  // Clamped BEFORE the footer trim so the trim measures a range the page
+  // actually has; with `to` past the end the trim's own filter silently sees a
+  // shorter block than the reply asked for.
+  const { range: clampedRange, clamped } = clampRangeToPage(
+    page.lines,
+    reply.from,
+    reply.to,
+  );
+
   // The model is asked for text boundaries and cannot see the page, so it has
   // no way to know that its last line is a running footer two thirds of a page
   // below the block. Trimming here rather than in the prompt keeps the prompt
@@ -382,7 +468,7 @@ export async function locateSlot(
   // citation, and the `text` transcript. Letting any one of them keep the
   // untrimmed range is the wrong-and-quiet shape -- a crop that disagrees with
   // the line numbers printed beside it.
-  const [from, to] = trimRunningFooter(page.lines, reply.from, reply.to);
+  const [from, to] = trimRunningFooter(page.lines, ...clampedRange);
 
   const bounds: Box = { x: 0, y: 0, w: page.width, h: page.height };
   const box = boxForLineRange(page.lines, from, to, CROP_PADDING_PX, bounds);
@@ -404,6 +490,12 @@ export async function locateSlot(
       .sort((a, b) => a.i - b.i)
       .map((l) => l.text)
       .join("\n"),
-    confidence: reply.confidence,
+    // LOW WHENEVER THE CLAMP FIRED, whatever the model said about itself. The
+    // model's own "high" is a claim about having found the right block, and it
+    // was right about that; the extent is the part this function repaired, and
+    // the extent is what the operator is being asked to sign off. Downgrading
+    // is the one signal that reaches the review surface today -- see
+    // `Proposal.confidence` in src/app/api/propose/handler.ts.
+    confidence: clamped ? "low" : reply.confidence,
   };
 }

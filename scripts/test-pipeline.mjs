@@ -383,6 +383,7 @@ test("classifyPages rejects an empty spans array", async () => {
 import {
   locateSlot,
   buildLocatePrompt,
+  clampRangeToPage,
   CROP_PADDING_PX,
   trimRunningFooter,
   FOOTER_GAP_MULTIPLE,
@@ -429,6 +430,65 @@ test("locateSlot turns a line range into a padded box", async () => {
 test("locateSlot returns null when the model finds nothing", async () => {
   const ask = async () => '{"pageIndex":null,"from":null,"to":null,"confidence":"low"}';
   assert.equal(await locateSlot("MOM", "meeting minutes", [kbPage], ask), null);
+});
+
+// ---------------------------------------------------------------------------
+// clampRangeToPage: the "no evidence" defect on a slot that WAS found.
+//
+// Measured 2026-09-03 on the 29-page bundle, Gemini engine: 6 of 12 fresh
+// calls for `kbLanjutan.top` answered {"pageIndex":19,"from":11,"to":47} on a
+// page whose last line is 41. Every one of those twelve answers named the same
+// correct first line (11 = "Pasal 6", 12 = "PEMBAYARAN PEKERJAAN"), so the
+// search succeeded and half the results were then thrown away by
+// `boxForLineRange`'s exact-count check -- which `/api/propose` reports as an
+// outstanding capture, i.e. "searched and not there".
+// ---------------------------------------------------------------------------
+
+test("clampRangeToPage pulls a `to` past the last line back to the page", () => {
+  const lines = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 200)];
+  assert.deepEqual(clampRangeToPage(lines, 1, 47), { range: [1, 2], clamped: true });
+});
+
+test("clampRangeToPage leaves a range the page actually has alone", () => {
+  const lines = [lineAt(0, 100), lineAt(1, 150), lineAt(2, 200)];
+  assert.deepEqual(clampRangeToPage(lines, 0, 2), { range: [0, 2], clamped: false });
+});
+
+test("clampRangeToPage never clamps `from`, which would invent a start", () => {
+  // `from` past the page is a citation of text the model was never shown, not
+  // "start at the top". Handed back untouched so boxForLineRange still refuses.
+  const lines = [lineAt(0, 100), lineAt(1, 150)];
+  assert.deepEqual(clampRangeToPage(lines, 9, 47), { range: [9, 47], clamped: false });
+});
+
+test("clampRangeToPage reads the last LINE NUMBER, not the array length", () => {
+  // OcrPage.lines is a plain array a caller supplies. A subset whose numbering
+  // does not start at 0 must clamp to its own largest `i`, not to length - 1.
+  const lines = [lineAt(30, 100), lineAt(31, 150), lineAt(32, 200)];
+  assert.deepEqual(clampRangeToPage(lines, 30, 99), { range: [30, 32], clamped: true });
+});
+
+test("locateSlot answers a clamped zone instead of throwing, and says so", async () => {
+  // The shape of the real reply: right page, right first line, a `to` a few
+  // lines past the end of the page.
+  const ask = async () => '{"pageIndex":0,"from":1,"to":47,"confidence":"high"}';
+
+  const result = await locateSlot("ToP", "the payment clause", [kbPage], ask);
+
+  assert.equal(result.zone.pageIndex, 0);
+  assert.deepEqual(result.zone.lineRange, [1, 2]);
+  assert.ok(result.text.includes("Pada hari ini Jumat"));
+  // The model claimed "high"; the extent is this function's repair, not the
+  // model's number, so what leaves here is "low".
+  assert.equal(result.confidence, "low");
+});
+
+test("locateSlot still refuses a `from` the page does not have", async () => {
+  const ask = async () => '{"pageIndex":0,"from":40,"to":47,"confidence":"high"}';
+  await assert.rejects(
+    () => locateSlot("ToP", "the payment clause", [kbPage], ask),
+    /lines 40-47 are not all present/,
+  );
 });
 
 test("locateSlot rejects a page index it was never given", async () => {

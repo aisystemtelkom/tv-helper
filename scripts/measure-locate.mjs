@@ -10,6 +10,12 @@
  * count is rejected, and so is one that runs the whole page when the crop
  * does not.
  *
+ * A FIELD SLOT ALSO HAS TO BE THE RIGHT SIZE ON THE PAGE, capped at twice the
+ * human crop's height (`INFLATION_MULTIPLE`, added 2026-09-03). That number
+ * was printed and not scored until a measured overcapture landed exactly ON
+ * the line-count cap and passed: see the constant's own comment for the
+ * measurement and for why whole-document slots stay exempt.
+ *
  * That rule replaces "at most two extra lines", which the 2026-08-30 design
  * stated as though it were a requirement and which the 2026-08-31 corrections
  * note (section 3) records as invented, with no data behind it. Cross-checked
@@ -1397,10 +1403,11 @@ const GROUND_TRUTH = [
 
 // ---------------------------------------------------------------------------
 // Scoring: right page, chosen range CONTAINS every full-page OCR line whose
-// text appears in the ground-truth crop's own OCR text, and overshoot capped
-// proportionally rather than at a flat +2. See the file header for why the
-// flat allowance was wrong, and findRequiredLineRange above for how the
-// required range is derived.
+// text appears in the ground-truth crop's own OCR text, overshoot capped
+// proportionally rather than at a flat +2, and -- for a field slot -- the
+// resulting picture no more than twice the height of the human's own crop.
+// See the file header for why the flat allowance was wrong, and
+// findRequiredLineRange above for how the required range is derived.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1418,6 +1425,45 @@ const GROUND_TRUTH = [
  * lines.
  */
 const OVERSHOOT_MULTIPLE = 2;
+
+/**
+ * How much TALLER than the human's own crop a field slot's picture may be.
+ *
+ * ## Why a height cap exists at all, when a line-count cap already does
+ *
+ * A line is a line whether it sits 40 pixels below the previous one or 1700,
+ * so `OVERSHOOT_MULTIPLE` is structurally blind to the defect this cap
+ * catches. Measured 2026-09-03, Gemini engine, on `kb.tanggal` over merged
+ * page 0: the model answers the wanted two-line date sentence about half the
+ * time and, the other half, a four-line range that starts two lines higher
+ * and swallows the agreement's `Nomor :` block. FOUR chosen lines for a
+ * TWO-line crop is exactly `OVERSHOOT_MULTIPLE`, so the line-count cap scores
+ * that answer PASS at its own limit -- while the picture pasted into the
+ * deliverable is 2.69x the height of the evidence it is supposed to be. The
+ * gate could not tell the right answer from the wrong one, which meant no
+ * hint or prompt change aimed at this defect could be believed either way.
+ *
+ * ## Where the number comes from
+ *
+ * Measured, not chosen: the same run prints this ratio for every slot, and
+ * across the eight field slots the widest legitimate answer is 1.42x
+ * (`KB / Nomor`), with six of the eight at or below 1.22x. The cap is set at
+ * the same multiple the line-count rule already uses, which leaves a 1.4x
+ * margin over the widest legitimate answer this bundle demonstrates and still
+ * rejects the 2.69x overcapture. The margin is PRINTED at the end of every
+ * run, exactly as `FOOTER_GAP_MULTIPLE`'s is, so a future bundle that walks a
+ * legitimate slot up toward the cap says so in the run rather than silently
+ * turning the cap into a source of false failures.
+ *
+ * ## What it deliberately does not apply to
+ *
+ * WHOLE-DOCUMENT SLOTS ARE EXEMPT, for the same reason they are exempt from
+ * both line-count caps: they are not localizing anything, they take the whole
+ * page by construction, and their inflation is a property of the human having
+ * cropped the margins off a screenshot. `SP / TTD` measures 2.40x on exactly
+ * that basis and is not a defect.
+ */
+const INFLATION_MULTIPLE = 2;
 
 function evaluate(entry, result, pages, cropEntries) {
   if (!result) {
@@ -1487,6 +1533,39 @@ function evaluate(entry, result, pages, cropEntries) {
   const withinMultiple = chosenLineCount <= OVERSHOOT_MULTIPLE * requiredLineCount;
   const notAWholePageGrab = !(chosenIsWholePage && !requiredIsWholePage);
 
+  // ---------------------------------------------------------------------
+  // How TALL the proposal is, against how tall the human's own crop is.
+  //
+  // Both boxes come from `boxForLineRange` with the production padding, on
+  // the same page geometry, so this is the real crop against the real crop
+  // rather than a proxy: `requiredHeightPx` is what the human's own chosen
+  // lines occupy on the 300 DPI page, not the docx thumbnail's pixel height
+  // (which is a Word-embedded screenshot at an unknown, much lower DPI and
+  // says nothing about the source page).
+  //
+  // THIS WAS REPORTED AND NOT SCORED UNTIL 2026-09-03, on the argument that
+  // scoring it would be a second gate fitted to twelve samples and would fail
+  // slots for a whitespace habit rather than for citing the wrong evidence.
+  // What changed is a measured defect the line-count caps cannot see at all:
+  // `kb.tanggal` overcaptures into the block above the date sentence, and at
+  // four chosen lines for a two-line crop it lands EXACTLY on
+  // `OVERSHOOT_MULTIPLE` and scores PASS. A gate that cannot separate that
+  // answer from the correct one cannot be used to judge a fix for it. See
+  // `INFLATION_MULTIPLE` for where the cap's number comes from and for why
+  // whole-document slots stay exempt.
+  // ---------------------------------------------------------------------
+  const bounds = { x: 0, y: 0, w: pageEntry.width, h: pageEntry.height };
+  const chosenHeightPx = result.zone.box.h;
+  const requiredHeightPx = boxForLineRange(
+    pageEntry.lines,
+    minLine,
+    maxLine,
+    CROP_PADDING_PX,
+    bounds,
+  ).h;
+  const inflation = chosenHeightPx / requiredHeightPx;
+  const withinInflation = inflation <= INFLATION_MULTIPLE;
+
   // A whole-document slot is not localizing anything -- it deliberately takes
   // the entire page -- so neither cap measures anything there, and both would
   // fail every such slot merely because the page carries a header or footer
@@ -1495,7 +1574,9 @@ function evaluate(entry, result, pages, cropEntries) {
   // This is a per-slot-TYPE rule, not a per-slot exemption: no individual
   // slot is excused, and the two types are reported separately below so the
   // model-dependent number stays visible on its own.
-  const overshootOk = entry.wholeDocument || (withinMultiple && notAWholePageGrab);
+  const overshootOk =
+    entry.wholeDocument ||
+    (withinMultiple && notAWholePageGrab && withinInflation);
   const pass = pageOk && containsAll && overshootOk;
 
   let detail = "ok";
@@ -1511,43 +1592,16 @@ function evaluate(entry, result, pages, cropEntries) {
     detail =
       `chosen range [${from},${to}] runs the whole page (${firstLine}-${lastLine}) ` +
       `while the crop [${minLine},${maxLine}] does not`;
+  } else if (!withinInflation) {
+    // Named as a HEIGHT failure and quoting inches, because the line counts
+    // it passed are what make this one hard to see: a range can be inside
+    // every line-count cap and still be a picture several times the size of
+    // the evidence.
+    detail =
+      `chosen range [${from},${to}] is ${inches(chosenHeightPx).toFixed(2)}in tall ` +
+      `for a ${inches(requiredHeightPx).toFixed(2)}in crop [${minLine},${maxLine}] ` +
+      `-- ${inflation.toFixed(2)}x, more than ${INFLATION_MULTIPLE}x`;
   }
-
-  // ---------------------------------------------------------------------
-  // How TALL the proposal is, against how tall the human's own crop is.
-  //
-  // Reported, deliberately NOT scored. The line-count caps above cannot see
-  // this: `KB / TTD Pejabat` answers a 14-line range for a 9-line crop and
-  // passes both of them comfortably, while the picture that actually lands
-  // in the deliverable is ~9 inches of mostly blank paper, because the last
-  // line it takes is the running page footer two thirds of a page below the
-  // signature block. A line is a line whether it sits 40 pixels below the
-  // previous one or 1700, so a line-count rule is structurally blind to the
-  // defect and no amount of tuning it will help.
-  //
-  // Both boxes come from `boxForLineRange` with the production padding, on
-  // the same page geometry, so this is the real crop against the real crop
-  // rather than a proxy: `requiredHeightPx` is what the human's own chosen
-  // lines occupy on the 300 DPI page, not the docx thumbnail's pixel height
-  // (which is a Word-embedded screenshot at an unknown, much lower DPI and
-  // says nothing about the source page).
-  //
-  // It is left unscored on purpose. Making it a pass condition would be a
-  // second gate fitted to twelve samples, and would fail slots for a
-  // whitespace habit rather than for citing the wrong evidence. It is here
-  // so the inflation is a printed number that a change can be measured
-  // against, instead of the "roughly 1.3in became 8in" estimate that this
-  // defect has been carried as until now.
-  // ---------------------------------------------------------------------
-  const bounds = { x: 0, y: 0, w: pageEntry.width, h: pageEntry.height };
-  const chosenHeightPx = result.zone.box.h;
-  const requiredHeightPx = boxForLineRange(
-    pageEntry.lines,
-    minLine,
-    maxLine,
-    CROP_PADDING_PX,
-    bounds,
-  ).h;
 
   return {
     pass,
@@ -1876,17 +1930,26 @@ async function main() {
   );
   console.log();
 
-  // Crop extent, reported and not scored -- see the note in `evaluate`. The
-  // required range is printed for PASSING slots too, which the summary above
-  // never showed: without it there is no way to see how much slack a passing
-  // slot has, so a prompt change that quietly walks a slot to the edge of
-  // containment looks identical to one that leaves it comfortable.
-  console.log("Crop extent (reported, not scored -- see evaluate()):");
+  // Crop extent. SCORED FOR FIELD SLOTS since 2026-09-03 (see
+  // `INFLATION_MULTIPLE`), reported only for whole-document ones, which take
+  // the page by construction. The required range is printed for PASSING slots
+  // too, which the summary above never showed: without it there is no way to
+  // see how much slack a passing slot has, so a prompt change that quietly
+  // walks a slot to the edge of containment looks identical to one that
+  // leaves it comfortable.
+  console.log(
+    `Crop extent (field slots scored at ${INFLATION_MULTIPLE}x; ` +
+      "whole-document slots reported only -- see evaluate()):",
+  );
   console.log(
     `${"Slot".padEnd(20)} ${"Chosen".padEnd(10)} ${"Human".padEnd(10)} ` +
       `${"Height".padEnd(9)} ${"Human".padEnd(9)} ${"Inflation".padEnd(14)} HumanGap`,
   );
   let worstHumanGap = 0;
+  // The widest inflation any FIELD slot reached, which is the number
+  // `INFLATION_MULTIPLE` has to stay above. Whole-document slots are excluded
+  // from it for the same reason they are exempt from the cap itself.
+  let worstFieldInflation = 0;
   for (const { entry, verdict } of results) {
     if (verdict.requiredHeightPx === undefined) {
       console.log(`${entry.slot.padEnd(20)} (no extent: ${verdict.detail})`);
@@ -1895,6 +1958,9 @@ async function main() {
     const ratio = verdict.chosenHeightPx / verdict.requiredHeightPx;
     const gap = verdict.humanGapRatio;
     if (gap !== null && gap > worstHumanGap) worstHumanGap = gap;
+    if (!entry.wholeDocument && ratio > worstFieldInflation) {
+      worstFieldInflation = ratio;
+    }
     console.log(
       `${entry.slot.padEnd(20)} ` +
         `${verdict.lineRange.join(",").padEnd(10)} ` +
@@ -1905,6 +1971,24 @@ async function main() {
         `${gap === null ? "-" : gap.toFixed(1) + "x"}`,
     );
   }
+  console.log();
+  // The safety margin behind INFLATION_MULTIPLE, printed in the same shape as
+  // FOOTER_GAP_MULTIPLE's below and for the same reason: the cap is calibrated
+  // against twelve human crops on one bundle, so the run has to say how much
+  // room is left between it and the widest answer it accepts. A bundle that
+  // closes this margin has turned the cap into a source of false failures, and
+  // that shows up here rather than as an unexplained regression.
+  console.log(
+    `Widest field-slot inflation: ${worstFieldInflation.toFixed(2)}x its human crop. ` +
+      `INFLATION_MULTIPLE is ${INFLATION_MULTIPLE}x.`,
+  );
+  console.log(
+    worstFieldInflation > INFLATION_MULTIPLE
+      ? "  A field slot exceeded the cap and FAILED on height alone -- its row " +
+          "above says by how much."
+      : `  Margin: the cap sits ${(INFLATION_MULTIPLE / (worstFieldInflation || 1)).toFixed(1)}x ` +
+          "above the tallest answer this run accepted.",
+  );
   console.log();
   // The safety margin behind FOOTER_GAP_MULTIPLE, printed rather than
   // asserted. HumanGap is the largest gap inside a human-authored crop, in
