@@ -25,16 +25,26 @@ export type SlotStatus =
 
 export type SlotState = {
   /**
-   * The template slot this fills.
+   * WHICH CAPTURE OF WHICH TEMPLATE SLOT THIS IS.
    *
-   * Usually a `SlotDef.key` verbatim. A slot whose `SlotDef.crops` is greater
-   * than one -- the sample's `KB (lanjutan)` ToP row stacks two pictures cut
-   * from two different pages -- gets ONE SlotState PER CAPTURE, keyed
-   * `<slotKey>#1`, `<slotKey>#2`, because `zone` here holds a single zone and
-   * a one-state-per-slot list would silently drop the second capture. That is
-   * the failure this project cares about: a document that opens fine, looks
-   * complete, and is missing evidence. Use `slotKeyOf` to get the template key
-   * back; do not split the string by hand.
+   * Capture 1 is the `SlotDef.key` verbatim. A LANJUTAN -- the rest of one
+   * field's evidence, carried onto the next page by a page break -- is keyed
+   * `<slotKey>#2`, `<slotKey>#3`, because `zone` here holds a single zone and
+   * one state per slot would silently drop the continuation. That is the
+   * failure this project cares about: a document that opens fine, looks
+   * complete, and is missing evidence.
+   *
+   * A CONTINUATION IS DISCOVERED, NEVER DECLARED. Nothing in the template says
+   * how many captures a slot holds, because nothing can: the same payment
+   * clause fits one page on one contract and runs to three on the next. So
+   * `seedSlots` seeds exactly ONE state per fillable slot and
+   * `src/lib/pipeline/continuation.ts` finds the rest. An operator testing the
+   * declared version found what it produces -- a sheet showing "ToP 1" and
+   * "ToP 2" with the second permanently missing, on a document holding one
+   * ToP.
+   *
+   * Use `slotKeyOf` for the template key and `captureOrdinalOf` for the
+   * ordinal; do not split the string by hand.
    */
   key: string;
   label: string;
@@ -44,6 +54,50 @@ export type SlotState = {
   /** The OCR text the zone covers, so the operator can judge it without squinting. */
   text?: string;
   origin?: "llm" | "human";
+  /**
+   * WHETHER ANYTHING HAS LOOKED FOR A LANJUTAN AFTER THIS CAPTURE.
+   *
+   * NOT OPTIONAL POLISH. Dropping the declared capture count trades one
+   * failure for another: the old design ASSERTED a capture that might not
+   * exist, and a discovered one can SILENTLY MISS one that does. On the second
+   * sample bundle that is 33 chances to ship a truncated clause. The only
+   * thing that closes it is recording that the search happened, so an
+   * unchecked capture reads differently from a checked one and never reads as
+   * complete.
+   *
+   * A FACT ABOUT ONE RECTANGLE, NEVER ABOUT THE SLOT, AND IT NAMES THE
+   * RECTANGLE. What was known about the old zone's page bottom says nothing
+   * about a new one, and a stale verdict both prints the affirmative on the
+   * sheet and excludes the zone from every future walk.
+   *
+   * It was a boolean once, and that made the invariant a thing every writer
+   * had to REMEMBER. Three replace a zone -- a hand redraw, a rejection, and a
+   * fresh proposal arriving through the ordinary tambahan loop -- and all three
+   * were found carrying a verdict about a rectangle that no longer existed.
+   * The third is the one that matters: it needs no unusual operator action at
+   * all. A fourth writer would have had to remember too.
+   *
+   * So it holds the FINGERPRINT of the zone that was walked, and
+   * `continuationChecked(slot)` in `src/lib/browser/captures.ts` compares it
+   * against the zone the slot holds now. `{ ...slot, zone: next }` written by
+   * anybody carries a verdict whose subject no longer matches, and reads as
+   * unchecked without that writer doing anything. The rule is enforced where
+   * it is READ, which is one place, instead of at every place it is written,
+   * which is an open set.
+   *
+   * Set true in exactly two cases. First, the walk past THIS capture reached a
+   * definitive no: `endedOnDefinitiveNo` in
+   * `src/lib/pipeline/continuation.ts` says which verdicts those are, and a
+   * whole-page capture is NOT one of them -- stage 1 declines it because the
+   * test carries no information, not because there is nothing there. Second,
+   * the walk found this capture's own lanjutan and the run already holds it, so
+   * there is nothing left to look for; leaving the middle of a chain unstamped
+   * made the next Proses re-walk it and append the same evidence again.
+   *
+   * A chain stopped by the cap or by an error leaves its last link false,
+   * because "we ran out of budget" is not "there is nothing there".
+   */
+  continuationCheckedFor?: string;
 };
 
 export type StoredPage = {
@@ -106,5 +160,26 @@ export type BrowserRun = {
    * global page list append-only across rounds for exactly this reason.
    */
   pages: StoredPage[];
+  /**
+   * NO LONGER A PURE FUNCTION OF THE TEMPLATE, and that is what makes the
+   * guard on it necessary.
+   *
+   * While every capture was declared, `seedSlots(AO_TEMPLATE)` and the stored
+   * array agreed by definition: anything that rebuilt this list rebuilt it
+   * identically and there was nothing to lose. Now that a lanjutan is
+   * DISCOVERED, any code that regenerates `slots` from the template -- a
+   * template migration, a "reset this run", a helper that maps over
+   * `AO_TEMPLATE.sections` -- would delete every discovered capture at the
+   * CORRECT revision, with every page intact, and `putRun` would report
+   * success. Pages intact, revision current, evidence gone.
+   *
+   * So the invariant, stated as what is true rather than as "append-only",
+   * which it is not: A WHOLE-ARRAY WRITE MAY NOT DROP A `SlotState` THAT
+   * CARRIES A ZONE. The operator legitimately removes a wrongly-proposed
+   * lanjutan, so removal is a real operation -- it just has to SAY which
+   * capture it is removing (`putRun`'s `removing` option) instead of being a
+   * side effect of writing a shorter array. Enforced in `putRun` with
+   * `CaptureLossError`, in the write's own transaction, beside `PageLossError`.
+   */
   slots: SlotState[];
 };

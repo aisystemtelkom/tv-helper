@@ -21,7 +21,7 @@
  * public and has leaked twice.
  */
 
-import { seedSlots } from "../browser/runtime.ts";
+import { seedSlots, withDiscoveredCaptures } from "../browser/runtime.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import { CROP_PADDING_PX } from "../pipeline/locate.ts";
@@ -106,12 +106,16 @@ function makePage(sourceId: string, indexInSource: number): StoredPage {
 /**
  * Seeded by the REAL runtime's `seedSlots`, deliberately.
  *
- * The stub previously built its own slot list and gave a two-capture slot two
- * states under the SAME key, where the real runtime keys them `<slot>#1` and
+ * The stub previously built its own slot list and gave a multi-capture slot
+ * two states under the SAME key, where the real runtime keys a lanjutan
  * `<slot>#2`. Every screen was therefore developed against a key convention
  * production does not use, and the difference was invisible until the real
  * module was wired. Borrowing the real seeder is what stops that recurring:
  * a stub may invent pages and pixels, but not the shape of the contract.
+ *
+ * `seedSlots` now seeds ONE state per bagian and nothing declares a second, so
+ * the multi-capture screens are only reachable here if the stub DISCOVERS one
+ * -- which `lanjutanStub` below does, for exactly that reason.
  */
 function emptySlots(): SlotState[] {
   return seedSlots(AO_TEMPLATE);
@@ -180,6 +184,55 @@ function searchStub(run: BrowserRun, roundPages: StoredPage[]): SlotState[] {
   });
 }
 
+/**
+ * One invented lanjutan, so the multi-capture screens are driven at all.
+ *
+ * A stub that only ever produced single captures would leave the "(lanjutan)"
+ * label, the per-capture reject, the paired rail rows and the stacked export
+ * cell completely unexercised in `pnpm dev`. It APPENDS one the way the real
+ * flow does -- through `withDiscoveredCaptures`, so the ordinal and the key
+ * come from production's own rule -- rather than seeding one, which is the
+ * declaration this whole change removed.
+ *
+ * Everything else is stamped checked, so the sheet shows both readings side by
+ * side: one bagian saying "belum diperiksa lanjutannya" is not a state anyone
+ * should have to construct by hand to see.
+ */
+function lanjutanStub(run: BrowserRun): BrowserRun {
+  // The ToP row by preference, because that is the bagian the sample actually
+  // splits across a page break and the one every screenshot of this feature
+  // will be of. Any proposed capture will do if the search stub happened to
+  // miss it.
+  const parent =
+    run.slots.find((slot) => slot.key === "kbLanjutan.top" && slot.zone) ??
+    run.slots.find((slot) => slot.zone && slot.status === "proposed");
+  if (!parent?.zone) return run;
+
+  const page = run.pages[Math.min(parent.zone.pageIndex + 1, run.pages.length - 1)];
+  const zone = zoneFor(run, page, 0, 5);
+  // Every capture but the last one searched is stamped checked, so an
+  // unchecked bagian is visible on the sheet without being the whole sheet.
+  const checked = run.slots
+    .filter((slot) => slot.zone && slot.key !== parent.key)
+    .slice(0, -1)
+    .map((slot) => slot.key);
+
+  return withDiscoveredCaptures(
+    run,
+    [
+      {
+        after: parent.key,
+        zone,
+        text: page.lines
+          .filter((l) => l.i <= 5)
+          .map((l) => l.text)
+          .join("\n"),
+      },
+    ],
+    checked,
+  );
+}
+
 function seedRun(): BrowserRun {
   const sourceId = "src-splitba";
   const otherId = "src-merged";
@@ -205,7 +258,7 @@ function seedRun(): BrowserRun {
     pages,
     slots: emptySlots(),
   };
-  return { ...run, slots: searchStub(run, pages) };
+  return lanjutanStub({ ...run, slots: searchStub(run, pages) });
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -289,7 +342,29 @@ export function createStubRuntime(): Runtime {
       return runs.get(id) ?? null;
     },
 
-    async saveRun(run) {
+    async saveRun(run, options) {
+      // The capture guard, modelled rather than ignored, for the same reason
+      // `rev` is advanced below: a stub that accepts a write the real store
+      // refuses hides exactly the bug the guard exists to catch. A discovered
+      // lanjutan lives nowhere but this list, so a shorter array that does not
+      // name what it dropped is a silent loss of accepted evidence.
+      const before = runs.get(run.id);
+      if (before) {
+        const carried = new Set(run.slots.map((slot) => slot.key));
+        const allowed = new Set(options?.removing ?? []);
+        const dropped = before.slots
+          .filter((slot) => slot.zone && !carried.has(slot.key))
+          .map((slot) => slot.key)
+          .filter((key) => !allowed.has(key));
+        if (dropped.length > 0) {
+          throw new Error(
+            `run ${run.id} would lose ${dropped.length} capture(s) carrying ` +
+              `evidence (${dropped.join(", ")}) without naming them. Pass them ` +
+              "in saveRun's `removing` option.",
+          );
+        }
+      }
+
       // Advance `rev` exactly as the real runtime does. A stub that returns
       // the run unchanged would let the UI pass a stale revision back, so the
       // real implementation refuses the second save of every run while the

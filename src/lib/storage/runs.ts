@@ -116,6 +116,63 @@ export class PageLossError extends Error {
 }
 
 /**
+ * A write that would silently drop a capture the operator has evidence for.
+ *
+ * THE THIRD NET, AND THE ONE THAT ONLY BECAME NECESSARY WHEN A LANJUTAN
+ * STOPPED BEING DECLARED. While `run.slots` was a pure function of the
+ * template, a writer that rebuilt it rebuilt it identically; there was nothing
+ * to lose and this class would have had nothing to catch. A DISCOVERED capture
+ * exists only in the stored array, so any rebuild-from-template write --
+ * a template migration, a "reset this run", a merge helper that maps over
+ * `AO_TEMPLATE.sections` -- arrives at the CORRECT revision, carrying EVERY
+ * page, and simply short. `StaleRunWriteError` does not see it and
+ * `PageLossError` does not see it. It would delete a crop a human accepted and
+ * report success, which is this project's failure shape exactly.
+ *
+ * DROPPED OR EMPTIED, BOTH. The check compares EVIDENCE, not key presence,
+ * because the writer it was built for does not drop a key at all: a rebuild
+ * from `AO_TEMPLATE.sections` emits capture 1 under the template key verbatim
+ * (that is how `seedSlots` keys it) with no `zone`, so every key is carried
+ * and every accepted crop is gone. Only the `#2`/`#3` keys such a writer fails
+ * to emit would be caught by a key-only comparison, which is the smaller half
+ * of the same loss.
+ *
+ * NOT an append-only rule. "Bukan ini" really does discard evidence -- on a
+ * lanjutan by removing the row, on capture 1 by clearing its zone and leaving
+ * the row the template still asks for -- and pretending otherwise would be a
+ * lie the code then has to work around. The rule is that such a removal must
+ * SAY SO: pass the key in `putRun`'s `removing` option and the write is
+ * allowed. Only the silent shortfall is refused.
+ *
+ * Zone-carrying states only. A capture nobody has found evidence for costs
+ * nothing to re-seed, and refusing those would block the legitimate case where
+ * a template stops declaring a slot.
+ */
+export class CaptureLossError extends Error {
+  readonly runId: string;
+  /**
+   * Keys of stored, zone-carrying slot states whose evidence this write
+   * discards: dropped from the array, or carried back with no zone.
+   */
+  readonly missing: string[];
+
+  constructor(runId: string, missing: string[]) {
+    super(
+      `run ${runId} would lose ${missing.length} capture(s) carrying evidence ` +
+        `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}) ` +
+        "because this write drops them or carries them back without their " +
+        "zone. A lanjutan is discovered, not declared, so it exists only in " +
+        "the stored slot list and a write rebuilt from the template silently " +
+        "deletes it. If you meant to remove a capture, name it in putRun's " +
+        "`removing` option; otherwise re-read the run and re-apply the change.",
+    );
+    this.name = "CaptureLossError";
+    this.runId = runId;
+    this.missing = missing;
+  }
+}
+
+/**
  * The revision an object was built from, with a missing one read as 0.
  *
  * Absent means either a run built by hand that was never stored, or a record
@@ -357,8 +414,15 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
  *    current) is answered better this way: nothing is orphaned, because
  *    nothing is dropped.
  *
- * Both are refusals, not repairs. Merging the caller's slots onto the stored
- * pages would let the save appear to succeed while quietly discarding
+ * 3. CAPTURE LOSS. A write that drops a stored slot state CARRYING A ZONE,
+ *    or that carries one back with its zone gone, is refused with
+ *    `CaptureLossError` unless it names that key in `options.removing`. This
+ *    is the same shape as check 2, for the list that stopped being derivable
+ *    when a lanjutan became something discovered rather than declared: see the
+ *    class comment.
+ *
+ * All three are refusals, not repairs. Merging the caller's slots onto the
+ * stored pages would let the save appear to succeed while quietly discarding
  * whichever of the two writers' slot edits lost, and a validator signs what
  * comes out of here.
  *
@@ -370,7 +434,28 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
  * writing this object over the `sources` store would wipe the PDFs and break
  * `pageBitmap` later, at display time, far from the cause.
  */
-export async function putRun(run: BrowserRun): Promise<BrowserRun> {
+export type PutRunOptions = {
+  /**
+   * Slot-state keys whose stored EVIDENCE this write deliberately discards:
+   * the state is dropped from the array, or carried back without its zone.
+   *
+   * The opt-in that turns a silent shortfall into a stated intention. Only a
+   * stored state carrying a zone needs naming; everything else may come and go
+   * with the template.
+   *
+   * BOTH SHAPES NEED NAMING because both are the same loss. "Bukan ini" on
+   * capture 1 keeps the row -- the template still asks for that bagian -- and
+   * clears its zone, which deletes an accepted crop exactly as removing the
+   * row would; a rebuild-from-template writer produces the same shape by
+   * accident, which is the case this net was built for.
+   */
+  removing?: readonly string[];
+};
+
+export async function putRun(
+  run: BrowserRun,
+  options: PutRunOptions = {},
+): Promise<BrowserRun> {
   const ids = new Set(run.pages.map((p) => p.id));
   if (ids.size !== run.pages.length) {
     throw new Error(
@@ -393,6 +478,29 @@ export async function putRun(run: BrowserRun): Promise<BrowserRun> {
       if (expected !== 0) throw new StaleRunWriteError(run.id, expected, null);
     } else if (revOf(stored) !== expected) {
       throw new StaleRunWriteError(run.id, expected, revOf(stored));
+    }
+
+    // Read from the SAME transaction as the write, for the same reason the
+    // revision is: a check done in a separate transaction cannot see a second
+    // tab, and this list is now the only place a discovered capture lives.
+    if (stored) {
+      const allowed = new Set(options.removing ?? []);
+      // COMPARED ON THE EVIDENCE, NOT ON THE KEY. A key-presence check catches
+      // only the writer that drops a state, and the writer this net was built
+      // for -- a rebuild from `AO_TEMPLATE.sections` -- does not drop one: it
+      // emits capture 1 under the template key verbatim (that is how
+      // `seedSlots` keys it) with no `zone`. Every one of those keys IS
+      // carried, so a key-only check passes while every accepted capture-1
+      // crop is erased at the correct revision with every page present, and
+      // the write reports success. The invariant is the one `types.ts` states
+      // -- a whole-array write may not drop a state that carries a zone -- and
+      // a state carried back with its zone removed has dropped exactly that.
+      const carried = new Map(run.slots.map((slot) => [slot.key, slot]));
+      const dropped = (stored.slots ?? [])
+        .filter((slot) => slot.zone && !carried.get(slot.key)?.zone)
+        .map((slot) => slot.key)
+        .filter((key) => !allowed.has(key));
+      if (dropped.length > 0) throw new CaptureLossError(run.id, dropped);
     }
 
     const store = tx.objectStore(PAGES);

@@ -13,7 +13,7 @@
  * which is resolved here because it is a property of the ORDER rather than of
  * the template (see the JENIS ORDER section).
  *
- * Four things here are load-bearing and easy to "simplify" back into bugs:
+ * Five things here are load-bearing and easy to "simplify" back into bugs:
  *
  * 1. IT ROUTES ON `section.layout`. A `layout: "images"` section is a
  *    WHOLE-PAGE capture -- a human filling the sample screenshots the entire
@@ -49,6 +49,16 @@
  *    earlier round found (corrections note, section 4). The UI for that
  *    conversation is a later plan's; this is the headless capability under
  *    it, and the CLI shape is provisional.
+ *
+ * 5. IT DETECTS A CONTINUATION AND DELIBERATELY DOES NOT CROP ONE. Any
+ *    section can run past a page bottom, so after the zones are found every
+ *    capture is tested -- free, no model call -- for whether it ends at the
+ *    last content line of its page. What fires is REPORTED, in the log and in
+ *    the outstanding JSON, never cropped: extent needs a model call whose
+ *    measured error is a legible crop of the NEXT clause, and this script has
+ *    no operator to reject one. The operator UI, which does, gets the extent
+ *    half of `src/lib/pipeline/continuation.ts`. The two paths therefore
+ *    produce different docx files from the same bundle on purpose.
  *
  * OCR runs on one of two engines, chosen by `OCR_ENGINE` (default
  * "tesseract"; "gemini" sends each rendered page to the model as an image).
@@ -160,6 +170,13 @@ export {
   withFieldHints,
 };
 import { locateSlot } from "../src/lib/pipeline/locate.ts";
+// Detection only. `findContinuations` in that module also proposes the
+// continuation's extent with a cheap next-page call; this script deliberately
+// does not import it. See `continuationChecks` for the measured reason.
+import {
+  checkForContinuation,
+  runningFurniture,
+} from "../src/lib/pipeline/continuation.ts";
 import {
   orderRequestFieldValues,
   readOrderRequestBuffer,
@@ -1076,29 +1093,23 @@ export function templateSlots(template) {
   );
 }
 
-/** How many captures a slot needs before it counts as filled. See SlotDef.crops. */
-export function slotCropCount(slot) {
-  return slot.crops ?? 1;
-}
-
 /**
- * The slot keys that already have every capture they need, so a further round
- * can skip them.
+ * The slot keys that already have a capture, so a further round can skip them.
  *
- * Counted against `crops` rather than "has at least one zone" because the
- * sample's ToP row stacks two pictures cut from two different pages: one zone
- * is a partly-filled slot, not a filled one, and treating it as filled is how
- * a document that looks complete ships missing evidence.
+ * ONE ZONE PER SLOT, and `slotCropCount` -- which used to read `SlotDef.crops`
+ * and answer 2 for the ToP row -- is gone with the declaration it read. A
+ * template cannot know how many pictures a slot needs: the sample's two ToP
+ * pictures are one payment clause split by a page break, and on another
+ * contract that clause fits one page or runs to three. What a slot needs is
+ * one capture, plus whatever `src/lib/pipeline/continuation.ts` DISCOVERS
+ * running on from it.
  */
 export function satisfiedSlotKeys(template, zones) {
-  const counts = new Map();
-  for (const zone of zones) {
-    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
-  }
+  const found = new Set(zones.map((zone) => zone.key));
   const satisfied = new Set();
   for (const { slot } of templateSlots(template)) {
     if (!slot.fillable) continue;
-    if ((counts.get(slot.key) ?? 0) >= slotCropCount(slot)) satisfied.add(slot.key);
+    if (found.has(slot.key)) satisfied.add(slot.key);
   }
   return satisfied;
 }
@@ -1108,26 +1119,22 @@ export function satisfiedSlotKeys(template, zones) {
  *
  * ADDITIVE, in the corrections note's sense (section 4): every earlier zone
  * survives untouched, and a later round can only ever ADD -- fill a slot that
- * was empty, or supply the second capture of a two-crop slot. A later round
- * never replaces an earlier zone for the same key, so supplying one more
- * document cannot cost the operator a zone they had already accepted.
+ * was empty. A later round never replaces an earlier zone for the same key, so
+ * supplying one more document cannot cost the operator a zone they had already
+ * accepted.
+ *
+ * The `template` argument is gone with `SlotDef.crops`. It was only ever used
+ * to look up a per-slot cap, and the cap is now one: a slot takes one capture,
+ * and a continuation is not something a later ROUND supplies. A continuation
+ * lives on the page after its own block, in the same document, and is found by
+ * walking forward from the capture -- not by handing the tool another file.
  */
-export function mergeZones(previous, next, template) {
-  const cap = new Map();
-  for (const { slot } of templateSlots(template)) {
-    cap.set(slot.key, slotCropCount(slot));
-  }
-
-  const counts = new Map();
-  const merged = [];
-  for (const zone of previous) {
-    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
-    merged.push(zone);
-  }
+export function mergeZones(previous, next) {
+  const merged = [...previous];
+  const filled = new Set(previous.map((zone) => zone.key));
   for (const zone of next) {
-    const used = counts.get(zone.key) ?? 0;
-    if (used >= (cap.get(zone.key) ?? 1)) continue;
-    counts.set(zone.key, used + 1);
+    if (filled.has(zone.key)) continue;
+    filled.add(zone.key);
     merged.push(zone);
   }
   return merged;
@@ -1166,41 +1173,132 @@ export function inTemplateOrder(zones, template) {
  * cell is indistinguishable from one where the evidence does not exist.
  */
 export function outstandingSlots(template, zones, reasons = new Map()) {
-  const counts = new Map();
-  for (const zone of zones) {
-    counts.set(zone.key, (counts.get(zone.key) ?? 0) + 1);
-  }
+  const found = new Set(zones.map((zone) => zone.key));
 
   const outstanding = [];
   for (const { section, slot } of templateSlots(template)) {
     if (!slot.fillable) continue;
-    const found = counts.get(slot.key) ?? 0;
-    const required = slotCropCount(slot);
-    if (found >= required) continue;
-    // A partly-filled slot leads with its count, not with the last round's
-    // message. Measured on the two-round run: `kbLanjutan.top` held one of
-    // its two captures from round 1, round 2 searched the tambahan and found
-    // no second one, and the stored reason alone read "the model found no
-    // match" -- which says, wrongly, that the slot is empty. The counts were
-    // right beside it and the sentence still contradicted them.
-    const partial = `${found} of ${required} captures found`;
-    const last = reasons.get(slot.key);
+    if (found.has(slot.key)) continue;
+    // `found` and `required` are gone from this entry along with
+    // `SlotDef.crops`. They existed to say "1 of 2 captures found", which was
+    // a sentence about a count the FORM declared -- the very assertion the
+    // operator's report retired, since nothing ever searched for that second
+    // capture. A slot here has no capture at all. A slot that HAS one and may
+    // still run onto the next page is a different entry, `kind: "continuation"`
+    // below, produced by a search that actually happened.
     outstanding.push({
       kind: "slot",
       key: slot.key,
       label: slot.label,
       section: section.title,
-      found,
-      required,
-      reason:
-        found === 0
-          ? (last ?? "searched, not found")
-          : last
-            ? `${partial}; the last search added none (${last})`
-            : partial,
+      reason: reasons.get(slot.key) ?? "searched, not found",
     });
   }
   return outstanding;
+}
+
+/**
+ * Every capture that runs off the bottom of its page, and every one that was
+ * checked and does not.
+ *
+ * ## Why `pnpm generate` gets detection and NOT extent
+ *
+ * `src/lib/pipeline/continuation.ts` can also propose the continuation's line
+ * range, with one cheap model call per link (~760 input tokens, 3.8% of a
+ * locate call). This script deliberately does not make that call.
+ *
+ * Measured, on the four field slots the geometric filter fires on in bundle
+ * one: three answers correct, and `KB / Detail` answered `continues: true,
+ * lines 2-10` for a range that is the NEXT clause's own heading. That is a
+ * legible crop of a real clause belonging to a different slot -- plausible
+ * wrong evidence under the right label, which is the failure this project is
+ * organised against. In the operator UI that answer is a proposal with Terima
+ * and Bukan ini beside it. Here there is no operator: this script already
+ * writes its three files unreviewed, so an autofilled continuation would go
+ * straight into a signed docx. It gets the honest half.
+ *
+ * ## And "we looked and found none" is reported too
+ *
+ * Dropping the declared count trades "asserts a capture that may not exist"
+ * for "may silently miss one that does", and the only thing that closes that
+ * is recording that the search HAPPENED. A capture nobody checked must never
+ * read the same as one that was checked and is complete, so every zone gets an
+ * entry here -- `looksLikeContinuation` true or false.
+ */
+export function continuationChecks(template, zones, pages, check) {
+  const defs = new Map(
+    templateSlots(template).map(({ section, slot }) => [slot.key, { section, slot }]),
+  );
+
+  const checked = [];
+  for (const zone of zones) {
+    const entry = defs.get(zone.key);
+    if (!entry) continue;
+    const page = pages[zone.pageIndex];
+    const verdict = check(zone, entry.section, entry.slot, page);
+    // Resolved through the run's own page list rather than off `nextPage`
+    // itself: `checkForContinuation` deals in `OcrPage`, which carries an
+    // index and no filename, and the page a human opens is named by its
+    // SOURCE and its number inside that source. Deriving that from the
+    // CURRENT page's `pageInDoc` is the off-by-one this project keeps paying
+    // for -- see the xlsx cell-note gotcha in AGENTS.md.
+    const next = verdict.nextPage ? pages[verdict.nextPage.index] : null;
+    checked.push({
+      key: zone.key,
+      label: entry.slot.label,
+      section: entry.section.title,
+      pageIndex: zone.pageIndex,
+      sourceName: page.sourceName,
+      pageInDoc: page.pageInDoc,
+      looksLikeContinuation: verdict.looksLikeContinuation,
+      verdict: verdict.verdict,
+      reason: verdict.reason,
+      nextPageIndex: next ? next.index : null,
+      nextSourceName: next ? next.sourceName : null,
+      nextPageInDoc: next ? next.pageInDoc : null,
+    });
+  }
+  return checked;
+}
+
+/**
+ * Did the geometric test SAY anything about this capture?
+ *
+ * "It ran" and "it answered" are different, and conflating them is the
+ * wrong-and-quiet shape `/api/propose`'s `continuationChecked` flag was fixed
+ * for. Two of stage 1's declines carry no information at all:
+ * `whole-page-capture` (such a capture ends at its page's last content line BY
+ * CONSTRUCTION) and `no-content-line`, which the module declines rather than
+ * guesses at. Four of this template's twelve captures are whole-page, so
+ * reporting those as "checked, no lanjutan" would put the affirmative on a
+ * third of the packet's evidence with nothing having looked.
+ */
+export function continuationAnswered(entry) {
+  return (
+    entry.looksLikeContinuation ||
+    entry.verdict === "above-last-content" ||
+    entry.verdict === "no-next-page"
+  );
+}
+
+/**
+ * The subset of `continuationChecks` that belongs in the outstanding report:
+ * a capture that looks cut off, with no crop to show for it.
+ */
+export function outstandingContinuations(checks) {
+  return checks
+    .filter((entry) => entry.looksLikeContinuation)
+    .map((entry) => ({
+      kind: "continuation",
+      key: entry.key,
+      label: entry.label,
+      section: entry.section,
+      reason:
+        `${entry.reason}. This run does not crop a lanjutan: the extent has to ` +
+        `be confirmed, and run page ${entry.nextPageIndex} is where to look ` +
+        // 1-based, because `pageInDoc` is 0-based and a PDF reader is not.
+        `(${entry.nextSourceName}, page ${entry.nextPageInDoc + 1} of that file)`,
+    }));
 }
 
 /**
@@ -1802,7 +1900,7 @@ async function main() {
       log: (line) => console.log(line),
     });
     for (const [key, reason] of round.reasons) reasons.set(key, reason);
-    zones = mergeZones(zones, round.zones, AO_TEMPLATE);
+    zones = mergeZones(zones, round.zones);
 
     const after = outstandingSlots(AO_TEMPLATE, zones, reasons);
     roundReports.push({
@@ -1821,6 +1919,81 @@ async function main() {
   // Rounds can interleave, so put the zones back into template order before
   // cutting -- see inTemplateOrder for what depends on it.
   zones = inTemplateOrder(zones, AO_TEMPLATE);
+
+  // -------------------------------------------------------------------------
+  // Does any capture run off the bottom of its page?
+  //
+  // Free: no model call is made here at all. The furniture detector and the
+  // geometric test are both pure functions of OCR text that is already in
+  // memory, so this block costs a pass over the lines and nothing else.
+  //
+  // Scoped PER SOURCE DOCUMENT, which is what stops a chain crossing a file
+  // boundary: the last page of the merged contract scan is not continued by
+  // the first page of a separate SPLITBA scan, however adjacent their global
+  // page numbers are. Pooling furniture per document matters for the same
+  // reason -- pooled that way the 2-page SPLITBA correctly gets no footer
+  // lines, where a run-wide pool would blur two documents' furniture together.
+  // -------------------------------------------------------------------------
+  console.log("Checking each capture for a lanjutan (continuation)...");
+  /** @type {Map<number, object[]>} source index -> its pages, in page order */
+  const documentPages = new Map();
+  for (const page of pages) {
+    const own = documentPages.get(page.source);
+    if (own) own.push(page);
+    else documentPages.set(page.source, [page]);
+  }
+  const furnitureBySource = new Map(
+    [...documentPages].map(([sourceIndex, own]) => [
+      sourceIndex,
+      runningFurniture(own),
+    ]),
+  );
+  const checks = continuationChecks(
+    AO_TEMPLATE,
+    zones,
+    pages,
+    (zone, section, _slot, page) =>
+      checkForContinuation({
+        zone,
+        documentPages: documentPages.get(page.source),
+        furniture: furnitureBySource.get(page.source),
+        // The one thing that must not be defaulted. A whole-page capture ends
+        // at its page's last content line BY CONSTRUCTION, so the test says
+        // nothing about it -- three of the six false positives measured on
+        // bundle one were exactly that.
+        wholePageCapture: section.layout === "images",
+      }),
+  );
+  // "CHECKED" MEANS THE TEST ANSWERED, NOT MERELY THAT IT RAN. Two of stage
+  // 1's declines are non-answers: `whole-page-capture` (such a capture ends at
+  // its page's last content line BY CONSTRUCTION, so the geometry says nothing
+  // about it) and `no-content-line`. Printing those as "checked, no lanjutan"
+  // is the same wrong-and-quiet `/api/propose`'s `continuationChecked` flag
+  // was fixed for, and four of this template's twelve captures are whole-page.
+  for (const entry of checks) {
+    console.log(
+      entry.looksLikeContinuation
+        ? `  ${entry.key}: LANJUTAN LIKELY -- ${entry.reason}`
+        : continuationAnswered(entry)
+          ? `  ${entry.key}: checked, no lanjutan -- ${entry.reason}`
+          : `  ${entry.key}: NOT CHECKED for a lanjutan -- ${entry.reason}`,
+    );
+  }
+  const likely = checks.filter((entry) => entry.looksLikeContinuation).length;
+  const unanswered = checks.filter(
+    (entry) => !continuationAnswered(entry),
+  ).length;
+  // All three counted out loud. "0 of 12 look cut off" and "nothing was
+  // checked" read identically otherwise, and an unchecked capture must never
+  // look like a complete one.
+  console.log(
+    `  ${checks.length} capture(s) tested, ${likely} that may run onto the ` +
+      `next page, ${unanswered} the test cannot say anything about` +
+      (likely > 0
+        ? ". None is cropped: each is in the outstanding report, naming the " +
+          "page to look at.\n"
+        : ".\n"),
+  );
 
   console.log("Cutting crops...");
   const filled = await cutCrops(zones, pages, sources);
@@ -2098,16 +2271,40 @@ async function main() {
       pages: source.doc.numPages,
     })),
     rounds: roundReports,
-    zones: zones.map((zone) => ({
-      key: zone.key,
-      pageIndex: zone.pageIndex,
-      sourceName: pages[zone.pageIndex].sourceName,
-      pageInDoc: pages[zone.pageIndex].pageInDoc,
-      lineRange: zone.lineRange,
-      box: zone.box,
-    })),
+    zones: zones.map((zone) => {
+      const checked = checks.find((entry) => entry.key === zone.key);
+      return {
+        key: zone.key,
+        pageIndex: zone.pageIndex,
+        sourceName: pages[zone.pageIndex].sourceName,
+        pageInDoc: pages[zone.pageIndex].pageInDoc,
+        lineRange: zone.lineRange,
+        box: zone.box,
+        // The checked-for-continuation stamp, on every zone including the ones
+        // that came back "no". Without it a capture nobody looked at reads
+        // exactly like a capture that was looked at and is complete, which is
+        // the failure this half of the change introduces if it is skipped.
+        continuation: checked
+          ? {
+              // Whether the test ANSWERED, not merely whether it ran: see
+              // `continuationAnswered`. A whole-page capture reaches here
+              // declined and unexamined, and `checked: true` on it would read
+              // as "looked at, and complete".
+              checked: continuationAnswered(checked),
+              looksLikeContinuation: checked.looksLikeContinuation,
+              verdict: checked.verdict,
+              reason: checked.reason,
+              nextPageIndex: checked.nextPageIndex,
+            }
+          : { checked: false },
+      };
+    }),
     outstanding: [
       ...slotsOutstanding,
+      // A capture that runs off the bottom of its page is outstanding in the
+      // same sense the others are: something the operator has to finish by
+      // hand before the packet is complete.
+      ...outstandingContinuations(checks),
       ...fieldsOutstanding,
       ...outstandingHeaderFields(jenisOrder),
       // A value that was read and has nowhere to land is outstanding in the
@@ -2148,7 +2345,8 @@ async function main() {
   if (report.outstanding.length > 0) {
     console.log(
       `OUTSTANDING (${report.outstanding.length}) -- each needs a dokumen tambahan, ` +
-        "a manual zone selection, a flag (for a [header] item), or a row in " +
+        "a manual zone selection, a look at the named next page (for a " +
+        "[continuation] item), a flag (for a [header] item), or a row in " +
         "the form (for an [unmapped] one):",
     );
     for (const item of report.outstanding) {

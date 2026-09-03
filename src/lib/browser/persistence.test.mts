@@ -57,6 +57,7 @@ import {
   putRun,
   putSource,
   deleteRun,
+  CaptureLossError,
   PageLossError,
   StaleRunWriteError,
   type RunMeta,
@@ -449,7 +450,12 @@ test("the run saveRun hands back is the one to keep, so consecutive edits work",
   for (const label of ["one", "two", "three"]) {
     current = await saveRun({
       ...current,
-      slots: [{ key: "kb.nomor", label, status: "confirmed" }],
+      // The stored `kb.nomor` carries a zone, and it is CARRIED THROUGH here
+      // rather than rewritten from scratch. A write that keeps the key and
+      // drops the evidence is the shape `CaptureLossError` refuses -- see
+      // "a slot carried back with its zone gone is a capture loss too" -- and
+      // an ordinary label edit is not that.
+      slots: [{ ...confirmedSlot, label }],
     });
   }
 
@@ -491,6 +497,141 @@ test("a write that would drop a stored page is refused even at the right revisio
     after?.pages.map((p) => p.id),
     ["g0", "g1", "g2"],
   );
+});
+
+// ---------------------------------------------------------------------------
+// The third net: a discovered capture cannot be lost to a rebuild
+// ---------------------------------------------------------------------------
+
+/** The lanjutan a search discovered: appended, never seeded, carrying a zone. */
+const discoveredLanjutan: SlotState = {
+  key: "kb.nomor#2",
+  label: "Nomor",
+  status: "confirmed",
+  origin: "llm",
+  text: "sambungan pasal",
+  zone: {
+    pageIndex: 2,
+    box: { x: 120, y: 300, w: 800, h: 200 },
+    lineRange: [0, 9],
+  },
+};
+
+test("a REBUILT slot list cannot silently delete a discovered lanjutan", async () => {
+  const id = runId("captureloss");
+  const saved = await putRun({
+    ...freshRun(id, [page("c0", "src-a", 0), page("c1", "src-a", 1), page("c2", "src-a", 2)]),
+    slots: [...freshRun(id).slots, discoveredLanjutan],
+  });
+
+  // THE WRITE THIS GUARD EXISTS FOR, and the reason it had to land in the same
+  // change that made `slots` discoverable. Everything about it is correct
+  // except the one thing: current revision, every page present, and a slots
+  // array rebuilt from the template -- a migration, a "reset this run", any
+  // helper that maps over `AO_TEMPLATE.sections`. Before the guard, `putRun`
+  // performed it and RESOLVED. Pages intact, revision current, a crop the
+  // operator accepted gone, and nothing anywhere said so.
+  const rebuiltFromTemplate = saved.slots.filter((slot) => !slot.key.includes("#"));
+  await assert.rejects(
+    () => saveRun({ ...saved, slots: rebuiltFromTemplate }),
+    (error: unknown) => {
+      assert.ok(error instanceof CaptureLossError);
+      assert.deepEqual(error.missing, ["kb.nomor#2"]);
+      return true;
+    },
+  );
+
+  const after = await getRun(id);
+  assert.deepEqual(
+    after?.slots.map((s) => s.key),
+    ["kb.nomor", "kb.tanggal", "sp.ttd", "kb.nomor#2"],
+    "the refusal must leave the stored capture in place, not half-apply",
+  );
+});
+
+test("removing a capture is allowed when the write SAYS which one", async () => {
+  const id = runId("captureremove");
+  const saved = await putRun({
+    ...freshRun(id, [page("d0", "src-a", 0)]),
+    slots: [...freshRun(id).slots, discoveredLanjutan],
+  });
+
+  // "Bukan ini" on a wrongly-proposed lanjutan. The row really does cease to
+  // exist -- the rule is not append-only, it is that a removal must be stated
+  // rather than being a side effect of writing a shorter array.
+  const stored = await saveRun(
+    { ...saved, slots: saved.slots.filter((slot) => slot.key !== "kb.nomor#2") },
+    { removing: ["kb.nomor#2"] },
+  );
+
+  assert.deepEqual(stored.slots.map((s) => s.key), [
+    "kb.nomor",
+    "kb.tanggal",
+    "sp.ttd",
+  ]);
+  const after = await getRun(id);
+  assert.equal(after?.slots.length, 3);
+});
+
+test("a slot carried back with its zone gone is a capture loss too", async () => {
+  const id = runId("capturezone");
+  const saved = await putRun({
+    ...freshRun(id, [page("z0", "src-a", 0)]),
+    slots: [...freshRun(id).slots, discoveredLanjutan],
+  });
+
+  // THE SHAPE THE KEY-ONLY CHECK MISSED, and it is the shape the writer this
+  // net was built for actually produces. A rebuild from `AO_TEMPLATE.sections`
+  // emits capture 1 under the template key VERBATIM -- that is how `seedSlots`
+  // keys it -- with no zone. Every key is carried, so a comparison on keys
+  // passes while every accepted capture-1 crop is erased at the correct
+  // revision with every page present, and the write reports success. Only the
+  // `#2` key such a writer fails to emit was caught, which is the smaller half
+  // of the same loss.
+  const reseeded = saved.slots.map((slot) =>
+    slot.key === "kb.nomor" ? { ...slot, zone: undefined } : slot,
+  );
+  await assert.rejects(
+    () => saveRun({ ...saved, slots: reseeded }),
+    (error: unknown) => {
+      assert.ok(error instanceof CaptureLossError);
+      assert.deepEqual(error.missing, ["kb.nomor"]);
+      return true;
+    },
+  );
+
+  const after = await getRun(id);
+  assert.ok(after?.slots.find((s) => s.key === "kb.nomor")?.zone);
+
+  // And it is allowed when the write SAYS so, which is what "Bukan ini" on
+  // capture 1 does: the row stays, because the template still asks for the
+  // bagian, and only its evidence goes.
+  const stored = await saveRun(
+    { ...saved, slots: reseeded },
+    { removing: ["kb.nomor"] },
+  );
+  assert.equal(stored.slots.find((s) => s.key === "kb.nomor")?.zone, undefined);
+  assert.equal(stored.slots.length, saved.slots.length);
+});
+
+test("a dropped capture with no evidence is not a loss, and is not refused", async () => {
+  const id = runId("captureempty");
+  const saved = await putRun({
+    ...freshRun(id, [page("e0", "src-a", 0)]),
+    // Same shape, no zone: a capture nobody has found anything for. Refusing
+    // these would block the legitimate case where a template stops declaring a
+    // slot, and re-seeding one costs nothing because there is nothing in it.
+    slots: [
+      ...freshRun(id).slots,
+      { key: "kb.nomor#2", label: "Nomor", status: "outstanding" },
+    ],
+  });
+
+  const stored = await saveRun({
+    ...saved,
+    slots: saved.slots.filter((slot) => slot.key !== "kb.nomor#2"),
+  });
+  assert.equal(stored.slots.length, 3);
 });
 
 test("a save cannot resurrect a deleted run", async () => {

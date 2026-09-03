@@ -27,9 +27,9 @@ import type { HeaderFields } from "../export/docx.ts";
 import type { SectionDef, Template } from "../forms/template.ts";
 import type { Box } from "../pipeline/render.ts";
 import { resolvePage } from "./evidence.ts";
-import { slotKeyOf } from "./runtime.ts";
+import { captureOrdinalOf, slotKeyOf } from "./runtime.ts";
 import type { BrowserRun, SlotState } from "./runtime.ts";
-import { requiredCrops, unmatchedStates } from "./slots.ts";
+import { maxOrdinalOf, unmatchedStates } from "./slots.ts";
 
 export type PlannedCrop = {
   key: string;
@@ -82,7 +82,16 @@ export type CaptureStanding =
 export type PlannedCapture = {
   /** Position in `run.slots`, or -1 for a capture the run has never seen. */
   stateIndex: number;
-  /** 1-based within its slot. */
+  /**
+   * WHICH CAPTURE OF ITS SLOT THIS IS, read off the state's own key rather
+   * than counted off its position in the list.
+   *
+   * The two agree until a capture is removed. After that, counting renumbers
+   * every survivor -- the picture an operator accepted as "ToP (lanjutan 2)"
+   * silently becomes "ToP (lanjutan)" -- and the export screen would then
+   * disagree with what they signed off. Ordinals are never re-used, so they
+   * are what the label is derived from here and everywhere else.
+   */
   ordinal: number;
   standing: CaptureStanding;
   /** Set only when `standing` is `ships`. Nothing else prints a picture. */
@@ -106,8 +115,17 @@ export type PlannedSlot = {
   /** The template's own label. May carry `{{quote}}`; see `displayLabel`. */
   label: string;
   fillable: boolean;
-  /** How many captures the template expects. */
-  required: number;
+  /**
+   * The highest capture ordinal this slot holds. What `captureLabel` wants as
+   * its `total`, and NOT a count of anything -- see `PlannedCapture.ordinal`.
+   *
+   * THE TEMPLATE NO LONGER SAYS HOW MANY PICTURES A SLOT NEEDS. It used to
+   * (`SlotDef.crops`), and this field was called `required`, and the screen
+   * reported "1 dari 2 potongan" on a bagian nobody had ever searched for a
+   * second picture of. A lanjutan is discovered now, so the run is the only
+   * authority on how many captures exist.
+   */
+  maxOrdinal: number;
   /** How many of them will carry a picture. */
   ships: number;
   captures: PlannedCapture[];
@@ -143,7 +161,12 @@ export type ExportTally = {
   slotsComplete: number;
   slotsPartial: number;
   slotsBlank: number;
-  capturesRequired: number;
+  /**
+   * Captures the run HOLDS on fillable slots, which is as close to "required"
+   * as anything can now get: nothing declares a capture count, so a picture is
+   * owed only once something has found one.
+   */
+  capturesHeld: number;
   capturesShipping: number;
   capturesExtra: number;
 };
@@ -208,7 +231,7 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
     slotsComplete: 0,
     slotsPartial: 0,
     slotsBlank: 0,
-    capturesRequired: 0,
+    capturesHeld: 0,
     capturesShipping: 0,
     capturesExtra: 0,
   };
@@ -218,12 +241,12 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
 
     for (const slot of section.slots) {
       const placed = byKey.get(slot.key) ?? [];
-      const required = requiredCrops(slot);
+      const maxOrdinal = maxOrdinalOf(placed);
       const captures: PlannedCapture[] = [];
       let ships = 0;
 
-      placed.forEach(({ state, index }, position) => {
-        const ordinal = position + 1;
+      placed.forEach(({ state, index }) => {
+        const ordinal = captureOrdinalOf(state.key);
 
         if (state.status === "confirmed") {
           const resolved = state.zone
@@ -291,9 +314,14 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
 
       if (slot.fillable) {
         tally.fillableSlots += 1;
-        tally.capturesRequired += required;
+        tally.capturesHeld += placed.length;
         tally.capturesShipping += ships;
-        if (ships >= required) tally.slotsComplete += 1;
+        // "Complete" is now every capture the run HOLDS shipping a picture,
+        // rather than every capture the template declared. A slot whose only
+        // capture ships is complete as far as anything knows -- which is why
+        // `Progress.uncheckedForContinuation` is reported alongside this, and
+        // says how much of that "as far as anything knows" was ever tested.
+        if (ships > 0 && ships === placed.length) tally.slotsComplete += 1;
         else if (ships > 0) tally.slotsPartial += 1;
         else tally.slotsBlank += 1;
       } else {
@@ -304,7 +332,7 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
         key: slot.key,
         label: slot.label,
         fillable: slot.fillable,
-        required,
+        maxOrdinal,
         ships,
         captures,
       });
@@ -339,7 +367,8 @@ export type BlockingItem = {
   sectionTitle: string;
   label: string;
   ordinal: number;
-  required: number;
+  /** The slot's highest capture ordinal, for `captureLabel`'s `total`. */
+  maxOrdinal: number;
   stateIndex: number;
 };
 
@@ -382,7 +411,7 @@ export function blockingItems(plan: ExportPlan): BlockingItem[] {
           sectionTitle: section.title,
           label: slot.label,
           ordinal: 1,
-          required: slot.required,
+          maxOrdinal: slot.maxOrdinal,
           stateIndex: -1,
         });
         continue;
@@ -401,7 +430,7 @@ export function blockingItems(plan: ExportPlan): BlockingItem[] {
           sectionTitle: section.title,
           label: slot.label,
           ordinal: capture.ordinal,
-          required: slot.required,
+          maxOrdinal: slot.maxOrdinal,
           stateIndex: capture.stateIndex,
         });
       }

@@ -30,7 +30,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import * as browserRuntime from "../browser/runtime.ts";
-import { seedSlots, slotKeyOf } from "../browser/runtime.ts";
+import {
+  captureOrdinalOf,
+  seedSlots,
+  slotKeyOf,
+  withDiscoveredCaptures,
+} from "../browser/runtime.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import { planExport } from "./export.ts";
 import { liveRuntime } from "./live-runtime.ts";
@@ -104,8 +109,18 @@ test("the stub's runs carry production's slot keys and per-source page numbers",
   assert.ok(run);
 
   const keys = run.slots.map((s) => s.key);
-  assert.ok(keys.includes("kbLanjutan.top#1"));
+  // Capture 1 is the template key VERBATIM -- nothing declares a second any
+  // more -- and the stub DISCOVERS a lanjutan the way a real round does, so
+  // the multi-capture screens are driven in `pnpm dev` without the sheet
+  // asserting a picture nobody has looked for.
+  assert.ok(keys.includes("kbLanjutan.top"));
   assert.ok(keys.includes("kbLanjutan.top#2"));
+  for (const key of keys) {
+    assert.ok(
+      captureOrdinalOf(key) === 1 || key.includes("#"),
+      `${key} must carry its ordinal in the key or be capture 1`,
+    );
+  }
 
   // The second document restarts at 0, exactly as a real ingest numbers it,
   // so `StoredPage.index` collides across sources the way it does in
@@ -128,21 +143,27 @@ test("the stub's runs carry production's slot keys and per-source page numbers",
 
 /* ------------------------------------------- the multi-capture key mismatch */
 
-/** A run seeded exactly as the real runtime seeds one. */
+/**
+ * A run seeded exactly as the real runtime seeds one.
+ *
+ * TWO PAGES, because a lanjutan lives on the page AFTER its parent's: a run
+ * holding one page can carry no continuation at all, and `planExport` would
+ * drop the crop as citing a page the run does not have.
+ */
 function seededRun(slots: SlotState[] = seedSlots(AO_TEMPLATE)): BrowserRun {
-  const page: StoredPage = {
-    id: "p0",
+  const pages: StoredPage[] = [0, 1].map((index) => ({
+    id: `p${index}`,
     sourceId: "s0",
-    index: 0,
+    index,
     widthPx: 2480,
     heightPx: 3507,
     lines: [],
-  };
+  }));
   return {
     id: "run",
     createdAt: 0,
-    sources: [{ id: "s0", name: "LOP999001_merged.pdf", pageCount: 1 }],
-    pages: [page],
+    sources: [{ id: "s0", name: "LOP999001_merged.pdf", pageCount: pages.length }],
+    pages,
     slots,
   };
 }
@@ -153,8 +174,50 @@ const ZONE = {
   lineRange: [0, 1] as [number, number],
 };
 
-test("a two-capture slot's states are grouped under the template slot they fill", () => {
-  const run = seededRun();
+/**
+ * Where a lanjutan actually lands: the NEXT page, its own lines.
+ *
+ * A distinct rectangle rather than a copy of `ZONE`, because
+ * `withDiscoveredCaptures` now refuses to append a zone the slot already
+ * holds -- a repeated answer is a second row carrying the same picture, which
+ * is the operator's original complaint on evidence that is already in the
+ * packet.
+ */
+const LANJUTAN_ZONE = {
+  pageIndex: 1,
+  box: { x: 10, y: 10, w: 100, h: 90 },
+  lineRange: [0, 3] as [number, number],
+};
+
+/**
+ * A run whose ToP capture holds evidence and has grown one DISCOVERED
+ * lanjutan, built through production's own append.
+ *
+ * The second state used to come from `seedSlots` reading `SlotDef.crops: 2`.
+ * It comes from a discovery now, which is the whole change -- but every
+ * BEHAVIOUR below is still required, because a discovered capture renders,
+ * gates and exports exactly like a declared one did. What changed is where it
+ * comes from, not what it has to do.
+ */
+function runWithLanjutan(status: "proposed" | "confirmed"): BrowserRun {
+  const seeded = seedSlots(AO_TEMPLATE).map((slot) =>
+    slot.key === "kbLanjutan.top"
+      ? { ...slot, status: "confirmed" as const, zone: ZONE }
+      : slot,
+  );
+  const grown = withDiscoveredCaptures(seededRun(seeded), [
+    { after: "kbLanjutan.top", zone: LANJUTAN_ZONE, text: "sambungan pasal" },
+  ]);
+  return {
+    ...grown,
+    slots: grown.slots.map((slot) =>
+      slot.key === "kbLanjutan.top#2" ? { ...slot, status } : slot,
+    ),
+  };
+}
+
+test("a discovered lanjutan is grouped under the template slot it continues", () => {
+  const run = runWithLanjutan("proposed");
   const entries = sheetSections(run, AO_TEMPLATE)
     .flatMap((section) => section.entries)
     .filter((entry) => entry.def.key === "kbLanjutan.top");
@@ -163,36 +226,43 @@ test("a two-capture slot's states are grouped under the template slot they fill"
   // Both captures, matched to the slot. Grouping on the raw `<key>#n` string
   // matched nothing and rendered the row as an untouched slot for ever.
   assert.equal(entries[0].states.length, 2);
-  assert.equal(entries[0].required, 2);
+  assert.equal(entries[0].maxOrdinal, 2);
   assert.deepEqual(unmatchedStates(run, AO_TEMPLATE), []);
+
+  // A bagian nothing has grown reports one capture, not a second that is
+  // owed: that assertion is the operator report this feature comes from.
+  const untouched = sheetSections(seededRun(), AO_TEMPLATE)
+    .flatMap((section) => section.entries)
+    .find((entry) => entry.def.key === "kbLanjutan.top");
+  assert.equal(untouched?.states.length, 1);
+  assert.equal(untouched?.maxOrdinal, 1);
 });
 
-test("an unreviewed proposal on the SECOND capture still blocks the export", () => {
-  const slots = seedSlots(AO_TEMPLATE).map((slot) =>
-    slot.key === "kbLanjutan.top#2"
-      ? { ...slot, status: "proposed" as const, origin: "llm" as const, zone: ZONE }
-      : slot,
-  );
-
+test("an unreviewed proposal on a DISCOVERED lanjutan still blocks the export", () => {
   // This returned false. The design forbids exporting an unreviewed zone
   // outright, and the gate was open on exactly the capture most likely to be
-  // missed.
-  assert.equal(hasUnreviewedProposals(seededRun(slots), AO_TEMPLATE), true);
+  // missed -- which is now also the capture that appears without warning
+  // under a bagian the operator had already finished with.
+  assert.equal(
+    hasUnreviewedProposals(runWithLanjutan("proposed"), AO_TEMPLATE),
+    true,
+  );
 });
 
-test("both confirmed captures of a two-capture slot reach the export plan", () => {
-  const slots = seedSlots(AO_TEMPLATE).map((slot) =>
-    slot.key.startsWith("kbLanjutan.top")
-      ? { ...slot, status: "confirmed" as const, zone: ZONE }
-      : slot,
-  );
-
-  const plan = planExport(seededRun(slots), AO_TEMPLATE);
+test("both confirmed captures of a grown slot reach the export plan", () => {
+  const plan = planExport(runWithLanjutan("confirmed"), AO_TEMPLATE);
 
   // Planned ZERO before, with both captures confirmed, and reported the slot
   // as shipping empty. The docx would have carried a blank cell over two
   // accepted zones.
-  assert.equal(plan.crops.filter((c) => c.key === "kbLanjutan.top").length, 2);
+  const crops = plan.crops.filter((c) => c.key === "kbLanjutan.top");
+  assert.equal(crops.length, 2);
+  // The exporter stacks a cell's pictures in the order it receives them, so
+  // the ordinals have to arrive in order and be the STORED ones.
+  assert.deepEqual(
+    crops.map((c) => c.ordinal),
+    [1, 2],
+  );
   assert.ok(!plan.empty.some((e) => e.key === "kbLanjutan.top"));
 });
 

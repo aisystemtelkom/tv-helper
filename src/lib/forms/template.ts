@@ -56,21 +56,39 @@ export type SlotDef = {
    */
   catatan?: { adalah: string; bukan?: string };
   fillable: boolean;
-  /**
-   * How many images this slot holds. Defaults to 1 when absent, so every
-   * existing slot keeps its current meaning without being touched.
+  /*
+   * THERE IS DELIBERATELY NO CAPTURE COUNT ON A SLOT. If you are about to add
+   * one back -- `crops`, `images`, `maxCaptures`, whatever it gets called --
+   * this is the field that already existed and was removed, and this is why.
    *
-   * This exists because a `layout: "table"` row in the source docx can
-   * stack more than one picture in a single cell -- unlike `layout:
-   * "images"`, where each picture is already its own paragraph and thus
-   * its own slot (e.g. `sp.1` / `sp.2`). The sample's `KB (lanjutan)`
-   * table's `ToP` row stacks two images (rId17 -> image9.png, rId18 ->
-   * image10.png) in one cell; that is one row with one label, so it stays
-   * one `SlotDef`, not two. Without an explicit count here, an exporter
-   * that takes one PNG per slot key would silently drop the second
-   * capture -- do not remove this field to "simplify" the type.
+   * It used to say how many images a slot holds, and `kbLanjutan.top`
+   * declared 2 because the sample's `KB (lanjutan)` ToP row stacks two
+   * pictures in one cell. An operator testing the tool found what that
+   * produces: the sheet showed "ToP 1" and "ToP 2" with the second
+   * permanently missing, and they said -- correctly -- that there is only
+   * ONE ToP. Read off the sample's own pictures, capture 1 is the payment
+   * clause's items 1 to 3 and capture 2 is items 4 and 5 OF THAT SAME
+   * CLAUSE carrying the next page's header. One clause, split by a page
+   * break.
+   *
+   * So the count was never a property of the FORM. On another contract the
+   * same clause fits one page, or runs to three, and any section can run
+   * past a page bottom -- the second bundle splits its contract checklist
+   * across three tables over 155 pages. Declaring it here asserted a
+   * capture existed before anyone had looked, and nothing ever searched for
+   * it, so the slot reported "1 of 2" forever by construction.
+   *
+   * A continuation is now DISCOVERED, per document, by
+   * `src/lib/pipeline/continuation.ts`, and appended to `run.slots` by
+   * `withDiscoveredCaptures` (`src/lib/browser/captures.ts`). `seedSlots`
+   * seeds exactly one capture per fillable slot; everything downstream --
+   * `captureLabel`, `planExport`, the sheet -- reads how many captures exist
+   * off the RUN. Read those before adding any multiplicity back here.
+   *
+   * The field outlived its last declaration by one change, kept only so the
+   * two readers of `slot.crops ?? 1` compiled while the UI half landed. Both
+   * are gone, so it is too.
    */
-  crops?: number;
 };
 
 export type SectionDef = {
@@ -318,18 +336,22 @@ export const AO_TEMPLATE: Template = {
               "order.",
           },
           fillable: true,
-          // The sample stacks two images in this one cell (rId17/image9.png
-          // and rId18/image10.png). See the `crops` doc comment on SlotDef.
+          // THE `crops: 2` THAT USED TO SIT HERE IS GONE. See the `crops`
+          // doc comment on SlotDef for the operator report that removed it:
+          // the sample's two pictures in this cell are one payment clause
+          // split by a page break, not two things this form asks for, and
+          // declaring the second asserted it existed before anyone looked
+          // while nothing ever searched for it.
           //
-          // The hint above describes the FIRST of those two -- the payment
-          // clause itself. It deliberately does not mention the remittance
-          // account block that the second capture holds: naming both in one
-          // hint made the single call this pass makes land on the account
-          // page and miss the clause, i.e. it answered the second capture
-          // and dropped the first. One call, one thing. The second capture
-          // is what the dokumen tambahan round and manual selection are for,
-          // and `outstandingSlots` reports it as "1 of 2 captures found".
-          crops: 2,
+          // The hint above still describes the FIRST capture only, and that
+          // is still deliberate and still measured: naming the remittance
+          // account block that the sample's second picture holds made the
+          // single locate call land on the account page and miss the clause,
+          // i.e. it answered the continuation and dropped the block. One
+          // call, one thing. What finds the rest of the clause now is
+          // `src/lib/pipeline/continuation.ts`, working forward from this
+          // capture, which needs no hint of its own because it is given the
+          // page and the block's own tail.
         },
         {
           key: "kbLanjutan.ttdPejabat",

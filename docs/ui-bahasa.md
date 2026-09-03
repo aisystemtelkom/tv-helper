@@ -50,6 +50,9 @@ improvise a synonym.
 | line / lines | **baris** | |
 | size | **ukuran** | |
 | whole-page capture | **tangkapan satu halaman** | |
+| a continuation capture | **lanjutan** | the REST of one bagian's evidence, carried onto the next page by a page break. Never a second field: the sample's two ToP pictures are items 1-3 and items 4-5 of one Pasal. The template already uses the word in its section titles, so the UI uses no synonym -- not "sambungan", not "bagian kedua" |
+| no continuation was found | **diperiksa, tidak ada lanjutan** | said only when a search actually looked past that potongan's page bottom |
+| nothing has looked yet | **belum diperiksa lanjutannya** | the opposite, and it must never read as finished. A lanjutan is discovered, not declared, so a bagian nobody has looked past is not known to be complete |
 | region within a page | **area di dalam halaman** | |
 | the review sheet | **lembar periksa** | |
 | additional document | **dokumen tambahan** | the client's own term, keep it |

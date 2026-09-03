@@ -1,20 +1,28 @@
 /**
  * Joining what the runtime knows (slot states) to what the template declares
- * (sections, labels, how many captures a slot holds).
+ * (sections and labels).
  *
- * The runtime's `SlotState` carries a key, a label and a status. The template
- * is where a slot's SECTION and its capture count live, and the capture count
- * is load-bearing: the sample's `KB (lanjutan)` ToP row stacks two pictures in
- * one cell, so a slot holding one of them is half done, not done. A contact
- * sheet that showed it as filled would be the wrong-and-quiet failure in its
- * purest form -- a complete-looking sheet over a deliverable missing evidence.
+ * THE TEMPLATE NO LONGER KNOWS HOW MANY PICTURES A SLOT HOLDS, and this module
+ * is where that shows up hardest. It used to read `SlotDef.crops`, which said
+ * the `KB (lanjutan)` ToP row holds two -- and an operator testing the tool
+ * reported the result: a sheet showing "ToP 1" and "ToP 2", the second
+ * permanently missing, on a document that holds one ToP. The count was never a
+ * property of the form. A lanjutan is now DISCOVERED per document, so the only
+ * honest source for "how many captures does this bagian have" is `run.slots`
+ * itself.
+ *
+ * What replaces the count as a completeness check is `continuationChecked` on
+ * each capture: whether anything has looked past its page bottom yet. Without
+ * it this change would only trade a visible wrong ("1 of 2" for ever) for an
+ * invisible one (a truncated clause that reads as finished).
  *
  * Pure, so `src/lib/ui/ui.test.mts` can drive it.
  */
 
 import type { SectionDef, SlotDef, Template } from "../forms/template.ts";
-import { slotKeyOf } from "./runtime.ts";
+import { captureOrdinalOf, slotKeyOf } from "./runtime.ts";
 import type { BrowserRun, SlotState, SlotStatus } from "./runtime.ts";
+import { continuationChecked } from "../browser/captures.ts";
 
 /** Every slot the template declares, with the section it belongs to. */
 export function templateSlots(
@@ -23,11 +31,6 @@ export function templateSlots(
   return template.sections.flatMap((section) =>
     section.slots.map((slot) => ({ section, slot })),
   );
-}
-
-/** Absent means one. See the `crops` doc comment on `SlotDef`. */
-export function requiredCrops(slot: SlotDef): number {
-  return slot.crops ?? 1;
 }
 
 /**
@@ -50,14 +53,21 @@ export function requiredCrops(slot: SlotDef): number {
  *
  * Numbered from the SECOND capture, because the first is not a continuation of
  * anything: a three-capture slot reads label, "(lanjutan)", "(lanjutan 2)".
+ *
+ * A PURE FUNCTION OF THE ORDINAL, AND THAT IS THE WHOLE POINT OF THE
+ * SIGNATURE. It used to take the slot's capture count as well and read
+ * "(lanjutan)" at two captures but "(lanjutan 1)" at three, which was fine
+ * while the count came from `SlotDef.crops` and could not move. It is read off
+ * the run now and GROWS: discovering a third capture renamed a picture the
+ * operator had already accepted from "ToP (lanjutan)" to "ToP (lanjutan 1)",
+ * the same instability `PlannedCapture.ordinal`, `nextCaptureOrdinal` and
+ * `SlotAggregate.maxOrdinal` each carry a comment about avoiding. The label of
+ * an accepted potongan may not change because an unrelated later one was
+ * found, so the count is gone from the decision.
  */
-export function captureLabel(
-  label: string,
-  ordinal: number,
-  total: number,
-): string {
-  if (total <= 1 || ordinal <= 1) return label;
-  return total === 2 ? `${label} (lanjutan)` : `${label} (lanjutan ${ordinal - 1})`;
+export function captureLabel(label: string, ordinal: number): string {
+  if (ordinal <= 1) return label;
+  return ordinal === 2 ? `${label} (lanjutan)` : `${label} (lanjutan ${ordinal - 1})`;
 }
 
 /**
@@ -85,11 +95,40 @@ export type SlotAggregate = {
   section: SectionDef;
   /** Every runtime state carrying this key, in the order the runtime gave. */
   states: PlacedSlot[];
-  required: number;
+  /**
+   * The highest capture ordinal this slot holds, which is what `captureLabel`
+   * needs as its `total`.
+   *
+   * NOT `states.length`, and the difference is only visible after a removal:
+   * captures 1 and 3 are two states, and calling the second of them "capture 2
+   * of 2" would rename a picture the operator already accepted. Ordinals are
+   * never re-used, so the count and the highest number legitimately disagree.
+   */
+  maxOrdinal: number;
   /** How many captures actually hold a zone. */
   found: number;
+  /**
+   * Captures holding evidence that nothing has yet looked PAST -- no lanjutan
+   * search has run on them.
+   *
+   * The honest half of dropping the declared count. A bagian whose one capture
+   * has never been checked is not known to be complete; it is only known not to
+   * be obviously incomplete. Surfaced on screen, deliberately NOT blocking:
+   * see the note on `hasUnreviewedProposals`.
+   */
+  unchecked: number;
   status: SlotAggregateStatus;
 };
+
+/** The capture number this state is, read off its key. */
+export function ordinalOf(placed: PlacedSlot): number {
+  return captureOrdinalOf(placed.state.key);
+}
+
+/** The highest ordinal among a slot's captures; 1 when it holds none. */
+export function maxOrdinalOf(states: readonly PlacedSlot[]): number {
+  return states.reduce((high, placed) => Math.max(high, ordinalOf(placed)), 1);
+}
 
 /**
  * One word for a slot that may hold several captures.
@@ -141,12 +180,28 @@ export type SlotAggregate = {
  * is settled the slot is `confirmed` if any capture carries evidence and
  * `unfilled` only if none does. Assert this together with `decided`: the bug
  * is only ever visible when the two disagree.
+ *
+ * A DISCOVERED LANJUTAN IS A NEW THING THAT IS OWED, and it re-opens a slot
+ * that had gone quiet. It arrives as an APPENDED capture in `proposed`, so the
+ * first branch below carries it with no special case: a bagian whose one crop
+ * the operator accepted goes from "diterima" back to "perlu diputuskan" the
+ * moment a continuation is found for it, drops out of `progressOf`'s `decided`,
+ * and blocks the export until they rule on it. That is the point -- the
+ * alternative is a second picture appearing in the packet that nobody looked
+ * at.
+ *
+ * THE ARGUMENTS `found` AND `required` ARE GONE. `found` was never read, and
+ * `required` came from `SlotDef.crops`, which is dead: nothing declares how
+ * many captures a slot holds, so the states ARE the captures. The one case
+ * that argument used to carry is now explicit below -- a slot the run holds no
+ * state for at all is `pending`, not `unfilled`.
  */
-export function aggregateStatus(
-  states: PlacedSlot[],
-  found: number,
-  required: number,
-): SlotAggregateStatus {
+export function aggregateStatus(states: PlacedSlot[]): SlotAggregateStatus {
+  // The template declares it and the run has never seen it: a run made before
+  // the template grew. Nobody has looked, so it owes a search -- reading it as
+  // `unfilled` would let it ship as a considered blank.
+  if (states.length === 0) return "pending";
+
   const statuses = states.map((s) => s.state.status);
 
   // A proposal outranks everything: it is the one state where a person is
@@ -156,15 +211,9 @@ export function aggregateStatus(
   const confirmed = states.filter(
     (s) => s.state.status === "confirmed" && s.state.zone,
   ).length;
-  // Captures the template declares that the run has no state for. `found` is
-  // not enough on its own: a slot needing two pictures and holding one state
-  // has an entire capture nobody has looked at.
-  const absent = Math.max(0, required - states.length);
-  const open =
-    absent +
-    statuses.filter(
-      (s) => s === "pending" || s === "outstanding" || s === "proposed",
-    ).length;
+  const open = statuses.filter(
+    (s) => s === "pending" || s === "outstanding" || s === "proposed",
+  ).length;
 
   if (open > 0) {
     if (confirmed > 0) return "partial";
@@ -213,15 +262,17 @@ export function sheetSections(
     layout: section.layout,
     entries: section.slots.map((slot) => {
       const states = byKey.get(slot.key) ?? [];
-      const required = requiredCrops(slot);
       const found = states.filter((s) => s.state.zone).length;
       return {
         def: slot,
         section,
         states,
-        required,
+        maxOrdinal: maxOrdinalOf(states),
         found,
-        status: aggregateStatus(states, found, required),
+        unchecked: states.filter(
+          (s) => s.state.zone && !continuationChecked(s.state),
+        ).length,
+        status: aggregateStatus(states),
       };
     }),
   }));
@@ -282,6 +333,13 @@ export type Progress = {
   pending: number;
   /** Slots the operator has settled one way or the other. */
   decided: number;
+  /**
+   * Slots holding evidence that no lanjutan search has run over.
+   *
+   * Reported, not enforced. See `hasUnreviewedProposals` for why an unchecked
+   * capture is shown rather than blocked.
+   */
+  uncheckedForContinuation: number;
 };
 
 /**
@@ -300,16 +358,19 @@ export function progressOf(run: BrowserRun, template: Template): Progress {
   };
 
   let fillable = 0;
+  let uncheckedForContinuation = 0;
   for (const section of sheetSections(run, template)) {
     for (const entry of section.entries) {
       if (!entry.def.fillable) continue;
       fillable += 1;
       counts[entry.status] += 1;
+      if (entry.unchecked > 0) uncheckedForContinuation += 1;
     }
   }
 
   return {
     fillable,
+    uncheckedForContinuation,
     confirmed: counts.confirmed,
     proposed: counts.proposed,
     partial: counts.partial,
@@ -328,6 +389,15 @@ export function progressOf(run: BrowserRun, template: Template): Progress {
  * slots empty on the record. A proposal nobody has looked at is different --
  * exporting it would put an unreviewed zone in the deliverable, which the
  * design forbids outright.
+ *
+ * NEITHER DOES AN UNCHECKED CAPTURE, and the line is worth stating because it
+ * is close to one that would be wrong. A capture nobody has looked past is a
+ * gap in what we KNOW, not evidence nobody ruled on: the crop in the packet is
+ * one the operator personally accepted. Blocking on it would stop an export
+ * every time an operator drew a zone by hand without re-running Proses, which
+ * teaches people that the block means nothing. So it is counted
+ * (`Progress.uncheckedForContinuation`) and said out loud on the sheet and on
+ * the export screen, and the operator decides whether to press Proses again.
  */
 export function hasUnreviewedProposals(
   run: BrowserRun,
