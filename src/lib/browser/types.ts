@@ -151,13 +151,24 @@ export type BrowserRun = {
   rev?: number;
   sources: RunSource[];
   /**
-   * APPEND-ONLY, and that is load-bearing rather than a convention.
+   * A ZONE RECORDS `pageIndex`, WHICH IS A POSITION IN THIS ARRAY, and every
+   * rule about this field follows from that one sentence.
    *
-   * A zone records `pageIndex`, which is a position in this array. Ingesting
-   * a dokumen tambahan appends its pages to the end; it must never reorder or
-   * remove earlier ones, or every zone an operator already confirmed silently
-   * starts pointing at a different page. `scripts/generate.mjs` keeps its
-   * global page list append-only across rounds for exactly this reason.
+   * It was written down as "append-only" while that was the only way to keep
+   * the rule true. Ingesting a dokumen tambahan appends to the end and must
+   * never reorder or remove what is already here, or every zone an operator
+   * already confirmed silently starts pointing at a different page.
+   * `scripts/generate.mjs` keeps its global page list append-only across
+   * rounds for exactly this reason.
+   *
+   * THE ONE THING THAT MAY SHORTEN IT is removing a whole source document from
+   * an open pekerjaan, and it is allowed only because it does the other half:
+   * `removeSource` in `src/lib/browser/sources.ts` renumbers every surviving
+   * zone through the same map it renumbers the pages with, drops the evidence
+   * that lived inside the removed document rather than repointing it, and
+   * names both to `putRun`. Anything that shortens this array WITHOUT moving
+   * the zones is the failure this comment exists to prevent, and `putRun`
+   * refuses it: a shed page must be named in `removingPages`.
    */
   pages: StoredPage[];
   /**

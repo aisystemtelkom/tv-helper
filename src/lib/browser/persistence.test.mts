@@ -62,12 +62,14 @@ import {
   StaleRunWriteError,
   type RunMeta,
 } from "../storage/runs.ts";
+import { continuationChecked } from "./captures.ts";
 import {
   createRun,
   ingestDocument,
   listRuns,
   loadRun,
   outstandingSlots,
+  removeDocument,
   saveRun,
 } from "./runtime.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./types.ts";
@@ -923,4 +925,230 @@ test("a page's run-global position is what a zone means, across two documents", 
     "each source numbers its own pages from zero",
   );
   assert.equal(run.pages[3].sourceId, run.sources[1].id, "position 3 is b.pdf page 0");
+});
+
+// ---------------------------------------------------------------------------
+// Taking one document back out of an open pekerjaan
+// ---------------------------------------------------------------------------
+//
+// THE OPERATION THIS FILE'S SECOND NET WAS WRITTEN TO FORBID, now that
+// something legitimately asks for it. `PageLossError` said there was no
+// legitimate single-page removal, and that was true only while nobody had
+// wanted one: realising halfway through that a scan is the wrong document does
+// not become less true because two crops were accepted from it first.
+//
+// So the rule is no longer "pages never leave", it is "pages never leave
+// SILENTLY", and these tests pin both halves. A named removal goes through; an
+// unnamed one is still refused. The dangerous half is not whether the pages
+// disappear, which is visible, it is whether the zones that survive still
+// point at the scans they were found on, which nothing on screen contradicts.
+
+function twoDocumentRun(id: string): BrowserRun {
+  return {
+    id,
+    createdAt: 1,
+    sources: [
+      { id: "src-a", name: "KONTRAK.pdf", pageCount: 2 },
+      { id: "src-b", name: "SPLITBA.pdf", pageCount: 2 },
+    ],
+    pages: [
+      page("p-a0", "src-a", 0),
+      page("p-a1", "src-a", 1),
+      page("p-b0", "src-b", 0),
+      page("p-b1", "src-b", 1),
+    ],
+    slots: [
+      {
+        key: "kb.nomor",
+        label: "Nomor",
+        status: "confirmed",
+        origin: "human",
+        zone: {
+          pageIndex: 1,
+          box: { x: 1, y: 1, w: 1, h: 1 },
+          lineRange: [3, 5],
+        },
+      },
+      {
+        key: "sp.tanggal",
+        label: "Tanggal",
+        status: "confirmed",
+        origin: "llm",
+        // In the SECOND document, which is what makes it the interesting one:
+        // its pageIndex has to come down by two when the first is removed.
+        zone: {
+          pageIndex: 3,
+          box: { x: 1, y: 1, w: 1, h: 1 },
+          lineRange: [7, 9],
+        },
+        continuationCheckedFor: "3:7-9",
+      },
+    ],
+  };
+}
+
+test("removing a document moves every surviving zone with its pages", async () => {
+  const id = runId("remove-source");
+  const stored = await putRun(twoDocumentRun(id));
+  assert.equal(stored.pages.length, 4);
+
+  const after = await removeDocument(id, "src-a");
+
+  assert.deepEqual(
+    after.sources.map((s) => s.name),
+    ["SPLITBA.pdf"],
+  );
+  assert.deepEqual(
+    after.pages.map((p) => p.id),
+    ["p-b0", "p-b1"],
+  );
+
+  // THE POINT OF THE WHOLE EXERCISE. `sp.tanggal` was found on page 3 of a
+  // four-page run; two pages went, so it is page 1 now, and it is still the
+  // same scan. A filter that left this at 3 would put it out of range, and one
+  // that left it pointing at index 3 of a two-page array would crop nothing.
+  // The failure this guards is neither of those loud ones: it is the version
+  // where the number stays and lands on a DIFFERENT real page.
+  const moved = after.slots.find((slot) => slot.key === "sp.tanggal");
+  assert.equal(moved?.zone?.pageIndex, 1);
+  assert.deepEqual(moved?.zone?.lineRange, [7, 9]);
+  assert.equal(moved?.status, "confirmed");
+
+  const stillThere = await getPage("p-b1");
+  assert.equal(stillThere?.id, "p-b1");
+  assert.equal(await getPage("p-a0"), null);
+  assert.equal(await getPage("p-a1"), null);
+
+  const reread = await loadRun(id);
+  assert.deepEqual(
+    reread?.pages.map((p) => p.id),
+    ["p-b0", "p-b1"],
+    "the surviving pages must come back in the order they were renumbered in",
+  );
+});
+
+test("the continuation verdict moves with the zone it names", async () => {
+  const id = runId("remove-keeps-verdict");
+  await putRun(twoDocumentRun(id));
+  const after = await removeDocument(id, "src-a");
+
+  // `continuationCheckedFor` holds `zoneFingerprint(zone)`, which is
+  // `pageIndex:from-to`: the exact number the removal remaps. Left alone it
+  // stops matching, `continuationChecked` reads the capture as unchecked, and
+  // the next Proses re-walks it. That is a model call spent silently on every
+  // removal, for a fact about a clause and the page after it that removing an
+  // unrelated earlier document did not change.
+  const moved = after.slots.find((slot) => slot.key === "sp.tanggal");
+  assert.equal(moved?.continuationCheckedFor, "1:7-9");
+  assert.equal(continuationChecked(moved as SlotState), true);
+});
+
+test("evidence found INSIDE the removed document is dropped, not repointed", async () => {
+  const id = runId("remove-drops-evidence");
+  await putRun(twoDocumentRun(id));
+  const after = await removeDocument(id, "src-b");
+
+  // `sp.tanggal` lived on page 3, which was in SPLITBA. There is no honest
+  // page to move it to, so the row survives as something still to find and the
+  // zone does not.
+  const emptied = after.slots.find((slot) => slot.key === "sp.tanggal");
+  assert.equal(emptied?.zone, undefined);
+  assert.equal(emptied?.status, "pending");
+  assert.equal(emptied?.continuationCheckedFor, undefined);
+
+  // And the one in the document that stayed is untouched, index included:
+  // nothing before it moved.
+  const kept = after.slots.find((slot) => slot.key === "kb.nomor");
+  assert.equal(kept?.zone?.pageIndex, 1);
+  assert.equal(kept?.status, "confirmed");
+});
+
+test("a lanjutan goes with the document that carried it, and so does its tail", async () => {
+  const id = runId("remove-lanjutan");
+  const base = twoDocumentRun(id);
+  await putRun({
+    ...base,
+    slots: [
+      ...base.slots,
+      {
+        key: "kb.top",
+        label: "ToP",
+        status: "confirmed",
+        zone: {
+          pageIndex: 0,
+          box: { x: 1, y: 1, w: 1, h: 1 },
+          lineRange: [1, 2],
+        },
+        continuationCheckedFor: "0:1-2",
+      },
+      {
+        key: "kb.top#2",
+        label: "ToP",
+        status: "confirmed",
+        zone: {
+          pageIndex: 1,
+          box: { x: 1, y: 1, w: 1, h: 1 },
+          lineRange: [1, 4],
+        },
+      },
+    ],
+  });
+
+  const after = await removeDocument(id, "src-a");
+  const keys = after.slots.map((slot) => slot.key);
+
+  // Capture 1 keeps its row: the template still asks for a ToP. The lanjutan
+  // does not, because a lanjutan is a claim about a page break in a document
+  // that is no longer in this run.
+  assert.ok(keys.includes("kb.top"));
+  assert.ok(!keys.includes("kb.top#2"));
+
+  // AND THE SURVIVING CAPTURE READS AS UNCHECKED AGAIN. Its verdict said "the
+  // walk past me is finished", which was true only while the lanjutan it found
+  // was here. `continuationChecked` compares the fingerprint against this
+  // capture's own zone and would never notice, so it is cleared on the way out.
+  const first = after.slots.find((slot) => slot.key === "kb.top");
+  assert.equal(first?.zone, undefined);
+  assert.equal(first?.continuationCheckedFor, undefined);
+});
+
+test("a write that sheds a page without naming it is still refused", async () => {
+  const id = runId("unnamed-page-loss");
+  const stored = await putRun(twoDocumentRun(id));
+
+  await assert.rejects(
+    () => putRun({ ...stored, pages: stored.pages.slice(0, 2) }),
+    (error: unknown) => {
+      assert.ok(error instanceof PageLossError);
+      assert.deepEqual(error.missing, ["p-b0", "p-b1"]);
+      return true;
+    },
+    "widening the guard for a named removal must not widen it for anything else",
+  );
+
+  // And naming SOME of them does not excuse the rest. That is the whole value
+  // of a list over a flag: a write which also loses pages it never knew about
+  // still fails on the ones it did not name.
+  await assert.rejects(
+    () =>
+      putRun(
+        { ...stored, pages: stored.pages.slice(0, 2) },
+        { removingPages: ["p-b0"] },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof PageLossError);
+      assert.deepEqual(error.missing, ["p-b1"]);
+      return true;
+    },
+  );
+});
+
+test("removing a document the run does not have changes nothing", async () => {
+  const id = runId("remove-absent");
+  const stored = await putRun(twoDocumentRun(id));
+  const after = await removeDocument(id, "src-never-here");
+
+  // Two tabs removing the same document should not make the second an error.
+  assert.equal(after.rev, stored.rev);
+  assert.equal(after.pages.length, 4);
 });

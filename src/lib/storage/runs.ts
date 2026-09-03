@@ -94,6 +94,12 @@ export class StaleRunWriteError extends Error {
  * caller that assembled a short `pages` array through some other mistake --
  * a bad filter, a partially-loaded run -- is caught even when its revision
  * is perfectly current.
+ *
+ * ONE WRITE IS ALLOWED TO SHED PAGES, and it has to say which. Removing a
+ * source document from an open pekerjaan is a real operation now (see
+ * `PutRunOptions.removingPages`), so the rule is no longer "pages never leave"
+ * but "pages never leave SILENTLY". A write naming ids sheds exactly those and
+ * is still refused on any page it did not name.
  */
 export class PageLossError extends Error {
   readonly runId: string;
@@ -104,10 +110,11 @@ export class PageLossError extends Error {
     super(
       `run ${runId} would lose ${missing.length} stored page(s) ` +
         `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}) ` +
-        "because this write does not carry them. Pages are append-only: a " +
-        "zone's pageIndex is a position in that array, so dropping one " +
+        "because this write does not carry them and did not name them. A " +
+        "zone's pageIndex is a position in that array, so dropping a page " +
         "repoints every zone after it. Re-read the run and re-apply the " +
-        "change.",
+        "change; if the removal is deliberate, name the ids in " +
+        "`removingPages` and remap the zones first (`removeSource`).",
     );
     this.name = "PageLossError";
     this.runId = runId;
@@ -450,6 +457,35 @@ export type PutRunOptions = {
    * accident, which is the case this net was built for.
    */
   removing?: readonly string[];
+
+  /**
+   * `StoredPage.id` of every page this write deliberately deletes.
+   *
+   * THE ONE LEGITIMATE PAGE REMOVAL, and it arrived later than this file did.
+   * `BrowserRun.pages` is append-only and `PageLossError` above says there is
+   * no legitimate single-page removal, only `deleteRun`. That was true only
+   * while nothing had asked for one: the operator can now take a single source
+   * document back out of an open pekerjaan (`removeSource` in
+   * `src/lib/browser/sources.ts`), which is a real thing to want -- realising
+   * halfway through that a scan is the wrong document does not become less
+   * true because two crops were accepted from it first.
+   *
+   * SO THE GUARD IS WIDENED, NOT BYPASSED, and the shape is the whole point.
+   * It is a LIST OF IDS and never a boolean or a count. A caller passing ids
+   * is saying "I know about exactly these and I mean them", so a write that
+   * ALSO loses pages it never knew about still fails on the ones it did not
+   * name. `removingPages: true` would be a bypass with a polite name, and the
+   * next person to meet `PageLossError` would reach for it.
+   *
+   * The named records are deleted inside this write's own transaction, so a
+   * crash cannot leave the run pointing at pages that are gone or pages
+   * orphaned under a run that no longer lists them. Every surviving page is
+   * re-`put` with its new `order` in the same pass, which is what keeps
+   * `Zone.pageIndex` meaning what it says -- and remapping the zones
+   * themselves is the caller's job, done in `removeSource` where a test can
+   * read the arithmetic.
+   */
+  removingPages?: readonly string[];
 };
 
 export async function putRun(
@@ -507,11 +543,23 @@ export async function putRun(
     const existing = await promisify(
       store.index(BY_RUN).getAllKeys(run.id) as IDBRequest<IDBValidKey[]>,
     );
-    const missing = existing
+    const shedding = new Set(options.removingPages ?? []);
+    const gone = existing
       .map((key) => String(key))
       .filter((key) => !ids.has(key));
+    const missing = gone.filter((key) => !shedding.has(key));
     if (missing.length > 0) throw new PageLossError(run.id, missing);
 
+    // Deleted in this transaction, alongside the run record that stops listing
+    // them. Two transactions would leave a window in which the run is short
+    // and its pages are not, or the reverse.
+    for (const key of gone) store.delete(key);
+
+    // Re-put with `order` recomputed from the array's new positions, which is
+    // what makes a removal safe at all: `order` is what `Zone.pageIndex`
+    // refers to, and the caller has already moved every surviving zone to
+    // match. A page that merely shifted up is rewritten here, unchanged
+    // except for that number.
     pages.forEach((page, order) => {
       store.put({ ...page, runId: run.id, order } satisfies PageRecord);
     });
@@ -602,6 +650,24 @@ export async function getSource(id: string): Promise<StoredSource | null> {
     ),
   );
   return source ?? null;
+}
+
+/**
+ * Deletes ONE source document's stored PDF bytes.
+ *
+ * Separate from `putRun` on purpose, and ordered AFTER it by the only caller
+ * (`removeDocument` in `src/lib/browser/runtime.ts`). The two are not one
+ * transaction because they need not be: the bytes are re-renderable input, not
+ * evidence. If this half fails, the run is already correct and what is left
+ * behind is a few megabytes nothing references, which `deleteRun` collects.
+ * If the ORDER were reversed and the run write failed, the run would point at
+ * pages whose source bytes were gone, and `pageBitmap` could no longer
+ * re-render a page an operator is looking at.
+ */
+export async function deleteSource(id: string): Promise<void> {
+  await transact([SOURCES], "readwrite", (tx) => {
+    tx.objectStore(SOURCES).delete(id);
+  });
 }
 
 /**

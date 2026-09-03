@@ -53,10 +53,12 @@ import {
   listRunMeta,
   putRun,
   putSource,
+  deleteSource,
   deleteRun as deleteRunRecords,
   type PutRunOptions,
   type RunMeta,
 } from "../storage/runs.ts";
+import { removeSource } from "./sources.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
   BrowserRun,
@@ -117,6 +119,15 @@ export {
   withoutCapturesAfter,
   type DiscoveredCapture,
 } from "./captures.ts";
+
+/**
+ * What removing a source document costs, without removing it.
+ *
+ * Pure, and re-exported here so the document manager can price the question
+ * before it asks it. The removal itself is `removeDocument` below, which is
+ * this arithmetic plus two storage writes.
+ */
+export { sourceRemovalCost, type SourceRemoval } from "./sources.ts";
 
 /**
  * EXACTLY ONE `SlotState` PER FILLABLE SLOT, all `"pending"`.
@@ -284,6 +295,59 @@ export async function listRuns(): Promise<
     createdAt: run.createdAt,
     label: labelFor(run.sources),
   }));
+}
+
+/**
+ * Takes one source document back out of an open pekerjaan.
+ *
+ * THE INVERSE OF `ingestDocument`, and it is not symmetrical with it, because
+ * ingesting appends to the end of a list other things index into and removing
+ * takes something out of the middle. `removeSource` in `./sources.ts` does the
+ * arithmetic (renumber the surviving pages, move every surviving zone with
+ * them, drop the evidence that lived inside the removed document rather than
+ * repointing it at a different scan); this function is the two writes.
+ *
+ * THE RUN IS RE-READ INSIDE THE LOCK rather than taken as an argument. A
+ * screen holds a `BrowserRun` in React state for as long as the operator is
+ * looking at it, and this is a destructive whole-array write: doing it against
+ * a copy captured before, say, an ingest finished would be refused by the
+ * revision check, which is correct but is a failure the operator would have to
+ * understand. Reading here means the removal is computed against what is
+ * actually stored, so it either applies or the run is gone.
+ *
+ * ORDER MATTERS BETWEEN THE TWO WRITES. The run write goes first and the PDF
+ * bytes second: the bytes are re-renderable input, so a failure after the run
+ * write leaves a few megabytes nothing references. The reverse leaves a run
+ * pointing at pages whose source is gone, and `pageBitmap` can no longer
+ * re-render a page the operator is looking at.
+ */
+export async function removeDocument(
+  runId: string,
+  sourceId: string,
+): Promise<BrowserRun> {
+  return withRunLock(runId, async () => {
+    const stored = await getRun(runId);
+    if (!stored) {
+      throw new Error(
+        `Pekerjaan ${runId} tidak ada lagi, jadi dokumennya tidak bisa dihapus.`,
+      );
+    }
+
+    const { run, removedPageIds, removedCaptureKeys } = removeSource(
+      stored,
+      sourceId,
+    );
+    // Not in this run. Returning what is stored is the honest answer: two tabs
+    // removing the same document should not make the second one an error.
+    if (removedPageIds.length === 0 && run === stored) return stored;
+
+    const saved = await putRun(run, {
+      removing: removedCaptureKeys,
+      removingPages: removedPageIds,
+    });
+    await deleteSource(sourceId);
+    return saved;
+  });
 }
 
 export async function loadRun(id: string): Promise<BrowserRun | null> {
