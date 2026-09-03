@@ -105,6 +105,44 @@ The state name and the verb that produced it must match.
 | Sign in with Google | **Masuk dengan Google** |
 | Sign out | **Keluar** |
 
+## What the interface never says
+
+The operator is not the audience for our engineering. They are not tech-savvy,
+they are trying to finish an order, and every sentence explaining how the
+product works stands between them and that. An operator put it plainly:
+*"User don't need to learn that we're compliant when they're trying to use each
+functionality of the app."*
+
+So the interface does not say, anywhere in the flow:
+
+- **Where anything runs.** Not that pages are rendered in the browser, not that
+  text goes to a server, not what forwards it where.
+- **How much work it is.** Not "teks 29 halaman", not a token count. A page
+  count as a measure of effort also makes the product look slow at the exact
+  moment it is working, which is how *"membuka berkas dan menghitung
+  halamannya"* came to be replaced: counting pages sounds instant and is not.
+- **That we are compliant.** A privacy claim is a promise to the person whose
+  documents these are, and it is kept in `/privacy` where it can be read in
+  full. Sentences were deleted from the flow ON THAT PAGE'S CREDIT, so the
+  policy has to keep carrying them.
+- **What a verb does to our internals.** `Proses` was one word for one action
+  and it meant nothing to the person reading it: it can name any process. A
+  control says what it does to the operator's document.
+
+Three things look like the above and stay, because each is something the
+operator must act on rather than something we are explaining about ourselves:
+
+1. The deployment band saying the app is running with no account check. That is
+   a live security condition.
+2. Any refusal, fault, or interruption.
+3. The export-blocked sentence below, which is the argument the product exists
+   to make.
+
+And one short fact stays, because the operator asked for it in the same breath
+as asking for the explanation to go: **"Berkas PDF tidak diunggah."** They want
+to know their file is not being uploaded. They do not want the paragraph after
+it.
+
 ## Sentences worth getting right
 
 These carry the product's whole argument, so they are written here once rather

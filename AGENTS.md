@@ -572,9 +572,36 @@ already refuses stale and page-losing writes and the operator previously had no
 signal that a decision reached disk.
 
 **The flow is three phases, not four**: `1 Muat`, `2 Periksa`, `3 Berkas`. The
-search runs from Muat as `Proses` (one word for one action, everywhere), and
-Periksa is gated until it has run. The tambahan loop is no longer a phase: it is
-the head of Periksa, and answering "yes" opens the ingest drop in a dialog.
+search runs from Muat, and Periksa is gated until it has run. The tambahan loop
+is no longer a phase: it is the head of Periksa, and answering "yes" opens the
+ingest drop in a dialog.
+
+**The phases are drawn as a TIMELINE, not as three buttons**, and the
+difference is a fact rather than a style. Three keys side by side say these are
+three things, equally available, pick one; they are not. They are one route
+with an order, a position on it, and a gate part way along. `.lt-timeline` is a
+node per phase with a rail between them that fills behind you, which is the
+progress three separate buttons could not show. A reachable phase is still a
+button and still navigates; a locked one is `aria-disabled` (never `disabled`,
+so a keyboard can still reach it and hear why).
+
+**A DISABLED CONTROL'S REASON RIDES ON THE CONTROL.** `Btn` takes `reason` and,
+while it is actually disabled, wraps itself so the sentence reaches a pointer,
+a keyboard focus and a screen reader. It replaced a paragraph printed beside
+the key, which an operator called redundant: the key is down, that already
+reads as unavailable. THE RULE DID NOT CHANGE, ONLY THE PLACE. A refusal, a
+fault, or anything the operator must act on still belongs on the page in prose,
+because the test is whether they may miss it entirely and be no worse off.
+
+**THE OPERATOR IS NOT THE AUDIENCE FOR OUR ENGINEERING.** Recorded because half
+a redesign's worth of copy had to be deleted to learn it: no screen tells them
+that pages are rendered in the browser, that text is sent to a server, how many
+pages of text that was, or that we are compliant. That belongs in
+`/privacy`, and the sentences were removed from the flow ON THAT PAGE'S CREDIT,
+so it has to keep carrying them. What stays on screen is what is happening in
+the operator's terms and what they can do about it. The three standing
+exceptions are the deployment band about running with no account check (a live
+security condition), any refusal or fault, and the export-blocked sentence.
 
 **Fonts are Atkinson Hyperlegible Next and Mono**, self-hosted by `next/font`,
 which is what keeps `performance.getEntriesByType("resource")` showing only this
