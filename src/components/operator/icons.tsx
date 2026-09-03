@@ -83,7 +83,7 @@ export const PARAF_D =
   "M2.5 13.5c2.6 3.2 4.4 2.6 5.8-1.4C9.4 8.6 10 5.5 8.9 4.2 7.9 3 6.6 4.6 7.6 8.2c1 3.5 3.3 6 9.9 5";
 
 type IconProps = Omit<SVGProps<SVGSVGElement>, "children"> & {
-  size?: 16 | 20 | 40;
+  size?: 16 | 20 | 24 | 40;
   /**
    * Set when the icon sits on top of a word that has already been read out,
    * which is almost every position here. Mirrors `Denah`'s prop name.
@@ -292,6 +292,63 @@ export function Arsip(props: IconProps) {
       <path d="M3.4 8.6h13.2v8.4H3.4z" strokeLinecap="butt" />
       <path d="M4.9 6.1h10.2M6.4 3.6h7.2" strokeLinecap="butt" />
       <path d="M8.4 11.6h3.2" strokeLinecap="butt" />
+    </Icon>
+  );
+}
+
+/**
+ * THE LOGO. A brain, and the one member of this set that is allowed to be a
+ * picture of the thing it names.
+ *
+ * Every other icon here obeys "a verb icon is never a picture of the verb"
+ * because a verb has an outcome to draw instead. A wordmark has no outcome. It
+ * has to say what the product is in one glyph beside four syllables, and what
+ * this product is is a machine that reads a contract and proposes where the
+ * evidence is. So: a brain, drawn in the same hand as everything else rather
+ * than lifted from a library, which is what keeps it looking like this
+ * product's brain and not any product's AI badge.
+ *
+ * Two lobes and a stem, mirrored about the centre. The folds are three strokes
+ * per side and no more: at 20px in a header the fourth is a smudge, and the
+ * set's density floor (nothing closer than 3.2 units) is what decides that
+ * rather than taste.
+ */
+export function Otak(props: IconProps) {
+  return (
+    <Icon {...props}>
+      {/* Two mirrored lobes, each one continuous silhouette. */}
+      <path d="M10 4.4c-1.0-1.3-3.3-1.1-3.9.4-1.7 0-2.8 1.7-2.0 3.1-1.2 1.0-1.1 2.9.2 3.7-.1 1.6 1.5 2.8 3.0 2.3.5 1.1 1.9 1.5 2.7.7" />
+      <path d="M10 4.4c1.0-1.3 3.3-1.1 3.9.4 1.7 0 2.8 1.7 2.0 3.1 1.2 1.0 1.1 2.9-.2 3.7.1 1.6-1.5 2.8-3.0 2.3-.5 1.1-1.9 1.5-2.7.7" />
+      {/* The stem, and it STOPS INSIDE THE LOBES. Run past them (the first
+          draft took it to y 16.4) and the mark stops being a brain and starts
+          being a tree, which is exactly what it looked like at 20px. */}
+      <path d="M10 4.4v10.2" />
+      {/* ONE FOLD EACH SIDE AND NO MORE. A second pair was drawn and tested:
+          at 56px it is a better brain and at 18px it is a blob, and this mark
+          lives in a header at 24. Seven strokes inside a 20 grid is under the
+          set's own density floor. */}
+      <path d="M6.2 8.0c1.8 0 2.8 1.0 2.8 2.4" />
+      <path d="M13.8 8.0c-1.8 0-2.8 1.0-2.8 2.4" />
+    </Icon>
+  );
+}
+
+/**
+ * The chevron that says a control opens something. Drawn rather than reused
+ * from `.lt-chevron`, because that one is a CSS pseudo-element on a disclosure
+ * and this has to sit inside a button beside a name.
+ */
+export function Chevron({ open = false, ...props }: IconProps & { open?: boolean }) {
+  return (
+    <Icon
+      {...props}
+      style={{
+        transition: "transform 140ms ease",
+        transform: open ? "rotate(180deg)" : undefined,
+        ...props.style,
+      }}
+    >
+      <path d="M5.6 8.2 10 12.4l4.4-4.2" />
     </Icon>
   );
 }

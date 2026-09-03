@@ -554,7 +554,18 @@
      recess, with no border at all. */
   --btn: oklch(0.685 0.022 226);
   --btn-lip: oklch(0.505 0.024 228);
-  --btn-ink: oklch(0.205 0.030 234);
+  /* PETROL, NOT SLATE, AND THAT IS THE WHOLE OF WHY.
+     The neutral key's face is a light slate, and with a near-black label on it
+     an operator read every enabled secondary control as greyed out: their words
+     were "these button didn't turn blue despite of being unlocked/clickable",
+     about Simpan on the export screen and Tambah dokumen in the chrome. Both
+     were live. A deep petrol label says "this answers" in the same colour the
+     primary key is filled with, so the two read as one family at two weights
+     rather than as live and dead.
+     Measured on the enabled face 4.80:1; on the disabled face it collapses to
+     2.16:1, which is the point: the label going grey IS the disabled signal,
+     alongside the key resting down on its lip. */
+  --btn-ink: oklch(0.280 0.095 212);
 
   /* THE LIP'S HEIGHT, DECLARED ONCE, BECAUSE FOUR PLACES HAVE TO AGREE ON IT
      AND NOTHING MADE THEM. The shadow offset, the `margin-bottom` that
@@ -565,6 +576,19 @@
      and nothing anywhere says the four are the same number. Now they are the
      same number. */
   --lip-h: 4px;
+
+  /* THE STACKING ORDER, WRITTEN DOWN ONCE.
+     A portalled popup renders at the end of `body`, in the ROOT stacking
+     context, so it is compared against the sticky header's `z-20` and loses
+     unless it says otherwise. `.lt-hint-panel` set `position: relative` and no
+     z-index at all, so every Hint opened near the top of the page slid UNDER
+     the chrome: an explanation you cannot read is worse than no question mark,
+     because the operator has already spent the click.
+     Ordered by how much a thing interrupts: chrome sits under transient
+     things, and a floating explanation sits over both. */
+  --z-chrome: 20;
+  --z-toast: 30;
+  --z-float: 60;
 
   /* THE LIP, as a reusable shadow. `--lip` is set per tone on the control
      itself and this substitutes it at the point of use, so one token carries
@@ -1963,6 +1987,8 @@
      scroll because only one is ever open. */
   .lt-hint-panel {
     position: relative;
+    /* See `--z-float`. Without this the panel loses to the sticky header. */
+    z-index: var(--z-float);
     max-width: 30rem;
     padding: 0.8rem 0.95rem;
     border: 1px solid var(--glass-edge);
@@ -2559,6 +2585,166 @@
     transition: transform 120ms var(--ease);
   }
   .lt-chevron[data-open="true"] { transform: rotate(45deg); }
+
+  /* =====================================================================
+     THE TIMELINE. Three phases as a route with distance on it, not three
+     buttons in a row.
+
+     The operator's objection to the buttons was that they were "just lazily
+     slapping buttons", and they were right in a way worth stating precisely:
+     three keys side by side say these are three THINGS, equally available,
+     pick one. They are not. They are one route with an order, a position on
+     it, and a gate part way along, and none of those three facts was drawn.
+
+     So: a node per phase, a rail between them, and the rail FILLS behind you.
+     Where you are is a filled node; what you have finished is a node with a
+     paraf in it; what is still locked is an outline. The rail carries the
+     progress, which is the fact three separate buttons could never show.
+
+     The node is still a button, and a reachable one is still pressable, so
+     nothing about navigation changes. What changes is that the shape now
+     agrees with the flow.
+     ================================================================== */
+
+  .lt-timeline {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .lt-timeline-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--ink-2);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 120ms var(--ease), background-color 120ms var(--ease);
+  }
+  .lt-timeline-step:hover:not([aria-disabled="true"]) {
+    background: var(--wash);
+    color: var(--ink);
+  }
+  .lt-timeline-step[aria-current="step"] {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  /* A LOCKED STEP IS DIM AND STILL FOCUSABLE. `aria-disabled` rather than
+     `disabled`, so a keyboard user can reach it and hear why: the reason rides
+     on the control as a title and an `aria-describedby`, which is what
+     replaced the sentence that used to be printed beside the rail. */
+  .lt-timeline-step[aria-disabled="true"] {
+    color: var(--ink-3);
+    cursor: not-allowed;
+  }
+
+  /* The node. A circle, because a route has stations. */
+  .lt-timeline-node {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
+    background: var(--surface-sunk);
+    color: var(--ink-3);
+    box-shadow: inset 0 0 0 2px var(--line-strong);
+    font-family: var(--font-figure), ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    transition:
+      background-color 140ms var(--ease),
+      box-shadow 140ms var(--ease),
+      color 140ms var(--ease);
+  }
+  .lt-timeline-node[data-state="current"] {
+    background: var(--petrol);
+    color: var(--petrol-ink);
+    box-shadow:
+      inset 0 0 0 2px var(--petrol),
+      0 0 0 4px color-mix(in srgb, var(--petrol) 22%, transparent);
+  }
+  .lt-timeline-node[data-state="done"] {
+    background: color-mix(in srgb, var(--petrol) 24%, var(--surface-sunk));
+    color: var(--petrol);
+    box-shadow: inset 0 0 0 2px var(--petrol);
+  }
+
+  /* The rail between two nodes, and the only thing here carrying progress. */
+  .lt-timeline-link {
+    flex: 1 1 1.5rem;
+    min-width: 1rem;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--line-strong);
+    transition: background-color 200ms var(--ease);
+  }
+  .lt-timeline-link[data-done="true"] {
+    background: var(--petrol);
+  }
+
+  /* The order being worked, beside the route rather than above it in a
+     masthead. Small, parenthesised, and truncating: it is a caption on the
+     position, not a title for the page. */
+  .lt-timeline-subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-3);
+    font-size: 0.8125rem;
+  }
+
+  /* =====================================================================
+     THE SPINNER. Something that MOVES, because a line of text saying a
+     number is going up is not a loading state to anybody who is not already
+     reading it.
+     ================================================================== */
+
+  @keyframes lt-spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+
+  .lt-spinner {
+    display: inline-block;
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 999px;
+    /* A ring with one lit quarter: the gap is what makes rotation visible. A
+       full ring spinning looks like a full ring. */
+    border: 2px solid color-mix(in srgb, var(--petrol) 26%, transparent);
+    border-top-color: var(--petrol);
+    animation: lt-spin 720ms linear infinite;
+  }
+  .lt-spinner[data-size="lg"] {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-width: 3px;
+  }
+
+  /* REDUCED MOTION GETS A PULSE, NOT NOTHING. The whole point of this object
+     is that something is moving; removing the animation entirely would put
+     back the defect it was added to fix. A slow opacity breath carries "still
+     working" without spinning anything. */
+  @media (prefers-reduced-motion: reduce) {
+    .lt-spinner {
+      animation: lt-breathe 1.6s ease-in-out infinite;
+      border-top-color: var(--petrol);
+    }
+  }
+  @keyframes lt-breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
 
   /* =====================================================================
      THE TOAST. Transient confirmations leave the page and stop pushing the
