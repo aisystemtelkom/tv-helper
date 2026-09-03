@@ -11,33 +11,37 @@
  * question it asks is the only thing that can put new usulan ON the sheet. So
  * it sits at the top of the sheet now and scrolls away. Three phases, not four.
  *
- * IT IS A BAR, NOT A BLOCK, and that is the correction this pass makes. A
- * screen title, a count sentence, a four-row reason register, a search line,
- * one row per blank, a technical disclosure, the fork, its confirmation and a
- * session log came to about 570px above the first crop with three blanks and
- * about 930px with twelve: most of a 1366x768 viewport spent before the
- * operator reaches the work. What STANDS now is ONE RULED LINE: the `Mark`,
- * the count, the reason counts as figures, and two controls, one that opens
- * the rest of the block in place and one that opens the dokumen tambahan
- * dialog.
+ * IT IS ONE SLAB WITH A KOP, AND THE KOP CARRIES THE COUNT. A screen title, a
+ * count sentence, a four-row reason register, a search line, one row per blank,
+ * a technical disclosure, the fork, its confirmation and a session log came to
+ * about 570px above the first crop with three blanks and about 930px with
+ * twelve: most of a 1366x768 viewport spent before the operator reaches the
+ * work. What stands at rest now is the kop (the block's name, and how many
+ * bagian owe a decision), the reason counts, the one question, and the controls
+ * that answer it. The list itself is a closed disclosure.
  *
  * COLLAPSING IT HIDES NO REACHABLE ACTION, which is the only reason it is
  * allowed to collapse at all. Every blank bagian is ALSO a plate in the sheet
  * a few centimetres below, carrying the same two terminal choices, Gambar
  * sendiri and Kosongkan, from `ProposalPlate`'s outstanding branch. The count
- * and the `Mark` never collapse, so nothing unreviewed can hide behind the
- * fold, and the one action in here that exists nowhere else on this screen,
- * Proses lagi, forces the block back open the moment a document is read and a
- * round is owed.
+ * and the kop's own amber never collapse, so nothing unreviewed can hide behind
+ * the fold, and the two controls that exist nowhere else on this screen, Proses
+ * lagi and Tambah dokumen, stand outside the disclosure at all times.
  *
- * IT IS OPEN ON THE FIRST ARRIVAL AT A PEKERJAAN AND CLOSED AFTERWARDS. A
- * briefing is read once; a briefing re-read on every visit is furniture.
+ * THE LIST IS CLOSED ON ARRIVAL. It used to open on the first visit to a
+ * pekerjaan, on the argument that a briefing is read once. The density pass
+ * retires that: a briefing that costs most of the viewport is furniture on the
+ * first visit too, and the kop now states the same fact in one bar. What
+ * survives of the old rule is the half that was about REACHABILITY rather than
+ * about briefing, and it is unchanged: a round that becomes owed forces the
+ * list open (see `owedBefore` below), because reading a document is the moment
+ * the search line starts mattering more than the rows under it.
  *
  * THE FORK IS NOT A PARAGRAPH ANY MORE. "Ada dokumen tambahan?" with two
  * buttons, an explanation, a conditional notice and a caveat was a
- * five-element block asking a yes/no question. Yes is the bar's own Tambah
- * dokumen; no, and the bulk write-off it reveals, sit inside the opened block,
- * beside the list that would be written off.
+ * five-element block asking a yes/no question. It is one line now, and both
+ * answers are on it: yes opens the dokumen tambahan dialog, no reveals the bulk
+ * write-off, which is the only other way a blank can leave this list.
  *
  * The requirement it still carries (2026-08-31 corrections, section 4) is not
  * "show what is missing". It is to turn "not found" from a silent gap into a
@@ -52,27 +56,30 @@
  * you rejected the usulan, you chose to ship it empty. The old screen printed
  * one hardcoded chip on every row, so all four read alike, and the reason is
  * the only fact that decides whether adding a document will help at all. Each
- * kind keeps its own `Mark` shape and its own word, and the bar counts them
- * apart. The four SENTENCES that gloss those words are behind the bar's
- * question mark, once each, because they read the same on every order for the
- * life of this product; twelve rows carrying four repeated paragraphs is the
- * bulk that made this a screen in the first place.
+ * kind keeps its own `Mark` shape and its own word, and the block counts them
+ * apart. The four SENTENCES that gloss those words are behind a question mark,
+ * once each, because they read the same on every order for the life of this
+ * product; twelve rows carrying four repeated paragraphs is the bulk that made
+ * this a screen in the first place.
  *
- * WHAT MOVED OUT rather than being deleted, both still counted here:
+ * WHAT MOVED OUT rather than being deleted, all of it still counted here:
  *
  * - THE PER-ROW `Denah`. The sheet's own index rail draws a plan of every
  *   capture a few centimetres below this block, so a second column of page
  *   plans at the top of the same screen is the same picture twice. What a row
  *   needs for "gambar sendiri" is the page a sibling potongan landed on, and
- *   that survives here in words.
+ *   that survives here as a kotak isian.
+ * - THE PER-ROW BERKAS NAME, for the same reason and to the same place: the
+ *   plate below carries the full citation register. It stays on the row as the
+ *   kotak's title, so it is one pointer away rather than twelve names wide.
  * - THE REGISTER OF ALREADY-EMPTIED BAGIAN. Each of those is a plate in the
  *   sheet below carrying its own "Buka lagi", which is where a decision is
- *   undone now. The count stays on the bar, and stays there whether the block
- *   is open or shut, because a decision made on the record has to be visible on
+ *   undone now. The count stays on the kop, and stays there whether the list is
+ *   open or shut, because a decision made on the record has to be visible on
  *   the record.
  */
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Dialog,
@@ -157,7 +164,7 @@ const REASON_SENTENCE: Record<Reason, string> = {
     "Dikosongkan atas keputusan Anda, bukan karena terlewat. Selnya tetap muncul kosong di DOKUMEN VALIDASI.",
 };
 
-/** The order the register states them in: the three that owe a decision first. */
+/** The order the counts state them in: the three that owe a decision first. */
 const REASON_ORDER: Reason[] = ["notfound", "rejected", "unsearched", "emptied"];
 
 function reasonOf(state: SlotState): Reason {
@@ -343,20 +350,8 @@ type PanelProps = {
 };
 
 /**
- * The pekerjaan whose head has already been read, IN THIS TAB.
- *
- * Module state on purpose, and it has to be both of those things. It must
- * survive the block being unmounted, because leaving Periksa for Muat and
- * coming back does that every time and a briefing re-read on every visit is
- * furniture. It must NOT survive the tab, because "you have already read this"
- * is a claim about one sitting, so nothing here is written to storage and no
- * reload can inherit it.
- */
-const briefed = new Set<string>();
-
-/**
- * A different pekerjaan is a different briefing, and every piece of state in
- * here is about one: whether it has been read, whether the operator answered
+ * A different pekerjaan is a different question, and every piece of state in
+ * here is about one: whether the list is open, whether the operator answered
  * the tambahan question, whether a write-off is half-confirmed. Keying on the
  * run id says so in React's own terms and resets all of it at once.
  */
@@ -380,7 +375,7 @@ function Panel({
 }: PanelProps) {
   /**
    * IS A ROUND OWED? A document has been read into this pekerjaan and nothing
-   * has searched it yet. Computed before any state because the block's opening
+   * has searched it yet. Computed before any state because the list's opening
    * position depends on it: see `expanded` below.
    */
   const searchable = wantedKeys(run).length;
@@ -392,29 +387,13 @@ function Panel({
   const [noMore, setNoMore] = useState(false);
   const [confirming, setConfirming] = useState(false);
   /**
-   * Is the block open under its bar?
-   *
-   * Open on the first arrival at a pekerjaan, AND whenever a round is owed:
-   * that second half is not the same rule twice. A document read in an earlier
-   * visit leaves the round owed across a remount, where the first rule has
-   * already been spent, and Proses lagi is the one control in here that exists
-   * nowhere else on this screen.
-   *
-   * The initialiser only READS `briefed`; the effect below is what records the
-   * visit. A React initialiser may run more than once for a single mount, and a
-   * version that recorded the arrival inside itself would consume the very
-   * arrival it exists to detect and then open for nobody.
+   * Is the list of blanks open under its disclosure? Closed, unless a round is
+   * owed: Proses lagi outranks the rows the moment a document has been read.
    */
-  const [expanded, setExpanded] = useState(
-    () => !briefed.has(run.id) || owesRound,
-  );
+  const [expanded, setExpanded] = useState(owesRound);
   const confirmRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const wasBusy = useRef(busy);
-
-  useEffect(() => {
-    briefed.add(run.id);
-  }, [run.id]);
 
   /**
    * FOCUS MUST SURVIVE A DECISION HERE TOO.
@@ -466,16 +445,16 @@ function Panel({
   };
 
   /**
-   * A ROUND THAT BECOMES OWED OPENS THE BLOCK, once, on the edge.
+   * A ROUND THAT BECOMES OWED OPENS THE LIST, once, on the edge.
    *
    * Reading a document is exactly the moment the round becomes owed, and it is
-   * the operator's own action, so re-opening answers something they just did
+   * the operator's own action, so opening answers something they just did
    * rather than moving the page under them. It stays a toggle afterwards: this
-   * never holds the block open against the operator.
+   * never holds the list open against the operator.
    *
    * ADJUSTED DURING RENDER, which is React's own documented shape for "change
    * some state when an input changes" and is why there is no effect here. An
-   * effect would paint the closed block and then the open one, so the one thing
+   * effect would paint the closed list and then the open one, so the one thing
    * that moves in this product would be a panel flinching rather than a paraf
    * being drawn.
    */
@@ -491,8 +470,7 @@ function Panel({
   // once: one failure stated twice on one screen reads as two failures.
   const errorNotice = error ? (
     <Notice tone="stop">
-      {error} Halaman yang sudah selesai dibaca tetap tersimpan di pekerjaan
-      ini.
+      {error} Halaman yang sudah dibaca tetap tersimpan.
     </Notice>
   ) : null;
   const errorHere = dropOpen ? null : errorNotice;
@@ -513,12 +491,16 @@ function Panel({
   if (run.pages.length === 0) return null;
 
   /**
-   * NOTHING IS OUTSTANDING: one quiet line, or nothing at all.
+   * NOTHING IS OUTSTANDING: one slab that says so, or nothing at all.
    *
    * This block is read on arrival at Periksa, every visit, for the whole life
    * of a pekerjaan. Once the work is done it must not go on occupying the top
-   * of the screen with a congratulation, so it collapses to a sentence, and to
-   * nothing when there is not even that much to report.
+   * of the screen with a congratulation, so it collapses to a kop and one line,
+   * and to nothing when there is not even that much to report.
+   *
+   * The clear is AFFIRMATIVE and therefore stays on screen rather than hiding:
+   * an absent warning is not a confirmation, which is the rule this whole
+   * product is built on.
    */
   if (blanks.length === 0) {
     const nothingPending =
@@ -526,153 +508,144 @@ function Panel({
     if (nothingPending) return null;
 
     return (
-      <div className="flex flex-col gap-2">
-        {errorHere}
-        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-          Tidak ada yang tersisa. Setiap bagian yang bisa didukung dokumen sudah
-          terisi atau sudah Anda putuskan.
-          {emptied.length > 0
-            ? ` ${emptied.length} bagian sengaja dikosongkan.`
-            : ""}
-        </p>
-        <SessionHistory rounds={rounds} />
+      <section aria-labelledby="tambahan-head" className="lt-slab">
+        <div className="lt-kop" data-owes={error ? "fault" : "done"}>
+          <h2 id="tambahan-head">Tidak ada yang tersisa</h2>
+          {/* `lt-kop-right` rather than a hand-rolled `ms-auto`: the stylesheet
+              declares the kop's right-hand slot so every kop in the product
+              puts its count in the same place. The figure is mono and the word
+              beside it is not, because "dikosongkan" is a state word the app
+              says, not a figure the document carries. */}
+          {emptied.length > 0 ? (
+            <span className="lt-kop-right flex items-baseline gap-2">
+              <span className="lt-figure">{emptied.length}</span>
+              dikosongkan
+            </span>
+          ) : null}
+        </div>
+
+        <div className="lt-slab-body flex flex-col gap-4">
+          {errorHere}
+          <Note>
+            Setiap bagian yang bisa didukung dokumen sudah terisi atau sudah
+            Anda putuskan.
+          </Note>
+          <SessionHistory rounds={rounds} />
+        </div>
+
         {dialog}
-      </div>
+      </section>
     );
   }
 
-  /*
-   * WHICH SHAPE THE BAR CARRIES. The stronger claim wins: "belum dicari" only
-   * while nothing in this list has actually been searched and missed, because
-   * saying "nobody has looked yet" over a bagian the search genuinely could not
-   * answer sends the operator to run a round that will change nothing. The
-   * counts beside it say the rest exactly.
-   */
-  const dominant: SlotAggregateStatus = blanks.some(
-    (blank) => blank.reason !== "unsearched",
-  )
-    ? "outstanding"
-    : "pending";
-
   return (
-    <section
-      aria-labelledby="tambahan-head"
-      className="flex flex-col gap-3 border-b pb-3"
-      style={{ borderColor: "var(--line)" }}
-    >
-      {/* THE BAR. Everything standing on it either changes with the pekerjaan
-          or is a control; nothing on it would read the same words on every
-          order. That is the whole test, and it is what the register, the count
-          sentence's second half and the fork's paragraph failed. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <Mark status={dominant} />
+    <section aria-labelledby="tambahan-head" className="lt-slab">
+      {/* THE KOP IS THIS BLOCK'S STATUS CHANNEL. Amber across the full width
+          means it owes the operator a decision, red means a read failed, and
+          the figure at the right is the size of the debt. Nothing else on the
+          block has to carry that signal, and none of it can be collapsed. */}
+      <div className="lt-kop" data-owes={error ? "fault" : "decision"}>
+        <h2 id="tambahan-head">Bagian tanpa bukti</h2>
+        <span className="lt-figure lt-kop-right">{blanks.length}</span>
+      </div>
 
-        <h2 className="lt-title text-base" id="tambahan-head">
-          <span className="lt-figure">{blanks.length}</span> bagian belum ada
-          buktinya
-        </h2>
+      <div className="lt-slab-body flex flex-col gap-4">
+        {/* The count changes as decisions are taken, with no navigation. */}
+        <p aria-live="polite" className="sr-only">
+          {blanks.length} bagian belum ada buktinya. {emptied.length} bagian
+          sudah Anda kosongkan.
+        </p>
+
+        {errorHere}
+
+        {/* A disabled control never appears without its reason, and the control
+            this one disables is Tambah dokumen, one line below. So it stands
+            outside the fold: a reason that can be collapsed away from the
+            button it explains is not a reason. */}
+        {busy ? (
+          <Notice tone="warn">
+            <span className="flex flex-wrap items-center gap-2">
+              Keputusan ditahan sampai pembacaan selesai.
+              <Hint label="Kenapa keputusan ditahan">
+                Menyimpan di tengah pembacaan akan ditolak oleh penyimpanan,
+                karena pekerjaannya sudah berubah, dan keputusan Anda bisa
+                hilang.
+              </Hint>
+            </span>
+          </Notice>
+        ) : null}
 
         <ReasonCounts counts={counts} />
 
-        <span className="ms-auto flex flex-wrap items-center gap-2">
-          <Btn
-            on={expanded}
-            aria-expanded={expanded}
-            onClick={() => setExpanded((was) => !was)}
-          >
-            {expanded ? "Ringkas daftar" : "Buka daftar"}
-          </Btn>
-          {/* The klip, because what the operator is about to hand over is
-              another document clipped to the same pekerjaan. */}
-          <Btn disabled={busy} onClick={() => setDropOpen(true)}>
-            <Klip />
-            Tambah dokumen
-          </Btn>
-        </span>
-      </div>
-
-      {/* The count changes as decisions are taken, with no navigation. */}
-      <p aria-live="polite" className="sr-only">
-        {blanks.length} bagian belum ada buktinya. {emptied.length} bagian sudah
-        Anda kosongkan.
-      </p>
-
-      {errorHere}
-
-      {/* A disabled control never appears without its reason, and the control
-          this one disables is Tambah dokumen, on the bar above. So it stands
-          outside the fold: a reason that can be collapsed away from the button
-          it explains is not a reason. A decision committed mid-ingest saves
-          from a run whose `rev` is behind, storage refuses it, and the operator
-          is told their decision exists only in this tab. */}
-      {busy ? (
-        <Notice tone="warn">
-          Keputusan ditahan dulu selama berkas dibaca. Menyimpan di tengah
-          pembacaan akan ditolak oleh penyimpanan, dan keputusan Anda bisa
-          hilang. Tunggu sampai pembacaan selesai.
-        </Notice>
-      ) : null}
-
-      {expanded ? (
-        <div className="flex flex-col gap-4">
-          {/* ABOVE THE ROWS, because when a round is owed it outranks every row
-              under it: deciding a bagian by hand before anything has looked for
-              it is the one decision on this block that cannot be taken back
-              cheaply. */}
-          {searchable > 0 ? (
-            <SearchLine
-              searchable={searchable}
-              pages={run.pages.length}
-              searching={searching}
-              busy={busy}
-              afterDocument={rounds.length > 0}
-              onSearch={onSearch}
-            />
-          ) : null}
-
-          <ul
-            ref={listRef}
-            tabIndex={-1}
-            aria-label="Bagian yang belum ada buktinya"
-            className="flex flex-col border-t"
-            style={{ borderColor: "var(--line)" }}
-          >
-            {blanks.map((blank) => (
-              <BlankRow
-                key={`${blank.key}-${blank.index ?? "belum-ada"}`}
-                run={run}
-                blank={blank}
-                busy={busy}
-                onDraw={onDraw}
-                onUnfill={unfillAndKeepFocus}
-              />
-            ))}
-          </ul>
-
-          {/* The machine keys, for support, behind the one disclosure this
-              product uses for deployer-facing text. An operator has no use for
-              `kbLanjutan.top#2` and it used to sit on every row at the same
-              weight as the label beside it. */}
-          <TechnicalDetail>
-            {blanks
-              .map((b) => `${b.key}  ${b.sectionTitle} / ${b.label}`)
-              .join("\n")}
-          </TechnicalDetail>
-
-          <Fork
-            noMore={noMore}
-            onNoMore={setNoMore}
+        {/* ABOVE THE QUESTION, because when a round is owed it outranks it:
+            deciding a bagian by hand before anything has looked for it is the
+            one decision on this block that cannot be taken back cheaply. */}
+        {searchable > 0 ? (
+          <SearchLine
+            searchable={searchable}
+            pages={run.pages.length}
+            searching={searching}
             busy={busy}
-            actionable={actionable}
-            confirming={confirming}
-            setConfirming={setConfirming}
-            confirmRef={confirmRef}
-            onUnfillAll={onUnfillAll}
+            afterDocument={rounds.length > 0}
+            onSearch={onSearch}
           />
+        ) : null}
 
-          <SessionHistory rounds={rounds} />
-        </div>
-      ) : null}
+        <Fork
+          noMore={noMore}
+          onNoMore={setNoMore}
+          busy={busy}
+          actionable={actionable}
+          confirming={confirming}
+          setConfirming={setConfirming}
+          confirmRef={confirmRef}
+          onUnfillAll={onUnfillAll}
+          onAddDocument={() => setDropOpen(true)}
+        />
+
+        {/* THE LIST, CLOSED. Every row in it is also a plate in the sheet a few
+            centimetres below, carrying the same two choices, so the fold hides
+            no decision. */}
+        <details
+          className="lt-disclose"
+          open={expanded}
+          onToggle={(event) => setExpanded(event.currentTarget.open)}
+        >
+          <summary>Daftar bagian</summary>
+
+          <div className="flex flex-col gap-4 pt-2">
+            <ul
+              ref={listRef}
+              tabIndex={-1}
+              aria-label="Bagian yang belum ada buktinya"
+              className="border-line flex flex-col border-t-2"
+            >
+              {blanks.map((blank) => (
+                <BlankRow
+                  key={`${blank.key}-${blank.index ?? "belum-ada"}`}
+                  run={run}
+                  blank={blank}
+                  busy={busy}
+                  onDraw={onDraw}
+                  onUnfill={unfillAndKeepFocus}
+                />
+              ))}
+            </ul>
+
+            {/* The machine keys, for support, behind the one disclosure this
+                product uses for deployer-facing text. An operator has no use
+                for `kbLanjutan.top#2` and it used to sit on every row at the
+                same weight as the label beside it. */}
+            <TechnicalDetail>
+              {blanks
+                .map((b) => `${b.key}  ${b.sectionTitle} / ${b.label}`)
+                .join("\n")}
+            </TechnicalDetail>
+
+            <SessionHistory rounds={rounds} />
+          </div>
+        </details>
+      </div>
 
       {dialog}
     </section>
@@ -680,7 +653,7 @@ function Panel({
 }
 
 /**
- * The four kinds of blank, counted apart, ON THE BAR.
+ * The four kinds of blank, counted apart.
  *
  * SPLIT CLAUSE BY CLAUSE, which is the whole density argument in one component.
  * The COUNTS change with the pekerjaan and decide what the operator does next,
@@ -700,16 +673,13 @@ function ReasonCounts({ counts }: { counts: Record<Reason, number> }) {
   if (rows.length === 0) return null;
 
   return (
-    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       {rows.map((reason) => (
-        <span key={reason} className="flex items-baseline gap-1.5">
+        <span key={reason} className="flex items-baseline gap-2">
           <StateWord status={REASON_MARK[reason]}>
             {REASON_WORD[reason]}
           </StateWord>
-          <span
-            className="lt-figure text-[0.8125rem]"
-            style={{ color: "var(--ink)" }}
-          >
+          <span className="lt-figure text-ink text-[0.8125rem]">
             {counts[reason]}
           </span>
         </span>
@@ -719,7 +689,7 @@ function ReasonCounts({ counts }: { counts: Record<Reason, number> }) {
           explanation of the vocabulary, not a report on this run. Which of the
           four are actually happening is what the figures beside it say. */}
       <Hint label="Arti keempat keterangan ini">
-        <dl className="flex flex-col gap-1.5">
+        <dl className="flex flex-col gap-2">
           {REASON_ORDER.map((reason) => (
             <div key={reason}>
               <dt className="inline">
@@ -731,7 +701,7 @@ function ReasonCounts({ counts }: { counts: Record<Reason, number> }) {
           ))}
         </dl>
       </Hint>
-    </span>
+    </div>
   );
 }
 
@@ -760,21 +730,18 @@ function BlankRow({
   const resolved = blank.zone ? resolvePage(run, blank.zone.pageIndex) : null;
 
   return (
-    <li
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b py-2"
-      style={{ borderColor: "var(--line)" }}
-    >
-      <Mark status={REASON_MARK[blank.reason]} title={REASON_WORD[blank.reason]} />
+    <li className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b-2 py-2">
+      <Mark
+        status={REASON_MARK[blank.reason]}
+        title={REASON_WORD[blank.reason]}
+      />
 
       {/* Mono: the section title and the field name are the packet's own voice,
           spelled as the sample spells them. */}
-      <span
-        className="lt-figure text-[0.8125rem]"
-        style={{ color: "var(--ink-3)" }}
-      >
+      <span className="lt-figure text-ink-3 text-[0.8125rem]">
         {blank.sectionTitle}
       </span>
-      <span className="lt-figure text-[0.9375rem] font-bold">{blank.label}</span>
+      <span className="lt-figure text-base font-bold">{blank.label}</span>
       <StateWord status={REASON_MARK[blank.reason]}>
         {REASON_WORD[blank.reason]}
       </StateWord>
@@ -784,42 +751,45 @@ function BlankRow({
           several: an operator who reads it as "kosongkan seluruh baris ToP"
           has just written off a picture that is already accepted. The figure
           counts what the run holds, so it can only ever appear once a lanjutan
-          has actually been found. */}
+          has actually been found, and the warning that goes with it is fixed
+          wording, so it sits behind a mark rather than on twelve rows. */}
       {blank.required > 1 ? (
-        <span
-          className="text-[0.8125rem]"
-          style={{ color: "var(--ink-2)" }}
-          title="Keputusan di baris ini hanya mengenai satu potongan, yang lain tidak ikut berubah."
-        >
-          <span className="lt-figure">
-            {blank.found} dari {blank.required}
-          </span>{" "}
-          potongan, keputusan ini hanya untuk satu
+        <span className="flex items-center gap-2">
+          <span className="lt-kotak">
+            {blank.found}/{blank.required} potongan
+          </span>
+          <Hint label="Berlaku untuk berapa potongan">
+            Keputusan di baris ini hanya mengenai satu potongan. Potongan lain
+            di bagian yang sama tidak ikut berubah.
+          </Hint>
         </span>
       ) : null}
 
       {resolved ? (
-        <span className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-          {blank.zoneIsSibling ? "potongan lain di " : "areanya di "}
+        <span className="flex items-center gap-2">
+          <span className="lt-label">
+            {blank.zoneIsSibling ? "potongan lain" : "area"}
+          </span>
           {/* The page's number inside its OWN source file, never the run-global
-              index the zone is stored by. */}
-          <span className="lt-figure">
-            hal {resolved.pageInDoc + 1} dari {resolved.pagesInDoc}
-          </span>{" "}
-          <span style={{ color: "var(--ink-3)" }} title={resolved.sourceName}>
-            {shortenFileName(resolved.sourceName, 22)}
+              index the zone is stored by. The berkas name is the kotak's title:
+              the plate in the sheet below carries the full register, and twelve
+              file names across the head of the sheet is the bulk this pass
+              removed. */}
+          <span className="lt-kotak" title={resolved.sourceName}>
+            hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
           </span>
         </span>
       ) : blank.zone ? (
-        <span className="text-[0.8125rem]" style={{ color: "var(--gap)" }}>
+        <span className="text-gap text-[0.8125rem]">
           Halamannya sudah tidak ada di pekerjaan ini.
         </span>
       ) : null}
 
       {index === null ? (
-        <span className="text-[0.8125rem]" style={{ color: "var(--gap)" }}>
-          Ada di template tapi belum ada di pekerjaan ini, jadi belum bisa
-          diputuskan. Mulai pekerjaan lain supaya bagian ini ikut disiapkan.
+        /* The reason this row carries no control, and it never hides. */
+        <span className="text-gap text-[0.8125rem]">
+          Belum ada di pekerjaan ini. Mulai pekerjaan lain supaya ikut
+          disiapkan.
         </span>
       ) : (
         <span className="ms-auto flex flex-wrap gap-2">
@@ -854,7 +824,9 @@ function BlankRow({
  * The two wordings are not decoration. "Nothing has been searched yet" and "you
  * added a document and the search has not run over it" send the operator to
  * completely different next actions, and one screen showed the same "still not
- * found" list in both, which reads as "the new document did not help".
+ * found" list in both, which reads as "the new document did not help". That is
+ * also the one moment this block claims the screen's primary control, because
+ * it is the only moment where nothing else the operator can do will help.
  */
 function SearchLine({
   searchable,
@@ -872,44 +844,37 @@ function SearchLine({
   onSearch?: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <p
-        aria-live="polite"
-        className="max-w-[70ch] flex-1 text-[0.9375rem]"
-        style={{ color: "var(--ink)" }}
-      >
+    <div className="flex flex-wrap items-center gap-4">
+      <p aria-live="polite" className="flex-1 text-sm">
         {searching ? (
           <>
-            Pencarian sedang berjalan untuk{" "}
-            <span className="lt-figure">{searchable}</span> bagian di{" "}
-            <span className="lt-figure">{pages}</span> halaman.
+            Mencari <span className="lt-figure">{searchable}</span> bagian.
           </>
         ) : afterDocument ? (
           <>
-            Berkas sudah dibaca, pencarian belum dijalankan. Jalankan pencarian
-            supaya <span className="lt-figure">{searchable}</span> bagian di
-            atas dicari lagi, kali ini termasuk di halaman yang baru.
+            Halaman baru belum dicari:{" "}
+            <span className="lt-figure">{searchable}</span> bagian menunggu.
           </>
         ) : (
           <>
             <span className="lt-figure">{searchable}</span> bagian bisa dicari
-            lagi di <span className="lt-figure">{pages}</span> halaman yang ada
-            sekarang.
+            di <span className="lt-figure">{pages}</span> halaman.
           </>
         )}
       </p>
 
-      {/* WHICH SENTENCE STAYS AND WHICH GOES, clause by clause. The counts and
-          "kali ini termasuk di halaman yang baru" are about THIS run and stand.
-          The reassurance underneath is the same words on every order, so it
-          moves behind the mark. */}
+      {/* WHICH SENTENCE STAYS AND WHICH GOES, clause by clause. The counts are
+          about THIS run and stand. The reassurance underneath reads the same
+          words on every order, so it moves behind the mark. */}
       <Hint label="Yang terjadi kalau diproses lagi">
         Bukti yang sudah Anda terima tidak ikut dicari ulang, jadi memproses
         lagi tidak mengulang pekerjaan yang sudah selesai. Tab ini boleh
         dibiarkan terbuka selama prosesnya berjalan.
       </Hint>
+
       {onSearch ? (
         <Btn
+          tone={afterDocument ? "primary" : "default"}
           disabled={searching || busy}
           aria-busy={searching || undefined}
           onClick={onSearch}
@@ -920,7 +885,7 @@ function SearchLine({
               wear two names across the flow, which is the thing the glossary
               in docs/ui-bahasa.md exists to stop. */}
           <Cari />
-          {searching ? "Sedang memproses..." : "Proses lagi"}
+          {searching ? "Memproses..." : "Proses lagi"}
         </Btn>
       ) : null}
     </div>
@@ -932,16 +897,14 @@ function SearchLine({
  *
  * It used to be a five-element block asking a yes/no question: the question,
  * two buttons, an explanation, a conditional notice and a caveat, standing at
- * the top of the review sheet on every visit. YES LEFT THIS BLOCK ENTIRELY: it
- * is the bar's own Tambah dokumen, which is where an operator who has an extra
- * document is already reaching. What is left here is the answer that has a
- * consequence ON THIS LIST, and the consequence itself: no reveals the bulk
+ * the top of the review sheet on every visit. It is one line now, and both
+ * answers are on it: yes opens the dokumen tambahan dialog, no reveals the bulk
  * write-off, which is the only other way a blank can leave this list.
  *
- * The answer is remembered for the session and the screen says exactly that,
- * because it is not written into the run: presenting a session variable as a
- * record would be the second-worst thing this block could do after losing a
- * decision outright.
+ * The answer is remembered for the session only, and the question mark says
+ * exactly that, because it is not written into the run: presenting a session
+ * variable as a record would be the second-worst thing this block could do
+ * after losing a decision outright.
  */
 function Fork({
   noMore,
@@ -952,6 +915,7 @@ function Fork({
   setConfirming,
   confirmRef,
   onUnfillAll,
+  onAddDocument,
 }: {
   noMore: boolean;
   onNoMore: (value: boolean) => void;
@@ -961,20 +925,28 @@ function Fork({
   setConfirming: (value: boolean) => void;
   confirmRef: React.RefObject<HTMLDivElement | null>;
   onUnfillAll: (slotIndexes: number[]) => void;
+  onAddDocument: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {/* Four words, on the same line as its own answer, rather than a
-            heading over a block. The question still has to be ASKED: without
-            it "Tidak, hanya ini" is an answer to nothing. */}
-        <span
-          id="tambahan-question"
-          className="text-[0.8125rem]"
-          style={{ color: "var(--ink-3)" }}
-        >
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* The question still has to be ASKED: without it "Tidak, hanya ini"
+            is an answer to nothing. */}
+        <span id="tambahan-question" className="lt-label">
           Ada dokumen tambahan?
         </span>
+
+        {/* The klip, because what the operator is about to hand over is another
+            document clipped to the same pekerjaan. */}
+        <Btn
+          disabled={busy}
+          aria-describedby="tambahan-question"
+          onClick={onAddDocument}
+        >
+          <Klip />
+          Tambah dokumen
+        </Btn>
+
         <Btn
           on={noMore}
           aria-pressed={noMore}
@@ -983,56 +955,49 @@ function Fork({
         >
           Tidak, hanya ini
         </Btn>
-        <Hint label="Kalau masih ada berkas lain">
-          Kalau ada, pakai <strong>Tambah dokumen</strong> di baris paling atas.
+
+        <Hint label="Tentang jawaban ini">
           Bagian yang belum ada buktinya mungkin ada di berkas lain, dan bukti
-          yang sudah Anda terima tetap disimpan.
+          yang sudah Anda terima tetap disimpan. Jawaban ini hanya berlaku
+          selama tab ini terbuka dan tidak ikut tersimpan di pekerjaan.
         </Hint>
       </div>
 
       {noMore ? (
-        <div className="flex flex-col gap-2">
-          <Notice tone="warn">
-            Kalau tidak ada berkas lain, setiap bagian di atas butuh keputusan:
-            gambar sendiri areanya dari dokumen yang sudah dimuat, atau
-            kosongkan. Keduanya tercatat sebagai keputusan Anda.
-          </Notice>
-
-          {confirming ? (
-            <BulkConfirm
-              ref={confirmRef}
-              rows={actionable}
-              busy={busy}
-              onCancel={() => setConfirming(false)}
-              onConfirm={() => {
-                onUnfillAll(
-                  actionable.flatMap((b) => (b.index === null ? [] : [b.index])),
-                );
-                setConfirming(false);
-              }}
-            />
-          ) : (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <Btn
-                tone="reject"
-                disabled={busy || actionable.length === 0}
-                onClick={() => setConfirming(true)}
-              >
-                {/* The double rule a clerk leaves in a cell that stays blank:
-                    the button draws what the click leaves behind, times the
-                    count beside it. */}
-                <Kosongkan />
-                Kosongkan semua ({actionable.length} bagian)
-              </Btn>
-              {/* Both answers stay live, so "tidak, hanya ini" followed by a
-                  document turning up anyway is a state this block can hold. */}
-              <Note>
-                Jawaban ini hanya berlaku selama tab ini terbuka dan tidak ikut
-                tersimpan di pekerjaan.
-              </Note>
-            </div>
-          )}
-        </div>
+        confirming ? (
+          <BulkConfirm
+            ref={confirmRef}
+            rows={actionable}
+            busy={busy}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              onUnfillAll(
+                actionable.flatMap((b) => (b.index === null ? [] : [b.index])),
+              );
+              setConfirming(false);
+            }}
+          />
+        ) : (
+          <div className="flex flex-wrap items-center gap-4">
+            {/* The consequence of the answer just given, beside the control it
+                enables. Both answers stay live, so "tidak, hanya ini" followed
+                by a document turning up anyway is a state this block holds. */}
+            <Notice tone="warn">
+              Tanpa berkas lain, setiap bagian butuh keputusan Anda.
+            </Notice>
+            <Btn
+              tone="reject"
+              disabled={busy || actionable.length === 0}
+              onClick={() => setConfirming(true)}
+            >
+              {/* The double rule a clerk leaves in a cell that stays blank:
+                  the button draws what the click leaves behind, times the
+                  count beside it. */}
+              <Kosongkan />
+              Kosongkan semua ({actionable.length})
+            </Btn>
+          </div>
+        )
       ) : null}
     </div>
   );
@@ -1049,6 +1014,9 @@ function Fork({
  * separately how many of them nobody ever searched, because writing off an
  * unsearched bagian is a different act from writing off one the search
  * genuinely could not answer.
+ *
+ * A SLAB INSIDE A SLAB, so it casts no plate of its own: the kop asks the
+ * question, and the well under it lists what is about to be written off.
  */
 function BulkConfirm({
   ref,
@@ -1071,43 +1039,51 @@ function BulkConfirm({
       tabIndex={-1}
       role="group"
       aria-labelledby="kosongkan-semua"
-      className="lt-panel flex flex-col gap-3 p-4"
+      className="lt-slab-flat"
     >
-      <h3 className="lt-title text-base" id="kosongkan-semua">
-        Kosongkan {rows.length} bagian?
-      </h3>
-      <p className="max-w-[62ch] text-[0.9375rem]">
-        Bagian berikut akan dikirim kosong di DOKUMEN VALIDASI, tercatat atas
-        keputusan Anda:
-      </p>
-      <ul className="lt-well flex max-h-44 flex-col gap-1 overflow-auto p-3">
-        {rows.map((row) => (
-          <li
-            key={`${row.key}-${row.index}`}
-            className="lt-figure text-[0.8125rem]"
-          >
-            {row.sectionTitle} / {row.label}
-          </li>
-        ))}
-      </ul>
-      {unsearched > 0 ? (
-        <Notice tone="warn">
-          {unsearched} di antaranya belum pernah dicari, jadi belum ada yang
-          pernah melihat apakah buktinya ada.
-        </Notice>
-      ) : null}
-      <p
-        className="max-w-[62ch] text-[0.9375rem]"
-        style={{ color: "var(--ink-2)" }}
-      >
-        Untuk membatalkannya nanti, buka lagi bagiannya satu per satu di lembar
-        periksa di bawah.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Btn tone="reject" disabled={busy} onClick={onConfirm}>
-          Ya, kosongkan {rows.length} bagian
-        </Btn>
-        <Btn onClick={onCancel}>Batal</Btn>
+      <div className="lt-kop" data-owes="decision">
+        <h3 id="kosongkan-semua">Kosongkan {rows.length} bagian?</h3>
+      </div>
+
+      <div className="lt-slab-body flex flex-col gap-4">
+        <p className="text-sm">
+          Bagian ini dikirim kosong di DOKUMEN VALIDASI, atas keputusan Anda:
+        </p>
+
+        <ul className="lt-well flex max-h-48 flex-col gap-2 overflow-auto p-4">
+          {rows.map((row) => (
+            <li
+              key={`${row.key}-${row.index}`}
+              className="lt-figure text-[0.8125rem]"
+            >
+              {row.sectionTitle} / {row.label}
+            </li>
+          ))}
+        </ul>
+
+        {unsearched > 0 ? (
+          <Notice tone="warn">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="lt-figure">{unsearched}</span> di antaranya belum
+              pernah dicari.
+              <Hint label="Kenapa itu berbeda">
+                Belum ada yang pernah melihat apakah buktinya ada, jadi itu
+                bukan bukti yang hilang.
+              </Hint>
+            </span>
+          </Notice>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-4">
+          <Btn tone="reject" disabled={busy} onClick={onConfirm}>
+            Ya, kosongkan {rows.length} bagian
+          </Btn>
+          <Btn onClick={onCancel}>Batal</Btn>
+          <Hint label="Kalau berubah pikiran">
+            Untuk membatalkannya nanti, buka lagi bagiannya satu per satu di
+            lembar periksa di bawah.
+          </Hint>
+        </div>
       </div>
     </div>
   );
@@ -1163,16 +1139,21 @@ function TambahanDialog({
     >
       <DialogContent showCloseButton={!busy} closeLabel="Tutup">
         <DialogHeader>
-          {/* The same klip the bar's own control carries, so the button and
+          {/* The same klip the block's own control carries, so the button and
               the box it opens are visibly one act. */}
           <DialogTitle className="flex items-center gap-2">
             <Klip size={20} />
-            Tambahkan dokumen tambahan
+            Dokumen tambahan
           </DialogTitle>
           <DialogDescription>
-            Hanya bagian yang belum ada buktinya yang dicari lagi. Setiap area
-            yang sudah Anda terima tetap tersimpan, jadi menambahkan berkas
-            keempat tidak mengulang pekerjaan yang sudah selesai.
+            <span className="flex flex-wrap items-center gap-2">
+              Hanya bagian yang belum ada buktinya yang dicari lagi.
+              <Hint label="Yang terjadi dengan bukti yang sudah diterima">
+                Setiap area yang sudah Anda terima tetap tersimpan, jadi
+                menambahkan berkas keempat tidak mengulang pekerjaan yang sudah
+                selesai.
+              </Hint>
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -1181,7 +1162,7 @@ function TambahanDialog({
         ) : (
           <DocumentDrop
             label="Dokumen tambahan"
-            hint="Berkas PDF lain yang mungkin memuat bagian yang belum ada buktinya. Sesudah dibaca, pencarian masih harus dijalankan."
+            hint="Sesudah dibaca, pencarian masih harus dijalankan."
             size="inline"
             onFiles={onFiles}
           />
@@ -1200,41 +1181,54 @@ function TambahanDialog({
  * length: the app only ever learns about whole pages, a page is stored the
  * moment it is read, and the number that matters to somebody who might close
  * the tab is how many are SAFELY STORED.
+ *
+ * THREE OR FOUR WORDS A LINE, on purpose. "Membuka berkas dan menghitung
+ * halamannya" is the exact line the client named as unreasonably long, and
+ * nothing is lost by cutting it: what the operator needs is that the document
+ * is being read, and how much of it has landed.
  */
 function Reading({ progress }: { progress: IngestProgress | null }) {
   const named = Boolean(progress?.name);
   const counting = !progress || progress.total <= 0;
 
   return (
-    <div className="flex flex-col gap-2" aria-live="polite">
-      <p className="text-[0.9375rem]" style={{ color: "var(--ink)" }}>
+    <div className="flex flex-col gap-4" aria-live="polite">
+      <p className="flex flex-wrap items-center gap-2 text-sm">
+        Membaca
         {named ? (
-          <>
-            Membaca{" "}
-            <span className="lt-figure" title={progress?.name}>
-              {shortenFileName(progress?.name ?? "", 30)}
-            </span>
-          </>
+          <span className="lt-kotak" title={progress?.name}>
+            {shortenFileName(progress?.name ?? "", 30)}
+          </span>
         ) : (
-          "Membaca dokumen"
+          "dokumen"
         )}
       </p>
-      <p className="text-[0.9375rem]" style={{ color: "var(--ink)" }}>
+
+      <p className="flex flex-wrap items-center gap-2 text-sm">
         {counting ? (
-          "Membuka berkas dan menghitung halamannya."
+          "Menghitung halaman."
         ) : (
           <>
-            <span className="lt-figure">{progress?.done}</span> dari{" "}
-            <span className="lt-figure">{progress?.total}</span> halaman sudah
-            tersimpan.
+            <span className="lt-kotak">
+              {progress?.done}/{progress?.total}
+            </span>
+            halaman tersimpan.
           </>
         )}
       </p>
-      <Note>
-        Setiap halaman disimpan begitu selesai dibaca. Kotak ini tidak bisa
-        ditutup selama pembacaan berjalan, supaya tidak ada pembacaan yang
-        berjalan tanpa terlihat. Kotak ini menutup sendiri kalau sudah selesai.
-      </Note>
+
+      {/* The reason the close control is missing, which never hides. The
+          promise that the box lets go by itself is fixed wording and reads the
+          same on every read, so it sits behind the mark with the rest of the
+          explanation rather than doubling the line on screen. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Note>Tidak bisa ditutup sampai pembacaan selesai.</Note>
+        <Hint label="Kenapa tidak bisa ditutup">
+          Setiap halaman disimpan begitu selesai dibaca. Kotak ini bertahan
+          supaya tidak ada pembacaan yang berjalan tanpa terlihat, dan menutup
+          sendiri begitu selesai.
+        </Hint>
+      </div>
     </div>
   );
 }
@@ -1245,30 +1239,28 @@ function Reading({ progress }: { progress: IngestProgress | null }) {
  * `rounds` lives in the shell's React state, is reset when a run is opened, and
  * is never persisted, so it is empty exactly when it would matter most: after
  * the reload of a long session. Fixing that means changing storage, which is
- * out of scope here, so the line says plainly what this list is rather than
- * letting it pass as an audit trail.
+ * out of scope here, so the mark beside it says plainly what this list is
+ * rather than letting it pass as an audit trail.
  */
 function SessionHistory({ rounds }: { rounds: RoundLog[] }) {
   if (rounds.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1">
-      <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-        Dibaca di sesi ini:{" "}
-        {rounds.map((round, i) => (
-          <Fragment key={`${round.round}-${round.document}-${i}`}>
-            {i > 0 ? ", " : ""}
-            <span className="lt-figure" title={round.document}>
-              {shortenFileName(round.document, 28)}
-            </span>{" "}
-            <span className="lt-figure">+{round.pagesAdded}</span> halaman
-          </Fragment>
-        ))}
-      </p>
-      <Note>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="lt-label">Dibaca di sesi ini</span>
+      {rounds.map((round, i) => (
+        <span
+          key={`${round.round}-${round.document}-${i}`}
+          className="lt-kotak"
+          title={round.document}
+        >
+          {shortenFileName(round.document, 28)} +{round.pagesAdded}
+        </span>
+      ))}
+      <Hint label="Tentang daftar ini">
         Daftar ini hanya ada selama tab ini terbuka, jadi jangan dipakai sebagai
         catatan serah terima.
-      </Note>
+      </Hint>
     </div>
   );
 }

@@ -5,8 +5,10 @@
  *
  * The design calls manual selection the TERMINAL STATE of the whole flow, not
  * a fallback, so this screen is built like a work surface rather than like a
- * dialog: the page is the hero, it lies on the table as `.lt-paper`, and the
- * controls sit in a bar that cannot scroll away from a 1400px tall scan.
+ * dialog. THE PAGE IS THE ONE MEMORABLE OBJECT ON IT: it is the only slab that
+ * casts a plate, it is mounted on a stage inside a mat, and it takes as much
+ * of the viewport as the readout beside it can spare. Everything else is quiet
+ * on purpose, because a screen that emphasises everything reads as a form.
  *
  * Three things here are requirements rather than polish:
  *
@@ -29,9 +31,17 @@
  *    pixels. The page image is fluid, so a pixel-based overlay would need a
  *    resize listener and would drift from the crop by however much that
  *    listener lagged, and a rectangle drawn a few pixels off the one that gets
- *    cut is a picture of a lie. Percentages also make the zoom control below
- *    free: at any container width the same fractions land on the same page
- *    pixels.
+ *    cut is a picture of a lie. Percentages also make the zoom control free:
+ *    at any container width the same fractions land on the same page pixels.
+ *
+ * WHY `.lt-paper` IS ON THE SCROLL BOX AND NOT ON THE PAGE FRAME, which looks
+ * backwards and is not: `.lt-paper` carries a 2px border, and
+ * `getBoundingClientRect` on the frame reports the BORDER box while the page
+ * image fills the padding box. Moving the class inward would put a two pixel
+ * offset between where the operator points and where the rectangle lands, on
+ * the one screen whose entire job is that the drawn rectangle and the cut
+ * rectangle are the same rectangle. The mat and the stage supply the dark
+ * surround instead.
  *
  * WHAT THE REDESIGN CHANGED, and why none of it is cosmetic:
  *
@@ -45,7 +55,7 @@
  *    can act on; the number that gets STORED is the run-global position, via
  *    `zonePageRef`. Confusing those two has already shipped a wrong page
  *    reference once, in the xlsx exporter.
- *  - The readout is now the same citation register the review plate shows
+ *  - The readout is the same citation register the review plate shows
  *    (`Cite` + `CiteAdvisories` over a real `Citation`), so a hand-drawn zone
  *    is held to the SAME visible standard as a machine-proposed one. It used
  *    to show a pixel count and two mono sentences, and none of the tells:
@@ -58,14 +68,22 @@
  *    snapper cites lines overlapping the raw drag by `TOUCH_RATIO`. The
  *    picture therefore claimed lines the citation did not carry, which is this
  *    project's failure class in miniature.
+ *  - EVERY CONTROL IS IN ONE BAR at the foot of the screen. The view steps and
+ *    the whole-page capture used to sit under the picture and the commit in a
+ *    bar, so the hand had three places to look. Only the per-line nudges
+ *    stayed behind, beside the citation they edit, because they are an edit to
+ *    the register rather than an action on the page.
  *
  * WHAT THE DENSITY PASS MOVED, AND THE LINE IT WOULD NOT CROSS.
  *
- * Three sentences here read word for word the same on every order, on every
- * slot and on every page: how to drag, what a saved area becomes, that the
- * preview is enlarged from the screen raster, and how the free-pixel modifier
- * works. Each is now behind the `Hint` on the heading or the control it
- * explains, which is a place a person can point at when they want it.
+ * Four things here read word for word the same on every order, on every slot
+ * and on every page: how to drag, what a saved area becomes, that the preview
+ * is enlarged from the screen raster, and how the free-pixel modifier works.
+ * Each is behind the `Hint` on the heading or the control it explains, which
+ * is a place a person can point at when they want it. The transcript is a
+ * CLOSED disclosure for a stronger reason: OCR text can be right while the
+ * rectangle is wrong, so reading the text instead of looking at the picture is
+ * exactly the shortcut that lets a wrong page through.
  *
  * NOTHING MEASURED OFF THIS RECTANGLE MOVED, and that is the rule rather than
  * a judgement call. The citation register, every advisory under it (a whole
@@ -86,6 +104,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 
 import { AO_TEMPLATE } from "@/lib/forms/template";
@@ -127,7 +146,6 @@ import {
   Note,
   Notice,
   TechnicalDetail,
-  Title,
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
@@ -171,14 +189,14 @@ type Zoom = "page" | "column" | "double";
 /**
  * How the page image is sized inside the frame, per zoom step.
  *
- * Named "Pas ke layar" rather than anything with "muat" or "satu halaman" in
- * it: "Muat" is the name of the ingest phase and "tangkapan satu halaman" is
- * the whole-page CAPTURE. A zoom step must not borrow either word, or the
- * control reads as an action on the document instead of on the view.
+ * Two words at most: these are settings, not sentences. None of them may
+ * borrow "muat" or "satu halaman": "Muat" is the name of the ingest phase and
+ * "tangkapan satu halaman" is the whole-page CAPTURE, so either word here
+ * would read as an action on the document instead of on the view.
  */
 const ZOOM_LABEL: Record<Zoom, string> = {
-  page: "Pas ke layar",
-  column: "Selebar kolom",
+  page: "Pas layar",
+  column: "Lebar kolom",
   double: "2x",
 };
 
@@ -196,6 +214,68 @@ function linesInRange(page: StoredPage, from: number, to: number): Line[] {
   return page.lines
     .filter((l) => l.i >= from && l.i <= to)
     .sort((a, b) => a.i - b.i);
+}
+
+/**
+ * A block of content: an edge, a body, and a kop that names it.
+ *
+ * THE KOP IS THE BLOCK'S STATUS CHANNEL, which is why `owes` lives here rather
+ * than as a mark somewhere inside the body: a block waiting on the operator is
+ * legible from across the room instead of being a small glyph they have to
+ * hunt for. Only the page casts a plate on this screen, so `plate` is opt-in
+ * and everything else is furniture around the one object that matters.
+ *
+ * Local to this file on purpose: it is this screen's layout, not a shared
+ * primitive, and chrome.tsx is owned elsewhere.
+ */
+function Slab({
+  name,
+  owes,
+  aside,
+  plate = false,
+  children,
+}: {
+  name: ReactNode;
+  owes?: "decision" | "fault" | "done";
+  /** The count or state this block owes, at the right of the kop. */
+  aside?: ReactNode;
+  plate?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`${plate ? "lt-slab" : "lt-slab-flat"} flex min-w-0 flex-col`}>
+      <div className="lt-kop" data-owes={owes}>
+        <h3 className="min-w-0">{name}</h3>
+        {/* `lt-kop-right` rather than a hand-rolled `grow` on the title: the
+            stylesheet declares the kop's right-hand slot, so every kop in the
+            product puts its count or state in the same place. */}
+        {aside ? (
+          <span className="lt-kop-right flex shrink-0 items-center gap-2">
+            {aside}
+          </span>
+        ) : null}
+      </div>
+      <div className="lt-slab-body flex min-w-0 flex-col gap-4">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * A figure quoted out of a document, in a ruled box.
+ *
+ * Never loose in a sentence: a file name and a page number are values the
+ * operator MATCHES against something else (a folder on their own machine, the
+ * page they are looking at), and this system sets those in a ruled box the way
+ * a form prints a field. `title` carries the untruncated name, because
+ * `shortenFileName` cuts the middle out of exactly the strings these scans
+ * differ by.
+ */
+function Kotak({ children, title }: { children: ReactNode; title?: string }) {
+  return (
+    <span className="lt-kotak" title={title}>
+      {children}
+    </span>
+  );
 }
 
 type PageGroup = {
@@ -271,7 +351,7 @@ const PageGlyph = memo(function PageGlyph({
       aria-current={current ? "page" : undefined}
       aria-label={unreadable ? `${identity}, teks tidak terbaca` : identity}
       onClick={() => onPick(page.id)}
-      className="flex shrink-0 flex-col items-center gap-1 pb-1"
+      className="flex shrink-0 flex-col items-center gap-2 pb-2"
       style={{
         // The open page is marked by a RULE and by the weight of its number,
         // never by a hue alone. Amber means a decision is owed on a piece of
@@ -295,7 +375,7 @@ const PageGlyph = memo(function PageGlyph({
         decorative
       />
       <span
-        className="lt-figure text-[0.75rem] leading-none"
+        className="lt-figure text-[0.8125rem] leading-none"
         style={{
           color: current ? "var(--ink)" : "var(--ink-3)",
           fontWeight: current ? 700 : 400,
@@ -307,6 +387,12 @@ const PageGlyph = memo(function PageGlyph({
   );
 });
 
+/**
+ * The page picker, mounted on a mat because every plan on it is a picture of a
+ * page. It gets no stage of its own: these glyphs are controls that happen to
+ * be drawn from evidence, not evidence on display, and a second sunk frame
+ * around a row of already bordered sheets is an edge carrying nothing.
+ */
 function PageStrip({
   groups,
   pageId,
@@ -330,34 +416,39 @@ function PageStrip({
   }, [pageId]);
 
   return (
-    <div ref={strip} className="flex gap-6 overflow-x-auto pb-2">
-      {groups.map((group) => (
-        <section key={group.sourceId} className="flex shrink-0 flex-col gap-1.5">
-          {/* The document, once, as a group heading. The old strip repeated a
-              file name truncated at 18 characters on every button, which is
-              exactly where these scan names stop differing. */}
-          <h3 className="flex items-baseline gap-2">
-            <span className="lt-figure text-[0.8125rem]" title={group.name}>
-              {shortenFileName(group.name, 30)}
-            </span>
-            <span className="lt-label">{group.pages.length} halaman</span>
-          </h3>
+    <div className="lt-mat">
+      <div ref={strip} className="flex gap-6 overflow-x-auto">
+        {groups.map((group) => (
+          <section key={group.sourceId} className="flex shrink-0 flex-col gap-2">
+            {/* The document, once, as a group heading. The old strip repeated a
+                file name truncated at 18 characters on every button, which is
+                exactly where these scan names stop differing. */}
+            <h4 className="flex items-baseline gap-2">
+              <span className="lt-figure text-[0.8125rem]" title={group.name}>
+                {shortenFileName(group.name, 30)}
+              </span>
+              {/* "halaman" in full, not "hal". The glossary abbreviates it
+                  only INSIDE a citation, and this is a count of the pages a
+                  document holds, not a reference to one of them. */}
+              <span className="lt-label">{group.pages.length} halaman</span>
+            </h4>
 
-          <div className="flex gap-1.5">
-            {group.pages.map(({ page, ordinal }) => (
-              <PageGlyph
-                key={page.id}
-                page={page}
-                ordinal={ordinal}
-                identity={`${group.name}, halaman ${ordinal + 1} dari ${group.pages.length}`}
-                current={page.id === pageId}
-                cut={page.id === pageId ? cut : null}
-                onPick={onPick}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+            <div className="flex gap-2">
+              {group.pages.map(({ page, ordinal }) => (
+                <PageGlyph
+                  key={page.id}
+                  page={page}
+                  ordinal={ordinal}
+                  identity={`${group.name}, halaman ${ordinal + 1} dari ${group.pages.length}`}
+                  current={page.id === pageId}
+                  cut={page.id === pageId ? cut : null}
+                  onPick={onPick}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
@@ -598,7 +689,7 @@ export function ZoneEditor({
   // screen: it is system vocabulary an operator has no use for.
   //
   // Both numbers come from the RUN, never from the template. Nothing declares
-  // how many pictures a bagian holds -- a lanjutan is discovered -- so
+  // how many pictures a bagian holds (a lanjutan is discovered), so
   // `captureCount` is the highest ordinal this run actually carries, and an
   // ordinary single-capture bagian prints nothing at all.
   const captureOrdinal = captureOrdinalOf(target.slotKey);
@@ -612,16 +703,14 @@ export function ZoneEditor({
 
   if (!page) {
     return (
-      <div className="lt-panel flex flex-col gap-4 p-6">
-        <Title>Tandai area bukti</Title>
+      <Slab name="Tandai area bukti" owes="fault">
         <Notice tone="stop">
-          Belum ada halaman di pekerjaan ini, jadi tidak ada yang bisa ditandai.
-          Tambahkan berkas PDF dulu di langkah Muat.
+          Belum ada halaman di pekerjaan ini. Muat berkas PDF dulu.
         </Notice>
         <div>
           <Btn onClick={onCancel}>Batal</Btn>
         </div>
-      </div>
+      </Slab>
     );
   }
 
@@ -711,8 +800,9 @@ export function ZoneEditor({
     // The whole page as one capture, which is what four of the twelve slots
     // are by design. It is also the one selection a scrolling frame cannot be
     // dragged: that drag would have to run past the edge of the frame, and it
-    // is the whole keyboard path to a zone, since the per-line buttons below
-    // can shrink this down to any contiguous range without a pointer.
+    // is the whole keyboard path to a zone, since the per-line buttons in the
+    // Sumber block can shrink this down to any contiguous range with no
+    // pointer at all.
     //
     // `snap: false` ON PURPOSE. Snapping would union the LINE boxes, which
     // stops at the text and drops the margins, so a button labelled "one whole
@@ -839,12 +929,29 @@ export function ZoneEditor({
    * primary action with no reason reads as a broken screen.
    */
   const blocked = failure
-    ? "Halaman ini tidak tampil, jadi tidak ada yang bisa Anda periksa. Pilih halaman lain."
+    ? "Halaman ini tidak tampil. Pilih halaman lain."
     : !canDraw
-      ? "Tunggu halamannya tampil dulu, supaya Anda bisa memeriksa apa yang dipotong."
+      ? "Tunggu halamannya tampil dulu."
       : !draft
-        ? "Tandai areanya dulu di halaman, atau ambil tangkapan satu halaman."
+        ? // The same words as the button that does it ("Satu halaman"), not a
+          // third spelling of the whole-page capture: an action keeps one
+          // wording through the flow, or the reason and the remedy read as two
+          // different things.
+          "Tandai areanya dulu, atau ambil satu halaman."
         : null;
+
+  /**
+   * The page block's own state, carried by the full width of its kop rather
+   * than by a mark the operator has to find. Amber here is this product's one
+   * meaning of amber: this block is waiting on you. It is the only colour on a
+   * healthy version of this screen, and it goes out the moment a rectangle
+   * exists.
+   */
+  const pageOwes: "decision" | "fault" | undefined = failure
+    ? "fault"
+    : draft
+      ? undefined
+      : "decision";
 
   const frameInner: CSSProperties =
     zoom === "page"
@@ -855,17 +962,21 @@ export function ZoneEditor({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The screen's heading area, on the table rather than in a block: the
+          question being asked, and the one sentence about what answering it
+          replaces. The title IS the label, so nothing floats above it. */}
       <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
           {slotDef ? (
             <span className="lt-figure lt-label">{slotDef.section.title}</span>
           ) : null}
           {captureCount > 1 ? (
             <span className="lt-label">
-              potongan ke-{captureOrdinal} dari {captureCount}
+              potongan {captureOrdinal} dari {captureCount}
             </span>
           ) : null}
         </div>
+
         {/* The field being filled, in the packet's own voice and at the size of
             the question being asked. The screen's own name used to be the most
             distinctive string here, above a 16px field label.
@@ -876,7 +987,7 @@ export function ZoneEditor({
             today reads it as furniture. What replaces it is not nothing: the
             page itself carries the instruction, in place, for exactly as long
             as there is no rectangle on it. */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="lt-field-name lt-figure">{target.label}</h2>
           <Hint label="Penjelasan cara menandai area">
             Tarik di halaman untuk menandai areanya. Area yang Anda simpan
@@ -888,13 +999,14 @@ export function ZoneEditor({
         {/* WHAT THE FIELD IS SUPPOSED TO BE, which lived in `SlotDef` and had
             never been on screen. The operator is about to author the evidence
             for it by hand, so this is the specification they are drawing
-            against. `bukan` carries the full ink of the two: naming the
-            look-alike is the half that catches a plausible wrong crop, and a
-            plausible wrong crop is the failure this product is organised
-            against. `hint` is deliberately NOT shown: it is an English prompt
-            written to steer the model. */}
+            against, and it is the one paragraph here that a different bagian
+            would print differently. `bukan` carries the full ink of the two:
+            naming the look-alike is the half that catches a plausible wrong
+            crop, and a plausible wrong crop is the failure this product is
+            organised against. `hint` is deliberately NOT shown: it is an
+            English prompt written to steer the model. */}
         {slotDef?.slot.catatan ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             <Lede>{slotDef.slot.catatan.adalah}</Lede>
             {slotDef.slot.catatan.bukan ? (
               <p className="lt-lede" style={{ color: "var(--ink)" }}>
@@ -904,51 +1016,62 @@ export function ZoneEditor({
           </div>
         ) : null}
 
-        {/* One sentence about what this commit does to what is already
-            there, and only one: where the evidence stands now, or where it is
-            about to move from, or that there is none yet. */}
+        {/* One sentence about what this commit does to what is already there,
+            and only one. The empty case now says nothing at all: the page kop
+            is already amber and the Potongan block already reads "belum ada
+            area", so a third statement of the same fact is exactly the
+            reassurance the density pass exists to cut. */}
         {originLost ? (
           <Notice tone="stop">
-            Area yang tersimpan menunjuk ke halaman yang sudah tidak ada di
-            pekerjaan ini, jadi areanya tidak bisa ditampilkan kembali. Pilih
-            halamannya lalu tandai ulang.
+            Halaman area lama sudah tidak ada di pekerjaan ini. Pilih halamannya
+            lalu tandai ulang.
           </Notice>
         ) : movedFrom ? (
           /* Moving evidence from one document to another is the highest
              consequence edit available on this screen, and it used to happen
              with no more ceremony than nudging an edge. Both pages are named. */
           <Notice tone="warn">
-            Area asal ada di{" "}
-            <span className="lt-figure">
-              {shortenFileName(movedFrom.sourceName, 30)}
-            </span>{" "}
-            halaman <span className="lt-figure">{movedFrom.pageInDoc + 1}</span>.
-            Anda sedang menandai{" "}
-            <span className="lt-figure">{shortenFileName(sourceName, 30)}</span>{" "}
-            halaman <span className="lt-figure">{pageOrdinal + 1}</span>, jadi
-            buktinya berpindah halaman.
+            Bukti berpindah halaman, dari{" "}
+            <Kotak title={movedFrom.sourceName}>
+              {shortenFileName(movedFrom.sourceName, 24)} hal{" "}
+              {movedFrom.pageInDoc + 1}
+            </Kotak>{" "}
+            ke{" "}
+            <Kotak title={sourceName}>
+              {shortenFileName(sourceName, 24)} hal {pageOrdinal + 1}
+            </Kotak>
+            .
           </Notice>
         ) : origin ? (
           <Notice>
-            Ini menggantikan area yang sekarang, di{" "}
-            <span className="lt-figure">
-              {shortenFileName(origin.sourceName, 30)}
-            </span>{" "}
-            halaman{" "}
-            <span className="lt-figure">
-              {origin.pageInDoc + 1} dari {origin.pagesInDoc}
-            </span>
+            Menggantikan area di{" "}
+            <Kotak title={origin.sourceName}>
+              {shortenFileName(origin.sourceName, 24)} hal{" "}
+              {origin.pageInDoc + 1}
+            </Kotak>
             .
           </Notice>
-        ) : (
-          <Notice>Bagian ini belum punya area bukti.</Notice>
-        )}
+        ) : null}
       </header>
 
-      <PageStrip groups={groups} pageId={pageId} cut={box} onPick={pickPage} />
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        {/* THE ONE MEMORABLE OBJECT ON THIS SCREEN, and the only slab that
+            casts a plate. Everything else is furniture around it. */}
+        <Slab
+          plate
+          name="Halaman"
+          owes={pageOwes}
+          aside={
+            <>
+              <Kotak title={sourceName}>
+                {shortenFileName(sourceName, 22)}
+              </Kotak>
+              <Kotak>
+                hal {pageOrdinal + 1} / {pagesInDoc}
+              </Kotak>
+            </>
+          }
+        >
           {/* A persistent live region, so the page's state is announced when
               it changes rather than only when a message happens to mount. */}
           <p className="sr-only" aria-live="polite">
@@ -962,10 +1085,8 @@ export function ZoneEditor({
           {failure ? (
             <div className="flex flex-col gap-2">
               <Notice tone="stop" role="alert">
-                Halaman ini tidak bisa dibuka di peramban ini. Pilih halaman
-                lain di atas, atau muat ulang aplikasi lalu coba lagi. Selama
-                halamannya tidak tampil, area di halaman ini tidak bisa
-                ditandai.
+                Halaman ini tidak bisa dibuka. Pilih halaman lain, atau muat
+                ulang aplikasi.
               </Notice>
               <TechnicalDetail>{failure}</TechnicalDetail>
             </div>
@@ -973,294 +1094,294 @@ export function ZoneEditor({
 
           {emptyPage ? (
             <Notice tone="warn">
-              Halaman ini tidak punya baris teks yang terbaca, jadi tidak ada
-              yang bisa dikunci. Setiap tarikan di sini memakai piksel apa
-              adanya, dan potongannya tersimpan tanpa kutipan baris.
+              Tidak ada baris teks terbaca di halaman ini. Tarikan memakai
+              piksel apa adanya, tanpa kutipan baris.
             </Notice>
           ) : null}
 
           {tooSmall ? (
             <Notice tone="warn" role="status">
-              Tarikan Anda lebih kecil dari {MIN_DRAG_PX} piksel halaman, jadi
-              tidak dijadikan area. Tarik lebih lebar, atau perbesar tampilan
-              halaman dulu.
+              Tarikan di bawah {MIN_DRAG_PX} piksel, jadi tidak dipakai. Tarik
+              lebih lebar.
             </Notice>
           ) : null}
 
-          {/* The page lies on the table: the one lit material in the product,
-              so the crop's edge stays visible against a white scan. The FRAME
-              scrolls rather than the document, so the readout beside it and
-              the bar below it never leave the screen at 1366x768. */}
-          <div
-            className={`lt-paper flex h-[min(66vh,46rem)] min-h-[20rem] items-start overflow-auto ${
-              // Centred only when the page fits: `justify-center` on an
-              // overflowing flex row clips the leading edge instead of letting
-              // it scroll, and the leading edge of a scan is a margin the
-              // operator may need to draw into.
-              zoom === "page" ? "justify-center" : "justify-start"
-            }`}
-          >
-            <div
-              role="group"
-              aria-label={`Halaman untuk digambar. ${pageIdentity}.`}
-              className="relative shrink-0 touch-none select-none"
-              style={{
-                ...frameInner,
-                aspectRatio: `${page.widthPx} / ${page.heightPx}`,
-                cursor: canDraw ? "crosshair" : "default",
-              }}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={() => {
-                dragOrigin.current = null;
-                setDragging(false);
-              }}
-            >
-              {shown ? (
-                /* eslint-disable-next-line @next/next/no-img-element -- a blob
-                   URL rendered in this tab from a document that never leaves
-                   it. No `object-contain`: the image FILLS the container, so
-                   container fractions and page fractions are one number and
-                   the overlay cannot be letterboxed away from the pixels it
-                   claims to mark. */
-                <img
-                  src={shown}
-                  alt={pageIdentity}
-                  className="absolute inset-0 h-full w-full"
-                  draggable={false}
-                />
-              ) : (
-                <p
-                  className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm"
-                  style={{ color: "var(--paper-ink-2)" }}
-                >
-                  {failure
-                    ? "Halaman ini tidak tampil."
-                    : `Membuka ${pageIdentity}...`}
-                </p>
-              )}
+          <PageStrip
+            groups={groups}
+            pageId={pageId}
+            cut={box}
+            onPick={pickPage}
+          />
 
-              {!draft && canDraw ? (
-                <p
-                  className="pointer-events-none absolute inset-x-0 top-6 mx-auto w-fit rounded-sm px-3 py-1.5 text-sm"
-                  style={{
-                    background:
-                      "color-mix(in oklch, var(--surface-sunk), transparent 12%)",
-                    color: "var(--ink)",
-                  }}
-                >
-                  Tarik di halaman ini untuk menandai area bukti.
-                </p>
-              ) : null}
-
-              {box ? (
-                <>
-                  {/* Everything outside the zone dims, so the crop is the only
-                      lit thing on the page: the same trick a light table
-                      plays. */}
-                  <div
-                    className="lt-scrim"
-                    style={{
-                      left: 0,
-                      top: 0,
-                      right: 0,
-                      height: pct(box.y, page.heightPx),
-                    }}
-                  />
-                  <div
-                    className="lt-scrim"
-                    style={{
-                      left: 0,
-                      top: pct(box.y + box.h, page.heightPx),
-                      right: 0,
-                      bottom: 0,
-                    }}
-                  />
-                  <div
-                    className="lt-scrim"
-                    style={{
-                      left: 0,
-                      top: pct(box.y, page.heightPx),
-                      width: pct(box.x, page.widthPx),
-                      height: pct(box.h, page.heightPx),
-                    }}
-                  />
-                  <div
-                    className="lt-scrim"
-                    style={{
-                      left: pct(box.x + box.w, page.widthPx),
-                      top: pct(box.y, page.heightPx),
-                      right: 0,
-                      height: pct(box.h, page.heightPx),
-                    }}
-                  />
-                  <div
-                    className="lt-zone"
-                    style={{
-                      left: pct(box.x, page.widthPx),
-                      top: pct(box.y, page.heightPx),
-                      width: pct(box.w, page.widthPx),
-                      height: pct(box.h, page.heightPx),
-                      // `.lt-zone` marks the edge with an outline, and CSS
-                      // outlines paint OUTSIDE the element box: without this
-                      // the rectangle on screen is two pixels larger on every
-                      // side than the one that gets cut. A marker drawn a few
-                      // pixels off the cut is the picture of a lie this module
-                      // exists to avoid.
-                      outlineOffset: "-2px",
-                    }}
-                  />
-                </>
-              ) : null}
-
-              {guideLines.map((line) => (
-                <div key={`cited-${line.i}`}>
-                  <div
-                    className="lt-guide"
-                    style={{ top: pct(line.box.y, page.heightPx) }}
-                  />
-                  <div
-                    className="lt-guide"
-                    style={{ top: pct(line.box.y + line.box.h, page.heightPx) }}
-                  />
-                </div>
-              ))}
-
-              {/* Lines inside the picture that the citation leaves out. Drawn
-                  in pencil on the paper rather than in a product hue: the
-                  advisory beside the register says what it means, and neither
-                  of this product's two hues means "look here as well". */}
-              {strayLines.map((line) => (
+          {/* EVIDENCE IS MOUNTED, NEVER PLACED: a sunk stage, a near-black mat,
+              then the sheet. The FRAME scrolls rather than the document, so the
+              readout beside it and the bar below it never leave the screen at
+              1366x768. */}
+          <div className="lt-stage">
+            <div className="lt-mat">
+              <div
+                className={`lt-paper flex h-[min(62vh,44rem)] min-h-[18rem] items-start overflow-auto ${
+                  // Centred only when the page fits: `justify-center` on an
+                  // overflowing flex row clips the leading edge instead of
+                  // letting it scroll, and the leading edge of a scan is a
+                  // margin the operator may need to draw into.
+                  zoom === "page" ? "justify-center" : "justify-start"
+                }`}
+              >
                 <div
-                  key={`stray-${line.i}`}
-                  className="pointer-events-none absolute inset-x-0"
+                  role="group"
+                  aria-label={`Halaman untuk digambar. ${pageIdentity}.`}
+                  className="relative shrink-0 touch-none select-none"
                   style={{
-                    top: pct(line.box.y, page.heightPx),
-                    height: pct(line.box.h, page.heightPx),
-                    borderTop: `1px dashed ${pencil}`,
-                    borderBottom: `1px dashed ${pencil}`,
+                    ...frameInner,
+                    aspectRatio: `${page.widthPx} / ${page.heightPx}`,
+                    cursor: canDraw ? "crosshair" : "default",
                   }}
-                />
-              ))}
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={() => {
+                    dragOrigin.current = null;
+                    setDragging(false);
+                  }}
+                >
+                  {shown ? (
+                    /* eslint-disable-next-line @next/next/no-img-element -- a
+                       blob URL rendered in this tab from a document that never
+                       leaves it. No `object-contain`: the image FILLS the
+                       container, so container fractions and page fractions are
+                       one number and the overlay cannot be letterboxed away
+                       from the pixels it claims to mark. */
+                    <img
+                      src={shown}
+                      alt={pageIdentity}
+                      className="absolute inset-0 h-full w-full"
+                      draggable={false}
+                    />
+                  ) : (
+                    <p
+                      className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm"
+                      style={{ color: "var(--paper-ink-2)" }}
+                    >
+                      {failure
+                        ? "Halaman ini tidak tampil."
+                        : `Membuka ${pageIdentity}...`}
+                    </p>
+                  )}
+
+                  {/* The instruction, in place, for exactly as long as there is
+                      no rectangle to look at.
+
+                      PAINTED IN `--paper`, NOT IN `--ink`. `.lt-paper` rebinds
+                      the ink tokens to the sheet's own dark values, so this
+                      chip was dark text on a near-black ground: an instruction
+                      that was, measurably, not there. */}
+                  {!draft && canDraw ? (
+                    <p
+                      className="pointer-events-none absolute inset-x-0 top-6 mx-auto w-fit px-4 py-2 text-sm"
+                      style={{
+                        background: "var(--mat)",
+                        color: "var(--paper)",
+                      }}
+                    >
+                      Tarik untuk menandai area.
+                    </p>
+                  ) : null}
+
+                  {box ? (
+                    <>
+                      {/* Everything outside the zone dims, so the crop is the
+                          only lit thing on the page: the same trick a light
+                          table plays. */}
+                      <div
+                        className="lt-scrim"
+                        style={{
+                          left: 0,
+                          top: 0,
+                          right: 0,
+                          height: pct(box.y, page.heightPx),
+                        }}
+                      />
+                      <div
+                        className="lt-scrim"
+                        style={{
+                          left: 0,
+                          top: pct(box.y + box.h, page.heightPx),
+                          right: 0,
+                          bottom: 0,
+                        }}
+                      />
+                      <div
+                        className="lt-scrim"
+                        style={{
+                          left: 0,
+                          top: pct(box.y, page.heightPx),
+                          width: pct(box.x, page.widthPx),
+                          height: pct(box.h, page.heightPx),
+                        }}
+                      />
+                      <div
+                        className="lt-scrim"
+                        style={{
+                          left: pct(box.x + box.w, page.widthPx),
+                          top: pct(box.y, page.heightPx),
+                          right: 0,
+                          height: pct(box.h, page.heightPx),
+                        }}
+                      />
+                      <div
+                        className="lt-zone"
+                        style={{
+                          left: pct(box.x, page.widthPx),
+                          top: pct(box.y, page.heightPx),
+                          width: pct(box.w, page.widthPx),
+                          height: pct(box.h, page.heightPx),
+                          // `.lt-zone` marks the edge with an outline, and CSS
+                          // outlines paint OUTSIDE the element box: without
+                          // this the rectangle on screen is two pixels larger
+                          // on every side than the one that gets cut. A marker
+                          // drawn a few pixels off the cut is the picture of a
+                          // lie this module exists to avoid.
+                          outlineOffset: "-2px",
+                        }}
+                      />
+                    </>
+                  ) : null}
+
+                  {guideLines.map((line) => (
+                    <div key={`cited-${line.i}`}>
+                      <div
+                        className="lt-guide"
+                        style={{ top: pct(line.box.y, page.heightPx) }}
+                      />
+                      <div
+                        className="lt-guide"
+                        style={{
+                          top: pct(line.box.y + line.box.h, page.heightPx),
+                        }}
+                      />
+                    </div>
+                  ))}
+
+                  {/* Lines inside the picture that the citation leaves out.
+                      Drawn in pencil on the paper rather than in a product hue:
+                      the advisory beside the register says what it means, and
+                      neither of this product's two hues means "look here as
+                      well". 2px, because this system has no 1px rule. */}
+                  {strayLines.map((line) => (
+                    <div
+                      key={`stray-${line.i}`}
+                      className="pointer-events-none absolute inset-x-0"
+                      style={{
+                        top: pct(line.box.y, page.heightPx),
+                        height: pct(line.box.h, page.heightPx),
+                        borderTop: `2px dashed ${pencil}`,
+                        borderBottom: `2px dashed ${pencil}`,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
+        </Slab>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="lt-label">Tampilan</span>
-            {(Object.keys(ZOOM_LABEL) as Zoom[]).map((step) => (
-              <Btn
-                key={step}
-                on={zoom === step}
-                aria-pressed={zoom === step}
-                onClick={() => setZoom(step)}
-              >
-                {ZOOM_LABEL[step]}
-              </Btn>
-            ))}
-            {/* The one control here that is not a view setting, so it is the
-                one that carries a glyph: the filled sheet is the shape of what
-                the click LEAVES, a whole page taken as one capture, and it is
-                the mark the glossary's "tangkapan satu halaman" is drawn from.
-                The three zoom steps beside it get none: an identical glyph on
-                every member of a homogeneous group discriminates nothing. */}
-            <Btn onClick={takeWholePage} disabled={!canDraw}>
-              <HalamanUtuh />
-              Ambil tangkapan satu halaman
-            </Btn>
-          </div>
-        </div>
-
-        <aside className="flex min-w-0 flex-col gap-5">
-          <section className="flex flex-col gap-3">
-            {/* The note about resolution stood under every preview and said
-                the same thing under all of them: the picture is enlarged from
-                the screen raster, the deliverable is cut from the full page.
-                It is true on every order, nothing it describes stops working
-                when it is not read, and it sat directly under the picture the
-                operator is trying to look at. It belongs to this heading, so
-                it lives on this heading's mark. What does NOT move is anything
-                measured off this rectangle: the register and every advisory
-                below stay on the sheet. */}
-            <h3 className="lt-title flex items-center gap-1.5 text-base">
-              Yang akan dipotong
-              <Hint label="Penjelasan pratinjau potongan">
-                Pratinjau ini diperbesar dari gambar halaman di layar. Potongan
-                yang masuk ke berkas hasil dipotong dari halaman resolusi
-                penuh.
-              </Hint>
-            </h3>
-
+        <aside className="flex min-w-0 flex-col gap-4">
+          {/* THE PICTURE, and every advisory that is a statement about the
+              picture. The note about resolution stood under every preview and
+              said the same thing under all of them: it is true on every order,
+              nothing it describes stops working when it is not read, and it sat
+              directly under the thing the operator is trying to look at. It is
+              on this block's mark now. What did NOT move is anything measured
+              off this rectangle. */}
+          <Slab
+            name={
+              <span className="flex items-center gap-2">
+                Potongan
+                <Hint label="Penjelasan pratinjau potongan">
+                  Pratinjau ini diperbesar dari gambar halaman di layar.
+                  Potongan yang masuk ke berkas hasil dipotong dari halaman
+                  resolusi penuh.
+                </Hint>
+              </span>
+            }
+            aside={draft ? null : "belum ada area"}
+          >
             {draft && shown ? (
-              <CropPreview url={shown} page={page} box={draft.box} />
+              <div className="lt-mat">
+                <CropPreview url={shown} page={page} box={draft.box} />
+              </div>
             ) : (
-              <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-                Belum ada area. Potongannya muncul di sini begitu Anda
-                menandainya.
-              </p>
+              /* A DELIBERATE ABSENCE, DRAWN. The kop already says "belum ada
+                 area" in words, so a sentence here would be the same fact
+                 twice in one block. `.lt-hatch` is the material this system
+                 keeps for exactly this: nothing has been put here yet, and it
+                 must not look like an empty crop. Marked decorative, because
+                 the state it depicts is read out by the kop beside it. */
+              <div className="lt-hatch aspect-[3/2] w-full" aria-hidden="true" />
             )}
 
-            {/* The same register the review plate shows, so a zone drawn by
-                hand is read in the same vocabulary, and held to the same
-                visible standard, as one the model proposed. */}
+            {draft ? (
+              <>
+                <CiteAdvisories cite={cite} />
+
+                {!cited ? (
+                  <Advisory>
+                    Tanpa kutipan baris. Wajar untuk tanda tangan atau stempel.
+                    Pemeriksa tidak bisa menelusuri barisnya.
+                  </Advisory>
+                ) : null}
+
+                {strayLines.length > 0 ? (
+                  <Advisory>
+                    {strayLines.length} baris terlihat di potongan tetapi tidak
+                    masuk kutipan. Tambahkan lewat Atas +1 atau Bawah +1.
+                  </Advisory>
+                ) : null}
+              </>
+            ) : null}
+          </Slab>
+
+          {/* WHERE IT CAME FROM: the same register the review plate shows, so a
+              zone drawn by hand is read in the same vocabulary, and held to the
+              same visible standard, as one the model proposed. */}
+          <Slab name="Sumber" aside={draft ? null : "belum ada area"}>
             {draft ? (
               <>
                 <Cite cite={cite} />
-                <CiteAdvisories cite={cite} />
 
                 {/* A whole-page capture says nothing about snapping worth
-                    saying: `CiteAdvisories` above already names it as one, and
-                    the page has no edge to have followed a line at. */}
+                    saying: `CiteAdvisories` already names it as one, and the
+                    page has no edge to have followed a line at. */}
                 {cite?.wholePage ? null : draft.mode === "snapped" ? (
-                  <Note>
-                    Terkunci ke baris penuh, ditambah margin {CROP_PADDING_PX}{" "}
-                    piksel di setiap sisi.
-                  </Note>
+                  <Note>Terkunci ke baris, margin {CROP_PADDING_PX} piksel.</Note>
                 ) : draft.mode === "existing" ? (
                   /* A `Zone` carries no record of how it was drawn, so this
                      says "not recorded" instead of claiming it was snapped,
                      which is what the old readout did to every reopened
                      free-pixel capture. */
                   <Advisory>
-                    Cara area ini dibuat tidak tercatat, jadi belum bisa
-                    dipastikan apakah dulu dikunci ke baris. Gambar ulang bila
-                    Anda ingin memastikannya mengikuti baris.
+                    Cara area ini dibuat tidak tercatat. Gambar ulang bila Anda
+                    ingin memastikannya mengikuti baris.
                   </Advisory>
                 ) : draft.forced ? (
                   <Note>Piksel apa adanya, atas permintaan Anda.</Note>
                 ) : (
                   /* Snapping was on and quietly fell through for want of a
                      line to snap to. That is correct behaviour and it must be
-                     said here, because the toggle below still reads "aktif"
-                     and two statements on one screen may not disagree about
-                     what just happened. */
+                     said here, because the toggle in the bar still reads
+                     "aktif" and two statements on one screen may not disagree
+                     about what just happened. */
                   <Advisory>
                     Kunci ke baris menyala, tetapi tidak ada baris yang bisa
-                    dikunci di area ini, jadi tarikan Anda dipakai apa adanya.
-                    Periksa apakah areanya memang tidak perlu mengikuti baris.
+                    dikunci di sini. Periksa apakah areanya memang tidak perlu
+                    mengikuti baris.
                   </Advisory>
                 )}
 
-                {!cited ? (
-                  <Advisory>
-                    Tanpa kutipan baris. Wajar untuk tanda tangan, stempel atau
-                    materai. Potongannya tetap tersimpan sebagai gambar, tetapi
-                    tidak ada baris yang bisa ditelusuri kembali oleh pemeriksa.
-                  </Advisory>
-                ) : null}
-
-                {strayLines.length > 0 ? (
-                  <Advisory>
-                    {strayLines.length} baris ikut terlihat di potongan tetapi
-                    tidak masuk kutipan. Periksa apakah baris itu memang tidak
-                    diperlukan, atau tambahkan lewat tombol Atas +1 dan Bawah
-                    +1 di bawah ini.
-                  </Advisory>
-                ) : null}
-
                 {cited ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="lt-label">Sesuaikan per baris</span>
+                    <span className="lt-label">Per baris</span>
                     <Btn
                       onClick={() => nudge("top", 1)}
                       aria-label="Tambah satu baris di atas"
@@ -1287,67 +1408,76 @@ export function ZoneEditor({
                     </Btn>
                   </div>
                 ) : null}
+
+                {/* THE TRANSCRIPT IS A CLOSED DISCLOSURE. OCR text can be right
+                    while the rectangle is wrong, so judging by the text is
+                    exactly the shortcut that lets a wrong page through, and it
+                    had four times the crop's area on this screen. Line numbers
+                    are mono because they are read against the citation's own
+                    range down a column; the document's prose is not, and
+                    monospace prose at 13px reads as debug output. */}
+                {citedLines.length > 0 ? (
+                  <details className="lt-disclose">
+                    <summary>
+                      Teks di dalamnya ({citedLines.length} baris)
+                    </summary>
+                    <ol className="lt-well mt-2 max-h-72 overflow-auto p-2 text-[0.8125rem]">
+                      {citedLines.map((line) => (
+                        <li
+                          key={line.i}
+                          className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-2"
+                        >
+                          <span
+                            className="lt-figure text-right"
+                            style={{ color: "var(--ink-3)" }}
+                          >
+                            {line.i}
+                          </span>
+                          <span
+                            className="whitespace-pre-wrap"
+                            style={{ color: "var(--ink-2)" }}
+                          >
+                            {line.text}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                ) : null /* SAID ALREADY, TWICE, AT FULL INK: the register
+                    above prints "baris: digambar sendiri" and the Potongan
+                    block carries "Tanpa kutipan baris" as an advisory. A third
+                    sentence here is the repeated reassurance this pass exists
+                    to cut, not a tell being hidden: nothing measured off this
+                    rectangle moved off the sheet. */}
               </>
             ) : null}
-          </section>
-
-          <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="lt-title text-base">Teks di dalamnya</h3>
-            {citedLines.length > 0 ? (
-              /* The transcript is a CLOSED cross-check, never the thing being
-                 judged: OCR text can be right while the rectangle is wrong.
-                 Line numbers are mono because they are read against the
-                 citation's own range down a column; the document's prose is
-                 not, and monospace prose at 13px reads as debug output. */
-              <ol className="lt-well max-h-72 overflow-auto p-2 text-[0.8125rem]">
-                {citedLines.map((line) => (
-                  <li
-                    key={line.i}
-                    className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-2"
-                  >
-                    <span
-                      className="lt-figure text-right"
-                      style={{ color: "var(--ink-3)" }}
-                    >
-                      {line.i}
-                    </span>
-                    <span
-                      className="whitespace-pre-wrap"
-                      style={{ color: "var(--ink-2)" }}
-                    >
-                      {line.text}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-                {!draft
-                  ? "Belum ada area, jadi belum ada teks yang dikutip."
-                  : emptyPage
-                    ? "Halaman ini tidak punya baris teks terbaca, jadi tidak ada teks yang bisa dikutip."
-                    : "Tidak ada baris utuh di dalam area ini, jadi potongannya tersimpan tanpa kutipan baris."}
-              </p>
-            )}
-          </section>
+          </Slab>
         </aside>
       </div>
 
-      {/* The bar stays with the operator. Drawing happens at the bottom of a
-          page and committing used to happen at the top of the document, so
-          every correction ended in a scroll away from the evidence. */}
-      <div className="lt-rail sticky bottom-0 z-10 flex flex-col gap-2 border-t px-1 py-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <p className="mr-auto flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span className="lt-figure text-[0.8125rem]" title={sourceName}>
-              {shortenFileName(sourceName, 26)}
-            </span>
-            <span className="lt-label">halaman</span>
-            <span className="lt-figure text-[0.8125rem]">
-              {pageOrdinal + 1} dari {pagesInDoc}
-            </span>
-            {dragging ? <span className="lt-label">sedang menggambar</span> : null}
-          </p>
+      {/* ONE BAR, AND EVERY CONTROL IS IN IT. The bar stays with the operator:
+          drawing happens at the bottom of a page and committing used to happen
+          at the top of the document, so every correction ended in a scroll away
+          from the evidence. The view steps and the whole-page capture used to
+          sit under the picture, which put the hand in three places. */}
+      <div
+        className="lt-rail sticky bottom-0 z-10 flex flex-col gap-2 p-4"
+        style={{ borderTop: "3px solid var(--edge)" }}
+      >
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="lt-label">Tampilan</span>
+            {(Object.keys(ZOOM_LABEL) as Zoom[]).map((step) => (
+              <Btn
+                key={step}
+                on={zoom === step}
+                aria-pressed={zoom === step}
+                onClick={() => setZoom(step)}
+              >
+                {ZOOM_LABEL[step]}
+              </Btn>
+            ))}
+          </div>
 
           {/* The mode's NAME does not change with its state; the state is said
               in words beside it, drawn as a glyph, and carried by the pressed
@@ -1357,44 +1487,63 @@ export function ZoneEditor({
 
               The glyph is the house one and it takes `locked`, so the two
               states differ by SHAPE (a bar held between two rules, or a dashed
-              free run) and not by the pressed background alone. It used to be
-              two drawings on a 16 grid inlined here, which were the right
-              drawings on the wrong grid: every other mark in the product is
-              drawn on 20, and a glyph beside a state mark has to be the same
-              hand at the same scale.
+              free run) and not by the pressed background alone.
 
-              THE FREE-PIXEL MODIFIER MOVED HERE, and it did not disappear. It
-              used to stand as a sentence under this bar, where it read the
+              THE FREE-PIXEL MODIFIER IS ON THIS MARK, and it did not disappear.
+              It used to stand as a sentence under this bar, where it read the
               same on every order and on every page; it is an explanation of
-              this toggle, so it now sits on this toggle's mark, which opens on
-              hover, on focus and on tap. An affordance nobody can see is not
-              an affordance, and this one being invisible was a real defect
-              once already. */}
-          <div className="flex items-center gap-0.5">
+              this toggle, so it sits on this toggle's mark, which opens on
+              hover, on focus and on tap. An affordance nobody can see is not an
+              affordance, and this one being invisible was a real defect once
+              already. */}
+          <div className="flex items-center gap-2">
             <Btn
               on={snapMode}
               aria-pressed={snapMode}
               onClick={() => setSnapMode((on) => !on)}
             >
               <KunciKeBaris locked={snapMode} />
-              Kunci ke baris: {snapMode ? "aktif" : "mati"}
+              Kunci ke baris {snapMode ? "aktif" : "mati"}
             </Btn>
             <Hint label="Penjelasan kunci ke baris">
-              Saat aktif, tarikan Anda mengikuti baris teks yang utuh, dan
-              menahan {altName} sambil menarik memakai piksel apa adanya untuk
-              tarikan itu saja, misalnya di tanda tangan atau stempel. Saat
-              mati, setiap tarikan memakai piksel apa adanya.
+              Saat aktif, tarikan mengikuti baris teks yang utuh. Tahan{" "}
+              {altName} sambil menarik untuk memakai piksel apa adanya, misalnya
+              di tanda tangan atau stempel.
             </Hint>
           </div>
 
-          <Btn onClick={requestCancel}>Batal</Btn>
-          {/* The save carries the potongan: what the click leaves behind is a
-              region cut out of a page, which is the one thing this screen
-              exists to author. */}
-          <Btn tone="primary" onClick={save} disabled={Boolean(blocked)}>
-            <Potongan />
-            Pakai area ini
+          {/* The one control here that is not a view setting, so it is the one
+              that carries a glyph: the filled sheet is the shape of what the
+              click LEAVES, a whole page taken as one capture, and it is the
+              mark the glossary's "tangkapan satu halaman" is drawn from. The
+              view steps beside it get none: an identical glyph on every member
+              of a homogeneous group discriminates nothing. The glossary's full
+              term stays in the accessible name, because the glossary fixes it
+              and the button only has room for half of it. */}
+          <Btn
+            onClick={takeWholePage}
+            disabled={!canDraw}
+            aria-label="Ambil tangkapan satu halaman"
+          >
+            <HalamanUtuh />
+            Satu halaman
           </Btn>
+
+          {/* Not a live region: the rectangle growing under the pointer is the
+              feedback, and announcing "menggambar" on every drag would talk
+              over the operator doing the drag. */}
+          {dragging ? <span className="lt-label">menggambar</span> : null}
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Btn onClick={requestCancel}>Batal</Btn>
+            {/* The save carries the potongan: what the click leaves behind is a
+                region cut out of a page, which is the one thing this screen
+                exists to author. */}
+            <Btn tone="primary" onClick={save} disabled={Boolean(blocked)}>
+              <Potongan />
+              Pakai area ini
+            </Btn>
+          </div>
         </div>
 
         {/* A disabled primary action never appears without its reason beside
@@ -1408,17 +1557,16 @@ export function ZoneEditor({
           className="max-w-[74ch] text-[0.8125rem]"
           style={{ color: "var(--ink)" }}
         >
-          {blocked ?? "Siap disimpan sebagai bukti bagian ini."}
+          {blocked ?? "Siap disimpan."}
         </p>
 
         {confirmDiscard ? (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <Notice tone="warn">
-              Area yang Anda gambar belum disimpan. Menutup sekarang
-              membuangnya.
+              Area belum disimpan. Menutup sekarang membuangnya.
             </Notice>
             <Btn tone="reject" onClick={onCancel}>
-              Buang area ini dan tutup
+              Buang dan tutup
             </Btn>
             <Btn onClick={() => setConfirmDiscard(false)}>Lanjut menggambar</Btn>
           </div>

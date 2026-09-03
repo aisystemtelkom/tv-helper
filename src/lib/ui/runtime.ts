@@ -131,6 +131,26 @@ export type Runtime = {
     onProgress?: (done: number, total: number) => void,
   ): Promise<BrowserRun>;
   /**
+   * Takes one source document back out of an open pekerjaan, and it is not the
+   * inverse of `ingestDocument` however much it looks like one.
+   *
+   * `Zone.pageIndex` is a POSITION IN `run.pages`, so removing a document's
+   * pages repoints every zone found in a LATER document unless something moves
+   * them. `removeSource` does, and this is the storage call around it. Never
+   * write a shorter `pages` array through `saveRun` instead: `PageLossError`
+   * refuses it, which is the correct outcome and not one to route around.
+   */
+  removeDocument(runId: string, sourceId: string): Promise<BrowserRun>;
+  /**
+   * What removing that document would cost, without removing it: pages,
+   * captures, and how many of those captures the operator has already
+   * accepted. Pure, so a screen may call it while rendering.
+   */
+  sourceRemovalCost(
+    run: BrowserRun,
+    sourceId: string,
+  ): { pages: number; captures: number; confirmed: number };
+  /**
    * A page bitmap for display and for cropping, rendered on demand at
    * `DEFAULT_DPI` so a `Zone.box` maps to bitmap pixels ONE TO ONE.
    *

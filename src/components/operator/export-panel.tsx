@@ -3,50 +3,70 @@
 /**
  * Screen 3 of three (Muat, Periksa, Berkas): write the two deliverables.
  *
+ * THE TWO FILES ARE THE OBJECT ON THIS SCREEN. Everything here exists to
+ * produce one docx and one xlsx, so they are drawn as two slabs carrying their
+ * own mark, their own name in a ruled box and their own Simpan control, and
+ * every other block on the screen is quieter than they are. The screen used to
+ * distribute emphasis evenly over a manifest, a workbook section, a header
+ * table and an action bar, which is what makes a screen read as a form rather
+ * than as a thing that makes something.
+ *
  * THE MANIFEST IS AN INVENTORY, NOT AN EXCEPTION REPORT. This screen used to
  * summarise the entire visual content of the packet as one integer ("12
  * confirmed crops") and then list only the exceptions. A count cannot be
  * checked against anything, and an exception list cannot be read side by side
  * with the document a validator is about to sign. So every fillable slot is
- * listed, in template order, every time, including the ones that are fine, and
- * every confirmed capture CARRIES ITS PICTURE at a size where a wrong page is
- * recognisable. This is the last pass before a signature; it is exactly the
- * wrong place to be the one screen with no evidence on it.
+ * still listed, in template order, every time, including the ones that are
+ * fine, and every confirmed capture still CARRIES ITS PICTURE at a size where
+ * a wrong page is recognisable.
+ *
+ * WHAT CHANGED IS THAT THE INVENTORY IS CLOSED AT REST, and the reasoning is
+ * worth writing down because the two rules pull against each other. A
+ * pre-flight summary of what will ship is reference material: the operator
+ * ruled on every one of these crops on the review sheet, and re-reading a metre
+ * of them is not what makes the packet right. What is NOT reference material is
+ * a fault, so a thumbnail that could not be cut, or a capture whose page has
+ * gone, OPENS the list and is named in the action bar as well. A collapsed
+ * block still reports its state, because its kop is the status channel and goes
+ * red across its full width.
  *
  * EVERY NUMBER SAYS WHETHER IT COUNTS SLOTS OR CAPTURES. `bagian` and
  * `potongan` are different units and the sample's ToP row holds two potongan
  * in one bagian. Folding them into one figure is how a half-filled slot has
- * already shipped wrong twice.
+ * already shipped wrong twice. Each figure is also printed in exactly one
+ * place: the docx slab counts potongan, the inventory's kop counts bagian, and
+ * the action bar's verdict counts bagian carrying evidence.
  *
  * THE BLOCK IS ATTACHED TO THE CONTROL IT DISABLES. The verdict, the blocking
- * items by their operator-facing label, the remedy, the two file names and the
- * build button live together in one sticky bar, because at 1366x768 the old
- * layout put the reason at the top of a page taller than the viewport and the
- * disabled button at the bottom of it. A disabled control whose explanation is
- * off screen reads as a broken app.
+ * items by their operator-facing label, the remedy and the build button live
+ * together in one sticky bar, because at 1366x768 the old layout put the reason
+ * at the top of a page taller than the viewport and the disabled button at the
+ * bottom of it. A disabled control whose explanation is off screen reads as a
+ * broken app. The two file slabs sit DIRECTLY above that bar, so the build
+ * button and the two Simpan buttons it enables are in one viewport too.
  *
  * THAT BAR IS AN OVERLAY, SO IT PAYS FOR ITS OWN SPACE. `position: sticky`
  * keeps the bar in the flow and pulls it up to the viewport's bottom edge for
  * as long as its own place in the flow is below that edge, so it covers the
  * bottom of everything above it until the scroll reaches the very end. The
- * slack that released it was 56px of a metre-long page, which is less than one
- * wheel notch, so the section sitting directly above it was underneath it in
- * practice. The flow now reserves the bar's MEASURED height above it
- * (`useBarHeight`), so the last row of the manifest can always be scrolled
- * clear.
+ * slack that released it was the page's own bottom padding plus the gap above
+ * the bar, which is less than one wheel notch, so the section sitting directly
+ * above it was underneath it in practice. The flow now reserves the bar's
+ * MEASURED height above it (`useBarHeight`), so the last row of the page can
+ * always be scrolled clear.
  *
  * WHAT IS FILLED IN AUTOMATICALLY IS EXACTLY WHAT THE APP CAN READ, WHICH IS
  * THE SOURCE FILE NAMES. `deriveIdsFromFilenames` gets ID EPIC and Quote out
  * of them, and each one says so beside the field and names the file it came
  * from, because a value the operator is meant to CHECK must not look like a
- * value somebody typed. Nothing else is guessed, and the three empty fields
- * each say why in one line rather than looking unfinished. There is no values
- * path in this browser to guess with: `/api/propose` answers with zones, a
- * page and a line range, never with text, and a `BrowserRun` carries pages and
- * zones only. Two of the three are recorded failures on top of that:
- * `namaProyek` answered with the master contract's scope title, with a
- * citation that PASSED validation, and `cc` matched a printed email's own
- * "Cc:" header and put a wrong customer name into both deliverables.
+ * value somebody typed. Nothing else is guessed, and the fields nobody fills
+ * in automatically say why. There is no values path in this browser to guess
+ * with: `/api/propose` answers with zones, a page and a line range, never with
+ * text, and a `BrowserRun` carries pages and zones only. Two of them are
+ * recorded failures on top of that: `namaProyek` answered with the master
+ * contract's scope title, with a citation that PASSED validation, and `cc`
+ * matched a printed email's own "Cc:" header and put a wrong customer name
+ * into both deliverables.
  *
  * ONE INVARIANT WORTH KEEPING: a picture on this screen means a picture in the
  * docx. A capture that holds a zone the export will not print (an `unfilled`
@@ -57,9 +77,9 @@
  * that would read word for word the same on every order, and that is not the
  * reason a control on screen is refusing to work, is an explanation rather
  * than a fact about this run, so it belongs in a `Hint`. That took the screen
- * lede's rationale clause, the manifest's preamble, the header table's
- * fifty-six word lede, the workbook's row count and the workbook notice's
- * argument for the empty column.
+ * lede, the manifest's preamble, the header table's fifty-six word lede, the
+ * three fields' recorded-failure paragraphs, the workbook's row count and the
+ * workbook's argument for the empty column.
  *
  * IT DID NOT TAKE THE BLOCK, and that is the half worth defending. The
  * paragraph explaining why nothing is built before every area is checked never
@@ -67,21 +87,24 @@
  * button will not fire: a disabled control whose reason is behind a hover is
  * the same defect as one whose reason is off screen. "Siap diekspor" stays for
  * the same reason in the other direction, because an absent warning is not a
- * confirmation. Nor did it take one word of the six header fields' provenance,
+ * confirmation. Nor did it take one word of the header fields' provenance,
  * which names the file a value was read out of and is what stops a guess
  * looking like a typed value, nor any per-crop advisory, each of which is a
- * measurement of one rectangle on one page, nor the manifest's three lines of
- * counts, nor the download-may-not-have-arrived remedy, which is an
- * interruption wearing a calm voice.
+ * measurement of one rectangle on one page, nor the download-may-not-have-
+ * arrived remedy, which is an interruption wearing a calm voice.
  *
- * THE TWO ON-DEVICE LINES MOVED, AND THEY ARE NOT A CONSENT STATEMENT. A
- * sentence said at the moment data leaves the device stays on screen however
- * invariant it is; this one is its opposite, a promise that nothing leaves,
- * made by a button that uploads nothing. The consent the operator does owe is
- * made on Muat, where the page images actually go out. Every line inside the
- * sticky bar is subtracted from the manifest's viewport twice, once as the bar
- * and once as the space `useBarHeight` reserves for it, so two lines there
- * cost four.
+ * THE ON-DEVICE LINE STAYS ON SCREEN, AND THE ARGUMENT THAT HID IT WAS WRONG.
+ * That argument ran: a sentence said at the moment data leaves the device has
+ * to stay visible, and this one is its opposite, a promise that nothing
+ * leaves, so it may go behind a question mark. The two sentences really are
+ * different, and the conclusion still does not follow. A privacy statement is
+ * exempt from the disclosure rule in BOTH directions, because an operator
+ * cannot tell a promise nobody made from one they did not hover over, and an
+ * unread promise is worth nothing. What the cost of a line here (every line in
+ * the sticky bar is subtracted from the page's viewport twice, once as the bar
+ * and once as the space `useBarHeight` reserves for it) buys is a SHORTER
+ * sentence, which is what it now is: one line, beside the button it belongs
+ * to.
  */
 
 import type { ReactNode } from "react";
@@ -103,6 +126,7 @@ import type {
   CaptureStanding,
   PlannedCapture,
   PlannedCrop,
+  PlannedSection,
   PlannedSlot,
 } from "@/lib/ui/export";
 import {
@@ -155,6 +179,50 @@ function fileSize(bytes: Uint8Array): string {
   return `${decimal(n / (1024 * 1024))} MB`;
 }
 
+/* ------------------------------------------------------------- the slab */
+
+/** What a kop is allowed to report. Three values, and the absence of one. */
+type Owes = "decision" | "fault" | "done";
+
+/**
+ * The one container on this screen: a plate with a title bar of ink.
+ *
+ * THE KOP IS THE BLOCK'S STATUS CHANNEL, which is what lets a block be closed
+ * at rest without hiding its state. `owes` paints the whole bar rather than a
+ * small mark somewhere inside it, so a block that owes something is legible
+ * from across the room and a collapsed one is no quieter about a fault than an
+ * open one.
+ */
+function Slab({
+  id,
+  name,
+  aside,
+  owes,
+  flat = false,
+  children,
+}: {
+  id?: string;
+  name: ReactNode;
+  /** The count or state this block owes, at the kop's right edge. */
+  aside?: ReactNode;
+  owes?: Owes;
+  /** A slab nested inside another slab casts no plate. */
+  flat?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className={flat ? "lt-slab-flat" : "lt-slab"} aria-labelledby={id}>
+      <h3 className="lt-kop" id={id} data-owes={owes}>
+        <span className="min-w-0">{name}</span>
+        {/* `.lt-kop-right` rather than a hand-rolled `ml-auto`: one class puts
+            the count in the same place in every kop in the product. */}
+        {aside ? <span className="lt-kop-right shrink-0">{aside}</span> : null}
+      </h3>
+      <div className="lt-slab-body">{children}</div>
+    </section>
+  );
+}
+
 /**
  * The shape each standing wears.
  *
@@ -186,19 +254,20 @@ const STANDING_WORD: Record<CaptureStanding, string> = {
 function standingSentence(capture: PlannedCapture): string {
   switch (capture.standing) {
     case "ships":
-      return "Potongan ini dicetak di dokumen validasi.";
+      return "Dicetak di dokumen validasi.";
     case "proposed":
-      return "Usulan ini masih menunggu keputusan Anda, jadi belum bisa dicetak.";
+      return "Menunggu keputusan Anda, jadi belum dicetak.";
     case "pending":
-      return "Belum ada yang mencarikan bukti untuk potongan ini.";
+      return "Belum ada yang mencari bukti untuk potongan ini.";
     case "outstanding":
-      return "Sudah dicari di seluruh dokumen, buktinya tidak ada. Sel ini terbit kosong.";
+      return "Sudah dicari, buktinya tidak ada. Sel ini terbit kosong.";
     case "unfilled":
+      // One of the sentences docs/ui-bahasa.md fixes word for word.
       return "Dikosongkan atas keputusan Anda, bukan karena terlewat.";
     case "lost":
       return capture.lostPageIndex === null
-        ? "Bagian ini tercatat Anda terima, tetapi tidak menyimpan area, jadi tidak ada yang bisa dicetak."
-        : "Bukti yang Anda terima menunjuk halaman yang sudah tidak ada di pekerjaan ini, jadi tidak bisa dicetak.";
+        ? "Anda terima, tetapi tidak ada area yang tersimpan, jadi tidak ada yang bisa dicetak."
+        : "Bukti yang Anda terima menunjuk halaman yang sudah tidak ada di pekerjaan ini.";
   }
 }
 
@@ -336,11 +405,10 @@ function useExportThumbs(
  *
  * MEASURED, never assumed, for the same reason the contact sheet measures the
  * application strip: this bar is a different height in every state it has. It
- * is shortest when the export is ready, taller when it is blocked (a verdict,
- * up to four counted reasons, the blocking items by name and the remedy), and
- * taller again once the two files are built and each has its own Simpan row.
- * A constant here would be right in one of those states and wrong in the rest,
- * and wrong means a row of the manifest is under the bar again.
+ * is shortest when the export is ready and taller when it is blocked (a
+ * verdict, up to four counted reasons, the blocking items by name and the
+ * remedy). A constant here would be right in one of those states and wrong in
+ * the rest, and wrong means the bottom of the page is under the bar again.
  */
 function useBarHeight(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -360,6 +428,99 @@ function useBarHeight(): [RefObject<HTMLDivElement | null>, number] {
   }, []);
 
   return [ref, height];
+}
+
+/* ---------------------------------------------------------- the two files */
+
+/**
+ * One deliverable, as a plate with its own mark, its own name and its own
+ * Simpan control.
+ *
+ * A slab per file, never one list of two rows: the packet and the workbook are
+ * not a homogeneous list, and which of the two a name belongs to is read from
+ * the mark rather than from an extension at the end of a break-all string.
+ * `downloadBytes` cannot report failure, so `done` records what is actually
+ * true, that the file was handed to the browser.
+ *
+ * THE REASON THE BUTTON IS DISABLED IS ON SCREEN, never in a tooltip: `reason`
+ * is rendered under the control it refers to, in full, at every width.
+ */
+function FileSlab({
+  id,
+  kind,
+  icon,
+  name,
+  size,
+  disabled,
+  done,
+  reason,
+  onSave,
+  children,
+}: {
+  id: string;
+  /** What this file is, as the kop says it. */
+  kind: string;
+  /**
+   * The packet's mark or the workbook's, never the same one twice. It labels
+   * the FILE; the button beside it keeps its plain word.
+   */
+  icon: ReactNode;
+  name: string;
+  /** Set once the bytes exist. */
+  size: string | null;
+  disabled: boolean;
+  done: boolean;
+  /** Why Simpan will not fire, when it will not. */
+  reason: string | null;
+  onSave: () => void;
+  children?: ReactNode;
+}) {
+  const state = done
+    ? "sudah diserahkan"
+    : size
+      ? "siap disimpan"
+      : "belum dibuat";
+
+  return (
+    /* NO `owes`, AND THAT IS THE POINT. `data-owes="done"` paints the kop
+       petrol, and petrol here belongs to primary controls and links, never to
+       a status; the design's promise is that a finished packet is a screen
+       with no colour left on it. A built file is also not "done": it is ready
+       to be saved, which the state word at the kop's right says in words. */
+    <Slab id={id} name={kind} aside={state}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-4">
+          <span className="shrink-0 text-ink-2">{icon}</span>
+          <span className="lt-kotak min-w-0 grow whitespace-normal">
+            <span className="break-all">{name}</span>
+          </span>
+        </div>
+
+        {children}
+
+        <div className="flex flex-wrap items-center gap-4">
+          {/* One word on screen, the whole name to a screen reader. The file
+              name is in the ruled box directly above, so printing it on the
+              button too says it twice; a reader tabbing between two buttons
+              both called "Simpan" would have nothing to tell them apart, so
+              the full label survives in `aria-label`. */}
+          <Btn
+            onClick={onSave}
+            disabled={disabled}
+            aria-label={`Simpan ${name}`}
+            title={`Simpan ${name}`}
+          >
+            Simpan
+          </Btn>
+          {size ? <span className="lt-kotak">{size}</span> : null}
+        </div>
+
+        {reason ? (
+          <p className="text-[0.8125rem] text-ink-2">{reason}</p>
+        ) : null}
+      </div>
+    </Slab>
+  );
 }
 
 /* -------------------------------------------------------------- the header */
@@ -397,25 +558,6 @@ function deriveWithSources(names: string[]): DerivedIds {
 }
 
 /**
- * One header field, and WHERE ITS VALUE CAME FROM, said beside it.
- *
- * A value read out of a file name is a guess: it is right exactly when the
- * person who named the scan typed the right identifier, and nothing on this
- * screen can check that. A value the operator typed is a decision. Drawn the
- * same way, the guess borrows the decision's authority, and the cell it lands
- * in is on the cover page of a document a validator signs. So the guess wears
- * `--mark` (a decision is owed here: look at it) and names its file, and the
- * moment the operator changes it the marker stops claiming a source it no
- * longer has.
- *
- * The derived value is never thrown away. Clearing the field offers it back
- * with one press, because "I deleted the wrong one" must not mean retyping a
- * quote number off a scan.
- *
- * An empty field says `(belum diisi)`, never a lone dash: a blank that says
- * nothing and a blank that means something look identical otherwise.
- */
-/**
  * How each origin is worded beside the field.
  *
  * `resolveJenisOrder` is PURE and reads the OCR pages the run already holds:
@@ -440,16 +582,14 @@ function deriveWithSources(names: string[]): DerivedIds {
  * on the page would send them away from the one place that has it.
  */
 const JENIS_SENTENCE: Record<JenisOrderOrigin, string> = {
-  flag: "Ditentukan saat aplikasi dijalankan, bukan dibaca dari dokumen.",
-  env: "Ditentukan saat aplikasi dijalankan, bukan dibaca dari dokumen.",
-  "order-request":
-    "Diambil dari isian Jenis Order pada permintaan order, jadi ini yang paling bisa dipegang.",
-  documents:
-    "Terbaca dari label Jenis Order yang tercetak di dokumen. Periksa sebelum kedua berkas dibuat.",
+  flag: "Ditentukan saat aplikasi dijalankan, bukan dari dokumen.",
+  env: "Ditentukan saat aplikasi dijalankan, bukan dari dokumen.",
+  "order-request": "Diambil dari isian Jenis Order di permintaan order.",
+  documents: "Terbaca dari label Jenis Order di dokumen. Periksa dulu.",
   inferred:
-    "Ada label Jenis Order di dokumen, tapi isinya tidak bisa dipastikan. Buka halamannya, baca sendiri, lalu isi di sini.",
+    "Ada label Jenis Order, isinya tidak bisa dipastikan. Buka halamannya, baca sendiri, lalu isi di sini.",
   conflict:
-    "Dokumen menyebut jenis order yang berbeda-beda, jadi kolom ini dibiarkan kosong. Anda yang menentukan mana yang benar.",
+    "Dokumen menyebut jenis order yang berbeda-beda. Anda yang menentukan.",
   none: "Tidak ada dokumen yang mencantumkan Jenis Order. Isi sendiri.",
 };
 
@@ -470,7 +610,8 @@ const JENIS_MARKER: Record<JenisOrderOrigin, string> = {
  * Two audiences, never one paragraph. `JENIS_SENTENCE` is what the operator
  * acts on; `jenis.detail` names the file, page and line and is in English with
  * CLI advice on the end, so it sits under `Detail teknis` exactly like a raw
- * exception does everywhere else in this app.
+ * exception does everywhere else in this app. The codes themselves read the
+ * same on every order, so they hide behind a mark.
  */
 function JenisNote({
   jenis,
@@ -482,14 +623,44 @@ function JenisNote({
   return (
     <>
       {JENIS_SENTENCE[jenis.origin]}
-      {explainCodes
-        ? " AO mengaktifkan layanan, MO mengubah, DO menghapus, dan jenis lain juga ada."
-        : null}
+      {explainCodes ? (
+        <>
+          {" "}
+          <Hint label="Arti kode jenis order">
+            AO mengaktifkan layanan, MO mengubah, DO menghapus, dan jenis lain
+            juga ada.
+          </Hint>
+        </>
+      ) : null}
       <TechnicalDetail>{jenis.detail}</TechnicalDetail>
     </>
   );
 }
 
+/**
+ * One header field, and WHERE ITS VALUE CAME FROM, said beside it.
+ *
+ * A value read out of a file name is a guess: it is right exactly when the
+ * person who named the scan typed the right identifier, and nothing on this
+ * screen can check that. A value the operator typed is a decision. Drawn the
+ * same way, the guess borrows the decision's authority, and the cell it lands
+ * in is on the cover page of a document a validator signs. So the guess wears
+ * `--mark` (a decision is owed here: look at it) and names its file, and the
+ * moment the operator changes it the marker stops claiming a source it no
+ * longer has.
+ *
+ * The derived value is never thrown away. Clearing the field offers it back
+ * with one press, because "I deleted the wrong one" must not mean retyping a
+ * quote number off a scan.
+ *
+ * An empty field says `(belum diisi)`, never a lone dash: a blank that says
+ * nothing and a blank that means something look identical otherwise.
+ *
+ * `hint` is where a field's standing explanation goes. Two of these fields are
+ * blank because an automatic reading of them shipped a wrong value into a
+ * signed document, which is worth a paragraph, and that paragraph reads word
+ * for word the same on every order.
+ */
 function Field({
   id,
   label,
@@ -503,6 +674,7 @@ function Field({
   derivedLabel = "Nama berkas",
   fallback = "",
   note,
+  hint,
   list,
 }: {
   id: string;
@@ -534,8 +706,10 @@ function Field({
   derivedLabel?: string;
   /** The app's own starting value, for the one field that has one. */
   fallback?: string;
-  /** Why this field is not filled in automatically, in one line. */
+  /** Why this field is not filled in automatically, when that varies by run. */
   note?: ReactNode;
+  /** The standing explanation, which reads the same on every order. */
+  hint?: ReactNode;
   list?: string;
 }) {
   const empty = value.trim() === "";
@@ -555,8 +729,8 @@ function Field({
           : "diisi sendiri";
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-baseline gap-2">
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {/* The six names are the document's own field names, so they are set
             in the mono face. They are not shouted in caps to give them rank:
             uppercase here would be the interface labelling, not the paper
@@ -564,12 +738,13 @@ function Field({
         <label className="lt-label lt-figure" htmlFor={id}>
           {label}
         </label>
-        <span
-          className="lt-label"
-          style={fromFile ? { color: "var(--mark)" } : undefined}
-        >
+        {/* Amber, and only for a value the app guessed: a decision is owed
+            on it. `text-mark` sits in the utilities layer, so it wins over
+            `.lt-label`'s own colour without either one being restated. */}
+        <span className={fromFile ? "lt-label text-mark" : "lt-label"}>
           {marker}
         </span>
+        {hint ? <Hint label={`Tentang ${label}`}>{hint}</Hint> : null}
       </div>
       <input
         id={id}
@@ -589,28 +764,28 @@ function Field({
         // that puts a `Detail teknis` disclosure in one would otherwise nest a
         // <details> inside a <p>, which is invalid and throws a hydration
         // error rather than merely looking wrong.
-        <div className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+        <div className="text-[0.8125rem] text-ink-2">
           {derivedNote ?? (derivedFrom ? (
             <>
-              Terbaca di nama berkas{" "}
+              Terbaca di{" "}
               <span className="lt-figure" title={derivedFrom}>
                 {shortenFileName(derivedFrom, 30)}
               </span>
-              . Periksa sebelum kedua berkas dibuat.
+              . Periksa dulu.
             </>
           ) : (
-            <>Terbaca di nama berkas sumber. Periksa sebelum kedua berkas dibuat.</>
+            <>Terbaca di nama berkas sumber. Periksa dulu.</>
           ))}
         </div>
       ) : changed ? (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+          <p className="text-[0.8125rem] text-ink-2">
             {derivedLabel} memberi <span className="lt-figure">{derived}</span>.
           </p>
-          <Btn onClick={() => onChange(derived)}>Pakai lagi {derived}</Btn>
+          <Btn onClick={() => onChange(derived)}>Pakai lagi</Btn>
         </div>
       ) : note ? (
-        <div className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+        <div className="text-[0.8125rem] text-ink-2">
           {note}
         </div>
       ) : null}
@@ -640,25 +815,33 @@ function CapturePlate({
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]">
       <div className="flex min-w-0 flex-col gap-2">
         {ships && thumb?.url ? (
-          <figure className="lt-paper max-w-[42rem] p-1.5">
-            {/* eslint-disable-next-line @next/next/no-img-element -- a blob URL
-                cut in this tab from a document that must never leave it;
-                next/image would want a loader and a remote pattern. */}
-            <img
-              className="block h-auto w-full"
-              src={thumb.url}
-              alt={`Potongan untuk ${captureLabel(
-                slot.label,
-                capture.ordinal,
-              )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
-            />
+          /* EVIDENCE IS MOUNTED, NEVER PLACED: a sunk stage, a near-black mat
+             and a bone keyline, three drawn cues for the one boundary the
+             operator is paid to judge. A scan's own white ground against a
+             single luminance step is exactly the cue that fails on a dark
+             scan. */
+          <figure className="lt-stage max-w-[42rem]">
+            <div className="lt-mat">
+              {/* eslint-disable-next-line @next/next/no-img-element -- a blob
+                  URL cut in this tab from a document that must never leave it;
+                  next/image would want a loader and a remote pattern. */}
+              <img
+                className="block h-auto w-full border-2"
+                style={{ borderColor: "var(--keyline)" }}
+                src={thumb.url}
+                alt={`Potongan untuk ${captureLabel(
+                  slot.label,
+                  capture.ordinal,
+                )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
+              />
+            </div>
           </figure>
         ) : ships && thumb?.fault ? (
           <div className="lt-well max-w-[42rem] p-4">
-            <p className="text-[0.8125rem]" style={{ color: "var(--gap)" }}>
+            <p className="text-[0.8125rem] text-gap">
               {thumb.fault === "size"
-                ? "Ukuran halaman ini tidak lagi sama dengan ukuran waktu areanya dibuat, jadi potongannya tidak bisa diambil."
-                : "Halaman ini tidak bisa dirender lagi di peramban ini, jadi potongannya tidak bisa diambil."}
+                ? "Ukuran halaman berubah sejak areanya dibuat, jadi potongan ini tidak bisa diambil."
+                : "Halaman ini tidak bisa dirender lagi, jadi potongan ini tidak bisa diambil."}
             </p>
           </div>
         ) : ships ? (
@@ -672,49 +855,53 @@ function CapturePlate({
             }}
             aria-busy="true"
           >
-            <p className="lt-note p-3">Menyiapkan gambar potongan.</p>
+            <p className="lt-note p-4">Menyiapkan potongan.</p>
           </div>
         ) : (
-          <div className="lt-hatch flex max-w-[42rem] flex-col gap-1 p-4">
-            <p className="text-[0.875rem]" style={{ color: "var(--ink)" }}>
+          <div className="lt-hatch flex max-w-[42rem] flex-col gap-2 p-4">
+            <p className="text-sm text-ink">
               Tidak ada gambar untuk potongan ini.
             </p>
             {/* Safety copy, so it is never set in `--ink-3`: this is the
                 sentence that says what the deliverable will be missing. */}
-            <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+            <p className="text-[0.8125rem] text-ink-2">
               {standingSentence(capture)}
             </p>
             {capture.strandedZone ? (
-              <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-                Area yang tersimpan di sini tetap ada di pekerjaan, tetapi tidak
-                ikut dicetak.
+              <p className="text-[0.8125rem] text-ink-2">
+                Areanya tetap tersimpan di pekerjaan, tetapi tidak ikut dicetak.
               </p>
             ) : null}
           </div>
         )}
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {/* Numbered only when this bagian actually holds more than one
             picture. Nothing declares a capture count any more, so there is no
             such thing as "1 dari 2" over a lanjutan nobody has found: the
             figure counts what the run HAS. */}
         {slot.maxOrdinal > 1 ? (
-          <p className="lt-label">
-            potongan{" "}
-            <span className="lt-figure" style={{ color: "var(--ink)" }}>
-              {capture.ordinal} dari {slot.maxOrdinal}
+          <p className="flex items-center gap-2">
+            <span className="lt-label">potongan</span>
+            <span className="lt-kotak">
+              {capture.ordinal} / {slot.maxOrdinal}
             </span>
           </p>
         ) : null}
 
+        {/* MOUNTED, not placed, exactly like the crop beside it. The denah is
+            a picture of a page and paints its own paper, so on the slab's own
+            ground its edge would be a luminance step and nothing else. */}
         {zone && resolved ? (
-          <Denah
-            page={resolved.page}
-            cut={zone.box}
-            size="md"
-            label={`Denah halaman ${resolved.pageInDoc + 1} dengan area potongan ${slot.label}`}
-          />
+          <div className="lt-mat w-fit">
+            <Denah
+              page={resolved.page}
+              cut={zone.box}
+              size="md"
+              label={`Denah halaman ${resolved.pageInDoc + 1} dengan area potongan ${slot.label}`}
+            />
+          </div>
         ) : null}
 
         {ships ? (
@@ -762,28 +949,25 @@ function SlotBlock({
   const label = displayLabel(slot.label, quote || "(belum diisi)");
 
   return (
-    <div
-      className="flex flex-col gap-4 border-t py-5"
-      style={{ borderColor: "var(--line)" }}
-    >
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col gap-4 border-t-2 border-line py-4">
+      <div className="flex flex-wrap items-center gap-4">
         <Mark status={status} title={`${label}: ${STATUS_WORDS[status]}`} />
-        <span className="lt-figure text-[1.0625rem] font-bold">{label}</span>
+        <span className="lt-figure text-base font-bold">{label}</span>
         <StateWord status={status} />
         {slot.captures.length > 1 ? (
-          <span className="lt-figure ml-auto text-[0.8125rem]">
-            {slot.ships} dari {slot.captures.length} potongan
+          <span className="lt-kotak ml-auto">
+            {slot.ships} / {slot.captures.length} potongan
           </span>
         ) : null}
       </div>
 
       {slot.captures.length === 0 ? (
-        <div className="lt-hatch flex flex-col gap-1 p-4">
-          <p className="text-[0.875rem]" style={{ color: "var(--ink)" }}>
+        <div className="lt-hatch flex flex-col gap-2 p-4">
+          <p className="text-sm text-ink">
             Tidak ada gambar untuk bagian ini.
           </p>
-          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-            Pekerjaan ini belum pernah mencatat apa pun untuk bagian tersebut.
+          <p className="text-[0.8125rem] text-ink-2">
+            Belum pernah ada yang tercatat di sini.
           </p>
         </div>
       ) : (
@@ -798,6 +982,85 @@ function SlotBlock({
         ))
       )}
     </div>
+  );
+}
+
+/**
+ * One section of the packet, as a flat slab inside the inventory.
+ *
+ * The section titles are the document's own words (`KB (lanjutan)`, `BA
+ * Permintaan`), quoted rather than translated, so they carry the kop and
+ * nothing annotates them with an icon.
+ */
+function SectionBlock({
+  run,
+  section,
+  quote,
+  thumbs,
+}: {
+  run: BrowserRun;
+  section: PlannedSection;
+  quote: string;
+  thumbs: Record<string, Thumb>;
+}) {
+  // A non-fillable slot that somehow holds a confirmed capture DOES reach the
+  // docx, so it gets the full block: every picture in the deliverable is a
+  // picture on this screen. Everything else in that group is a cell the
+  // operator pastes into, and one ruled line each is the whole of what there
+  // is to say about it.
+  const shown = section.slots.filter((slot) => slot.fillable || slot.ships > 0);
+  const manual = section.slots.filter(
+    (slot) => !slot.fillable && slot.ships === 0,
+  );
+  const held = shown.reduce((n, slot) => n + slot.captures.length, 0);
+  const ships = shown.reduce((n, slot) => n + slot.ships, 0);
+
+  return (
+    <Slab
+      flat
+      name={section.title}
+      aside={
+        section.slots.length === 0
+          ? "judul saja"
+          : held > 0
+            ? `${ships} / ${held} potongan`
+            : "diisi sendiri"
+      }
+    >
+      <div className="flex flex-col">
+        {section.slots.length === 0 ? (
+          <p className="text-[0.8125rem] text-ink-2">
+            Terbit dengan judulnya saja. Anda isi sendiri.
+          </p>
+        ) : null}
+
+        {shown.map((slot) => (
+          <SlotBlock
+            key={slot.key}
+            run={run}
+            slot={slot}
+            quote={quote}
+            thumbs={thumbs}
+          />
+        ))}
+
+        {manual.length > 0 ? (
+          <ul className="flex flex-col">
+            {manual.map((slot) => (
+              <li
+                key={slot.key}
+                className="flex flex-wrap items-baseline justify-between gap-4 border-t-2 border-line py-2"
+              >
+                <span className="lt-figure text-[0.8125rem]">
+                  {displayLabel(slot.label, quote || "(belum diisi)")}
+                </span>
+                <span className="lt-label">Anda isi sendiri</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </Slab>
   );
 }
 
@@ -933,7 +1196,10 @@ export function ExportPanel({
       }),
     [header, plan],
   );
-  const stale = state.kind === "built" && state.stamp !== stamp;
+  // Narrowed once, so the two file slabs can be rendered outside the branch
+  // that proves the bytes exist.
+  const built = state.kind === "built" ? state : null;
+  const stale = built !== null && built.stamp !== stamp;
 
   const faults = plan.crops.filter(
     (crop) => thumbs[String(crop.stateIndex)]?.fault,
@@ -945,6 +1211,25 @@ export function ExportPanel({
     lost: blocking.filter((item) => item.kind === "lost"),
   };
   const blocked = blocking.length > 0 || faults.length > 0;
+
+  /*
+   * THE INVENTORY IS CLOSED AT REST AND A FAULT OPENS IT.
+   *
+   * Collapsing the pre-flight list is the density win the client asked for,
+   * and it is only defensible while nothing that went wrong can be inside it
+   * unseen. A crop that could not be cut, or a capture whose page has gone, is
+   * named in the action bar, turns this block's kop red, AND opens the list.
+   *
+   * DERIVED, NOT SYNCHRONISED. `openedByHand` is null until the operator
+   * touches the disclosure, so the fault decides while nobody has an opinion
+   * and the operator decides afterwards. An effect that pushed `open` to true
+   * would fight the operator's own click, and a control that reopens itself
+   * under the hand is a broken control, not a safety feature: the fault is
+   * still stated in full in the action bar either way.
+   */
+  const faulted = faults.length > 0 || byKind.lost.length > 0;
+  const [openedByHand, setOpenedByHand] = useState<boolean | null>(null);
+  const detailsOpen = openedByHand ?? faulted;
 
   const set = (patch: Partial<HeaderFields>) =>
     setHeader((prev) => ({ ...prev, ...patch }));
@@ -989,311 +1274,291 @@ export function ExportPanel({
     ...faults.map((crop) => captureLabel(crop.label, crop.ordinal)),
   ];
 
+  // Why Simpan will not fire, said under the button rather than in a tooltip.
+  const saveReason = stale
+    ? "Isinya berubah. Buat ulang dulu."
+    : built
+      ? null
+      : "Belum dibuat.";
+
   return (
-    <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* The packet is what this screen builds, so the screen wears its
-              mark. One icon for the screen, none on the rows below it. */}
-          <Paket size={20} className="shrink-0" />
-          <Title>Buat berkas hasil</Title>
-          <Hint label="Kenapa isinya diperlihatkan dulu">
-            Kedua berkas akan terbuka dengan rapi entah buktinya benar atau
-            salah, jadi isinya diperlihatkan di sini sebelum ditulis.
-          </Hint>
-        </div>
-        <p className="lt-lede">
-          Dua berkas: dokumen validasi dan buku kerja EPIC. Halaman ini
-          memperlihatkan isi keduanya sebelum ditulis.
-        </p>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-center gap-2">
+        <Title>Buat berkas hasil</Title>
+        <Hint label="Kenapa isinya diperlihatkan dulu">
+          Kedua berkas akan terbuka dengan rapi entah buktinya benar atau salah,
+          jadi isinya diperlihatkan di sini sebelum ditulis.
+        </Hint>
       </header>
 
       {plan.orphans.length > 0 ? (
-        <Notice tone="stop">
-          <p>
-            Pekerjaan ini menyimpan{" "}
-            <span className="lt-figure">{plan.orphans.length}</span> potongan
-            yang tidak punya tempat di dokumen ini, jadi tidak akan ikut
-            dicetak:
-          </p>
-          <p className="lt-figure pt-1 text-[0.8125rem]">
-            {plan.orphans.map((orphan) => orphan.label).join(", ")}
-          </p>
-          <p className="pt-1 text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-            Bagian tersebut sudah tidak ada di daftar bagian dokumen validasi.
-            Tidak ada yang bisa Anda lakukan di halaman ini, jadi catat saja
-            sebelum berkasnya dipakai.
-          </p>
-        </Notice>
+        <Slab name="Potongan tanpa tempat" owes="fault">
+          <div className="flex flex-col gap-4">
+            <p className="text-sm">
+              <span className="lt-figure">{plan.orphans.length}</span> potongan
+              tidak punya tempat di dokumen ini dan tidak ikut dicetak.
+            </p>
+            <p className="lt-figure text-[0.8125rem]">
+              {plan.orphans.map((orphan) => orphan.label).join(", ")}
+            </p>
+            <p className="text-[0.8125rem] text-ink-2">
+              Bagiannya sudah tidak ada di dokumen validasi. Catat saja sebelum
+              berkasnya dipakai.
+            </p>
+          </div>
+        </Slab>
       ) : null}
 
-      {/* ---------------------------------------------------- the manifest */}
-      <section
-        aria-labelledby="isi-berkas"
-        className="flex max-w-[72rem] flex-col gap-5"
+      {/* ------------------------------------------------- the header table */}
+      <Slab
+        id="tabel-kepala"
+        name="Tabel kepala dokumen"
+        aside={namesAreFallback(header) ? "ID EPIC kosong" : undefined}
+        owes={namesAreFallback(header) ? "decision" : undefined}
       >
-        <div className="flex flex-col gap-3">
-          {/* The preamble describes the manifest's SHAPE, which is the same on
-              every order. The counts under it describe THIS order, so they
-              stay: three lines of figures, no line of prose. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="lt-title" id="isi-berkas">
-              Yang akan masuk ke kedua berkas ini
-            </h3>
-            <Hint label="Isi daftar ini">
-              Seluruh bagian dokumen validasi, berurutan seperti di dokumennya,
-              termasuk yang sudah beres. Setiap potongan yang akan dicetak
-              ditampilkan gambarnya di sini.
-            </Hint>
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              id="header-id-epic"
+              label="ID EPIC"
+              value={header.idEpic}
+              onChange={(value) => set({ idEpic: value })}
+              derived={derived.idEpic}
+              derivedFrom={derived.idEpicFrom}
+              note={
+                derived.idEpic
+                  ? undefined
+                  : "Nama berkas tidak memuat nomor LOP. Ketik sendiri."
+              }
+            />
+            <Field
+              id="header-nama-proyek"
+              label="Nama Proyek"
+              value={header.namaProyek}
+              onChange={(value) => set({ namaProyek: value })}
+              hint="Tidak pernah diisi otomatis. Pembacaan otomatis berulang kali menjawab dengan judul perjanjian induk, bukan nama proyek order ini, dan jawaban itu lolos pemeriksaan sumber."
+            />
+            <Field
+              id="header-quote"
+              label="Quote"
+              value={header.quote}
+              onChange={(value) => set({ quote: value })}
+              derived={derived.quote}
+              derivedFrom={derived.quoteFrom}
+              note={
+                derived.quote
+                  ? undefined
+                  : "Nama berkas tidak memuat nomor quote. Ketik sendiri."
+              }
+            />
+            <Field
+              id="header-cc"
+              label="CC"
+              value={header.cc}
+              onChange={(value) => set({ cc: value })}
+              hint="Nama pelanggan pada order ini. Pembacaan otomatis pernah mengambilnya dari baris Cc: sebuah email, dan nama yang salah itu ikut tercetak di kedua berkas."
+            />
+            <Field
+              id="header-order"
+              label="Order"
+              value={header.order}
+              onChange={(value) => set({ order: value })}
+              note="Boleh kosong."
+            />
+            <Field
+              id="header-jenis-order"
+              label="Jenis Order"
+              value={header.jenisOrder}
+              onChange={(value) => set({ jenisOrder: value })}
+              derived={jenis.value}
+              originMarker={JENIS_MARKER[jenis.origin]}
+              derivedMarker={JENIS_MARKER[jenis.origin]}
+              derivedLabel="Dokumen"
+              derivedNote={<JenisNote jenis={jenis} />}
+              list="jenis-order"
+              /* Reached when the resolver answered "". Which of the three
+                 silences it is decides where the operator goes next:
+                 `conflict` sends them to two pages to choose between,
+                 `inferred` to one page to read, and `none` nowhere, because
+                 nothing is printed. */
+              note={<JenisNote jenis={jenis} explainCodes />}
+            />
+            {/* A datalist, not a select: AO, MO and DO are the ones met so far
+                and more exist, so a closed list would lock the operator out of
+                a real jenis order.
+
+                IT MUST STAY ONE once `resolveJenisOrder` starts filling this
+                in. That inference is anchored on the printed LABEL rather than
+                on a list of known codes, precisely so it can answer with an
+                order type nobody here has seen; validating its answer against a
+                set would silently drop the real ones, which is the
+                wrong-and-quiet direction. Suggest, never constrain. */}
+            <datalist id="jenis-order">
+              <option value="AO" />
+              <option value="MO" />
+              <option value="DO" />
+            </datalist>
           </div>
 
-          {/* Slots and captures are counted in separate sentences, never
-              folded into one figure. "12 potongan" over a bagian that needs
-              two and ships one is exactly how the half-filled slot hides. */}
-          <div className="flex flex-col gap-1 text-[0.9375rem]">
-            <p>
-              Dari <span className="lt-figure">{tally.fillableSlots}</span>{" "}
-              bagian yang bisa didukung dokumen:{" "}
-              <span className="lt-figure">{tally.slotsComplete}</span> lengkap,{" "}
-              <span className="lt-figure">{tally.slotsPartial}</span> sebagian,{" "}
-              <span className="lt-figure">{tally.slotsBlank}</span> kosong.
-            </p>
-            <p>
-              <span className="lt-figure">{tally.capturesShipping}</span> dari{" "}
-              <span className="lt-figure">{tally.capturesHeld}</span>{" "}
-              potongan akan dicetak di dokumen validasi.
-            </p>
-            {tally.capturesExtra > 0 ? (
-              <p>
-                <span className="lt-figure">{tally.capturesExtra}</span>{" "}
-                potongan lagi berada di bagian yang biasanya Anda isi sendiri
-                dari EPIC, dan ikut dicetak.
-              </p>
-            ) : null}
-            {progress.uncheckedForContinuation > 0 ? (
-              <p style={{ color: "var(--ink-2)" }}>
-                <span className="lt-figure">
-                  {progress.uncheckedForContinuation}
-                </span>{" "}
-                bagian belum diperiksa lanjutannya: potongannya sudah Anda
-                terima, tapi belum ada yang menengok apakah bloknya terpotong di
-                bawah halaman dan bersambung ke halaman berikutnya. Jalankan
-                Proses sekali lagi untuk memeriksanya. Bagian yang diambil satu
-                halaman penuh tidak bisa diperiksa begitu, jadi bukalah halaman
-                berikutnya sendiri.
-              </p>
-            ) : null}
-          </div>
+          {namesAreFallback(header) ? (
+            <Notice tone="warn">
+              ID EPIC dan Quote kosong, jadi nama berkas memakai nomor pekerjaan
+              ini. Isi ID EPIC agar berkasnya bisa diarsipkan.
+            </Notice>
+          ) : null}
         </div>
+      </Slab>
 
-        {plan.sections.map((section) => {
-          // A non-fillable slot that somehow holds a confirmed capture DOES
-          // reach the docx, so it gets the full block: every picture in the
-          // deliverable is a picture on this screen. Everything else in that
-          // group is a cell the operator pastes into, and one ruled line each
-          // is the whole of what there is to say about it.
-          const shown = section.slots.filter(
-            (slot) => slot.fillable || slot.ships > 0,
-          );
-          const manual = section.slots.filter(
-            (slot) => !slot.fillable && slot.ships === 0,
-          );
-          return (
-            <div key={section.title} className="flex flex-col gap-1">
-              <h4
-                className="lt-figure border-b pb-1 text-[0.9375rem] font-bold"
-                style={{ borderColor: "var(--line-strong)" }}
-              >
-                {section.title}
-              </h4>
+      {/* ---------------------------------------------------- the inventory */}
+      <Slab
+        id="isi-berkas"
+        name="Isi kedua berkas"
+        aside={`${tally.slotsComplete} / ${tally.fillableSlots} bagian`}
+        owes={faulted ? "fault" : undefined}
+      >
+        <div className="flex flex-col gap-4">
+          {progress.uncheckedForContinuation > 0 ? (
+            <Notice>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span>
+                  <span className="lt-figure">
+                    {progress.uncheckedForContinuation}
+                  </span>{" "}
+                  bagian belum diperiksa lanjutannya.
+                </span>
+                <Hint label="Arti belum diperiksa lanjutannya">
+                  Potongannya sudah Anda terima, tapi belum ada yang menengok
+                  apakah bloknya bersambung ke halaman berikutnya. Jalankan
+                  Proses sekali lagi. Bagian yang diambil satu halaman penuh
+                  tidak bisa diperiksa begitu, jadi bukalah halaman berikutnya
+                  sendiri.
+                </Hint>
+              </span>
+            </Notice>
+          ) : null}
 
-              {section.slots.length === 0 ? (
-                <p
-                  className="py-2 text-[0.8125rem]"
-                  style={{ color: "var(--ink-2)" }}
-                >
-                  Bagian ini terbit dengan judulnya saja. Anda isi sendiri
-                  setelah ekspor.
+          {/* Reference material, so it is closed at rest. What is not
+              reference material, a fault, opens it: see `faulted` above. */}
+          <details
+            className="lt-disclose"
+            open={detailsOpen}
+            onToggle={(event) => setOpenedByHand(event.currentTarget.open)}
+          >
+            <summary>Rincian setiap bagian</summary>
+
+            <div className="flex flex-col gap-6 pt-4">
+              {/* Slots and captures are counted in separate sentences, never
+                  folded into one figure. "12 potongan" over a bagian that
+                  needs two and ships one is exactly how the half-filled slot
+                  hides. */}
+              <div className="flex flex-col gap-2 text-sm">
+                <p>
+                  <span className="lt-figure">{tally.fillableSlots}</span>{" "}
+                  bagian bisa didukung dokumen:{" "}
+                  <span className="lt-figure">{tally.slotsComplete}</span>{" "}
+                  lengkap, <span className="lt-figure">{tally.slotsPartial}</span>{" "}
+                  sebagian, <span className="lt-figure">{tally.slotsBlank}</span>{" "}
+                  kosong.
                 </p>
-              ) : null}
+                {tally.capturesExtra > 0 ? (
+                  <p>
+                    <span className="lt-figure">{tally.capturesExtra}</span>{" "}
+                    potongan lagi ada di bagian yang Anda isi sendiri, dan ikut
+                    dicetak.
+                  </p>
+                ) : null}
+              </div>
 
-              {shown.map((slot) => (
-                <SlotBlock
-                  key={slot.key}
+              {plan.sections.map((section) => (
+                <SectionBlock
+                  key={section.title}
                   run={run}
-                  slot={slot}
+                  section={section}
                   quote={header.quote}
                   thumbs={thumbs}
                 />
               ))}
-
-              {manual.length > 0 ? (
-                <ul className="flex flex-col">
-                  {manual.map((slot) => (
-                    <li
-                      key={slot.key}
-                      className="flex flex-wrap items-baseline justify-between gap-3 border-t py-1.5"
-                      style={{ borderColor: "var(--line)" }}
-                    >
-                      <span className="lt-figure text-[0.8125rem]">
-                        {displayLabel(slot.label, header.quote || "(belum diisi)")}
-                      </span>
-                      <span className="lt-label">
-                        Anda isi sendiri setelah ekspor
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </div>
-          );
-        })}
-      </section>
-
-      {/* ---------------------------------------------------- the workbook */}
-      <section
-        aria-labelledby="buku-kerja"
-        className="flex max-w-[72rem] flex-col gap-3"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="lt-title" id="buku-kerja">
-            Buku kerja EPIC
-          </h3>
-          {/* The row count is a constant of the template rather than a fact
-              about this order, and the ready-to-export verdict in the action
-              bar prints it again where it decides something. */}
-          <Hint label="Isi buku kerja">
-            Isinya sama pada setiap pekerjaan:{" "}
-            <span className="lt-figure">{AO_TEMPLATE.xlsxRows.length}</span>{" "}
-            baris, dan kolom E dikosongkan supaya Anda isi di EPIC.
-          </Hint>
+          </details>
         </div>
-        {/* The first sentence is what the operator opens the file and finds,
-            so it stays on screen. The argument for why an empty cell is the
-            honest output reads the same on every order. */}
-        <Notice tone="warn">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>Kolom E terbit kosong di seluruh baris.</span>
-            <Hint label="Kenapa kolom E kosong">
-              Pekerjaan di peramban ini menyimpan halaman dan area, bukan nilai
-              teks, jadi tidak ada nilai yang bisa diisikan di sini. Sel kosong
-              adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
-              dicegah alat ini.
-            </Hint>
-          </div>
-        </Notice>
-      </section>
+      </Slab>
 
-      {/* ------------------------------------------------- the header table */}
-      <section
-        aria-labelledby="tabel-kepala"
-        className="flex max-w-[72rem] flex-col gap-4"
-      >
-        {/* Fifty-six words that never change, over six fields that each say
-            their own provenance one line under themselves. Those per-field
-            lines name the FILE a value was read out of, so they vary by run,
-            and not one of them moved. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="lt-title" id="tabel-kepala">
-            Tabel kepala dokumen
-          </h3>
-          <Hint label="Isi tabel kepala">
-            Enam isian di kepala dokumen validasi. Dua di antaranya, ID EPIC dan
-            Quote, dibaca dari nama berkas sumber bila namanya memuatnya, dan
-            keduanya tebakan yang perlu Anda periksa. Empat sisanya Anda isi
-            sendiri: pekerjaan di peramban ini menyimpan halaman dan area, bukan
-            nilai teks, jadi tidak ada satu pun nilai yang bisa diambil dari isi
-            dokumen.
-          </Hint>
-        </div>
+      {/* ------------------------------------------------------ the two files
+          The object this screen is for. They sit directly above the action bar
+          so the build button and the two Simpan buttons it enables are in one
+          viewport at 1366x768. */}
+      <section aria-labelledby="berkas-hasil" className="flex flex-col gap-4">
+        <h3 className="sr-only" id="berkas-hasil">
+          Berkas hasil
+        </h3>
 
-        <div className="lt-panel grid gap-4 p-5 sm:grid-cols-2">
-          <Field
-            id="header-id-epic"
-            label="ID EPIC"
-            value={header.idEpic}
-            onChange={(value) => set({ idEpic: value })}
-            derived={derived.idEpic}
-            derivedFrom={derived.idEpicFrom}
-            note={
-              derived.idEpic
-                ? undefined
-                : "Nama berkas sumber tidak memuat nomor LOP, jadi isian ini Anda ketik sendiri."
-            }
-          />
-          <Field
-            id="header-nama-proyek"
-            label="Nama Proyek"
-            value={header.namaProyek}
-            onChange={(value) => set({ namaProyek: value })}
-            note="Tidak pernah diisi otomatis: pembacaan otomatis berulang kali menjawab dengan judul perjanjian induk, bukan nama proyek order ini, dan jawaban itu lolos pemeriksaan sumber."
-          />
-          <Field
-            id="header-quote"
-            label="Quote"
-            value={header.quote}
-            onChange={(value) => set({ quote: value })}
-            derived={derived.quote}
-            derivedFrom={derived.quoteFrom}
-            note={
-              derived.quote
-                ? undefined
-                : "Nama berkas sumber tidak memuat nomor quote, jadi isian ini Anda ketik sendiri."
-            }
-          />
-          <Field
-            id="header-cc"
-            label="CC"
-            value={header.cc}
-            onChange={(value) => set({ cc: value })}
-            note="Nama pelanggan pada order ini, Anda ketik sendiri: pembacaan otomatis pernah mengambilnya dari baris Cc: sebuah email, dan nama yang salah itu ikut tercetak di kedua berkas."
-          />
-          <Field
-            id="header-order"
-            label="Order"
-            value={header.order}
-            onChange={(value) => set({ order: value })}
-            note="Anda ketik sendiri bila ada. Boleh dibiarkan kosong."
-          />
-          <Field
-            id="header-jenis-order"
-            label="Jenis Order"
-            value={header.jenisOrder}
-            onChange={(value) => set({ jenisOrder: value })}
-            derived={jenis.value}
-            originMarker={JENIS_MARKER[jenis.origin]}
-            derivedMarker={JENIS_MARKER[jenis.origin]}
-            derivedLabel="Dokumen"
-            derivedNote={<JenisNote jenis={jenis} />}
-            list="jenis-order"
-            /* Reached when the resolver answered "". Which of the three
-               silences it is decides where the operator goes next: `conflict`
-               sends them to two pages to choose between, `inferred` to one
-               page to read, and `none` nowhere, because nothing is printed. */
-            note={<JenisNote jenis={jenis} explainCodes />}
-          />
-          {/* A datalist, not a select: AO, MO and DO are the ones met so far
-              and more exist, so a closed list would lock the operator out of a
-              real jenis order.
+        <div className="grid gap-4 lg:grid-cols-2">
+          <FileSlab
+            id="berkas-docx"
+            kind="Dokumen validasi"
+            icon={<Paket size={40} />}
+            name={built ? built.names.docx : names.docx}
+            size={built ? fileSize(built.docx) : null}
+            disabled={!built || stale}
+            done={handedOver.docx}
+            reason={saveReason}
+            onSave={() => {
+              if (!built) return;
+              downloadBytes(built.names.docx, built.docx, DOCX_TYPE);
+              setHandedOver((prev) => ({ ...prev, docx: true }));
+            }}
+          >
+            <p className="text-[0.8125rem] text-ink-2">
+              Berisi{" "}
+              <span className="lt-figure">{tally.capturesShipping}</span>{" "}
+              potongan bukti.
+            </p>
+          </FileSlab>
 
-              IT MUST STAY ONE once `resolveJenisOrder` starts filling this in.
-              That inference is anchored on the printed LABEL rather than on a
-              list of known codes, precisely so it can answer with an order type
-              nobody here has seen; validating its answer against a set would
-              silently drop the real ones, which is the wrong-and-quiet
-              direction. Suggest, never constrain. */}
-          <datalist id="jenis-order">
-            <option value="AO" />
-            <option value="MO" />
-            <option value="DO" />
-          </datalist>
+          <FileSlab
+            id="berkas-xlsx"
+            kind="Buku kerja EPIC"
+            icon={<BukuKerja size={40} />}
+            name={built ? built.names.xlsx : names.xlsx}
+            size={built ? fileSize(built.xlsx) : null}
+            disabled={!built || stale}
+            done={handedOver.xlsx}
+            reason={saveReason}
+            onSave={() => {
+              if (!built) return;
+              downloadBytes(built.names.xlsx, built.xlsx, XLSX_TYPE);
+              setHandedOver((prev) => ({ ...prev, xlsx: true }));
+            }}
+          >
+            {/* What the operator opens the file and finds. The argument for why
+                an empty cell is the honest output reads the same on every
+                order, so it hides. */}
+            <p className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
+              <span className="text-ink-2">
+                Kolom E kosong di seluruh baris.
+              </span>
+              <Hint label="Kenapa kolom E kosong">
+                Isinya sama pada setiap pekerjaan:{" "}
+                <span className="lt-figure">
+                  {AO_TEMPLATE.xlsxRows.length}
+                </span>{" "}
+                baris. Pekerjaan di peramban ini menyimpan halaman dan area,
+                bukan nilai teks, jadi tidak ada nilai yang bisa diisikan. Sel
+                kosong adalah keluaran yang jujur; nilai tebakan adalah
+                kegagalan yang dicegah alat ini.
+              </Hint>
+            </p>
+          </FileSlab>
         </div>
 
-        {namesAreFallback(header) ? (
-          <Notice tone="warn">
-            ID EPIC dan Quote masih kosong, jadi nama kedua berkas memakai nomor
-            pekerjaan ini. Isi ID EPIC supaya berkasnya bisa Anda arsipkan.
-          </Notice>
+        {/* The one remedy for a download nobody can confirm arrived. It is an
+            interruption wearing a calm voice, so it stays on screen, and it is
+            said once for both files rather than once per slab. */}
+        {handedOver.docx || handedOver.xlsx ? (
+          <p className="text-[0.8125rem] text-ink-2">
+            Berkas sudah diserahkan ke peramban ini. Jika tidak muncul di folder
+            unduhan, izinkan unduhan lalu tekan Simpan lagi.
+          </p>
         ) : null}
       </section>
 
@@ -1301,56 +1566,55 @@ export function ExportPanel({
           The bar below is `position: sticky`, which keeps it in the flow and
           pulls it up to the viewport's bottom edge for as long as its own
           place is below that edge. While it is pulled up it is an OPAQUE
-          overlay across the bottom of the page, and the bar releases only in
-          the last 56px of the scroll: `main`'s 24px of bottom padding plus the
-          32px gap above the bar, and nothing else. Measured in a browser at
+          overlay across the bottom of the page, and it releases only in the
+          last few dozen pixels of the scroll: the page's own bottom padding
+          plus the gap above the bar, and nothing else. Measured in a browser at
           1366x768 with a 260px bar, that left the last section of this screen
           clear of it over 88px of an 1144px scroll and underneath it
           everywhere else, which one wheel notch skips straight past.
-          Reserving the bar's own measured height here gives the manifest
-          somewhere to be scrolled clear to. It is a sibling and not padding on
-          a wrapper around the bar, because a wrapper would become the bar's
-          containing block and a sticky box cannot leave that: the bar would
-          stop sticking altogether. */}
+          Reserving the bar's own measured height here gives the page somewhere
+          to be scrolled clear to. It is a sibling and not padding on a wrapper
+          around the bar, because a wrapper would become the bar's containing
+          block and a sticky box cannot leave that: the bar would stop sticking
+          altogether. */}
       <div aria-hidden="true" style={{ height: barHeight }} />
 
       {/* ------------------------------------------------ the action bar
-          Sticky at the bottom, so the verdict, the blocking items, the two
-          file names and the build button are in one viewport at 1366x768. The
-          reason a control is disabled is never off screen from the control. */}
+          Sticky at the bottom, so the verdict, the blocking items and the
+          build button are in one viewport at 1366x768. The reason a control is
+          disabled is never off screen from the control.
+
+          The negative margin is not a spacing choice: it is the shell's own
+          gutter, cancelled so the rail reaches both edges of the page. */}
       <div
         ref={barRef}
-        className="lt-rail sticky bottom-0 z-10 -mx-5 flex flex-col gap-3 border-t px-5 py-3"
-        style={{ borderColor: "var(--line-strong)" }}
+        className="lt-rail sticky bottom-0 z-10 -mx-5 flex flex-col gap-4 border-t-2 border-edge px-6 py-4"
       >
         <div role="status" aria-live="polite" className="flex flex-col gap-2">
           {blocked ? (
             <>
-              <p className="text-[0.9375rem] font-semibold">
-                Belum bisa diekspor.
-              </p>
-              <ul className="flex flex-col gap-1">
+              <p className="text-base font-bold">Belum bisa diekspor.</p>
+              <ul className="flex flex-col gap-2">
                 {byKind.proposed.length > 0 ? (
-                  <li className="text-[0.875rem]">
+                  <li className="text-sm">
                     <span className="lt-figure">{byKind.proposed.length}</span>{" "}
                     usulan masih menunggu keputusan Anda.
                   </li>
                 ) : null}
                 {byKind.pending.length > 0 ? (
-                  <li className="text-[0.875rem]">
+                  <li className="text-sm">
                     <span className="lt-figure">{byKind.pending.length}</span>{" "}
-                    potongan belum dicari, jadi belum ada yang Anda putuskan.
+                    potongan belum dicari.
                   </li>
                 ) : null}
                 {byKind.lost.length > 0 ? (
-                  <li className="text-[0.875rem]" style={{ color: "var(--gap)" }}>
+                  <li className="text-sm text-gap">
                     <span className="lt-figure">{byKind.lost.length}</span>{" "}
-                    potongan yang sudah Anda terima menunjuk halaman yang tidak
-                    ada lagi.
+                    potongan menunjuk halaman yang sudah tidak ada.
                   </li>
                 ) : null}
                 {faults.length > 0 ? (
-                  <li className="text-[0.875rem]" style={{ color: "var(--gap)" }}>
+                  <li className="text-sm text-gap">
                     <span className="lt-figure">{faults.length}</span> potongan
                     tidak bisa diambil dari halamannya.
                   </li>
@@ -1364,10 +1628,14 @@ export function ExportPanel({
                     : ""}
                 </p>
               ) : null}
+              {/* THE SENTENCE THIS PRODUCT EXISTS FOR. It never changes and it
+                  never hides: it is the reason the button beside it will not
+                  fire, and a disabled control whose reason is behind a hover is
+                  the same defect as one whose reason is off screen. Its wording
+                  is fixed in docs/ui-bahasa.md. */}
               {byKind.proposed.length > 0 ? (
                 <p
-                  className="max-w-[74ch] text-[0.8125rem]"
-                  style={{ color: "var(--ink-2)" }}
+                  className="max-w-[74ch] text-[0.8125rem] text-ink-2"
                 >
                   Tidak ada berkas yang dibuat sebelum setiap area diperiksa,
                   karena potongan yang belum diperiksa di dalam dokumen yang
@@ -1378,210 +1646,101 @@ export function ExportPanel({
             </>
           ) : (
             <>
-              <p className="text-[0.9375rem] font-semibold">Siap diekspor.</p>
-              <p className="text-[0.875rem]">
+              <p className="text-base font-bold">Siap diekspor.</p>
+              <p className="text-sm">
                 <span className="lt-figure">{tally.slotsComplete}</span> dari{" "}
                 <span className="lt-figure">{tally.fillableSlots}</span> bagian
-                membawa bukti, dan{" "}
-                <span className="lt-figure">{tally.capturesShipping}</span>{" "}
-                potongan akan dicetak di dokumen validasi.
+                membawa bukti
                 {tally.slotsBlank > 0 ? (
                   <>
-                    {" "}
-                    <span className="lt-figure">{tally.slotsBlank}</span> bagian
-                    terbit kosong atas keputusan Anda.
+                    , <span className="lt-figure">{tally.slotsBlank}</span>{" "}
+                    terbit kosong atas keputusan Anda
                   </>
-                ) : null}{" "}
-                Buku kerja terbit dengan{" "}
-                <span className="lt-figure">{AO_TEMPLATE.xlsxRows.length}</span>{" "}
-                baris dan kolom E kosong.
+                ) : null}
+                .
               </p>
             </>
           )}
         </div>
 
-        {blocked ? (
-          <div>
-            <Btn onClick={onGoToSheet}>Kembali ke lembar periksa</Btn>
-          </div>
+        {/* The failure belongs HERE, beside the button that caused it. At the
+            top of a page this tall it would be off screen at the moment it
+            appears, which is the same defect as a block whose reason the
+            operator has to scroll to find. */}
+        {state.kind === "failed" ? (
+          <Interruption detail={state.message}>
+            Kedua berkas gagal dibuat, jadi tidak ada yang ditulis. Perbaiki
+            penyebabnya lalu buat lagi.
+          </Interruption>
         ) : null}
 
-        <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--line)" }}>
-          {state.kind === "built" ? (
-            <ul className="flex flex-col gap-2">
-              <SaveRow
-                icon={<Paket className="shrink-0" />}
-                name={state.names.docx}
-                size={fileSize(state.docx)}
-                disabled={stale}
-                done={handedOver.docx}
-                onSave={() => {
-                  downloadBytes(state.names.docx, state.docx, DOCX_TYPE);
-                  setHandedOver((prev) => ({ ...prev, docx: true }));
-                }}
-              />
-              <SaveRow
-                icon={<BukuKerja className="shrink-0" />}
-                name={state.names.xlsx}
-                size={fileSize(state.xlsx)}
-                disabled={stale}
-                done={handedOver.xlsx}
-                onSave={() => {
-                  downloadBytes(state.names.xlsx, state.xlsx, XLSX_TYPE);
-                  setHandedOver((prev) => ({ ...prev, xlsx: true }));
-                }}
-              />
-            </ul>
-          ) : (
-            /* Two rows, two DIFFERENT marks. The packet and the workbook are
-               not one homogeneous list, and which of the two a name belongs to
-               is read faster from the shape than from an extension at the end
-               of a break-all string. */
-            <ul className="flex flex-col gap-0.5">
-              <li className="flex items-center gap-2">
-                <Paket className="shrink-0" />
-                <span className="lt-figure text-[0.8125rem] break-all">
-                  {names.docx}
-                </span>
-              </li>
-              <li className="flex items-center gap-2">
-                <BukuKerja className="shrink-0" />
-                <span className="lt-figure text-[0.8125rem] break-all">
-                  {names.xlsx}
-                </span>
-              </li>
-            </ul>
-          )}
+        {stale ? (
+          <Notice tone="warn">
+            Isi halaman ini berubah setelah kedua berkas dibuat. Buat ulang
+            sebelum menyimpannya.
+          </Notice>
+        ) : null}
 
-          {/* The failure belongs HERE, beside the button that caused it. At
-              the top of a page this tall it would be off screen at the moment
-              it appears, which is the same defect as a block whose reason the
-              operator has to scroll to find. */}
-          {state.kind === "failed" ? (
-            <Interruption detail={state.message}>
-              Kedua berkas gagal dibuat, jadi tidak ada berkas yang ditulis.
-              Perbaiki penyebabnya lalu buat lagi.
-            </Interruption>
-          ) : null}
+        <div className="flex flex-wrap items-center gap-4">
+          <Btn
+            tone="primary"
+            disabled={blocked || state.kind === "working"}
+            onClick={() => void write()}
+          >
+            {built ? "Buat ulang" : "Buat kedua berkas"}
+          </Btn>
 
-          {stale ? (
-            <Notice tone="warn">
-              Isi halaman ini berubah setelah kedua berkas dibuat, jadi berkas
-              yang tersimpan tidak lagi sama dengan yang tertulis di sini. Buat
-              ulang sebelum menyimpannya.
-            </Notice>
-          ) : null}
+          {blocked ? <Btn onClick={onGoToSheet}>Kembali ke lembar periksa</Btn> : null}
 
-          {handedOver.docx || handedOver.xlsx ? (
-            <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-              Berkas yang sudah Anda tekan diserahkan ke peramban ini. Jika
-              tidak muncul di folder unduhan, izinkan unduhan lalu tekan lagi.
-            </p>
-          ) : null}
+          {/* A PRIVACY STATEMENT NEVER HIDES, whichever direction it points.
+              A previous pass put this behind a question mark, reasoning that a
+              sentence said as data leaves the device must stay on screen while
+              this one is its opposite, a promise that nothing leaves. The two
+              are indeed different sentences, and it still does not hide: an
+              operator cannot tell a promise nobody made from one they did not
+              hover over, and that is the whole value of making it. What the
+              cost argument buys (every line in this bar is subtracted from the
+              page twice, once as the bar and once as the height
+              `useBarHeight` reserves for it) is a SHORTER line, not a hidden
+              one. Its first four words are the wording docs/ui-bahasa.md
+              fixes. */}
+          <p className="max-w-[74ch] text-[0.8125rem] text-ink-2">
+            Berkas PDF tidak diunggah. Kedua berkas dibuat di peramban ini.
+          </p>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Btn
-              tone="primary"
-              disabled={blocked || state.kind === "working"}
-              onClick={() => void write()}
-            >
-              {state.kind === "built" ? "Buat ulang" : "Buat kedua berkas"}
-            </Btn>
-
-            {/* NOT a consent statement, which is why it may hide. A sentence
-                said at the moment data leaves the device stays on screen
-                however invariant it is; this is the opposite, a promise that
-                nothing leaves, made by a button that uploads nothing. The
-                consent that is owed is made on Muat, where the page images
-                actually go out. Two lines inside a bar that reserves its own
-                measured height cost the manifest four. */}
-            <Hint label="Ke mana kedua berkas ditulis">
-              Kedua berkas ditulis di peramban ini. Tidak ada berkas PDF yang
-              diunggah untuk membuatnya.
-            </Hint>
-
-            {state.kind === "working" ? (
-              <div className="flex items-center gap-3">
-                {/* Countable, never a percentage: this step only ever learns
-                    about whole crops. It also lives OUTSIDE the button, so the
-                    primary control does not change width while it cannot be
-                    pressed. */}
-                {state.total > 0 ? (
-                  <>
-                    <div className="lt-well flex h-2 w-40 overflow-hidden">
-                      {Array.from({ length: state.total }, (_, i) => (
-                        <span
-                          key={i}
-                          className="lt-tick"
-                          data-done={i < state.done ? "true" : undefined}
-                          style={{ width: `${100 / state.total}%` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-[0.8125rem]">
-                      Memotong{" "}
-                      <span className="lt-figure">
-                        {state.done} dari {state.total}
-                      </span>{" "}
-                      potongan.
-                    </span>
-                  </>
-                ) : (
+          {state.kind === "working" ? (
+            <div className="flex items-center gap-4">
+              {/* Countable, never a percentage: this step only ever learns
+                  about whole crops. It also lives OUTSIDE the button, so the
+                  primary control does not change width while it cannot be
+                  pressed. */}
+              {state.total > 0 ? (
+                <>
+                  <div className="lt-well flex h-2 w-40 overflow-hidden">
+                    {Array.from({ length: state.total }, (_, i) => (
+                      <span
+                        key={i}
+                        className="lt-tick"
+                        data-done={i < state.done ? "true" : undefined}
+                        style={{ width: `${100 / state.total}%` }}
+                      />
+                    ))}
+                  </div>
                   <span className="text-[0.8125rem]">
-                    Menulis kedua berkas tanpa potongan.
+                    Memotong{" "}
+                    <span className="lt-figure">
+                      {state.done} dari {state.total}
+                    </span>
+                    .
                   </span>
-                )}
-              </div>
-            ) : null}
-          </div>
+                </>
+              ) : (
+                <span className="text-[0.8125rem]">Menulis tanpa potongan.</span>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * One file, on its own row.
- *
- * A row per file, stacked, so a narrow laptop never separates a Simpan button
- * from the name of the file it saves. `downloadBytes` cannot report failure,
- * so the row records what is actually true: the file was handed to the
- * browser. An operator who saw nothing arrive gets told what to do about it.
- */
-function SaveRow({
-  icon,
-  name,
-  size,
-  disabled,
-  done,
-  onSave,
-}: {
-  /**
-   * The packet's mark or the workbook's, never the same one twice. It labels
-   * the ROW, which is the file; the button beside it keeps its plain word.
-   */
-  icon: ReactNode;
-  name: string;
-  size: string;
-  disabled: boolean;
-  done: boolean;
-  onSave: () => void;
-}) {
-  return (
-    <li className="flex flex-wrap items-center gap-3">
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        {icon}
-        <span className="lt-figure min-w-0 text-[0.8125rem] break-all">
-          {name}
-        </span>
-      </span>
-      <span className="lt-figure text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-        {size}
-      </span>
-      {done ? <span className="lt-label">sudah diserahkan</span> : null}
-      <Btn onClick={onSave} disabled={disabled} title={`Simpan ${name}`}>
-        Simpan {shortenFileName(name, 26)}
-      </Btn>
-    </li>
   );
 }

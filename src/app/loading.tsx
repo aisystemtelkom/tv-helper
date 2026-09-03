@@ -7,60 +7,71 @@
  * route under the root segment, so the same thing is true of a first hit on
  * `/admin`, which is `force-dynamic` and also waits on Firestore.
  *
- * A SKELETON OF THE SHELL, NOT A SPINNER, AND IT DOES NOT MOVE. A spinner
- * claims progress it cannot measure. The one orchestrated motion in this
- * product answers an operator's own click (the paraf being drawn), and the
- * only other motion is countable (one tick per stored page); a placeholder
- * that pulses is neither, so it would be the first thing in the product that
- * moves to no purpose.
+ * IT IS THE SAME SHEET AS THE OTHER FOUR, and that is the change worth
+ * recording. It used to be a skeleton of the application strip and the review
+ * rows: grey bars in the shape of a screen that is being redesigned around it.
+ * A skeleton is a promise about the layout that arrives next, so a stale one
+ * is a lie told at a moment when the operator has nothing else to read, and
+ * keeping it true means editing this file every time a screen moves. The sheet
+ * promises only what is already known, which is the product's name and the
+ * fact that it is coming.
  *
- * The blocks are `.lt-well` rather than `.lt-paper` or `.lt-hatch`, and the
- * distinction is load-bearing in this design: paper is a document, and none of
- * these is one yet; hatching is a DELIBERATE absence, on the record, which is
- * a claim this screen has no right to make. A well is a trough waiting to be
- * filled, which is exactly what is true.
+ * NOTHING HERE MOVES AND THERE IS NO SPINNER. A spinner claims progress it
+ * cannot measure. The one orchestrated motion in this product answers an
+ * operator's own click (the paraf being drawn), and the only other motion is
+ * countable (one tick per stored page); a placeholder that pulses is neither,
+ * so it would be the first thing in the product that moves to no purpose.
  *
- * The wordmark is real rather than a grey bar, because identity is the one
- * thing that is already known, and a page with nothing legible on it reads as
- * broken rather than as loading.
+ * The cold-start sentence stays on screen rather than going behind a question
+ * mark: it is the reason this screen is still here, which is the one class of
+ * explanation that never hides.
  */
+
+import type { CSSProperties } from "react";
+
+/**
+ * What a kop costs on paper, in one place.
+ *
+ * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
+ * paints ink on ink. `color` carries the bar itself and survives the fault
+ * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
+ * child that names the token, which is how `.lt-wordmark` stops needing a
+ * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
+ * this constant goes.
+ */
+const KOP_ON_PAPER = {
+  color: "var(--paper)",
+  "--ink": "var(--paper)",
+} as CSSProperties;
+
 export default function Loading() {
   return (
-    <div className="flex flex-1 flex-col" aria-busy="true">
-      <div className="lt-rail border-b">
-        <div className="mx-auto flex w-full max-w-[92rem] items-center gap-6 px-5 py-3">
-          <span className="lt-wordmark">tv-validator</span>
-          <span className="lt-well h-4 w-56" aria-hidden="true" />
-          <span className="lt-well ms-auto h-4 w-32" aria-hidden="true" />
-        </div>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-[92rem] flex-col gap-6 px-5 py-8">
-        {/* Announced, because the screen changes without a navigation and a
-            keyboard or screen reader user has nothing else to go on. */}
-        <p role="status" className="lt-note">
-          Memuat aplikasi. Saat server baru dinyalakan, ini bisa memakan
-          beberapa detik.
-        </p>
-
-        <div className="flex flex-col gap-4" aria-hidden="true">
-          <div className="flex items-start gap-4">
-            <span className="lt-well h-7 w-7 shrink-0" />
-            <div className="flex min-w-0 flex-1 flex-col gap-3">
-              <span className="lt-well h-5 w-64 max-w-full" />
-              <span className="lt-well h-56 w-full" />
-            </div>
+    <main
+      className="flex flex-1 flex-col items-center justify-center px-6 py-12"
+      aria-busy="true"
+    >
+      <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
+        <div className="lt-paper overflow-hidden">
+          <div className="lt-kop" style={KOP_ON_PAPER}>
+            <span className="lt-wordmark">tv-validator</span>
+            <span className="lt-kop-right">memuat</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="lt-well h-7 w-7 shrink-0" />
-            <span className="lt-well h-4 w-72 max-w-full" />
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="lt-well h-7 w-7 shrink-0" />
-            <span className="lt-well h-4 w-52 max-w-full" />
+
+          {/* Announced, because the screen changes without a navigation and a
+              keyboard or screen reader user has nothing else to go on. */}
+          <div
+            className="lt-slab-body flex flex-col gap-2 p-6"
+            role="status"
+          >
+            {/* An h1, not the shared `Title`: this is the top of the document
+                and `Title` renders an h2. */}
+            <h1 className="lt-title">Memuat aplikasi.</h1>
+            <p className="lt-note">
+              Bisa beberapa detik saat server baru dinyalakan.
+            </p>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

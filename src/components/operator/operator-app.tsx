@@ -71,9 +71,11 @@ import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
 import { ContactSheet } from "./contact-sheet";
+import { DocumentsBar } from "./documents-bar";
 import { ExportPanel } from "./export-panel";
 import { IngestPanel, type IngestProgress } from "./ingest-panel";
 import { OutstandingPanel, type RoundLog } from "./outstanding-panel";
+import { ToastHost, useSay } from "./toast";
 import { ZoneEditor, type EditorTarget } from "./zone-editor";
 import type { PlateActions } from "./proposal-plate";
 
@@ -142,23 +144,25 @@ function rememberRun(id: string | null): void {
  * ingest died halfway, so "27 dari 29 halaman terbaca" is the truth about a
  * run that would otherwise look complete and be short two pages of evidence.
  */
-function bundleLine(run: BrowserRun): string {
-  const documents = run.sources.length;
-  const read = run.pages.length;
-  const expected = run.sources.reduce((total, s) => total + s.pageCount, 0);
-
-  if (documents === 0) return "Pekerjaan baru, belum ada dokumen";
-  const docs = `${documents} dokumen`;
-  if (expected > read) return `${docs}, ${read} dari ${expected} halaman terbaca`;
-  return `${docs}, ${read} halaman`;
-}
-
-/** Every source in the run, middle-truncated, in the order they were added. */
-function sourceNames(run: BrowserRun): string {
-  if (run.sources.length === 0) return "Belum ada berkas PDF di pekerjaan ini.";
-  return run.sources
-    .map((source) => shortenFileName(source.name, 28))
-    .join(", ");
+/**
+ * WHICH ORDER THIS IS, which is a different question from what is in it.
+ *
+ * The strip used to answer the second: "2 dokumen, 5 halaman" as the h1 with
+ * every file name under it. `DocumentsBar` now sits directly below and says
+ * exactly that, so the two were the same sentence twice, eleven pixels apart,
+ * on every screen. The composition of the bundle belongs to the bar; the
+ * strip's job is to name the thing being worked on.
+ *
+ * IT IS NAMED BY ITS FIRST DOCUMENT because nothing better exists yet. The ID
+ * EPIC would be the right title and the browser run does not carry one: field
+ * extraction happens against `/api/extract` and its values are not folded back
+ * into `BrowserRun`. Naming one document out of several is safe only because
+ * the bar underneath lists the rest, which is the arrangement this is part of.
+ */
+function runTitle(run: BrowserRun): string {
+  const first = run.sources[0];
+  if (!first) return "Pekerjaan baru, belum ada dokumen";
+  return shortenFileName(first.name, 44);
 }
 
 /**
@@ -223,7 +227,14 @@ function initialsOf(name: string | null | undefined, email: string): string {
  * which `Interruption` files behind a disclosure. They are not the same
  * audience and they never share a paragraph.
  */
-type FaultOrigin = "boot" | "load" | "save" | "search" | "ingest" | "session";
+type FaultOrigin =
+  | "boot"
+  | "load"
+  | "save"
+  | "search"
+  | "ingest"
+  | "remove"
+  | "session";
 
 type Fault = {
   origin: FaultOrigin;
@@ -293,7 +304,9 @@ export function OperatorApp({
 }: { account?: Account | null; notice?: ReactNode } = {}) {
   return (
     <RuntimeProvider runtime={runtime}>
-      <Workspace account={account ?? null} notice={notice ?? null} />
+      <ToastHost>
+        <Workspace account={account ?? null} notice={notice ?? null} />
+      </ToastHost>
     </RuntimeProvider>
   );
 }
@@ -313,6 +326,7 @@ function Workspace({
   // read, which on a slow device is the first thing they get to read.
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [run, setRun] = useState<BrowserRun | null>(null);
+  const say = useSay();
   const [phase, setPhase] = useState<Phase>("ingest");
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [rounds, setRounds] = useState<RoundLog[]>([]);
@@ -512,6 +526,53 @@ function Workspace({
     setFresh(new Set());
     setSearchNote(null);
     rememberRun(null);
+  };
+
+  /**
+   * Takes one document back out of the open pekerjaan.
+   *
+   * THE INDEX SETS ARE CLEARED, and that is not tidying. `pending` and `fresh`
+   * are sets of POSITIONS IN `run.slots`, and a removal can drop rows: a
+   * lanjutan found inside the removed document goes with it. Every position
+   * after the first dropped row then names a different capture, so a paraf
+   * drawn at 40% opacity would sit on somebody else's evidence and a row would
+   * be marked freshly-decided that nobody had decided. They are local to this
+   * tab and rebuilt by the next action, so clearing costs nothing.
+   *
+   * The run is re-read by the runtime inside its own lock rather than saved
+   * from here, so this cannot collide with an ingest that is still writing.
+   */
+  const removeDocument = async (sourceId: string) => {
+    if (!run) return;
+    setBusy(true);
+    setFault(null);
+    setSearchNote(null);
+    try {
+      const name =
+        run.sources.find((source) => source.id === sourceId)?.name ?? "Dokumen";
+      const updated = await runtime.removeDocument(run.id, sourceId);
+      setRun(updated);
+      setPending(new Set());
+      setFresh(new Set());
+      // A TOAST, because it passes the test in toast.tsx: it is true, it is
+      // over, and an operator who looked away while it happened is no worse
+      // off -- the documents bar they are looking at already shows one fewer.
+      say(`${shortenFileName(name, 28)} dihapus dari pekerjaan ini.`);
+    } catch (problem) {
+      setFault({
+        origin: "remove",
+        sentence:
+          "Dokumen tidak jadi dihapus, jadi pekerjaan ini masih utuh seperti sebelumnya.",
+        detail: messageOf(problem),
+      });
+    } finally {
+      setBusy(false);
+      try {
+        setRuns(await runtime.listRuns());
+      } catch {
+        /* the list is a convenience; never mask the removal's own error */
+      }
+    }
   };
 
   const ingest = async (files: File[]) => {
@@ -966,6 +1027,28 @@ function Workspace({
           }}
         />
 
+        {/* THE DOCUMENT MANAGER, ON EVERY PHASE. The operator reported that
+            uploading several documents "just creates one pekerjaan per
+            document". It does not: the ingest loop below threads one run id
+            through the whole list and `persistence.test.mts` pins it. What was
+            true is that nothing on screen ever said so, because the only place
+            that named their documents was the screen they had already left.
+            This bar is the answer to the question they were actually asking,
+            and it is deliberately NOT the riwayat, which is a different list of
+            a different thing and lives at the bottom of Muat. */}
+        {run && run.sources.length > 0 ? (
+          <DocumentsBar
+            run={run}
+            busy={busy || searching}
+            costOf={(sourceId) => runtime.sourceRemovalCost(run, sourceId)}
+            onAdd={() => {
+              setSearchNote(null);
+              setPhase("ingest");
+            }}
+            onRemove={(sourceId) => void removeDocument(sourceId)}
+          />
+        ) : null}
+
         {/* INSIDE the sticky header on purpose. An interruption that scrolls
             away with the page can be missed entirely by an operator half way
             down a metre-long contact sheet, and a refused save means every
@@ -1029,13 +1112,11 @@ function Workspace({
             runsLoading={!runsLoaded}
             onOpenRun={(id) => void openRun(id)}
             onStartNewRun={closeRun}
-            onContinue={() => setPhase("sheet")}
             onProcess={() => void search()}
             searching={searching}
             searchStartedAt={searchStartedAt}
             searchNote={searchNote}
             wanted={wanted}
-            searched={searched}
           />
         ) : !run ? (
           <div className="flex flex-col items-start gap-3">
@@ -1072,6 +1153,31 @@ function Workspace({
           />
         ) : (
           <ExportPanel run={run} onGoToSheet={() => setPhase("sheet")} />
+        )}
+
+        {/* NOT WHILE THE ZONE EDITOR IS OPEN, and not on Berkas.
+
+            The editor is a task the operator is inside, with its own Batal and
+            Pakai area ini, and a "Lanjut: Berkas" under it would be a way to
+            leave a rectangle half-drawn without saying so.
+
+            Berkas is the other exception, and it is the one worth explaining.
+            It has no next step, so the only thing this nav could offer there
+            is the way back, and the export panel's own sticky action bar
+            already carries that -- pinned beside the reason the export is
+            blocked, which is where an operator who cannot proceed is actually
+            looking. Rendering this as well would put two backs on one screen,
+            one of them below a 260px spacer at the very bottom of the page. */}
+        {editing || phase === "export" ? null : (
+          <StepNav
+            phase={phase}
+            isLocked={isLocked}
+            lockReason={lockReason}
+            onGo={(next) => {
+              setSearchNote(null);
+              setPhase(next);
+            }}
+          />
         )}
       </main>
     </div>
@@ -1164,21 +1270,26 @@ function Strip({
             order being worked on, and until now the operator app had no
             heading at all: the run name was a 14px span, outranked by the five
             counters beside it. */}
+        {/* ONE LINE WHEN A RUN IS OPEN, two only when there is none. The
+            second line was the file list, which `DocumentsBar` owns now; the
+            empty state keeps its because an empty screen should say what to
+            do next and there is no bar under it to do that. */}
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <h1 className="lt-title truncate">
-            {run ? bundleLine(run) : "Belum ada pekerjaan yang dibuka"}
-          </h1>
-          <p
-            className="truncate text-[0.8125rem]"
-            style={{ color: "var(--ink-2)" }}
+          <h1
+            className="lt-title truncate"
             title={run ? run.sources.map((s) => s.name).join(", ") : undefined}
           >
             {run ? (
-              <span className="lt-figure">{sourceNames(run)}</span>
+              <span className="lt-figure">{runTitle(run)}</span>
             ) : (
-              "Muat berkas PDF order untuk memulai."
+              "Belum ada pekerjaan yang dibuka"
             )}
-          </p>
+          </h1>
+          {run ? null : (
+            <p className="truncate text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+              Muat berkas PDF order untuk memulai.
+            </p>
+          )}
         </div>
 
         <AccountControls account={account} onFault={onFault} />
@@ -1304,6 +1415,78 @@ function AccountControls({
 }
 
 /**
+ * THE STEP NAV AT THE FOOT OF EVERY SCREEN.
+ *
+ * The operator asked for it in the plainest possible terms: "we can add next
+ * step and previous step at the bottom of the screen (isn't that bare
+ * minimum??)". It is, and its absence was a real defect rather than a
+ * missing nicety. The phase rail at the top is a MAP: it says where you are
+ * and lets you jump. It is not a way FORWARD, because it does not say which
+ * of the three is the next thing to do, and it sits at the top of a screen the
+ * operator has just scrolled a metre down.
+ *
+ * IT NAMES THE STEP, NEVER JUST A DIRECTION. "Lanjut" alone makes the operator
+ * hold the running order in their head; "Lanjut: Periksa" does not. That is
+ * also why the two are asymmetric in weight: forward is the primary control
+ * because it is what the screen is for, and back is a plain one because going
+ * back is a correction, not a step.
+ *
+ * A LOCKED STEP IS SHOWN, DISABLED, WITH ITS REASON IN WORDS. The alternative
+ * is hiding it, and a control that vanishes teaches an operator that the
+ * product is unpredictable. The reason is prose next to the button rather than
+ * a tooltip on it, because this system's rule is that the reason a control is
+ * disabled is never hidden behind a hover.
+ */
+function StepNav({
+  phase,
+  isLocked,
+  lockReason,
+  onGo,
+}: {
+  phase: Phase;
+  isLocked: (id: Phase) => boolean;
+  lockReason: string | null;
+  onGo: (phase: Phase) => void;
+}) {
+  const at = PHASES.findIndex((step) => step.id === phase);
+  const back = at > 0 ? PHASES[at - 1] : null;
+  const next = at < PHASES.length - 1 ? PHASES[at + 1] : null;
+  const nextLocked = next ? isLocked(next.id) : false;
+
+  return (
+    <nav
+      aria-label="Langkah berikutnya"
+      className="lt-steps mt-6 flex flex-wrap items-center gap-4"
+    >
+      {back ? (
+        <Btn onClick={() => onGo(back.id)}>
+          <span aria-hidden="true">&#8592;</span>
+          Kembali: {back.label}
+        </Btn>
+      ) : (
+        <span />
+      )}
+
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-4">
+        {next && nextLocked && lockReason ? (
+          <p className="lt-note max-w-[46ch] text-right">{lockReason}</p>
+        ) : null}
+        {next ? (
+          <Btn
+            tone="primary"
+            disabled={nextLocked}
+            onClick={() => onGo(next.id)}
+          >
+            Lanjut: {next.label}
+            <span aria-hidden="true">&#8594;</span>
+          </Btn>
+        ) : null}
+      </div>
+    </nav>
+  );
+}
+
+/**
  * THE PHASE NAV, and the one figure in the shell that is an INSTRUCTION.
  *
  * The current phase is marked by fill, by weight and by a tab rule that breaks
@@ -1404,15 +1587,25 @@ function PhaseNav({
           })}
         </ul>
 
+        {/* THE REASON IS NOT PRINTED HERE ANY MORE, and the rule it was
+            written for is intact.
+
+            "A disabled control never appears without its reason beside it" is
+            still true: the reason now sits beside the DISABLED CONTROL, which
+            is the forward button in `StepNav` at the foot of the screen. It
+            was in both places at once for a while, and a sentence the operator
+            reads twice on one screen is a sentence they stop reading. This row
+            is a map of where you are; the reason you cannot go somewhere
+            belongs where you try to go.
+
+            IT IS STILL HERE FOR A SCREEN READER, though, because each locked
+            tab carries `aria-describedby` pointing at it. Deleting the element
+            and leaving the attribute is a dangling reference: the tab announces
+            as disabled with no reason given, which is the same failure this
+            rule exists to prevent, in the one modality that cannot compensate
+            by looking further down the page. */}
         {lockReason ? (
-          // A disabled control never appears without its reason beside it, in
-          // the same viewport at 1366. Three greyed words at 45% opacity were
-          // the old nav's answer, at a contrast that also put them under AA.
-          <p
-            id={lockId}
-            className="min-w-0 max-w-[38rem] text-[0.8125rem]"
-            style={{ color: "var(--ink-2)" }}
-          >
+          <p id={lockId} className="sr-only">
             {lockReason}
           </p>
         ) : null}

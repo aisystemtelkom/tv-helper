@@ -273,6 +273,30 @@ export function Cari(props: IconProps) {
 }
 
 /**
+ * Riwayat: the pekerjaan already saved on this device.
+ *
+ * NOT A CLOCK, and not an arrow curling backwards. Both are pictures of TIME,
+ * and time is not what an operator is looking for here: they are looking for a
+ * job they worked on, in a drawer of jobs. So it is the drawer. Three page
+ * edges seen from the side, the front one whole, which is what a stack of
+ * finished dockets looks like from where you stand when you go to find one.
+ *
+ * The corners are square, which under this file's second rule means "a page
+ * inside the run" rather than a file somebody supplied. That is right: a
+ * pekerjaan is not one of the operator's files, it is the work built out of
+ * them.
+ */
+export function Arsip(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.4 8.6h13.2v8.4H3.4z" strokeLinecap="butt" />
+      <path d="M4.9 6.1h10.2M6.4 3.6h7.2" strokeLinecap="butt" />
+      <path d="M8.4 11.6h3.2" strokeLinecap="butt" />
+    </Icon>
+  );
+}
+
+/**
  * Dismiss a dialog.
  *
  * The set's rule is that a verb icon is the shape of what the verb leaves

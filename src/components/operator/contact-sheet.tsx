@@ -3,73 +3,93 @@
 /**
  * LEMBAR PERIKSA: every capture the packet will carry, in template order.
  *
- * The sheet is one scrolling column and it never hides a capture behind a
- * filter, because the whole argument for a contact sheet is that a SYSTEMATIC
- * failure -- every crop landing at the top of its page, three captures citing
- * one page, every range running on into a footer -- is visible here in one
- * sweep and would take eleven screens of drilling to notice one slot at a
- * time.
+ * ONE CAPTURE IS IN FOCUS AND EVERY OTHER ONE IS A ROW. That is the whole
+ * shape of this screen and it is what the client asked for by name: the sheet
+ * used to render every capture of every section as a full plate at once, which
+ * is a metre of scroll on arrival and reads as a program that shows everything
+ * because nobody decided what mattered. The capture under the cursor renders as
+ * the full `ProposalPlate`, picture and all; the rest collapse to one line each
+ * carrying the plan of their page, their state mark, their name and their page
+ * reference. NOTHING IS HIDDEN BY THIS, only made small: every capture still
+ * has a row, still says which state it is in, and still shows the shape of the
+ * page it was cut from.
  *
- * Three things in this file are load-bearing, and each replaces something that
- * looked reasonable and did not work.
+ * That last clause is load-bearing, because the obvious version of "show less"
+ * here is a filter, and a filter is how an unreviewed capture disappears. The
+ * argument for a contact sheet is that a SYSTEMATIC failure (every crop landing
+ * at the top of its page, three captures citing one page, every range running
+ * on into a footer) is visible in one sweep. A column of rows each carrying its
+ * own denah is that sweep, and it is now the whole sheet rather than a rail
+ * beside it.
  *
- * THE INDEX RAIL replaces twelve identical anchor pills. A pill said "KB" and
- * a number; it could not say anything about the evidence, so the operator had
- * to open all twelve to learn what the sheet already knew. The rail carries
- * one `Denah` per capture instead: a plan of the cited page with the cut drawn
- * on it. Stacked in a column those silhouettes ARE the systematic-failure
- * detector the old comment claimed the sheet was, and a capture with no zone
- * yet is a `Missing` hatch, a deliberately different shape, because on a fresh
- * run that is every row and it is the first thing a new operator ever sees.
+ * THE INDEX RAIL IS GONE, AND ITS ARGUMENT SURVIVED IT. The rail existed to
+ * carry one `Denah` per capture in a sticky column, because the plates were too
+ * tall to compare: it replaced twelve identical anchor pills that could say
+ * nothing about the evidence. Once every settled capture is one line, the rail
+ * and the sheet were two lists of the same twelve things side by side, which is
+ * the overload the client named. The denah moved INTO the row, so the stack of
+ * silhouettes is intact and there is one list instead of two. A capture with no
+ * zone is still a `Missing` hatch, a deliberately different shape, because on a
+ * fresh run that is every row and it is the first thing a new operator sees.
+ *
+ * EVERY SECTION IS A SLAB AND ITS NAME IS THE KOP. The packet's own structure
+ * is the only grouping this screen is allowed to invent, so the docx sections
+ * are the blocks and the kop carries what each one still owes at its right. The
+ * kop is the status channel: amber across its full width while a section holds a
+ * proposal, red when one of its captures can never produce a picture, which is
+ * legible from across the room and costs no component a rule to remember. Red
+ * outranks amber, exactly as `owedBy` orders them in the plate: a decision the
+ * operator cannot make is not work waiting, it is something broken.
+ * `data-owes="done"` is deliberately unused: it paints the kop petrol, and this
+ * design's promise is that a finished packet is a screen with NO colour left on
+ * it. A section with nothing owed says so in words instead.
  *
  * THE NON-FILLABLE SET IS DEMOTED HARD. `AO_TEMPLATE` declares 24 slots and
  * only 11 of them can be backed by a document; three sections declare no slots
  * at all. Rendering those as plates made more than half of the operator's
  * primary screen furniture they had to scroll past to find work. A slot no PDF
- * can back is one ruled line, which the plate draws itself; a SECTION in which
- * nothing can be backed never reaches the plate at all, because a heading and
- * a paragraph of guidance about crops that will never exist is furniture with
- * a title. Those are gathered into one block at the end, one line per section,
- * and the reclaimed space goes to the crops.
+ * can back is one ruled line; a SECTION in which nothing can be backed never
+ * reaches a plate at all, because a heading and a paragraph of guidance about
+ * crops that will never exist is furniture with a title. Those are gathered
+ * into one slab at the end, one line per section, and the space goes to the
+ * crop.
  *
- * THE SHEET'S OWN CONTROLS LIVE IN THE RAIL. Expand-all, the count of crops
- * still being cut and the keyboard legend used to be a ruled row across the top
- * of the plate column: about 84px of chrome between the operator and the first
- * picture, on the one screen whose whole argument is that the picture must be
- * big enough to judge. The rail is a sticky column, so anything put at the top
- * of it pushes nothing down. The legend went behind a question mark, because it
+ * THE SHEET'S OWN CONTROLS ARE ONE QUIET ROW. Expand-all, the keyboard legend
+ * and the count of crops still being cut used to be about 84px of chrome across
+ * the top of the plate column, then a block at the head of the rail. They are
+ * one right-aligned row now. The legend is behind a question mark, because it
  * reads the same words on every order and the app says the same thing out loud,
  * in a live region, at the moment a decision key is refused. The count of crops
- * still being cut did NOT: it is a measurement of this run, and a picture that
- * has not appeared cannot have been reviewed.
+ * still being cut did NOT hide: it is a measurement of this run, and a picture
+ * that has not appeared cannot have been reviewed.
  *
- * SECTION HEADINGS LOST THEIR LEDE for the same reason and by the same test.
+ * SECTION GUIDANCE IS BEHIND THE KOP'S OWN MARK, by the same test.
  * `guidanceFor` rendered under all five headings, once above the first crop,
  * and said the identical two sentences on every order in this product's life.
- * The title and the accept-all control now share one row and the guidance sits
- * behind the title's own mark, which is about 90px per heading down to 46px.
+ * What varies is which KIND of section this is, and the title already says that.
  *
- * BULK ACCEPT IS TWO STEPS ON PURPOSE. Accepting several crops with one click
- * is the shortest path in the whole product from "nobody looked" to "a crop of
- * the wrong page inside a document a validator signs", so the button reveals a
- * confirmation naming the fields it would accept, and only the second click
- * commits. It also refuses while any of those crops is still being cut: a
+ * BULK ACCEPT IS TWO STEPS ON PURPOSE, AND IT SITS BELOW THE ROWS. Accepting
+ * several crops with one click is the shortest path in the whole product from
+ * "nobody looked" to "a crop of the wrong page inside a document a validator
+ * signs", so it is not the first thing the eye lands on in a section, the button
+ * reveals a confirmation naming the fields it would accept, and only the second
+ * click commits. It also refuses while any of those crops is still being cut: a
  * proposal whose picture has not appeared cannot have been reviewed.
  *
  * THE HEAD IS WHAT IS MISSING, and it is part of this screen now rather than a
- * phase of its own. `head` renders above the index rail and the plates, inside
- * the scrolling column, so it is the first thing read on arriving at Periksa
- * and then it gets out of the way; it is not pinned, because it is a briefing,
- * not chrome. The sheet stays agnostic about what is in it: today the shell
- * passes the dokumen tambahan block, and everything below still works with the
- * prop absent. The one thing this file owes it is the KEYBOARD: `j`, `k` and
- * the decision keys are ignored while focus is inside the head or inside any
- * open dialog, because a shortcut that fires on a screen the operator is not
- * looking at decides evidence they cannot see.
+ * phase of its own. `head` renders above the sheet, inside the scrolling column,
+ * so it is the first thing read on arriving at Periksa and then it gets out of
+ * the way; it is not pinned, because it is a briefing, not chrome. The sheet
+ * stays agnostic about what is in it: today the shell passes the dokumen
+ * tambahan block, and everything below still works with the prop absent. The one
+ * thing this file owes it is the KEYBOARD: `j`, `k` and the decision keys are
+ * ignored while focus is inside the head or inside any open dialog, because a
+ * shortcut that fires on a screen the operator is not looking at decides
+ * evidence they cannot see.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, Ref } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 
 import { AO_TEMPLATE } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
@@ -90,10 +110,11 @@ import {
   Mark,
   Notice,
   STATUS_WORDS,
+  StateWord,
   TechnicalDetail,
 } from "./chrome";
 import { Denah, Missing } from "./denah";
-import { Paraf } from "./icons";
+import { Paraf, Potongan } from "./icons";
 import { ProposalPlate, type PlateActions } from "./proposal-plate";
 import { useCropThumbs } from "./use-crop-thumbs";
 
@@ -114,14 +135,18 @@ type Capture = {
   /** `SlotDef.key`, which is also the id of the plate this capture sits in. */
   plateKey: string;
   sectionTitle: string;
-  fieldLabel: string;
   /** The field name, plus the capture ordinal when the slot holds several. */
   caption: string;
   state: SlotState;
 };
 
-/** A row of the index rail. `capture` is null for one the run never got. */
-type RailRow = { ordinal: number; total: number; capture: Capture | null };
+/** One collapsed line of the sheet. `capture` is null for one the run never got. */
+type SheetRow = {
+  plateKey: string;
+  caption: string;
+  ordinal: number;
+  capture: Capture | null;
+};
 
 function slug(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -131,11 +156,12 @@ function slug(text: string): string {
  * A label the operator can read.
  *
  * `konfigurasi.quote` is declared as `{{quote}}`, a token the exporter
- * substitutes. Printing it raw leaks the template's own syntax onto the
- * screen, so it is named by what it is instead.
+ * substitutes. Printing it raw leaks the template's own syntax onto the screen,
+ * so it is named by the sample's own name for that row instead. `Quote` is one
+ * of the header fields `docs/ui-bahasa.md` fixes as transcribed, not invented.
  */
 function displayLabel(label: string): string {
-  return /^\{\{.+\}\}$/.test(label) ? "(nomor quote)" : label;
+  return /^\{\{.+\}\}$/.test(label) ? "Quote" : label;
 }
 
 function captionFor(entry: SlotAggregate, ordinal: number): string {
@@ -148,34 +174,40 @@ function captionFor(entry: SlotAggregate, ordinal: number): string {
  *
  * IT USED TO INVENT ROWS. `Math.max(entry.required, entry.states.length)` drew
  * a row for every capture `SlotDef.crops` declared, so the ToP bagian showed a
- * second, permanently empty row on a contract holding one ToP -- the operator
+ * second, permanently empty row on a contract holding one ToP, the operator
  * report this whole feature comes from. A lanjutan is discovered now, so a row
  * appears when a picture does.
  *
  * The one row with no capture behind it is still real: a slot the template
  * declares that the run has never seen, which happens when a stored run
- * outlives the slot list that made it. It says so rather than being dropped.
+ * outlives the slot list that made it. It says so rather than being dropped,
+ * and it opens the plate that offers to draw it.
  *
  * `ordinal` is the capture's own number, not its position: after a rejected
  * lanjutan is removed, ordinals legitimately have a gap and renumbering them
  * would relabel a picture the operator already accepted.
  */
-function rowsFor(entry: SlotAggregate, sectionTitle: string): RailRow[] {
-  const total = entry.maxOrdinal;
+function rowsFor(entry: SlotAggregate, sectionTitle: string): SheetRow[] {
+  const label = displayLabel(entry.def.label);
+
   if (entry.states.length === 0) {
-    return [{ ordinal: 1, total, capture: null }];
+    return [
+      { plateKey: entry.def.key, caption: label, ordinal: 1, capture: null },
+    ];
   }
+
   return entry.states.map((placed) => {
     const ordinal = ordinalOf(placed);
+    const caption = captionFor(entry, ordinal);
     return {
+      plateKey: entry.def.key,
+      caption,
       ordinal,
-      total,
       capture: {
         slotIndex: placed.index,
         plateKey: entry.def.key,
         sectionTitle,
-        fieldLabel: displayLabel(entry.def.label),
-        caption: captionFor(entry, ordinal),
+        caption,
         state: placed.state,
       },
     };
@@ -198,20 +230,19 @@ function topIsVisible(element: Element, offset: number): boolean {
 /** What the operator has to check in this kind of section, not what it is. */
 function guidanceFor(layout: SheetSection["layout"]): string {
   return layout === "images"
-    ? "Setiap potongan di sini adalah satu halaman penuh, memang begitu bentuknya. Yang perlu Anda periksa hanya satu hal: apakah halamannya benar."
-    : "Potongan di sini adalah area di dalam halaman. Periksa halamannya, lalu periksa apakah areanya memuat seluruh keterangan dan tidak terbawa ke bagian lain.";
+    ? "Potongan di sini satu halaman penuh, memang begitu bentuknya. Periksa satu hal: halamannya benar atau tidak."
+    : "Potongan di sini area di dalam halaman. Periksa halamannya, lalu apakah areanya memuat seluruh keterangan.";
 }
 
 /**
  * How far down the page a sticky application strip reaches.
  *
- * MEASURED, never assumed. The sheet used to scroll its sections to a fixed
- * `scroll-mt-24` (96px) while the strip above it wraps to two or three rows on
- * a 1366px panel, which is the width half this audience works on: clicking a
- * section anchor put that section's heading and its accept control UNDER the
- * strip, and the operator landed mid-plate with no idea which section they
- * were in. A `ResizeObserver` costs nothing and cannot drift from the header
- * it is measuring.
+ * MEASURED, never assumed. The sheet used to scroll to a fixed `scroll-mt-24`
+ * (96px) while the strip above it wraps to two or three rows on a 1366px panel,
+ * which is the width half this audience works on: scrolling a capture into view
+ * then put its kop and its controls UNDER the strip, and the operator landed
+ * mid-plate with no idea which section they were in. A `ResizeObserver` costs
+ * nothing and cannot drift from the header it is measuring.
  */
 function useStickyOffset(): number {
   const [offset, setOffset] = useState(96);
@@ -233,6 +264,100 @@ function useStickyOffset(): number {
   }, []);
 
   return offset;
+}
+
+/* ------------------------------------------------------------------ *
+ * The slab, and the kop that opens it.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The kop's own mark inherits the bar's colour.
+ *
+ * `.lt-hint` is drawn in `--ink-3`, which is a token for text on the table. The
+ * kop is a bar of ink, and an amber one when the block owes a decision, so a
+ * fixed token there is either invisible or wrong on one of the two grounds.
+ * Rebinding the two tokens the hint reads to `currentColor` makes the mark take
+ * whatever the bar is using, in both states, with no component branching on it.
+ * The panel is portalled out of here, so it keeps the table's own values.
+ */
+const KOP_INK = {
+  "--ink-3": "currentColor",
+  "--ink": "currentColor",
+} as CSSProperties;
+
+/**
+ * EVERY BLOCK ON THIS SCREEN IS A SLAB, and every slab opens with a kop.
+ *
+ * The kop carries the block's name and, at its right, what the block still owes.
+ * That right-hand figure is the block's whole status in words, and the bar's own
+ * colour is the same fact at a glance: amber while a decision is owed, red for a
+ * fault. A block with neither is the neutral case and most of them are.
+ */
+function Slab({
+  id,
+  headingId,
+  title,
+  voice = "document",
+  owes,
+  meta,
+  hint,
+  style,
+  children,
+}: {
+  id?: string;
+  headingId: string;
+  title: string;
+  /**
+   * Whose words the title is. `document` is the packet quoted verbatim (`KB`,
+   * `BA Permintaan`), which is the mono's whole job; `app` is this interface
+   * naming a block of its own, and mono there would only be making a small
+   * label look technical, which is the habit the type rule removed.
+   */
+  voice?: "document" | "app";
+  owes?: "decision" | "fault";
+  /** What this block still owes, at the kop's right. */
+  meta?: ReactNode;
+  hint?: ReactNode;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={headingId}
+      className="lt-slab"
+      style={style}
+    >
+      <div className="lt-kop" data-owes={owes}>
+        {/* The size and weight are the kop's own, restated rather than
+            inherited: a heading that falls back to a browser default here
+            would break the bar. The kop is NOT uppercase and not tracked out,
+            so nothing here has to undo either. */}
+        <h2
+          id={headingId}
+          className={`min-w-0 truncate text-[0.8125rem] font-bold ${
+            voice === "document" ? "lt-figure" : ""
+          }`}
+        >
+          {title}
+        </h2>
+        {hint ? (
+          <span className="flex items-center" style={KOP_INK}>
+            {hint}
+          </span>
+        ) : null}
+        {/* `.lt-kop-right` is the system's own place for what a block owes, so
+            every kop in the product lands it on the same pixel. */}
+        {meta ? <span className="lt-kop-right shrink-0">{meta}</span> : null}
+      </div>
+      <div className="lt-slab-body">{children}</div>
+    </section>
+  );
+}
+
+/** A figure inside a kop: mono, so counts line up down the column of slabs. */
+function KopFigure({ children }: { children: ReactNode }) {
+  return <span className="lt-figure font-bold">{children}</span>;
 }
 
 /* ------------------------------------------------------------------ *
@@ -279,27 +404,6 @@ function Sheet({
   const wrappers = useRef(new Map<string, HTMLDivElement>());
   const confirmBoxRef = useRef<HTMLDivElement | null>(null);
 
-  /** Which section's bulk accept is waiting for its second click. */
-  const [confirming, setConfirming] = useState<string | null>(null);
-  /**
-   * Every settled capture open at full size.
-   *
-   * The plate collapses a settled capture to a proof on its own, per capture,
-   * and offers its own per-capture toggle. This is the sheet-wide override, and
-   * it exists for one moment: the pass an operator makes before export, when
-   * every crop has to be visible again whatever its state.
-   */
-  const [expandAll, setExpandAll] = useState(false);
-  const [cursor, setCursor] = useState(0);
-  const [said, setSaid] = useState<{ text: string; seq: number }>({
-    text: "",
-    seq: 0,
-  });
-
-  const say = useCallback((text: string) => {
-    setSaid((prev) => ({ text, seq: prev.seq + 1 }));
-  }, []);
-
   /** Sections that actually ask the operator for something. */
   const workSections = useMemo(
     () =>
@@ -326,6 +430,54 @@ function Sheet({
     return out;
   }, [workSections]);
 
+  /** Which section's bulk accept is waiting for its second click. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  /**
+   * Every capture open at full size.
+   *
+   * The sheet keeps ONE capture in focus, which is the whole density argument.
+   * This is the override, and it exists for one moment: the pass an operator
+   * makes before export, when every crop has to be visible again whatever its
+   * state.
+   */
+  const [expandAll, setExpandAll] = useState(false);
+  /**
+   * THE CURSOR DECIDES WHICH CAPTURE IS THE PICTURE ON THIS SCREEN, so it opens
+   * on the first one that owes a decision rather than on the first one in the
+   * packet.
+   *
+   * It used to start at zero unconditionally, which was free while every plate
+   * was rendered at once. Now it chooses the hero object: starting at zero puts
+   * a bagian the operator settled yesterday in the one place the eye lands, and
+   * makes them hunt for the work the amber kops are already pointing at. The
+   * lazy initialiser runs once per run (`ContactSheet` keys on the run id), so
+   * it is a starting position and never a rule that fights the operator.
+   */
+  const [cursor, setCursor] = useState(() =>
+    Math.max(
+      0,
+      captures.findIndex((c) => c.state.status === "proposed"),
+    ),
+  );
+  /**
+   * A bagian opened by clicking its row rather than by the cursor.
+   *
+   * The cursor is a position in `captures`, and a bagian the run holds no state
+   * for has no capture to point at: without this, the one row that offers to
+   * draw a missing bagian could never be opened. `null` means "follow the
+   * cursor", which is the normal case, and every cursor move clears it so the
+   * two can never disagree about what is on screen.
+   */
+  const [pinned, setPinned] = useState<string | null>(null);
+  const [said, setSaid] = useState<{ text: string; seq: number }>({
+    text: "",
+    seq: 0,
+  });
+
+  const say = useCallback((text: string) => {
+    setSaid((prev) => ({ text, seq: prev.seq + 1 }));
+  }, []);
+
   /*
    * "Is this capture's crop actually on screen?", which is what makes a
    * decision key live. A capture whose PAGE would not render counts as drawn
@@ -339,6 +491,32 @@ function Sheet({
       Boolean(thumbs.urls[String(slotIndex)]) ||
       Boolean(thumbs.failed[String(slotIndex)]),
     [thumbs],
+  );
+
+  /**
+   * A CAPTURE WHOSE PICTURE IS NEVER COMING, and the reason the collapse needs
+   * this at all.
+   *
+   * A zone pointing at a page the run no longer holds, or at a page that will
+   * not render, is a fault: `ProposalPlate` paints its own kop red for it. That
+   * was enough while every plate was open. Collapsed, a capture whose crop
+   * failed to cut is a row with a normal plan, a normal state word and a normal
+   * page number, which is a wrong-and-quiet surface built by the very thing
+   * meant to tidy up. So the row says it, and the section's kop carries it.
+   */
+  const cropFailed = useCallback(
+    (slotIndex: number) => Boolean(thumbs.failed[String(slotIndex)]),
+    [thumbs],
+  );
+  const faultedCapture = useCallback(
+    (state: SlotState, slotIndex: number) => {
+      const zone = state.zone;
+      if (!zone) return false;
+      return (
+        resolvePage(run, zone.pageIndex) === null || cropFailed(slotIndex)
+      );
+    },
+    [run, cropFailed],
   );
 
   const waitingCount = captures.filter(
@@ -364,6 +542,14 @@ function Sheet({
   /* The cursor is a position in `captures`, so it survives a decision (which
      changes statuses, never positions) and is clamped rather than trusted. */
   const at = Math.min(cursor, Math.max(0, captures.length - 1));
+
+  /**
+   * The one bagian rendered as a plate. Everything else is a row.
+   *
+   * Expand-all suspends it: that pass wants every picture at once, so no single
+   * capture is in focus and the key is null.
+   */
+  const openKey = expandAll ? null : (pinned ?? captures[at]?.plateKey ?? null);
 
   // One announcement, when the last crop lands. The count itself is on screen
   // and changes a dozen times, so putting it in a live region would read every
@@ -421,6 +607,8 @@ function Sheet({
       const capture = captures[position];
       if (!capture) return;
       setCursor(position);
+      // Back to following the cursor: the plate that opens is this one.
+      setPinned(null);
       wrappers.current.get(capture.plateKey)?.focus({ preventScroll: true });
       const element = elementFor(capture);
       if (element) scrollTo(element);
@@ -452,6 +640,7 @@ function Sheet({
       const target = next ?? captures[start];
       if (!target) return;
       setCursor(captures.indexOf(target));
+      setPinned(null);
 
       requestAnimationFrame(() => {
         const active = document.activeElement;
@@ -464,8 +653,8 @@ function Sheet({
         const wrapper = wrappers.current.get(target.plateKey);
         wrapper?.focus({ preventScroll: true });
         // Only when it is not already there. A settled capture collapses to a
-        // proof, so the sheet gets shorter under the operator's hand; jumping
-        // as well, when the next thing to decide is already in front of them,
+        // row, so the sheet gets shorter under the operator's hand; jumping as
+        // well, when the next thing to decide is already in front of them,
         // would move the page for no reason.
         const element = elementFor(target);
         if (element && !topIsVisible(element, offset)) scrollTo(element);
@@ -503,12 +692,14 @@ function Sheet({
    * THE KEYBOARD, because this is the screen that owns the list.
    *
    * A DECISION KEY IS INERT WHILE THE CROP IS NOT ON SCREEN. Nobody may rule
-   * on evidence they cannot see, so the key scrolls the capture into view and
-   * says so instead of deciding; pressing it again then decides. "On screen"
-   * is the capture's own top edge sitting below the application strip with
-   * room under it, because the picture is at the top of a capture and a plate
-   * scrolled past its own top is showing the operator its buttons, not its
-   * evidence.
+   * on evidence they cannot see, so the key opens the capture, scrolls it into
+   * view and says so instead of deciding; pressing it again then decides. "On
+   * screen" means two things now: this capture's bagian is the one rendered as
+   * a plate, and its own top edge is sitting below the application strip with
+   * room under it. The second half is because the picture is at the top of a
+   * capture and a plate scrolled past its own top is showing the operator its
+   * buttons, not its evidence. The first half is new with the collapse, and it
+   * is the same rule: a row is a name and a plan, not a picture to rule on.
    *
    * The arrows only move the cursor when focus is already inside the sheet.
    * Swallowing ArrowDown globally would take normal page scrolling away from
@@ -518,9 +709,7 @@ function Sheet({
    * THE HEAD AND ANY OPEN DIALOG TAKE THE KEYBOARD WITH THEM. These listeners
    * are on `window`, so without this a `1` typed while the operator is reading
    * the head, or while the dokumen tambahan dialog is open over the sheet,
-   * would accept a crop that is behind a scrim and out of sight. That is the
-   * decision-key rule ("you may not rule on evidence you cannot see") applied
-   * to the two surfaces that sit in front of the sheet rather than in it.
+   * would accept a crop that is behind a scrim and out of sight.
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -573,10 +762,15 @@ function Sheet({
 
       const named = `${capture.caption} di ${capture.sectionTitle}`;
       const element = elementFor(capture);
-      if (!element || !topIsVisible(element, offset)) {
+      // Closed, or open but scrolled off: one branch, because the remedy is the
+      // same and so is the reason. Clearing the pin is what opens it, since the
+      // cursor is on this capture already.
+      const closed = !expandAll && openKey !== capture.plateKey;
+      if (closed || !element || !topIsVisible(element, offset)) {
+        if (closed) setPinned(null);
         if (element) scrollTo(element);
         say(
-          `Potongan untuk ${named} belum terlihat. Lembar digulir ke potongan itu, tekan lagi untuk memutuskan.`,
+          `Potongan ${named} belum terlihat. Lembar digulir ke sana, tekan lagi untuk memutuskan.`,
         );
         return;
       }
@@ -596,12 +790,12 @@ function Sheet({
         const zone = capture.state.zone;
         if (zone && resolvePage(run, zone.pageIndex) === null) {
           say(
-            `Halaman untuk ${named} sudah tidak ada di pekerjaan ini, jadi tidak ada yang bisa Anda nilai. Gambar ulang areanya.`,
+            `Halaman untuk ${named} sudah tidak ada, jadi tidak ada yang bisa Anda nilai. Gambar ulang areanya.`,
           );
           return;
         }
         if (!drawn(capture.slotIndex)) {
-          say(`Potongan untuk ${named} belum selesai digambar.`);
+          say(`Potongan ${named} belum selesai digambar.`);
           return;
         }
         routed.onAccept(capture.slotIndex);
@@ -609,9 +803,7 @@ function Sheet({
         return;
       }
       routed.onReject(capture.slotIndex);
-      say(
-        `${named} ditolak, bagian ini masuk ke daftar yang belum ada buktinya di atas lembar ini.`,
-      );
+      say(`${named} ditolak, bagian ini masuk ke daftar yang belum ditemukan.`);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -622,8 +814,10 @@ function Sheet({
     confirming,
     drawn,
     elementFor,
+    expandAll,
     goTo,
     offset,
+    openKey,
     routed,
     run,
     say,
@@ -635,133 +829,256 @@ function Sheet({
     else wrappers.current.delete(key);
   };
 
-  const jumpTo = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) scrollTo(element);
+  /** Open one bagian, from its own row. */
+  const openRow = (row: SheetRow) => {
+    const position = row.capture
+      ? captures.findIndex((c) => c.slotIndex === row.capture?.slotIndex)
+      : -1;
+    if (position >= 0) {
+      goTo(position);
+      return;
+    }
+    // A bagian with no capture to put the cursor on. See `pinned`.
+    setPinned(row.plateKey);
+    const wrapper = wrappers.current.get(row.plateKey);
+    wrapper?.focus({ preventScroll: true });
+    if (wrapper) scrollTo(wrapper);
   };
 
   return (
     <div ref={rootRef} className="flex flex-col gap-6">
-      {/* ABOVE BOTH COLUMNS, and inside the scroll. The head is what is still
+      {/* ABOVE THE SHEET, and inside the scroll. The head is what is still
           missing: it is read once on arrival and then it has to leave, so it
-          must not become a second sticky band above a sheet whose own index
-          rail is already pinned. Placing it here rather than inside the plate
-          column also keeps it clear of the rail, which would otherwise sit
-          beside a block that has nothing to do with it. */}
+          must not become a sticky band above a sheet the operator is scrolling
+          through. */}
       {head ? <div ref={headRef}>{head}</div> : null}
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
-        <IndexRail
-          run={run}
-          sections={workSections}
-          hasManual={manualSections.length > 0}
-          orphanCount={orphans.length}
-          cursorSlotIndex={captures[at]?.slotIndex ?? null}
-          pending={pending}
-          offset={offset}
-          expandAll={expandAll}
-          onToggleExpandAll={() => setExpandAll((was) => !was)}
-          cutting={cutting}
-          onPickCapture={(slotIndex) => {
-            const position = captures.findIndex((c) => c.slotIndex === slotIndex);
-            if (position >= 0) goTo(position);
-          }}
-          onPickAnchor={jumpTo}
-        />
+      {run.pages.length === 0 ? (
+        <Notice tone="stop">
+          Belum ada halaman di pekerjaan ini. Muat berkas PDF dulu.
+        </Notice>
+      ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-8">
-          {run.pages.length === 0 ? (
-            <Notice tone="stop">
-              Pekerjaan ini belum berisi satu halaman pun, jadi tidak ada yang
-              bisa diperiksa. Muat berkas PDF dulu di langkah Muat.
-            </Notice>
-          ) : null}
+      {/* It does not name where the button is. The search moved to the Muat
+          screen and a tambahan round starts from the head of this one, so a
+          sentence pointing at one fixed place would be wrong half the time. */}
+      {run.pages.length > 0 &&
+      captures.length > 0 &&
+      unsearchedCount === captures.length ? (
+        <Notice>
+          {unsearchedCount} potongan belum dicari.{" "}
+          <Hint label="Cara mengisi lembar ini">
+            Jalankan Proses untuk bagian itu, lalu usulannya muncul di sini.
+          </Hint>
+        </Notice>
+      ) : null}
 
-          {/* It does not name where the button is. The search moved to the Muat
-              screen and a tambahan round starts from the head of this one, so a
-              sentence pointing at one fixed place would be wrong half the
-              time. */}
-          {run.pages.length > 0 &&
-          captures.length > 0 &&
-          unsearchedCount === captures.length ? (
-            <Notice>
-              Belum ada satu pun usulan di lembar ini: {unsearchedCount} potongan
-              masih belum dicari.{" "}
-              <Hint label="Cara mengisi lembar ini">
-                Jalankan pencarian untuk bagian itu, lalu usulannya muncul di
-                lembar ini.
+      {/* AN ABSENT WARNING IS NOT A CONFIRMATION, so the cleared state is said
+          out loud, and it says in the same breath what is NOT cleared: an
+          operator scanning a sheet with no amber left on it would otherwise
+          conclude they were finished while two bagian with no evidence at all
+          sat below. Not shown on a run nothing has searched yet, where "nothing
+          is waiting on you" would be true and useless. */}
+      {run.pages.length > 0 &&
+      captures.length > 0 &&
+      waitingCount === 0 &&
+      unsearchedCount < captures.length ? (
+        <Notice tone={gapCount > 0 ? "warn" : "info"}>
+          Tidak ada usulan yang menunggu.
+          {gapCount > 0 ? (
+            <>
+              {` ${gapCount} bagian belum ada buktinya. `}
+              <Hint label="Kenapa itu masih perlu Anda selesaikan">
+                Bagian itu tidak akan mengisi dirinya sendiri.
+                {head
+                  ? " Selesaikan di daftar yang belum ada buktinya, di baris paling atas lembar ini."
+                  : ""}
               </Hint>
-            </Notice>
+            </>
           ) : null}
+        </Notice>
+      ) : null}
 
-          {/* AN ABSENT WARNING IS NOT A CONFIRMATION, so the cleared state is
-              said out loud, and it says the same breath what is NOT cleared:
-              an operator scanning a sheet with no amber left on it would
-              otherwise conclude they were finished while two slots with no
-              evidence at all sat below. Not shown on a run nothing has searched
-              yet, where "nothing is waiting on you" would be true and useless. */}
-          {run.pages.length > 0 &&
-          captures.length > 0 &&
-          waitingCount === 0 &&
-          unsearchedCount < captures.length ? (
-            <Notice tone={gapCount > 0 ? "warn" : "info"}>
-              {/* The affirmative clear stands whole: an absent warning is not a
-                  confirmation, so this sentence is the confirmation. The count
-                  beside it stands too. What went behind the mark is the part
-                  that would read the same on every order. */}
-              Tidak ada usulan yang menunggu keputusan Anda.
-              {gapCount > 0 ? (
+      {/* THE SHEET'S OWN CONTROLS, one row, to the right of the work. A
+          MEASUREMENT OF THIS RUN never hides, so the count of crops still being
+          cut sits beside them at full ink: a picture that has not appeared
+          cannot have been looked at, which is also why bulk accept refuses
+          while one of its crops is still being cut and why a decision key over
+          an undrawn capture scrolls instead of deciding. */}
+      <div className="flex flex-wrap items-center justify-end gap-4">
+        {cutting > 0 ? (
+          <span className="me-auto text-[0.8125rem] text-ink">
+            {cutting} potongan belum tampil.
+          </span>
+        ) : null}
+
+        {/* NOT `on`, which paints a control amber. Amber means a decision is
+            owed on a piece of evidence, and a view toggle owes nothing. */}
+        <Btn
+          data-flat="true"
+          aria-pressed={expandAll}
+          onClick={() => setExpandAll((was) => !was)}
+        >
+          <Potongan />
+          {expandAll ? "Ringkas" : "Buka semua"}
+        </Btn>
+
+        {/* The legend reads the same words on every order, and pressing a
+            decision key on a capture that is not on screen already says so out
+            loud in the sheet's own live region. So it hides, and it hides
+            behind a real button rather than a hover: this is the one control on
+            the screen a keyboard operator most needs to be able to reach. */}
+        <Hint label="Pintasan papan tik">
+          <span className="flex flex-col gap-2">
+            <span>
+              <Key>j</Key> <Key>k</Key> pindah, <Key>1</Key> terima,{" "}
+              <Key>2</Key> gambar ulang, <Key>3</Key> bukan ini.
+            </span>
+            <span>Tombol keputusan mati selama potongannya belum terlihat.</span>
+          </span>
+        </Hint>
+      </div>
+
+      {workSections.map((section) => {
+        const waiting = proposedIndexesIn(section);
+        const undrawn = waiting.filter((index) => !drawn(index)).length;
+        const owed = section.entries.filter(
+          (entry) =>
+            entry.def.fillable &&
+            entry.status !== "confirmed" &&
+            entry.status !== "unfilled",
+        ).length;
+        /* A picture that is never coming, counted per capture. It outranks the
+           count of proposals in the bar for the same reason `owedBy` does it in
+           the plate: a decision the operator cannot make is not work waiting,
+           it is something broken. */
+        const faults = section.entries.reduce(
+          (total, entry) =>
+            total +
+            (entry.def.fillable
+              ? entry.states.filter((placed) =>
+                  faultedCapture(placed.state, placed.index),
+                ).length
+              : 0),
+          0,
+        );
+
+        return (
+          <Slab
+            key={section.title}
+            id={`bagian-${slug(section.title)}`}
+            headingId={`judul-${slug(section.title)}`}
+            title={section.title}
+            owes={
+              faults > 0
+                ? "fault"
+                : waiting.length > 0
+                  ? "decision"
+                  : undefined
+            }
+            style={{ scrollMarginTop: offset + 16 }}
+            hint={
+              <Hint label={`Yang perlu diperiksa di ${section.title}`}>
+                {guidanceFor(section.layout)}
+              </Hint>
+            }
+            meta={
+              faults > 0 ? (
                 <>
-                  {` ${gapCount} bagian masih belum ada buktinya. `}
-                  <Hint label="Kenapa itu masih perlu Anda selesaikan">
-                    Bagian itu tidak akan mengisi dirinya sendiri.
-                    {head
-                      ? " Selesaikan di daftar yang belum ada buktinya, di baris paling atas lembar ini."
-                      : ""}
-                  </Hint>
+                  <KopFigure>{faults}</KopFigure> gagal
                 </>
-              ) : null}
-            </Notice>
-          ) : null}
+              ) : waiting.length > 0 ? (
+                <>
+                  <KopFigure>{waiting.length}</KopFigure> usulan
+                </>
+              ) : owed > 0 ? (
+                <>
+                  <KopFigure>{owed}</KopFigure> belum selesai
+                </>
+              ) : (
+                "selesai"
+              )
+            }
+          >
+            <ul className="flex flex-col gap-2">
+              {section.entries.map((entry) => {
+                const open = expandAll
+                  ? entry.def.fillable
+                  : openKey === entry.def.key;
+                // Open and under the cursor are the same thing until
+                // expand-all, which opens everything and leaves the keyboard
+                // position where it was. The ink rule marks the ONE bagian the
+                // keyboard is on, so it may not follow `open`.
+                const isCursor = captures[at]?.plateKey === entry.def.key;
 
-          {workSections.map((section) => {
-            const waiting = proposedIndexesIn(section);
-            const undrawn = waiting.filter((index) => !drawn(index)).length;
+                return (
+                  <li key={entry.def.key}>
+                    <div
+                      ref={registerWrapper(entry.def.key)}
+                      id={`bagian-${slug(entry.def.key)}`}
+                      tabIndex={-1}
+                      // The group is the plate: a collapsed line is one button
+                      // that already carries its own whole label, and wrapping
+                      // it in a named group makes a screen reader read the
+                      // bagian twice on every row of the sheet.
+                      role={open ? "group" : undefined}
+                      aria-label={
+                        open ? displayLabel(entry.def.label) : undefined
+                      }
+                      className="border-s-2 ps-4"
+                      style={{
+                        scrollMarginTop: offset + 16,
+                        // The cursor is INK, never amber. A keyboard position
+                        // is not a decision that is owed, and letting the two
+                        // share a colour makes a focused row read as work.
+                        borderInlineStartColor: isCursor
+                          ? "var(--ink)"
+                          : "transparent",
+                      }}
+                    >
+                      {!entry.def.fillable ? (
+                        <ManualRow label={displayLabel(entry.def.label)} />
+                      ) : open ? (
+                        <ProposalPlate
+                          run={run}
+                          entry={entry}
+                          thumbs={thumbs}
+                          actions={routed}
+                          pending={pending}
+                          fresh={fresh}
+                          expanded={expandAll}
+                        />
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {rowsFor(entry, section.title).map((row) => (
+                            <CaptureLine
+                              key={`${row.plateKey}-${row.ordinal}`}
+                              run={run}
+                              row={row}
+                              pending={pending}
+                              cropFailed={
+                                row.capture
+                                  ? cropFailed(row.capture.slotIndex)
+                                  : false
+                              }
+                              onOpen={openRow}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
 
-            return (
-              <section
-                key={section.title}
-                id={`bagian-${slug(section.title)}`}
-                className="flex flex-col gap-5"
-                style={{ scrollMarginTop: offset + 16 }}
-              >
-                <header
-                  className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b pb-2"
-                  style={{ borderColor: "var(--line)" }}
-                >
-                  <div className="flex min-w-0 items-center gap-1">
-                    <h2 className="lt-title lt-figure">{section.title}</h2>
-                    {/* Five copies of one paragraph, said in the same words on
-                        every order, one of them directly above the first crop.
-                        What varies is which KIND of section this is, and the
-                        title already says that. */}
-                    <Hint label={`Yang perlu diperiksa di ${section.title}`}>
-                      {guidanceFor(section.layout)}
-                    </Hint>
-                  </div>
-
-                  {waiting.length > 0 && confirming !== section.title ? (
-                    <Btn onClick={() => setConfirming(section.title)}>
-                      {/* Terima leaves a paraf in the mark box, so the button
-                          that accepts several at once draws the several parafs
-                          it is about to leave. */}
-                      <Paraf />
-                      Terima semua {waiting.length} di {section.title}
-                    </Btn>
-                  ) : null}
-                </header>
-
-                {confirming === section.title ? (
+            {/* BELOW THE ROWS, deliberately. Accepting several crops at once is
+                the shortest path in this product to a wrong page inside a
+                signed document, so it is not the first thing the eye lands on
+                in a section. */}
+            {waiting.length > 0 ? (
+              confirming === section.title ? (
+                <div className="mt-4">
                   <BulkConfirm
                     ref={confirmBoxRef}
                     section={section}
@@ -776,320 +1093,197 @@ function Sheet({
                       );
                     }}
                   />
-                ) : null}
+                </div>
+              ) : (
+                <div className="mt-4 flex justify-end">
+                  <Btn onClick={() => setConfirming(section.title)}>
+                    {/* Terima leaves a paraf in the mark box, so the button
+                        that accepts several at once draws the several parafs it
+                        is about to leave. */}
+                    <Paraf />
+                    Terima semua {waiting.length} di {section.title}
+                  </Btn>
+                </div>
+              )
+            ) : null}
+          </Slab>
+        );
+      })}
 
-                {/* Every entry, fillable or not, in template order. A slot no
-                    PDF can back is demoted by the plate itself, to one ruled
-                    line, so the sheet does not need a second way of saying it
-                    and the packet's own order survives. */}
-                {section.entries.map((entry) => {
-                  const isCursor = captures[at]?.plateKey === entry.def.key;
+      {manualSections.length > 0 ? (
+        <Slab
+          id="bagian-diisi-manual"
+          headingId="judul-diisi-manual"
+          title="Diisi manual"
+          voice="app"
+          style={{ scrollMarginTop: offset + 16 }}
+          meta={
+            <>
+              <KopFigure>{manualSections.length}</KopFigure> bagian
+            </>
+          }
+          hint={
+            /* The list below changes with the template; this explanation of it
+               does not, so it goes behind the mark and the names stay. */
+            <Hint label="Kenapa bagian ini dikirim kosong">
+              Bagian ini tetap ada di DOKUMEN VALIDASI, lengkap dengan judul dan
+              kotaknya, tapi dikirim kosong. Tidak ada dokumen order yang bisa
+              mendukungnya, jadi Anda yang mengisinya setelah berkas hasil
+              dibuat.
+            </Hint>
+          }
+        >
+          <ManualLines
+            rows={manualSections.map((section) => ({
+              title: section.title,
+              fields:
+                section.entries.length === 0
+                  ? "(hanya judul bagian)"
+                  : section.entries
+                      .map((entry) => displayLabel(entry.def.label))
+                      .join(", "),
+            }))}
+          />
+        </Slab>
+      ) : null}
 
-                  return (
-                    <div
-                      key={entry.def.key}
-                      ref={registerWrapper(entry.def.key)}
-                      id={`bagian-${slug(entry.def.key)}`}
-                      tabIndex={-1}
-                      role="group"
-                      aria-label={displayLabel(entry.def.label)}
-                      className="border-s-2 ps-3"
-                      style={{
-                        scrollMarginTop: offset + 16,
-                        // The cursor is INK, never amber. A keyboard position is
-                        // not a decision that is owed, and letting the two share
-                        // a colour makes a focused row read as work.
-                        borderInlineStartColor: isCursor
-                          ? "var(--ink)"
-                          : "transparent",
-                      }}
-                    >
-                      <ProposalPlate
-                        run={run}
-                        entry={entry}
-                        thumbs={thumbs}
-                        actions={routed}
-                        pending={pending}
-                        fresh={fresh}
-                        expanded={expandAll}
-                      />
-                    </div>
-                  );
-                })}
-              </section>
-            );
-          })}
+      {orphans.length > 0 ? (
+        <Orphans run={run} states={orphans} offset={offset} />
+      ) : null}
 
-          {manualSections.length > 0 ? (
-            <section
-              id="bagian-diisi-manual"
-              className="flex flex-col gap-3"
-              style={{ scrollMarginTop: offset + 16 }}
-            >
-              <div className="flex items-center gap-1">
-                <h2 className="lt-title">Bagian yang diisi manual</h2>
-                {/* The list below changes with the template; this explanation of
-                    it does not, so it goes behind the mark and the names stay. */}
-                <Hint label="Kenapa bagian ini dikirim kosong">
-                  Bagian berikut tetap ada di DOKUMEN VALIDASI, lengkap dengan
-                  judul dan kotaknya, tapi dikirim kosong. Tidak ada dokumen
-                  order yang bisa mendukungnya, jadi Anda yang mengisinya setelah
-                  berkas hasil dibuat.
-                </Hint>
-              </div>
-              <ManualLines
-                rows={manualSections.map((section) => ({
-                  title: section.title,
-                  fields:
-                    section.entries.length === 0
-                      ? "(hanya judul bagian)"
-                      : section.entries
-                          .map((entry) => displayLabel(entry.def.label))
-                          .join(", "),
-                }))}
-              />
-            </section>
-          ) : null}
-
-          {orphans.length > 0 ? (
-            <Orphans run={run} states={orphans} offset={offset} />
-          ) : null}
-
-          {/* Keyboard feedback only. Everything else on this screen is visible,
-              and a live region that repeated it would read the sheet twice. */}
-          <div className="sr-only" role="status" aria-live="polite">
-            <p key={said.seq}>{said.text}</p>
-          </div>
-        </div>
+      {/* Keyboard feedback only. Everything else on this screen is visible,
+          and a live region that repeated it would read the sheet twice. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        <p key={said.seq}>{said.text}</p>
       </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- * The index rail.
+ * The collapsed line.
  * ------------------------------------------------------------------ */
 
-function IndexRail({
-  run,
-  sections,
-  hasManual,
-  orphanCount,
-  cursorSlotIndex,
-  pending,
-  offset,
-  expandAll,
-  onToggleExpandAll,
-  cutting,
-  onPickCapture,
-  onPickAnchor,
-}: {
-  run: BrowserRun;
-  sections: SheetSection[];
-  hasManual: boolean;
-  orphanCount: number;
-  cursorSlotIndex: number | null;
-  pending?: ReadonlySet<number>;
-  offset: number;
-  expandAll: boolean;
-  onToggleExpandAll: () => void;
-  /** Captures whose zone is placed and whose picture has not been cut yet. */
-  cutting: number;
-  onPickCapture: (slotIndex: number) => void;
-  onPickAnchor: (id: string) => void;
-}) {
-  return (
-    <nav
-      aria-label="Peta lembar periksa"
-      className="w-full shrink-0 lg:sticky lg:max-h-[calc(100vh-8rem)] lg:w-[13rem] lg:overflow-y-auto"
-      style={{ top: offset + 16 }}
-    >
-      {/* THE SHEET'S CONTROLS, AT THE TOP OF A STICKY COLUMN. They were a ruled
-          row across the plate column, about 84px the operator scrolled past to
-          reach the first picture on every visit. Here they cost the crops
-          nothing: the rail is beside the sheet, not above it. */}
-      <div
-        className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-2"
-        style={{ borderColor: "var(--line)" }}
-      >
-        <Btn on={expandAll} onClick={onToggleExpandAll}>
-          {expandAll ? "Ringkas yang sudah selesai" : "Buka semua potongan"}
-        </Btn>
-
-        {/* The legend reads the same words on every order, and pressing a
-            decision key on a capture that is not on screen already says so out
-            loud in the sheet's own live region. So it hides, and it hides
-            behind a real button rather than a hover: this is the one control on
-            the screen a keyboard operator most needs to be able to reach. */}
-        <Hint label="Pintasan papan tik">
-          <span className="flex flex-col gap-1.5">
-            <span>
-              <Key>j</Key> <Key>k</Key> pindah potongan, <Key>1</Key> terima,{" "}
-              <Key>2</Key> gambar ulang, <Key>3</Key> bukan ini.
-            </span>
-            <span>
-              Tombol keputusan tidak bekerja selama potongannya belum terlihat di
-              layar.
-            </span>
-          </span>
-        </Hint>
-
-        {/* A MEASUREMENT OF THIS RUN, so it never hides. A picture that has
-            not appeared cannot have been looked at, which is also why each
-            section's bulk accept refuses while any of its own crops is still
-            being cut, and why a decision key over an undrawn capture scrolls
-            instead of deciding. */}
-        {cutting > 0 ? (
-          <span
-            className="w-full text-[0.8125rem]"
-            style={{ color: "var(--ink)" }}
-          >
-            {cutting} potongan belum selesai digambar.
-          </span>
-        ) : null}
-      </div>
-
-      {/* Below 1024px there is no room for a column beside the sheet, so the
-          rail lies down into a strip above it and drops the labels: the denah
-          and the mark are what carry the pattern, and both survive at 34px. */}
-      <div className="flex gap-6 overflow-x-auto pb-2 lg:flex-col lg:gap-4 lg:overflow-x-visible lg:pb-0">
-        {sections.map((section) => (
-          <div key={section.title} className="flex shrink-0 flex-col gap-1.5">
-            <button
-              type="button"
-              onClick={() => onPickAnchor(`bagian-${slug(section.title)}`)}
-              className="lt-figure w-full text-start text-[0.8125rem] font-bold"
-              style={{ color: "var(--ink-2)" }}
-            >
-              {section.title}
-            </button>
-
-            <ul className="flex gap-2 lg:flex-col lg:gap-0.5">
-              {section.entries
-                .filter((entry) => entry.def.fillable)
-                .flatMap((entry) => rowsFor(entry, section.title))
-                .map((row, i) => (
-                  <li key={`${section.title}-${i}`}>
-                    <RailRowButton
-                      run={run}
-                      sectionTitle={section.title}
-                      row={row}
-                      pending={pending}
-                      isCursor={
-                        row.capture !== null &&
-                        row.capture.slotIndex === cursorSlotIndex
-                      }
-                      onPick={onPickCapture}
-                    />
-                  </li>
-                ))}
-            </ul>
-          </div>
-        ))}
-
-        {hasManual || orphanCount > 0 ? (
-          <div className="flex shrink-0 flex-col justify-end gap-1">
-            {hasManual ? (
-              <button
-                type="button"
-                onClick={() => onPickAnchor("bagian-diisi-manual")}
-                className="text-start text-[0.8125rem]"
-                style={{ color: "var(--ink-3)" }}
-              >
-                Bagian yang diisi manual
-              </button>
-            ) : null}
-            {orphanCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => onPickAnchor("bagian-di-luar-templat")}
-                className="text-start text-[0.8125rem]"
-                style={{ color: "var(--gap)" }}
-              >
-                Tidak masuk dokumen ({orphanCount})
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </nav>
-  );
-}
-
 /**
- * One capture in the rail: the plan of its page, and the state it is in.
+ * One capture, collapsed: the plan of its page, its state, its name, its page.
  *
- * The denah is the whole point of this column. Twelve of them stacked answer
- * "is every crop landing at the top of its page?" and "do three captures cite
- * one page?" by shape, in one sweep, which no arrangement of page numbers
- * does. A capture with no zone gets `Missing` instead, a different silhouette,
- * so a fresh run reads as untouched rather than as twelve blank pages.
+ * The denah is the reason this line is worth more than a name. Twelve of them
+ * stacked answer "is every crop landing at the top of its page?" and "do three
+ * captures cite one page?" by shape, in one sweep, which no arrangement of page
+ * numbers does. A capture with no zone gets `Missing` instead, a different
+ * silhouette, so a fresh run reads as untouched rather than as twelve blank
+ * pages.
+ *
+ * The page reference is a kotak isian rather than loose text, because it is the
+ * figure this product's failure class is named after and twelve of them in one
+ * column is how a page that does not belong gets caught.
+ *
+ * A FAULT IS NEVER COLLAPSED AWAY. The plate reports a picture that is not
+ * coming on its own kop; a row has no kop, so it says it in the correction pen,
+ * in the same words the plate uses, and the section's bar above it is red for
+ * the same capture. Without that, a crop whose page failed to render is a row
+ * that looks exactly like a healthy one.
  */
-function RailRowButton({
+function CaptureLine({
   run,
-  sectionTitle,
   row,
   pending,
-  isCursor,
-  onPick,
+  cropFailed = false,
+  onOpen,
 }: {
   run: BrowserRun;
-  sectionTitle: string;
-  row: RailRow;
+  row: SheetRow;
   pending?: ReadonlySet<number>;
-  isCursor: boolean;
-  onPick: (slotIndex: number) => void;
+  /** Its page would not render, so the picture is never arriving. */
+  cropFailed?: boolean;
+  onOpen: (row: SheetRow) => void;
 }) {
   const capture = row.capture;
   const zone = capture?.state.zone;
   const resolved = zone ? resolvePage(run, zone.pageIndex) : null;
   const status = capture?.state.status ?? "pending";
-  const caption = capture
-    ? capture.caption
-    : `potongan ${row.ordinal} dari ${row.total}`;
   const where = resolved
     ? `, halaman ${resolved.pageInDoc + 1} dari ${resolved.pagesInDoc}`
     : "";
+  const fault = !zone
+    ? null
+    : !resolved
+      ? "Halamannya sudah tidak ada"
+      : cropFailed
+        ? "Halaman gagal dibuka"
+        : null;
 
   return (
-    <button
-      type="button"
-      disabled={!capture}
-      onClick={() => capture && onPick(capture.slotIndex)}
-      aria-label={`${sectionTitle}, ${caption}, ${STATUS_WORDS[status]}${where}`}
-      aria-current={isCursor ? "true" : undefined}
-      title={`${caption}${where}`}
-      className="flex w-full items-center gap-2 rounded-[2px] px-1 py-1 text-start disabled:cursor-default"
-      style={
-        isCursor
-          ? { background: "color-mix(in oklch, var(--ink), transparent 90%)" }
-          : undefined
-      }
+    <Btn
+      data-flat="true"
+      className="w-full justify-start gap-4 py-2 text-start"
+      aria-label={`${row.caption}, ${STATUS_WORDS[status]}${where}${
+        fault ? `. ${fault}` : ""
+      }`}
+      title={`${row.caption}${where}`}
+      onClick={() => onOpen(row)}
     >
-      {/* The graphics are hidden from assistive technology because the button
-          already carries the whole row as one label; announcing the plan and
-          the mark separately would read every row three times. */}
-      <span aria-hidden="true" className="flex items-center gap-2">
+      {/* Hidden from assistive technology because the button already carries
+          the whole row as one label; announcing the plan and the mark
+          separately would read every row three times. */}
+      <span aria-hidden="true" className="flex shrink-0 items-center gap-2">
         {zone && resolved ? (
-          <Denah page={resolved.page} cut={zone.box} size="sm" label={caption} />
+          <Denah
+            page={resolved.page}
+            cut={zone.box}
+            size="sm"
+            label={row.caption}
+            decorative
+          />
         ) : (
-          <Missing height={34} label={caption} />
+          <Missing height={34} label={row.caption} decorative />
         )}
         <Mark
           status={status}
           saved={capture ? !pending?.has(capture.slotIndex) : true}
         />
       </span>
-      <span
-        className="lt-figure hidden min-w-0 flex-1 truncate text-[0.75rem] lg:block"
-        style={{ color: "var(--ink-2)" }}
-      >
-        {capture ? capture.fieldLabel : caption}
-        {row.total > 1 ? (
-          <span style={{ color: "var(--ink-3)" }}> {row.ordinal}</span>
-        ) : null}
+
+      <span className="lt-figure min-w-0 flex-1 truncate text-[0.875rem]">
+        {row.caption}
       </span>
-    </button>
+
+      {fault ? (
+        <span className="shrink-0 text-[0.8125rem] font-semibold text-gap">
+          {fault}
+        </span>
+      ) : (
+        <StateWord status={status} />
+      )}
+
+      {resolved ? (
+        <span className="lt-kotak">
+          hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
+        </span>
+      ) : null}
+    </Btn>
+  );
+}
+
+/**
+ * A slot no PDF can back, inside a section that holds work.
+ *
+ * The current template has none: every slot in the five work sections is
+ * fillable, and the thirteen that are not live in sections that hold nothing
+ * else. The tool is document-agnostic though, so a mixed section is legal, and
+ * a slot nobody will ever rule on is one quiet ruled line rather than a plate.
+ */
+function ManualRow({ label }: { label: string }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-2">
+      <div className="flex min-w-0 items-center gap-4">
+        <span className="lt-hatch h-4 w-8 shrink-0" aria-hidden="true" />
+        <span className="lt-figure truncate text-[0.875rem] text-ink-2">
+          {label}
+        </span>
+      </div>
+      <span className="text-[0.8125rem] text-ink-3">diisi manual</span>
+    </div>
   );
 }
 
@@ -1100,10 +1294,7 @@ function RailRowButton({
 /** A key in the shortcut legend. Mono, because it is a thing to be typed. */
 function Key({ children }: { children: ReactNode }) {
   return (
-    <kbd
-      className="lt-figure rounded-[2px] border px-1 text-[0.75rem]"
-      style={{ borderColor: "var(--line)", color: "var(--ink)" }}
-    >
+    <kbd className="lt-figure rounded-sm border-2 border-line-strong px-2 text-[0.8125rem] text-ink">
       {children}
     </kbd>
   );
@@ -1117,6 +1308,14 @@ function Key({ children }: { children: ReactNode }) {
  * of those four is a crop of the wrong page. It refuses while a crop is still
  * being cut for the same reason: a picture that has not appeared cannot have
  * been looked at, and this is the one control that accepts several at once.
+ *
+ * A SLAB INSIDE A SLAB CASTS NO PLATE. `.lt-slab-flat` keeps the edge and drops
+ * the offset, so a nested block sits on the docket rather than lifting off it.
+ * It still opens with a kop, and that kop owes a decision: this block IS the
+ * question, so it is the one thing on the section that is waiting on a click.
+ * The bar is named by a span rather than a heading, because the group already
+ * carries the name for a screen reader and a fourth heading level here would
+ * put a rung in the outline that leads nowhere.
  */
 function BulkConfirm({
   ref,
@@ -1151,41 +1350,54 @@ function BulkConfirm({
       tabIndex={-1}
       role="group"
       aria-label={`Konfirmasi terima semua usulan di ${section.title}`}
-      className="lt-panel flex flex-col gap-3 p-4"
+      className="lt-slab-flat"
     >
-      <p className="max-w-[74ch] text-sm" style={{ color: "var(--ink)" }}>
-        Anda akan menerima {indexes.length} usulan di {section.title} sekaligus,
-        tanpa membukanya satu per satu. Potongan yang belum Anda lihat ikut
-        diterima, dan potongan yang belum diperiksa di dalam dokumen yang
-        ditandatangani adalah persis kegagalan yang dicegah langkah ini.
-      </p>
+      <div className="lt-kop" data-owes="decision">
+        <span className="min-w-0 flex-1 truncate">
+          Terima semua di {section.title}
+        </span>
+        <span className="lt-kop-right shrink-0">
+          <span className="lt-figure font-bold">{indexes.length}</span> usulan
+        </span>
+      </div>
 
-      <ul className="lt-figure flex flex-col gap-1 text-[0.8125rem]">
-        {indexes.map((index) => (
-          <li key={index} style={{ color: "var(--ink)" }}>
-            {names.get(index) ?? `bagian ke-${index + 1}`}
-          </li>
-        ))}
-      </ul>
+      <div className="lt-slab-body flex flex-col gap-4">
+        {/* THE CONSEQUENCE STAYS ON SCREEN. What went behind the mark is the
+            argument for why this control asks twice, which reads word for word
+            the same on every order; what a click does here does not. */}
+        <p className="max-w-[74ch] text-[0.875rem] text-ink">
+          Menerima {indexes.length} usulan di {section.title} sekaligus.
+          Potongan yang belum Anda lihat ikut diterima.{" "}
+          <Hint label="Kenapa ini ditanya dua kali">
+            Potongan yang belum diperiksa di dalam dokumen yang ditandatangani
+            adalah persis kegagalan yang dicegah langkah ini.
+          </Hint>
+        </p>
 
-      {undrawn > 0 ? (
-        <Notice tone="stop">
-          {undrawn} dari {indexes.length} potongan belum tampil di layar, jadi
-          belum bisa diterima sekaligus. Tunggu gambarnya muncul, atau putuskan
-          satu per satu di bawah.
-        </Notice>
-      ) : null}
+        <ul className="lt-figure flex flex-col gap-2 text-[0.8125rem] text-ink">
+          {indexes.map((index) => (
+            <li key={index}>{names.get(index) ?? `bagian ke-${index + 1}`}</li>
+          ))}
+        </ul>
 
-      <div className="flex flex-wrap gap-2">
-        <Btn
-          tone="primary"
-          data-confirm=""
-          disabled={undrawn > 0}
-          onClick={onCommit}
-        >
-          Ya, terima {indexes.length} usulan ini
-        </Btn>
-        <Btn onClick={onCancel}>Batal</Btn>
+        {undrawn > 0 ? (
+          <Notice tone="stop">
+            {undrawn} dari {indexes.length} potongan belum tampil, jadi belum
+            bisa diterima sekaligus. Tunggu, atau putuskan satu per satu.
+          </Notice>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Btn
+            tone="primary"
+            data-confirm=""
+            disabled={undrawn > 0}
+            onClick={onCommit}
+          >
+            Ya, terima {indexes.length}
+          </Btn>
+          <Btn onClick={onCancel}>Batal</Btn>
+        </div>
       </div>
     </div>
   );
@@ -1203,30 +1415,21 @@ function BulkConfirm({
  */
 function ManualLines({ rows }: { rows: { title: string; fields: string }[] }) {
   return (
-    <div className="flex flex-col gap-2">
-      <ul className="flex flex-col">
-        {rows.map((row, i) => (
-          <li
-            key={`${row.title}-${i}`}
-            className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b py-1.5"
-            style={{ borderColor: "var(--line)" }}
-          >
-            <span
-              className="lt-figure text-[0.875rem]"
-              style={{ color: "var(--ink-2)" }}
-            >
-              {row.title}
-            </span>
-            <span
-              className="lt-figure text-[0.8125rem]"
-              style={{ color: "var(--ink-3)" }}
-            >
-              {row.fields}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <ul className="flex flex-col">
+      {rows.map((row, i) => (
+        <li
+          key={`${row.title}-${i}`}
+          className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b-2 border-line py-2 last:border-b-0"
+        >
+          <span className="lt-figure text-[0.875rem] text-ink-2">
+            {row.title}
+          </span>
+          <span className="lt-figure text-[0.8125rem] text-ink-3">
+            {row.fields}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -1239,6 +1442,10 @@ function ManualLines({ rows }: { rows: { title: string; fields: string }[] }) {
  * failure this whole product is organised against. The consequence leads; the
  * key, which explains it to a developer and not to an operator, sits behind
  * the disclosure.
+ *
+ * THE KOP CARRIES THE FAULT, so the sentence under it does not repeat it in
+ * red. Two red objects for one fault is how a product teaches an operator that
+ * red means nothing; the bar is the signal and the paragraph is the reason.
  */
 function Orphans({
   run,
@@ -1250,72 +1457,73 @@ function Orphans({
   offset: number;
 }) {
   return (
-    <section
+    <Slab
       id="bagian-di-luar-templat"
-      className="flex flex-col gap-3"
+      headingId="judul-di-luar-templat"
+      title="Tidak masuk dokumen"
+      voice="app"
+      owes="fault"
       style={{ scrollMarginTop: offset + 16 }}
+      meta={
+        <>
+          <KopFigure>{states.length}</KopFigure> potongan
+        </>
+      }
     >
-      <h2 className="lt-title">Potongan yang tidak akan masuk ke dokumen</h2>
-
-      <Notice tone="stop">
+      <div className="flex flex-col gap-4">
         {/* The count and the reason stay: both are what this run actually did.
             Only the sentence explaining why the list exists at all, which is
             true of every run this product will ever have, is behind the mark. */}
-        {states.length} potongan di pekerjaan ini tidak akan muncul di DOKUMEN
-        VALIDASI. Bagiannya sudah tidak ada di templat, jadi tidak ada tempat
-        untuk memasangnya.{" "}
-        <Hint label="Kenapa daftar ini ada">
-          Daftar ini ada supaya tidak ada keputusan Anda yang hilang tanpa Anda
-          tahu.
-        </Hint>
-      </Notice>
+        <p className="max-w-[74ch] text-[0.875rem] text-ink">
+          {states.length} potongan tidak akan masuk ke DOKUMEN VALIDASI.
+          Bagiannya sudah tidak ada di templat.{" "}
+          <Hint label="Kenapa daftar ini ada">
+            Daftar ini ada supaya tidak ada keputusan Anda yang hilang tanpa
+            Anda tahu.
+          </Hint>
+        </p>
 
-      <ul className="flex flex-col">
-        {states.map((state, i) => {
-          const zone = state.zone;
-          const resolved = zone ? resolvePage(run, zone.pageIndex) : null;
-          const name = state.label || state.key;
-          return (
-            <li
-              key={`${state.key}-${i}`}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b py-2"
-              style={{ borderColor: "var(--line)" }}
-            >
-              <span aria-hidden="true">
-                {zone && resolved ? (
-                  <Denah
-                    page={resolved.page}
-                    cut={zone.box}
-                    size="sm"
-                    label={name}
-                  />
-                ) : (
-                  <Missing height={34} label={name} />
-                )}
-              </span>
-              <Mark status={state.status} />
-              <span
-                className="lt-figure text-[0.875rem]"
-                style={{ color: "var(--ink)" }}
+        <ul className="flex flex-col gap-2">
+          {states.map((state, i) => {
+            const zone = state.zone;
+            const resolved = zone ? resolvePage(run, zone.pageIndex) : null;
+            const name = state.label || state.key;
+            return (
+              <li
+                key={`${state.key}-${i}`}
+                className="flex flex-wrap items-center gap-4"
               >
-                {name}
-              </span>
-              {resolved ? (
-                <span
-                  className="lt-figure text-[0.8125rem]"
-                  style={{ color: "var(--ink-2)" }}
-                >
-                  hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
+                <span aria-hidden="true" className="flex items-center gap-2">
+                  {zone && resolved ? (
+                    <Denah
+                      page={resolved.page}
+                      cut={zone.box}
+                      size="sm"
+                      label={name}
+                      decorative
+                    />
+                  ) : (
+                    <Missing height={34} label={name} decorative />
+                  )}
+                  <Mark status={state.status} />
                 </span>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+                <span className="lt-figure min-w-0 flex-1 truncate text-[0.875rem] text-ink">
+                  {name}
+                </span>
+                {resolved ? (
+                  <span className="lt-kotak">
+                    hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
 
-      <TechnicalDetail>
-        {states.map((state) => state.key).join("\n")}
-      </TechnicalDetail>
-    </section>
+        <TechnicalDetail>
+          {states.map((state) => state.key).join("\n")}
+        </TechnicalDetail>
+      </div>
+    </Slab>
   );
 }

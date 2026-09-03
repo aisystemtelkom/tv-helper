@@ -21,24 +21,47 @@
  * rectangle is wrong. The transcript is a closed disclosure now, and the
  * picture is the hero.
  *
+ * THE PLATE IS A SLAB, AND ITS KOP IS THE STATUS CHANNEL. One bone edge, one
+ * hard plate, and a bar of ink across the top carrying the bagian's name on the
+ * left and its state on the right. The bar turns amber when this bagian owes a
+ * decision and red when something under it failed, so a plate's state is
+ * legible from across the room instead of being a small mark to hunt for.
+ *
+ * A CONFIRMED PLATE GETS NO COLOUR AT ALL, which is why `data-owes="done"` is
+ * not used here: it paints the bar petrol, and this product's oldest rule is
+ * that a finished packet is a screen with no colour left on it. Twenty petrol
+ * bars would be the loudest thing on a finished sheet.
+ *
+ * A COLOURED KOP IS A DIFFERENT GROUND, so it rebinds the ink tokens for its
+ * children exactly as `.lt-paper` does for a sheet. Without that, `StateWord`
+ * on an amber bar is `--mark` on `--mark` and `Hint`'s question mark is
+ * `--ink-3` on amber, both about 1.4:1, which is to say invisible: two
+ * components that read perfectly on the raised plane and disappear on the one
+ * bar the design asks the operator to read first. The rebind is declared on the
+ * bar's two child groups and NEVER on the bar itself; `ON_COLOURED_KOP` records
+ * what happens to the amber when it is put one level up.
+ *
  * THE ORDER OF THE PLATE IS THE DESIGN, and it is not free to rearrange:
- *   1. the crop, big enough to read small print;
+ *   1. the crop, big enough to read small print, and MOUNTED rather than
+ *      placed: a sunk stage, a near-black mat, then the sheet's own edge. Three
+ *      drawn cues for the one boundary the operator is paid to judge, so the
+ *      crop's edge stops depending on a luminance accident;
  *   2. the denah, so page identity is answered by a SHAPE and not by comparing
  *      digits (`denah.tsx` carries that argument in full);
- *   3. the field name, in the packet's own mono voice, large, because nobody
- *      should re-read to know which field they are ruling on;
- *   4. what the field is supposed to be, above all its "bukan ..." half;
+ *   3. the bagian's name, in the packet's own mono voice, in the kop, because
+ *      nobody should re-read to know which field they are ruling on;
+ *   4. what the field is supposed to be, and above all what it is NOT, one
+ *      question mark away at the end of that name;
  *   5. the decision controls, attached to the picture, below it, left-aligned
  *      to it, never in a deck aimed at something off screen;
- *   6. the citation register, then the transcript on demand.
+ *   6. the citation, then the transcript on demand.
  *
- * THAT ORDER IS NOW THE SCREEN'S, NOT ONLY THE ARGUMENT'S. The header used to
- * carry the mark, the field name, the WHOLE of `catatan` (`adalah` plus
- * `bukan`, three or four lines of prose) and the state word above the picture:
- * roughly 136px of reading before the first crop, on every plate, on a sheet
- * that holds twenty-four of them. It is one line now, about 34px, and it holds
- * only what a different order would print differently: the mark, the field
- * name, the state word, and the completeness figure.
+ * THE HEADER IS ONE BAR NOW, NOT A PARAGRAPH. It used to carry the mark, the
+ * field name, the WHOLE of `catatan` (`adalah` plus `bukan`, three or four
+ * lines of prose) and the state word above the picture: roughly 136px of
+ * reading before the first crop, on every plate, on a sheet that holds
+ * twenty-four of them. What is left in the bar is only what a different order
+ * would print differently: the name, the state, and the completeness figure.
  *
  * `SlotDef.catatan` had never been on screen in any version of this app. The
  * specification the operator is asked to apply lived in the repository and not
@@ -47,17 +70,20 @@
  * without one renders nothing, and no empty question mark, rather than falling
  * back to `SlotDef.hint`, which is English written for the model.
  *
- * ITS TWO HALVES MOVED IN DIFFERENT DIRECTIONS, ON PURPOSE. `adalah` restates
- * what the field name has already said, reads word for word the same on every
- * order, and nothing on the screen stops working while it is unread, so it
- * hides behind the hint on the field name. `bukan` names the plausible
- * look-alike, which is the disambiguation the operator actually applies and the
- * reason this product exists; it arrived on screen with this redesign, and
- * hiding it the day it arrived would be the wrong-and-quiet failure delivered
- * by the very control meant to tidy up. It moves into the right-hand column
- * instead, under the denah and above the register, where a landscape crop
- * leaves the column empty anyway. It is drawn once per plate, on the first
- * capture, because it describes the bagian rather than any one rectangle.
+ * BOTH ITS HALVES SIT IN ONE HINT, AT THE END OF THE NAME THEY DEFINE.
+ * `adalah` restates what the field name has already said; `bukan` names the
+ * plausible look-alike, which is the disambiguation the operator actually
+ * applies and the reason this product exists. Neither one varies: both read
+ * word for word the same on every order, which is exactly the test `chrome.tsx`
+ * sets for what may hide behind a question mark. `bukan` was drawn in the
+ * right-hand column for one pass, and an operator's verdict on that pass was
+ * that the screen shows too much at once, so a paragraph of specification
+ * beside every picture is the first thing that has to go. It is one keystroke
+ * or one tap away, on the name it describes, rather than deleted.
+ *
+ * WHAT MAY NEVER FOLLOW IT BEHIND A DISCLOSURE: the reason a control is
+ * refusing to work, a fault, and the citation. Each of those is a measurement
+ * of THIS rectangle and would read differently on a different run.
  *
  * `entry.def.key` is NEVER rendered. `kbLanjutan.ttdPejabat` is system
  * vocabulary competing for the exact space the definition should occupy.
@@ -71,38 +97,53 @@
  *
  * SIZE IS AN ARGUMENT. A capture that owes a decision is a full plate; a
  * settled one collapses to a proof at the same aspect, with its denah, its
- * register and its advisories all still on screen. Nothing is hidden by
+ * citation and its advisories all still on screen. Nothing is hidden by
  * collapsing, only made smaller, so the length of the sheet reports how much
  * work is left.
+ *
+ * THE MARK STANDS WITH THE VERBS. Terima leaves a paraf, so the paraf is drawn
+ * in its ruled box in the same row as the button that produces it, and it stays
+ * at 40% opacity until `saveRun` resolves: the decision and the proof that it
+ * reached disk are one gesture in one place. It cannot live in the kop beside
+ * the state word, because `.lt-mark-box` paints itself in its own status hue,
+ * which on a coloured bar is the bar's own hue.
+ *
+ * THE CITATION IS COMPRESSED, NOT HIDDEN. It was four labelled rows of a
+ * register under every picture; it is the page figure plus three ruled kotak
+ * now, which is the same data in a quarter of the height. It may not go behind
+ * a disclosure: it is a measurement of THIS rectangle, and so are the
+ * advisories under it.
  *
  * THE SAME SPLIT RUNS THROUGH THE SENTENCE UNDER THE BUTTONS. Three of the four
  * things it used to say are the reason a control on this screen is refusing to
  * work right now (the crop has not been cut yet, its page is no longer in the
  * pekerjaan, its page will not open however long you wait), so all three stay
- * as prose. The fourth, that "Bukan ini" throws the usulan away and sends the
+ * on screen. The fourth, that "Bukan ini" throws the usulan away and sends the
  * bagian to the outstanding list, is identical under every proposal on every
  * order and describes no fault at all, so it sits behind a hint on the button
  * it is about.
  */
 
 import { useId, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { SlotDef } from "@/lib/forms/template";
 import type { Box } from "@/lib/pipeline/render";
+import type { Citation } from "@/lib/ui/evidence";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
-import type { SlotAggregate } from "@/lib/ui/slots";
+import type { SlotAggregate, SlotAggregateStatus } from "@/lib/ui/slots";
 import { captureLabel, ordinalOf } from "@/lib/ui/slots";
 
 import {
   Advisory,
   Btn,
-  Cite,
   CiteAdvisories,
   Hint,
   Mark,
   STATUS_MEANING,
   StateWord,
+  shortenFileName,
 } from "./chrome";
 import { Denah, Missing } from "./denah";
 /**
@@ -147,22 +188,58 @@ export function displayLabel(label: string): string {
 }
 
 /**
- * What the field is NOT, in the column beside the picture.
+ * What a coloured kop rebinds, and WHERE IT MAY BE PUT.
  *
- * This is the half of `catatan` the operator actually applies. The failure this
+ * The bar is `--mark` or `--gap` edge to edge, so every token that means "ink
+ * on the raised plane" has to name the bar's own fill instead. `StateWord` and
+ * `Hint` each hard-code one of these and would otherwise draw amber on amber at
+ * about 1.4:1. The mechanism is `.lt-paper`'s, applied for the same reason: the
+ * ground changed, so the ink has to.
+ *
+ * IT GOES ON THE KOP'S CHILDREN, NEVER ON THE KOP. A custom property declared
+ * on an element applies to that element as well as to its descendants, and
+ * `.lt-kop[data-owes]` paints itself `background: var(--mark)`. Put this on the
+ * bar and that background resolves through the rebind to `var(--kop)`: the
+ * amber goes away entirely and the bar comes out dark ink on dark ink, which is
+ * the status channel silently deleting itself on exactly the plates that owe a
+ * decision. It cost nothing to write and would have been invisible in review,
+ * because every plate that does NOT owe anything still renders perfectly.
+ */
+const ON_COLOURED_KOP = {
+  "--ink": "var(--kop)",
+  "--ink-2": "var(--kop)",
+  "--ink-3": "var(--kop)",
+  "--mark": "var(--kop)",
+  "--gap": "var(--kop)",
+} as CSSProperties;
+
+/** What the kop reports about the block under it. */
+type Owes = "decision" | "fault" | undefined;
+
+function owedBy(status: SlotAggregateStatus, faulted: boolean): Owes {
+  if (faulted || status === "outstanding") return "fault";
+  if (status === "proposed" || status === "partial") return "decision";
+  return undefined;
+}
+
+/**
+ * What the field is NOT, inside the hint on the field's own name.
+ *
+ * This is the half of `catatan` the operator actually applies: the failure this
  * product is organised against is a crop of a plausible LOOK-ALIKE, and the
- * look-alike is exactly what this line names, so it is read while the picture
- * is being looked at rather than a paragraph the eye skipped on the way down.
- * The leading word is supplied here unless the template already wrote it, so
- * both spellings of the copy read the same.
+ * look-alike is exactly what this line names. The leading word is supplied here
+ * unless the template already wrote it, so both spellings of the copy read the
+ * same.
+ *
+ * It carries no colour of its own. `.lt-hint-panel` already sets the panel's
+ * body to `--ink-2` and its `strong` to full ink at 600, so the emphasis is the
+ * panel's, not this component's.
  */
 function Bukan({ text }: { text: string }) {
   const alreadyLed = /^bukan\b/i.test(text);
   return (
-    <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-      {alreadyLed ? null : (
-        <span style={{ color: "var(--ink)", fontWeight: 600 }}>Bukan </span>
-      )}
+    <p>
+      {alreadyLed ? null : <strong>Bukan </strong>}
       {text}
     </p>
   );
@@ -197,6 +274,14 @@ const CROP_CAP: Record<CropCap, { height: string; width: string }> = {
   proof: { height: "9rem", width: "24rem" },
 };
 
+/**
+ * The mount's own inset, both sides: 12px of mat, 12px of stage padding and the
+ * stage's 3px edge. The cap is a limit on the PICTURE, so the frame has to ask
+ * for that much more than the picture may be, or a 70vh cap quietly becomes
+ * 70vh minus the mount.
+ */
+const MOUNT_INSET_PX = 54;
+
 type CropCondition = "ready" | "waiting" | "broken" | "unrenderable";
 
 /**
@@ -212,6 +297,10 @@ type CropCondition = "ready" | "waiting" | "broken" | "unrenderable";
  * max-height, so the frame keeps the crop's own proportions. A frame that
  * clamped its height would letterbox the picture inside a lit paper rectangle,
  * and white margins around a scan read as part of the scan.
+ *
+ * THE MOUNT IS IDENTICAL IN ALL FOUR CONDITIONS. A crop that has not been cut
+ * yet, and one that never will be, sit on the same stage at the same size, so
+ * nothing on the plate moves when the picture lands.
  */
 function CropFrame({
   box,
@@ -229,55 +318,162 @@ function CropFrame({
   const w = Math.max(box.w, 1);
   const h = Math.max(box.h, 1);
   const limit = CROP_CAP[cap];
-  const style = {
+  const mount = {
     width: "100%",
-    aspectRatio: `${w} / ${h}`,
-    maxWidth: `min(${limit.width}, calc(${limit.height} * ${w / h}))`,
+    maxWidth: `min(calc(${limit.width} + ${MOUNT_INSET_PX}px), calc(${limit.height} * ${w / h} + ${MOUNT_INSET_PX}px))`,
   };
+  const picture = { width: "100%", aspectRatio: `${w} / ${h}` };
 
   return (
     // The swap from reserved box to picture happens without any navigation, so
     // it is announced. `aria-busy` says which of the two is on screen.
     <div aria-live="polite" aria-busy={condition === "waiting"}>
-      {condition === "ready" && url ? (
-        <div className="lt-paper overflow-hidden" style={style}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- a blob URL
-              cut in this tab from a document that must never leave it;
-              next/image would want a loader and a remote pattern. */}
-          <img src={url} alt={alt} className="block h-full w-full" />
+      <div className="lt-stage" style={mount}>
+        <div className="lt-mat">
+          {condition === "ready" && url ? (
+            <div className="lt-paper overflow-hidden" style={picture}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a blob
+                  URL cut in this tab from a document that must never leave it;
+                  next/image would want a loader and a remote pattern. */}
+              <img src={url} alt={alt} className="block h-full w-full" />
+            </div>
+          ) : condition === "unrenderable" ? (
+            /* Same family as `broken`: the picture is not coming. Different
+               sentence, because the cause is different and the operator can act
+               on knowing which. Hatched rather than lit, for the reason
+               below. */
+            <div
+              className="lt-hatch text-gap grid place-items-center p-4 text-center text-[0.8125rem]"
+              style={picture}
+            >
+              Halaman gagal dibuka
+            </div>
+          ) : condition === "broken" ? (
+            /* NOT paper, and not the waiting trough either. A crop whose page
+               the run no longer holds will never arrive, and drawing it as a
+               blank lit sheet would invent exactly the picture this product
+               exists to prevent: a plausible empty page. */
+            <div
+              className="lt-hatch text-gap grid place-items-center p-4 text-center text-[0.8125rem]"
+              style={picture}
+            >
+              Halamannya sudah tidak ada
+            </div>
+          ) : (
+            /* Recessed, not paper: a crop that has not been cut yet is not a
+               document lying on the table, and a white rectangle here would
+               read as a blank scan. */
+            <div
+              className="lt-well text-ink-2 grid place-items-center p-4 text-center text-[0.8125rem]"
+              style={picture}
+            >
+              Menyiapkan potongan
+            </div>
+          )}
         </div>
-      ) : condition === "unrenderable" ? (
-        /* Same family as `broken`: the picture is not coming. Different
-           sentence, because the cause is different and the operator can act on
-           knowing which. Hatched rather than lit, for the reason below. */
-        <div
-          className="lt-hatch grid place-items-center px-3 text-center text-[0.8125rem]"
-          style={{ ...style, color: "var(--gap)" }}
-        >
-          Halaman ini gagal dibuka, jadi potongannya tidak bisa diambil
-        </div>
-      ) : condition === "broken" ? (
-        /* NOT paper, and not the waiting trough either. A crop whose page the
-           run no longer holds will never arrive, and drawing it as a blank lit
-           sheet would invent exactly the picture this product exists to
-           prevent: a plausible empty page. */
-        <div
-          className="lt-hatch grid place-items-center px-3 text-center text-[0.8125rem]"
-          style={{ ...style, color: "var(--gap)" }}
-        >
-          Halaman potongan ini sudah tidak ada
-        </div>
-      ) : (
-        /* Recessed, not paper: a crop that has not been cut yet is not a
-           document lying on the table, and a white rectangle here would read as
-           a blank scan. Same box either way, so nothing moves when it lands. */
-        <div
-          className="lt-well grid place-items-center px-3 text-center text-[0.8125rem]"
-          style={{ ...style, color: "var(--ink-2)" }}
-        >
-          Menyiapkan potongan
-        </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * WHERE THIS CROP CAME FROM, compressed into ruled boxes.
+ *
+ * It was four labelled rows of a register, which is a paragraph of reference
+ * material under a picture the operator is meant to be looking at. Every value
+ * here is a figure quoted out of a document, so every one of them sits in a
+ * kotak isian in the document's own mono voice, and the whole block is two
+ * wrapped lines.
+ *
+ * THE PAGE STAYS LARGE and alone above the boxes. It is the value this
+ * product's failure class is named after, and twelve plates down the sheet put
+ * twelve of them in one column, so a crop taken from the wrong page is a digit
+ * that does not belong in a column of digits.
+ *
+ * `page` is the page's number INSIDE ITS OWN SOURCE FILE, never the run-global
+ * index a zone is stored by. Those two numbering systems have already shipped a
+ * wrong page reference once, in the xlsx exporter, and this is the only one of
+ * them that helps a reviewer open the right document.
+ *
+ * "ukuran di halaman" KEEPS ITS WHOLE LABEL even though it is the longest one
+ * here. It measures the region ON THE SCAN, not the picture as the exporter
+ * places it: the docx fits images to the usable column, so the two agree only
+ * while nothing is being scaled, and a number that silently stops describing
+ * the deliverable is the failure class this product is organised against.
+ */
+function Sumber({
+  cite,
+  origin,
+}: {
+  cite: Citation | null;
+  origin?: SlotState["origin"];
+}) {
+  // A zone whose page the run cannot resolve has no citation to print, and it
+  // does not get a third sentence here saying so: the picture is already a
+  // hatched "Halamannya sudah tidak ada" and the advisory beside the buttons
+  // already carries the same fault WITH its remedy, at full strength, where the
+  // control it disables is. Saying it a third time in a quieter voice is the
+  // repetition the operator asked us to cut, not a second safety net.
+  if (!cite) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline gap-2">
+        <span className="lt-label">halaman</span>
+        <span className="lt-page-figure">{cite.page}</span>
+        <span className="lt-label">dari {cite.pagesInDoc}</span>
+      </div>
+
+      {/* EACH LABEL TRAVELS WITH ITS OWN BOX. The row wraps at a 20rem aside,
+          and a bare sequence of labels and boxes wraps between them, which
+          leaves "ukuran di halaman" at the end of one line and its figure at
+          the start of the next. A label separated from the value it names is
+          worse than either alone. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="flex items-center gap-2">
+          <span className="lt-label">berkas</span>
+          <span className="lt-kotak" title={cite.source}>
+            {shortenFileName(cite.source, 24)}
+          </span>
+        </span>
+
+        <span className="flex items-center gap-2">
+          <span className="lt-label">baris</span>
+          <span className="lt-kotak">
+            {cite.lines ? (
+              <>
+                {cite.lines[0]}
+                {"-"}
+                {cite.lines[1]} ({cite.lineCount})
+              </>
+            ) : (
+              "digambar sendiri"
+            )}
+          </span>
+        </span>
+
+        <span className="flex items-center gap-2">
+          <span className="lt-label">ukuran di halaman</span>
+          <span className="lt-kotak">{cite.size}</span>
+        </span>
+
+        {/* Provenance was a sentence under the register: "Area ini usulan
+            model, jadi masih perlu Anda periksa." Its second half is what the
+            state word in the kop already says, and its first half is one fact
+            about where the rectangle came from, which is a value in a box.
+            It is dropped when the baris box has already said it: a zone drawn
+            over free pixels carries no line range, so "digambar sendiri" is
+            printed there, and the same two words twice in one row of boxes
+            reads as a bug rather than as two facts. */}
+        {origin && (cite.lines || origin === "llm") ? (
+          <span className="flex items-center gap-2">
+            <span className="lt-label">asal</span>
+            <span className="lt-kotak">
+              {origin === "human" ? "digambar sendiri" : "usulan model"}
+            </span>
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -289,30 +485,24 @@ function CropFrame({
  * can be right while the answer is wrong: the model reads text, and text from
  * the wrong page reads perfectly. Open it to corroborate a picture you have
  * already looked at, never to replace looking.
+ *
+ * `lt-disclose` is what draws the chevron. A bare `summary` renders the
+ * browser's own triangle, which is the most reliable sign on the web that
+ * nobody styled the page.
  */
 function Transcript({ text }: { text?: string }) {
   const empty = !text || text.trim() === "";
   return (
-    <details className="lt-well max-w-[80ch] px-3 py-2 text-[0.8125rem]">
-      <summary
-        className="cursor-pointer select-none"
-        style={{ color: "var(--ink-2)" }}
-      >
-        Teks di dalam area ini
-      </summary>
-      <p className="mt-2" style={{ color: "var(--ink-2)" }}>
-        Teks hasil pembacaan bisa benar walaupun kotaknya salah halaman, jadi
-        putuskan dari gambarnya dan pakai teks ini hanya untuk memastikan.
+    <details className="lt-disclose lt-well max-w-[80ch] px-4 py-2 text-[0.8125rem]">
+      <summary>Teks di area ini</summary>
+      <p className="text-ink-2 mt-2">
+        Teks bisa benar walaupun kotaknya salah halaman. Putuskan dari
+        gambarnya.
       </p>
       {empty ? (
-        <p className="mt-2" style={{ color: "var(--ink)" }}>
-          Tidak ada teks yang terbaca di area ini.
-        </p>
+        <p className="mt-2">Tidak ada teks yang terbaca.</p>
       ) : (
-        <pre
-          className="lt-figure mt-2 max-h-56 overflow-auto whitespace-pre-wrap"
-          style={{ color: "var(--ink)" }}
-        >
+        <pre className="lt-figure mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
           {text}
         </pre>
       )}
@@ -327,17 +517,17 @@ function Transcript({ text }: { text?: string }) {
  * Those three are the whole point of the dokumen tambahan loop and they used to
  * be told apart by 12px text below the contrast floor inside a box smaller than
  * a button. Here the shape is `Missing` (a hatched sheet, the same silhouette
- * the denah draws for a page nobody has searched), the state is the `Mark`
- * beside it, and the sentence is `STATUS_MEANING`, defined once in `chrome.tsx`
- * so no screen invents its own wording for a state.
+ * the denah draws for a page nobody has searched), the state is the `Mark` in
+ * the decision strip below, and the sentence is `STATUS_MEANING`, defined once
+ * in `chrome.tsx` so no screen invents its own wording for a state. It stands
+ * on the stage a crop would stand on, because an empty mount is the honest
+ * picture of a bagian with no evidence.
  */
 function Absence({ status }: { status: SlotState["status"] }) {
   return (
-    <div className="flex flex-wrap items-start gap-4">
+    <div className="lt-stage flex flex-wrap items-center gap-4">
       <Missing height={104} label="Belum ada gambar untuk bagian ini" />
-      <p className="max-w-[52ch]" style={{ color: "var(--ink)" }}>
-        {STATUS_MEANING[status]}
-      </p>
+      <p className="max-w-[46ch]">{STATUS_MEANING[status]}</p>
     </div>
   );
 }
@@ -356,7 +546,6 @@ function CaptureRow({
   saving,
   justDecided,
   forceExpanded,
-  bukan,
 }: {
   run: BrowserRun;
   state: SlotState;
@@ -366,13 +555,7 @@ function CaptureRow({
   /** Set when this capture's PAGE would not render, so no crop is coming. */
   thumbFailure?: string;
   actions: PlateActions;
-  /**
-   * The look-alike this bagian is not, passed to the FIRST capture only: it
-   * describes the bagian rather than any one rectangle, and an identical
-   * paragraph beside every picture in a stacked slot discriminates nothing.
-   */
-  bukan?: string;
-  /** Only when the slot holds several captures; otherwise the header says it. */
+  /** Only when the slot holds several captures; otherwise the kop says it. */
   showState: boolean;
   /** This capture's own number within its slot, when there are several. */
   ordinal: number | null;
@@ -449,24 +632,24 @@ function CaptureRow({
   // A DISABLED CONTROL NEVER APPEARS WITHOUT ITS REASON BESIDE IT, and all
   // three of these are exactly that: a measurement of what went wrong with THIS
   // capture, and the reason Terima is inert under the operator's hand. None of
-  // them may go behind a hover. The fourth sentence that used to live here,
-  // about what "Bukan ini" costs, is not a fault and does not vary, so it moved
-  // onto the button as a hint.
+  // them may go behind a hover. The unrenderable one has to say that the
+  // picture is NOT COMING, which is the whole point of telling the operator
+  // apart from the loading state they used to be left in. The fourth sentence
+  // that used to live here, about what "Bukan ini" costs, is not a fault and
+  // does not vary, so it moved onto the button as a hint.
   const fault = waiting
-    ? "Potongannya belum tampil. Tunggu gambarnya muncul sebelum Anda memutuskan."
+    ? "Tunggu potongannya tampil sebelum memutuskan."
     : broken
-      ? "Halaman potongan ini sudah tidak ada di pekerjaan ini, jadi tidak ada yang bisa Anda nilai. Gambar ulang areanya, atau tandai bukan ini."
+      ? "Halamannya sudah tidak ada di pekerjaan ini. Gambar ulang, atau Bukan ini."
       : unrenderable
-        ? // It says WAITING WILL NOT HELP, which is the whole point of telling
-          // the operator apart from the loading state they used to be left in.
-          "Halaman ini gagal dibuka, jadi potongannya tidak akan muncul betapa pun lamanya Anda menunggu. Gambar ulang areanya dari halaman lain, atau tandai bukan ini."
+        ? "Halaman gagal dibuka, jadi potongannya tidak akan muncul. Gambar ulang dari halaman lain, atau Bukan ini."
         : null;
 
   const expandToggle =
     settled && state.zone && !forceExpanded ? (
       <Btn onClick={() => setOverride(!expanded)}>
         <Potongan />
-        {expanded ? "Perkecil potongan" : "Perbesar potongan"}
+        {expanded ? "Perkecil" : "Perbesar"}
       </Btn>
     ) : null;
 
@@ -474,28 +657,11 @@ function CaptureRow({
     <div
       ref={rowRef}
       tabIndex={-1}
-      aria-label={
-        ordinal ? captureLabel(fieldLabel, ordinal) : fieldLabel
-      }
-      className="flex flex-col gap-3"
+      aria-label={ordinal ? captureLabel(fieldLabel, ordinal) : fieldLabel}
+      className="flex flex-col gap-4"
     >
-      {showState ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <Mark status={state.status} drawing={justDecided} saved={!saving} />
-          <StateWord status={state.status} />
-          {ordinal ? (
-            <span
-              className="lt-figure text-[0.8125rem]"
-              style={{ color: "var(--ink-2)" }}
-            >
-              potongan {ordinal} dari {maxOrdinal}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="flex min-w-0 flex-col gap-4">
           {state.zone ? (
             <CropFrame
               box={state.zone.box}
@@ -508,137 +674,149 @@ function CaptureRow({
             <Absence status={state.status} />
           )}
 
-          {/* A picture on screen under a slot that ships blank is this
-              product's failure class inverted: it looks accepted and the
-              deliverable carries an empty cell. `onUnfill` patches the status
-              and leaves the zone, and `planExport` only places `confirmed`
-              captures, so the contradiction is real and has to be said. */}
-          {state.status === "unfilled" && state.zone ? (
-            <Advisory>
-              Potongan ini tidak akan dimasukkan ke berkas hasil, karena bagian
-              ini sengaja dikosongkan. Buka lagi bagian ini kalau Anda ingin
-              memakainya.
-            </Advisory>
-          ) : null}
-
+          {/* THE DECISION STRIP, attached to the picture and left-aligned to
+              it. The mark leads it because the mark is what these verbs leave
+              behind: Terima draws the paraf into that box, and the stroke stays
+              at 40% opacity until the write resolves. */}
           <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {state.status === "proposed" ? (
-                <>
-                  <Btn
-                    tone="primary"
-                    disabled={waiting || broken || unrenderable}
-                    onClick={() => decide(() => actions.onAccept(slotIndex))}
-                  >
-                    <Paraf />
-                    Terima
-                  </Btn>
-                  <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
-                    <Potongan />
-                    Gambar ulang
-                  </Btn>
-                  {/* The button and its hint travel together, so a wrapping
-                      row cannot leave the question mark stranded beside a
-                      different control. */}
-                  <span className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Mark
+                  status={state.status}
+                  drawing={justDecided}
+                  saved={!saving}
+                />
+                {showState ? (
+                  <>
+                    <StateWord status={state.status} />
+                    {ordinal ? (
+                      <span className="lt-figure text-ink-2 text-[0.8125rem]">
+                        potongan {ordinal}/{maxOrdinal}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {state.status === "proposed" ? (
+                  <>
                     <Btn
-                      tone="reject"
-                      disabled={waiting}
-                      onClick={() => decide(() => actions.onReject(slotIndex))}
+                      tone="primary"
+                      className="px-6"
+                      disabled={waiting || broken || unrenderable}
+                      onClick={() => decide(() => actions.onAccept(slotIndex))}
                     >
-                      <Coretan />
-                      Bukan ini
+                      <Paraf />
+                      Terima
                     </Btn>
-                    <Hint label="Penjelasan Bukan ini">
-                      Bukan ini membuang usulan ini, dan bagian ini masuk ke
-                      daftar yang belum ditemukan.
-                    </Hint>
-                  </span>
-                </>
-              ) : null}
+                    <Btn
+                      onClick={() => decide(() => actions.onRedraw(slotIndex))}
+                    >
+                      <Potongan />
+                      Gambar ulang
+                    </Btn>
+                    {/* The button and its hint travel together, so a wrapping
+                        row cannot leave the question mark stranded beside a
+                        different control. */}
+                    <span className="flex items-center gap-2">
+                      <Btn
+                        tone="reject"
+                        disabled={waiting}
+                        onClick={() =>
+                          decide(() => actions.onReject(slotIndex))
+                        }
+                      >
+                        <Coretan />
+                        Bukan ini
+                      </Btn>
+                      <Hint label="Penjelasan Bukan ini">
+                        Usulan ini dibuang, dan bagian ini masuk ke daftar yang
+                        belum ditemukan.
+                      </Hint>
+                    </span>
+                  </>
+                ) : null}
 
-              {state.status === "confirmed" ? (
-                <>
-                  <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
-                    <Potongan />
-                    Gambar ulang
-                  </Btn>
+                {state.status === "confirmed" ? (
+                  <>
+                    <Btn
+                      onClick={() => decide(() => actions.onRedraw(slotIndex))}
+                    >
+                      <Potongan />
+                      Gambar ulang
+                    </Btn>
+                    <Btn
+                      onClick={() => decide(() => actions.onReopen(slotIndex))}
+                    >
+                      Batalkan, periksa lagi
+                    </Btn>
+                  </>
+                ) : null}
+
+                {state.status === "outstanding" ||
+                state.status === "pending" ? (
+                  <>
+                    <Btn
+                      onClick={() => decide(() => actions.onRedraw(slotIndex))}
+                    >
+                      <Potongan />
+                      Gambar sendiri
+                    </Btn>
+                    <Btn
+                      onClick={() => decide(() => actions.onUnfill(slotIndex))}
+                    >
+                      <Kosongkan />
+                      Kosongkan
+                    </Btn>
+                  </>
+                ) : null}
+
+                {state.status === "unfilled" ? (
                   <Btn onClick={() => decide(() => actions.onReopen(slotIndex))}>
-                    Batalkan, periksa lagi
+                    Buka lagi
                   </Btn>
-                </>
-              ) : null}
+                ) : null}
 
-              {state.status === "outstanding" || state.status === "pending" ? (
-                <>
-                  <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
-                    <Potongan />
-                    Gambar sendiri
-                  </Btn>
-                  <Btn onClick={() => decide(() => actions.onUnfill(slotIndex))}>
-                    <Kosongkan />
-                    Kosongkan
-                  </Btn>
-                </>
-              ) : null}
-
-              {state.status === "unfilled" ? (
-                <Btn onClick={() => decide(() => actions.onReopen(slotIndex))}>
-                  Buka lagi
-                </Btn>
-              ) : null}
-
-              {expandToggle}
+                {expandToggle}
+              </div>
             </div>
 
-            {fault ? (
-              <p
-                className="max-w-[72ch] text-[0.8125rem]"
-                style={{ color: "var(--ink-2)" }}
-              >
-                {fault}
-              </p>
+            {fault ? <Advisory>{fault}</Advisory> : null}
+
+            {/* A picture on screen under a slot that ships blank is this
+                product's failure class inverted: it looks accepted and the
+                deliverable carries an empty cell. `onUnfill` patches the status
+                and leaves the zone, and `planExport` only places `confirmed`
+                captures, so the contradiction is real and has to be said. */}
+            {state.status === "unfilled" && state.zone ? (
+              <Advisory>
+                Potongan ini tidak masuk ke berkas hasil. Buka lagi kalau Anda
+                ingin memakainya.
+              </Advisory>
             ) : null}
           </div>
 
           {state.zone && expanded ? <Transcript text={state.text} /> : null}
         </div>
 
-        {state.zone || bukan ? (
+        {state.zone ? (
           <aside className="flex min-w-0 flex-col gap-4">
-            {/* Kept at both sizes. A wrong page is recognised from the SHAPE
-                of the plan before anything is read, and that is as true of a
-                capture somebody already accepted as of one waiting on them. */}
-            {state.zone ? (
+            {/* Kept at both sizes, and mounted like the crop it belongs to. A
+                wrong page is recognised from the SHAPE of the plan before
+                anything is read, and that is as true of a capture somebody
+                already accepted as of one waiting on them. */}
+            <div className="lt-mat w-fit">
               <Denah
                 page={resolved?.page ?? null}
                 cut={state.zone.box}
                 size={expanded ? "md" : "sm"}
                 label={denahLabel}
               />
-            ) : null}
+            </div>
 
-            {/* Between the plan and the register: the last thing read before
-                the citation, and the one that decides what the picture is
-                being compared against. */}
-            {bukan ? <Bukan text={bukan} /> : null}
-
-            {state.zone ? (
-              <>
-                <Cite cite={cite} />
-                <CiteAdvisories cite={cite} />
-                {state.origin ? (
-                  <p
-                    className="text-[0.8125rem]"
-                    style={{ color: "var(--ink-2)" }}
-                  >
-                    {state.origin === "human"
-                      ? "Area ini Anda gambar sendiri."
-                      : "Area ini usulan model, jadi masih perlu Anda periksa."}
-                  </p>
-                ) : null}
-              </>
-            ) : null}
+            <Sumber cite={cite} origin={state.origin} />
+            <CiteAdvisories cite={cite} />
           </aside>
         ) : null}
       </div>
@@ -662,23 +840,15 @@ function CaptureRow({
  * never seen. It has no position in `run.slots` to act on, so the only honest
  * offer is to draw it.
  */
-function MissingCapture({
-  onDraw,
-  bukan,
-}: {
-  onDraw: () => void;
-  /** Only when this plate has no capture row to carry it. See `CaptureRow`. */
-  bukan?: string;
-}) {
+function MissingCapture({ onDraw }: { onDraw: () => void }) {
   return (
-    <div className="flex flex-wrap items-start gap-4">
+    <div className="lt-stage flex flex-wrap items-center gap-4">
       <Missing height={104} label="Potongan ini belum ada" />
-      <div className="flex max-w-[52ch] flex-col items-start gap-2">
-        <p style={{ color: "var(--ink)" }}>
-          Bagian ini ada di template tetapi belum pernah dicari di pekerjaan
-          ini. Jalankan Proses lagi, atau gambar sendiri areanya.
+      <div className="flex max-w-[46ch] flex-col items-start gap-2">
+        <p>
+          Belum pernah dicari di pekerjaan ini. Jalankan Proses lagi, atau
+          gambar sendiri areanya.
         </p>
-        {bukan ? <Bukan text={bukan} /> : null}
         <Btn onClick={onDraw}>
           <Potongan />
           Gambar sendiri
@@ -722,33 +892,24 @@ export function ProposalPlate({
    * are filled in by hand after export, so they carry no decision and no
    * evidence. They used to be full-size cards identical to a live proposal,
    * which put more than half the primary screen's scroll length between the
-   * operator and the work. The hatch is kept, small, because a deliberately
-   * blank cell is still a cell that is blank ON THE RECORD.
+   * operator and the work. They are not slabs either, and for the same reason:
+   * a slab is a block that owes an answer. The hatch is kept, small, because a
+   * deliberately blank cell is still a cell that is blank ON THE RECORD.
    */
   if (!entry.def.fillable) {
     return (
-      <div
-        className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t py-2.5"
-        style={{ borderColor: "var(--line)" }}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="lt-hatch h-3.5 w-8 shrink-0" aria-hidden="true" />
-          <h3
-            className="lt-figure text-[0.9375rem] font-bold"
-            style={{ color: "var(--ink-2)" }}
-          >
+      <div className="border-line flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t-2 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="lt-hatch h-4 w-8 shrink-0" aria-hidden="true" />
+          <h3 className="lt-figure text-ink-2 text-[0.875rem] font-bold">
             {label}
           </h3>
         </div>
-        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-          Diisi manual setelah ekspor, tidak diambil dari dokumen PDF.
-        </p>
+        <p className="lt-note">Diisi manual setelah ekspor</p>
       </div>
     );
   }
 
-  const waitingSave = entry.states.some((placed) => pending.has(placed.index));
-  const justDecided = entry.states.some((placed) => fresh.has(placed.index));
   const { adalah, bukan } = readCatatan(entry.def.catatan);
 
   // A bagian the run holds nothing for at all. See `MissingCapture`: this is
@@ -757,101 +918,122 @@ export function ProposalPlate({
   const missing = entry.states.length === 0;
   const multi = entry.states.length > 1;
 
+  /**
+   * A capture whose page the run cannot resolve, or whose page will not render,
+   * is a FAULT IN THIS BLOCK, and the kop is where a block reports one. It is
+   * worked out here as well as inside the row because the bar has to be red
+   * before the operator has scrolled far enough to read the sentence that
+   * explains it.
+   */
+  const faulted = entry.states.some((placed) => {
+    const zone = placed.state.zone;
+    if (!zone) return false;
+    return (
+      citeZone(run, zone) === null ||
+      Boolean(thumbs.failed[String(placed.index)])
+    );
+  });
+  const owes = owedBy(entry.status, faulted);
+
   return (
-    <article
-      aria-labelledby={headingId}
-      className="flex flex-col gap-4 border-t py-6"
-      style={{ borderColor: "var(--line)" }}
-    >
-      {/* ONE LINE, and everything on it varies from order to order: which
-          state this bagian is in, and whether it is short a picture. The
-          definition that used to sit here is a hover away on the field name
-          and a column away beside the crop. */}
-      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <Mark
-            status={entry.status}
-            drawing={justDecided}
-            saved={!waitingSave}
-          />
-          {/* The question being asked, in the packet's own mono voice and at
-              the size of a question. It was 14px, level with the slot key
-              printed beside it. */}
-          <h3 id={headingId} className="lt-figure lt-field-name">
+    <article aria-labelledby={headingId} className="lt-slab">
+      {/* ONE BAR OF INK, and everything on it varies from order to order: which
+          bagian this is, which state it is in, and whether it is short a
+          picture. The definition that used to sit under it is one question mark
+          away, at the end of the name it defines. */}
+      <div className="lt-kop" data-owes={owes}>
+        {/* The question being asked, in the packet's own mono voice, with the
+            hint at the END OF THAT NAME rather than at the far end of the bar.
+            The two travel in one group for a reason: with the heading alone set
+            to grow, the question mark was pushed across the kop and came to
+            rest beside the state word, where it reads as an explanation of the
+            state rather than of the field. */}
+        <div
+          className="flex min-w-0 items-center gap-2"
+          style={owes ? ON_COLOURED_KOP : undefined}
+        >
+          <h3 id={headingId} className="lt-figure min-w-0">
             {label}
           </h3>
-          {/* The hint sits at the end of the name whose meaning it holds, not
-              inside a sentence, and it holds only `adalah`: a slot the
-              template gave no catatan renders no question mark at all rather
-              than an empty one. */}
-          {adalah ? (
-            <Hint label={`Penjelasan ${label}`}>{adalah}</Hint>
+
+          {/* THE WHOLE DEFINITION, one tap away. A slot the template gave no
+              catatan renders no question mark at all rather than an empty
+              one. */}
+          {adalah || bukan ? (
+            <Hint label={`Penjelasan ${label}`}>
+              <div className="flex flex-col gap-2">
+                {adalah ? <p>{adalah}</p> : null}
+                {bukan ? <Bukan text={bukan} /> : null}
+              </div>
+            </Hint>
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1">
-          <StateWord status={entry.status} />
-          {/* THE COMPLETENESS CLAIM, and the most consequential figure on the
-              sheet: it is the difference between a packet that is finished and
-              one that is silently short a picture. It is the only figure in
-              this header, so it survives a fast scroll. */}
+        {/* THE COMPLETENESS CLAIM, and the most consequential figure on the
+            sheet: it is the difference between a packet that is finished and
+            one that is silently short a picture. It is the only figure in this
+            bar, so it survives a fast scroll. `lt-kop-right` is what puts it
+            and the state word where every other kop in the product puts them. */}
+        <span
+          className="lt-kop-right flex items-center gap-2"
+          style={owes ? ON_COLOURED_KOP : undefined}
+        >
           {multi ? (
-            <span
-              className="lt-figure text-[0.8125rem]"
-              style={{ color: "var(--ink-2)" }}
-            >
+            <span className="lt-figure">
               {entry.found} dari {entry.states.length} potongan
             </span>
           ) : null}
-          {/* THE HONEST HALF OF DROPPING THE DECLARED COUNT. Nothing asserts a
-              lanjutan exists any more, so the risk moved from "asserts one
-              that may not exist" to "may miss one that does". This is what
-              closes it: a bagian nothing has looked past reads differently
-              from one that has been checked and found to end where it ends. */}
-          {entry.unchecked > 0 ? (
-            <span
-              className="text-[0.8125rem]"
-              style={{ color: "var(--ink-3)" }}
-              title="Proses belum memeriksa apakah blok ini bersambung ke halaman berikutnya."
-            >
-              belum diperiksa lanjutannya
-            </span>
-          ) : entry.found > 0 ? (
-            <span className="text-[0.8125rem]" style={{ color: "var(--ink-3)" }}>
-              diperiksa, tidak ada lanjutan
-            </span>
-          ) : null}
-        </div>
-      </header>
+          <StateWord status={entry.status} />
+        </span>
+      </div>
 
-      <div className="flex flex-col gap-8">
+      <div className="lt-slab-body flex flex-col gap-6">
         {entry.states.map((placed, i) => (
-          <CaptureRow
+          <div
             key={`${entry.def.key}-${placed.index}`}
-            run={run}
-            state={placed.state}
-            slotIndex={placed.index}
-            fieldLabel={label}
-            thumbUrl={thumbs.urls[String(placed.index)]}
-            thumbFailure={thumbs.failed[String(placed.index)]}
-            actions={actions}
-            showState={multi}
-            ordinal={multi ? ordinalOf(placed) : null}
-            maxOrdinal={entry.maxOrdinal}
-            saving={pending.has(placed.index)}
-            justDecided={fresh.has(placed.index)}
-            forceExpanded={expanded}
-            bukan={i === 0 ? bukan : undefined}
-          />
+            className={i > 0 ? "border-line border-t-2 pt-6" : undefined}
+          >
+            <CaptureRow
+              run={run}
+              state={placed.state}
+              slotIndex={placed.index}
+              fieldLabel={label}
+              thumbUrl={thumbs.urls[String(placed.index)]}
+              thumbFailure={thumbs.failed[String(placed.index)]}
+              actions={actions}
+              showState={multi}
+              ordinal={multi ? ordinalOf(placed) : null}
+              maxOrdinal={entry.maxOrdinal}
+              saving={pending.has(placed.index)}
+              justDecided={fresh.has(placed.index)}
+              forceExpanded={expanded}
+            />
+          </div>
         ))}
 
         {missing ? (
           <MissingCapture
             onDraw={() => actions.onDrawNew(entry.def.key, entry.def.label)}
-            // `missing` is already "no capture rows exist", so this branch is
-            // always the first thing on the plate and always carries it.
-            bukan={bukan}
           />
+        ) : null}
+
+        {/* THE HONEST HALF OF DROPPING THE DECLARED COUNT. Nothing asserts a
+            lanjutan exists any more, so the risk moved from "asserts one that
+            may not exist" to "may miss one that does". This is what closes it:
+            a bagian nothing has looked past reads differently from one that has
+            been checked and found to end where it ends. Its explanation moved
+            out of a `title` attribute, which no touchscreen and no keyboard can
+            reach, into a hint that all three can. */}
+        {entry.unchecked > 0 ? (
+          <p className="lt-note flex items-center gap-2">
+            belum diperiksa lanjutannya
+            <Hint label="Arti belum diperiksa lanjutannya">
+              Proses belum memeriksa apakah blok ini bersambung ke halaman
+              berikutnya.
+            </Hint>
+          </p>
+        ) : entry.found > 0 ? (
+          <p className="lt-note">diperiksa, tidak ada lanjutan</p>
         ) : null}
       </div>
     </article>

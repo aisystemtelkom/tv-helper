@@ -195,8 +195,18 @@ export function removeSource(
     // that is no longer in this run.
     if (ordinal > 1) continue;
 
-    const { zone: _zone, text: _text, continuationCheckedFor: _checked, origin: _origin, ...rest } = slot;
-    slots.push({ ...rest, status: "pending" });
+    // A WHITELIST, not an omit. `{ zone: _zone, ...rest }` would carry every
+    // other field through, which is the wrong default here: a capture with no
+    // evidence should hold nothing but its identity and its status, and
+    // anything else `SlotState` grows later would arrive attached to a row
+    // whose evidence has just been deleted. Listing the three fields that
+    // survive means a fourth has to be added deliberately, in a diff somebody
+    // reads, rather than inherited by a spread.
+    slots.push({
+      key: slot.key,
+      label: slot.label,
+      status: "pending",
+    });
   }
 
   /*
@@ -212,8 +222,9 @@ export function removeSource(
       if (slotKeyOf(slots[i].key) === key) last = i;
     }
     if (last === -1) continue;
-    const { continuationCheckedFor: _checked, ...rest } = slots[last];
-    slots[last] = rest;
+    const survivor = { ...slots[last] };
+    delete survivor.continuationCheckedFor;
+    slots[last] = survivor;
   }
 
   return {

@@ -81,13 +81,11 @@ import {
   Btn,
   Hint,
   Interruption,
-  Lede,
   Notice,
-  Title,
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
-import { Berkas, Cari, Muat } from "./icons";
+import { Arsip, Berkas, Cari, Muat } from "./icons";
 
 /**
  * What the shell knows about an ingest in flight.
@@ -229,8 +227,13 @@ export function DocumentDrop({
           }
           take(event.dataTransfer.files);
         }}
+        /* py-6, not py-12. The hero target was 290px of mostly empty
+           rectangle on the screen an operator opens the product to, and a drop
+           target does not become easier to hit by being taller than the thing
+           being dropped on it. Its size should say "this is the main action",
+           not "this is the main content". */
         className={`flex flex-col items-center gap-4 rounded-[4px] border-2 border-dashed px-6 text-center ${
-          size === "hero" ? "py-12" : "py-7"
+          size === "hero" ? "py-6" : "py-4"
         }`}
         style={{
           // THE DRAG TARGET IS INK, NEVER AMBER. Amber means a decision is
@@ -776,21 +779,30 @@ function shortenRunName(label: string): string {
 }
 
 /**
- * The work saved on this device, so an order started yesterday can be picked
- * up today.
+ * RIWAYAT: the pekerjaan already saved on this device.
  *
- * A run is opened BY NAME, and its name is the documents in it, because
- * opening the wrong order and confirming crops into it is the expensive
- * mistake this list can cause. `createdAt` is shown for the same reason: two
- * runs of one customer's paperwork are otherwise indistinguishable rows, and
- * it was fetched and never displayed.
+ * IT IS THE SESSION MANAGER, and calling it that out loud is most of the fix.
+ * It was headed "Pekerjaan tersimpan" in a 19rem rail beside the drop target,
+ * and an operator asked whether it was meant to be the session history, which
+ * is the question you ask about something that has not said what it is. So it
+ * says: one word, one icon, its own kop, at the bottom of the screen where
+ * finding an old job belongs.
  *
- * THE OPEN RUN IS MARKED IN INK AND IN WORDS, never in amber. Amber is
- * reserved for a decision that is owed, and this list previously used it for
- * three unrelated things at once: the open run, the active phase, and a file
- * being dragged over a card.
+ * BOTTOM OF MUAT AND NOWHERE ELSE. Beside the drop target it stood at equal
+ * weight with "start today's order" for the whole of every session, and those
+ * two are not equal: one of them is what the operator came here to do. On any
+ * later phase it would be worse still, an invitation to abandon the work in
+ * hand. The documents of the OPEN pekerjaan are the thing that follows the
+ * operator everywhere, and that is `DocumentsBar`, which is a different object
+ * with a different job.
+ *
+ * SEARCHABLE ONCE THERE IS ENOUGH TO SEARCH. The field appears at seven rows,
+ * because a filter over four items is furniture: it costs a control, a label
+ * and a line of vertical space to save an operator from reading four lines
+ * they can already see. It matches the document names and the date as printed,
+ * which are the only two things a row shows.
  */
-function RunsList({
+function Riwayat({
   runs,
   loading,
   openId,
@@ -803,85 +815,119 @@ function RunsList({
   onOpenRun: (id: string) => void;
   onStartNewRun?: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  const fieldId = useId();
+
   // Newest first: these are day-to-day work items, and recency is how people
   // actually find them.
   const ordered = [...runs].sort((a, b) => b.createdAt - a.createdAt);
+  const searchable = ordered.length >= 7;
+  const needle = query.trim().toLowerCase();
+  const shown =
+    searchable && needle
+      ? ordered.filter((summary) =>
+          `${runName(summary.label)} ${WAKTU.format(summary.createdAt)}`
+            .toLowerCase()
+            .includes(needle),
+        )
+      : ordered;
 
   return (
-    <aside
-      className="lt-panel flex h-fit flex-col gap-3 p-4"
-      aria-labelledby="ingest-runs"
-    >
-      <h3 id="ingest-runs" className="text-[0.9375rem] font-semibold">
-        Pekerjaan tersimpan
-      </h3>
-
-      <div aria-live="polite">
-        {loading ? (
-          /* Not "belum ada pekerjaan" while the list is still being read. A
-             returning operator used to be told, briefly but every single time,
-             that they had no saved work. */
-          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-            Memuat daftar pekerjaan.
-          </p>
-        ) : ordered.length === 0 ? (
-          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-            Belum ada pekerjaan tersimpan. Menaruh berkas PDF akan memulai satu.
-          </p>
-        ) : (
-          <ul className="flex max-h-[24rem] flex-col gap-1 overflow-y-auto">
-            {ordered.map((summary) => {
-              const open = summary.id === openId;
-              const name = runName(summary.label);
-              return (
-                <li key={summary.id}>
-                  <button
-                    type="button"
-                    aria-current={open ? "true" : undefined}
-                    onClick={() => onOpenRun(summary.id)}
-                    data-on={open ? "true" : undefined}
-                    className="lt-btn w-full flex-col items-start gap-0.5 px-2 py-2 text-left"
-                  >
-                    <span
-                      className="lt-figure w-full text-[0.8125rem]"
-                      title={name}
-                    >
-                      {shortenRunName(name)}
-                    </span>
-                    {/* 13px, not 12: nothing in this product is set smaller,
-                        because the date is how one order of a customer's
-                        paperwork is told from another. */}
-                    <span
-                      className="text-[0.8125rem] font-normal"
-                      style={{ color: "var(--ink-2)" }}
-                    >
-                      {WAKTU.format(summary.createdAt)}
-                      {open ? ", sedang dibuka" : ""}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+    <section className="lt-slab" aria-labelledby="ingest-runs">
+      <div className="lt-kop">
+        <Arsip size={16} />
+        <h3 id="ingest-runs">Riwayat pekerjaan</h3>
+        <span className="lt-kop-right lt-figure">
+          {loading ? "" : `${ordered.length}`}
+        </span>
       </div>
 
-      {onStartNewRun ? (
-        <div
-          className="flex items-center gap-1 border-t pt-3"
-          style={{ borderColor: "var(--line)" }}
-        >
-          <Btn onClick={onStartNewRun}>Mulai pekerjaan lain</Btn>
-          {/* What happens to the pekerjaan you walk away from: true on every
-              run, and the reassurance is worth having exactly once, at the
-              moment the hand is on this button. */}
-          <Hint label="Penjelasan: Mulai pekerjaan lain">
-            Pekerjaan yang sekarang tetap tersimpan di perangkat ini dan bisa
-            dibuka lagi dari daftar di atas. Tidak ada keputusan yang hilang.
-          </Hint>
+      <div className="lt-slab-body flex flex-col gap-4">
+        {searchable ? (
+          <div className="flex items-center gap-2">
+            <label htmlFor={fieldId} className="sr-only">
+              Cari pekerjaan menurut nama berkas atau tanggal
+            </label>
+            <Cari size={16} />
+            <input
+              id={fieldId}
+              type="search"
+              className="lt-input w-full max-w-[28rem]"
+              placeholder="Cari nama berkas atau tanggal"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+        ) : null}
+
+        <div aria-live="polite">
+          {loading ? (
+            /* Not "belum ada pekerjaan" while the list is still being read. A
+               returning operator used to be told, briefly but every single
+               time, that they had no saved work. */
+            <p className="lt-note">Memuat riwayat.</p>
+          ) : ordered.length === 0 ? (
+            <p className="lt-note">
+              Belum ada pekerjaan tersimpan. Menaruh berkas PDF akan memulai
+              satu.
+            </p>
+          ) : shown.length === 0 ? (
+            <p className="lt-note">Tidak ada yang cocok dengan {query}.</p>
+          ) : (
+            /* A GRID RATHER THAN A COLUMN, because this is no longer in a
+               19rem rail. Three across on a wide screen is one screenful of
+               history instead of a scroll box holding four rows at a time. */
+            <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {shown.map((summary) => {
+                const open = summary.id === openId;
+                const name = runName(summary.label);
+                return (
+                  <li key={summary.id}>
+                    <button
+                      type="button"
+                      aria-current={open ? "true" : undefined}
+                      onClick={() => onOpenRun(summary.id)}
+                      data-on={open ? "true" : undefined}
+                      className="lt-btn w-full flex-col items-start gap-1 px-4 py-2 text-left"
+                    >
+                      <span
+                        className="lt-figure w-full truncate text-[0.875rem]"
+                        title={name}
+                      >
+                        {shortenRunName(name)}
+                      </span>
+                      {/* 13px, not 12: nothing in this product is set
+                          smaller, because the date is how one order of a
+                          customer's paperwork is told from another. */}
+                      <span
+                        className="text-[0.8125rem] font-normal"
+                        style={{ color: "var(--ink-2)" }}
+                      >
+                        {WAKTU.format(summary.createdAt)}
+                        {open ? ", sedang dibuka" : ""}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      ) : null}
-    </aside>
+
+        {onStartNewRun ? (
+          <div className="flex items-center gap-2">
+            <Btn onClick={onStartNewRun}>Mulai pekerjaan lain</Btn>
+            {/* What happens to the pekerjaan you walk away from: true on every
+                run, and the reassurance is worth having exactly once, at the
+                moment the hand is on this button. */}
+            <Hint label="Penjelasan: Mulai pekerjaan lain">
+              Pekerjaan yang sekarang tetap tersimpan di perangkat ini dan bisa
+              dibuka lagi dari riwayat. Tidak ada keputusan yang hilang.
+            </Hint>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -895,13 +941,11 @@ export function IngestPanel({
   runsLoading = false,
   onOpenRun,
   onStartNewRun,
-  onContinue,
   onProcess,
   searching = false,
   searchStartedAt = null,
   searchNote = null,
   wanted = 0,
-  searched = false,
 }: {
   run: BrowserRun | null;
   progress: IngestProgress | null;
@@ -919,7 +963,6 @@ export function IngestPanel({
   onOpenRun?: (id: string) => void;
   onStartNewRun?: () => void;
   /** The stated next move, once the search has run. */
-  onContinue?: () => void;
   /** MOVE TWO. Omitted, the block is not offered at all. */
   onProcess?: () => void;
   searching?: boolean;
@@ -929,12 +972,6 @@ export function IngestPanel({
   searchNote?: string | null;
   /** How many bagian the next search would look for. */
   wanted?: number;
-  /**
-   * Whether a search has already run over this pekerjaan. It gates the move to
-   * Periksa, and it is derived by the shell FROM THE RUN, so a reload does not
-   * lock a run that was already searched.
-   */
-  searched?: boolean;
 }) {
   const pages = run?.pages.length ?? 0;
   // `busy` can lead `progress` by a moment, because the shell sets one before
@@ -945,23 +982,12 @@ export function IngestPanel({
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-1">
-          <Title>Muat dokumen order</Title>
-          {/* The two mechanism sentences that used to follow the instruction.
-              Both read the same on every order, and both describe things that
-              work whether or not anybody reads them. */}
-          <Hint label="Penjelasan langkah Muat">
-            Halaman diluruskan dan dibaca satu per satu, lalu disimpan di
-            perangkat ini. Sesudah semua berkas masuk, Proses di bawah yang
-            mencari bukti untuk tiap bagian.
-          </Hint>
-        </div>
-        <Lede>
-          Berikan semua berkas PDF yang datang bersama order ini.
-        </Lede>
-      </header>
-
+      {/* THE HEADING MOVED INTO THE KOP, so it is no longer here. A slab
+          whose kop says "Muat dokumen order" with an `<h2>` under it saying
+          the same words is the shape a screen takes when a block is wrapped
+          rather than designed. The lede went with it: "Berikan semua berkas
+          PDF yang datang bersama order ini" is what the drop target's own
+          label already says one line further down. */}
       {error ? (
         <Interruption detail={error}>
           {pages > 0
@@ -970,8 +996,29 @@ export function IngestPanel({
         </Interruption>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
-        <div className="flex flex-col gap-6">
+      {/* ONE COLUMN NOW. The riwayat used to be a 19rem rail beside the drop
+          target, which put "find the job I started yesterday" and "start
+          today's" side by side at equal weight for the whole of every session.
+          They are not equal: one of them is what the operator came here to do.
+          The riwayat is below, under its own kop, where it is found when it is
+          wanted and is not competing when it is not. */}
+      <section className="lt-slab">
+        <div className="lt-kop">
+          <Muat size={16} />
+          <h2>Muat dokumen order</h2>
+          {/* The two mechanism sentences that used to be printed under the
+              heading. Both read the same on every order, and both describe
+              things that work whether or not anybody reads them. */}
+          <Hint label="Penjelasan langkah Muat">
+            Halaman diluruskan dan dibaca satu per satu, lalu disimpan di
+            perangkat ini. Sesudah semua berkas masuk, Proses di bawah yang
+            mencari bukti untuk tiap bagian.
+          </Hint>
+          <span className="lt-kop-right lt-figure">
+            {pages > 0 ? `${pages} halaman` : ""}
+          </span>
+        </div>
+        <div className="lt-slab-body flex flex-col gap-6">
           {reading ? (
             /* The drop target stands down while an ingest runs. It cannot
                accept anything, and leaving a dead target on screen is the same
@@ -1028,55 +1075,28 @@ export function IngestPanel({
               there are usulan to review, and the search deliberately survives
               the operator working during it: it re-reads the run from storage
               and re-checks every slot before applying its answer. */}
-          {onContinue && pages > 0 && !busy ? (
-            <div className="flex flex-col items-start gap-2">
-              <div className="flex items-center gap-1">
-                <Btn
-                  tone="primary"
-                  disabled={!searched}
-                  aria-describedby={
-                    searched ? undefined : "ingest-continue-locked"
-                  }
-                  onClick={onContinue}
-                >
-                  Buka lembar periksa
-                </Btn>
-                {/* Only the OPEN state's next-step line hides. The two locked
-                    states below are the reason a disabled control is refusing
-                    to work, and those never leave the screen. */}
-                {searched ? (
-                  <Hint label="Penjelasan: Buka lembar periksa">
-                    Berikutnya: memeriksa usulan satu per satu, lalu membuat
-                    berkas hasil. Anda bisa kembali ke langkah ini kapan saja
-                    untuk menambah dokumen.
-                  </Hint>
-                ) : null}
-              </div>
-              {searched ? null : (
-                <p
-                  id="ingest-continue-locked"
-                  className="max-w-[68ch] text-[0.8125rem]"
-                  style={{ color: "var(--ink-2)" }}
-                >
-                  {searching
-                    ? "Proses sedang berjalan. Lembar periksa terbuka begitu prosesnya selesai."
-                    : "Belum ada usulan untuk diperiksa. Klik Proses dulu, dan lembar periksa akan terisi begitu prosesnya selesai."}
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
+          {/* THE WAY FORWARD IS THE STEP NAV AT THE FOOT OF THE SCREEN, so
+              this screen no longer builds its own.
 
-        {onOpenRun ? (
-          <RunsList
-            runs={runs}
-            loading={runsLoading}
-            openId={run?.id ?? null}
-            onOpenRun={onOpenRun}
-            onStartNewRun={run ? onStartNewRun : undefined}
-          />
-        ) : null}
-      </div>
+              A "Buka lembar periksa" button here and a "Lanjut: Periksa" at
+              the bottom of the same screen are one control drawn twice, and
+              the operator has to work out whether they do the same thing.
+              `StepNav` in operator-app.tsx is the one mechanism, on every
+              phase, in the same place, and it carries the locked reason beside
+              the disabled button exactly as this block did. Nothing is lost
+              except the second copy. */}
+        </div>
+      </section>
+
+      {onOpenRun ? (
+        <Riwayat
+          runs={runs}
+          loading={runsLoading}
+          openId={run?.id ?? null}
+          onOpenRun={onOpenRun}
+          onStartNewRun={run ? onStartNewRun : undefined}
+        />
+      ) : null}
     </div>
   );
 }

@@ -22,6 +22,7 @@
  */
 
 import { seedSlots, withDiscoveredCaptures } from "../browser/runtime.ts";
+import { removeSource, sourceRemovalCost } from "../browser/sources.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import { CROP_PADDING_PX } from "../pipeline/locate.ts";
@@ -412,6 +413,25 @@ export function createStubRuntime(): Runtime {
       runs.set(runId, updated);
       return updated;
     },
+
+    /*
+     * The removal, through the SAME pure function the live runtime uses.
+     *
+     * Not re-implemented here. The interesting part of removing a document is
+     * that every surviving zone has to move with the pages, and a stub that
+     * merely filtered would let a screen look correct against a model that is
+     * wrong in exactly the way the real one must never be.
+     */
+    async removeDocument(runId, sourceId) {
+      const existing = runs.get(runId);
+      if (!existing) throw new Error(`no run ${runId}`);
+      const { run } = removeSource(existing, sourceId);
+      const stored = { ...run, rev: (run.rev ?? 0) + 1 };
+      runs.set(runId, stored);
+      return stored;
+    },
+
+    sourceRemovalCost,
 
     async pageBitmap(runId, pageId) {
       const run = runs.get(runId);

@@ -430,7 +430,7 @@ export function TechnicalDetail({ children }: { children: ReactNode }) {
       >
         Detail teknis
       </summary>
-      <pre className="lt-well lt-figure mt-2 max-h-40 overflow-auto p-2 text-[0.75rem] whitespace-pre-wrap">
+      <pre className="lt-well lt-figure mt-2 max-h-40 overflow-auto p-2 text-[0.8125rem] whitespace-pre-wrap">
         {children}
       </pre>
     </details>

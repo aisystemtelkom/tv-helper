@@ -7,8 +7,15 @@
  * are not polish.
  *
  * It renders inside the root layout, so it inherits the graphite table and the
- * self-hosted type, and the message is a sheet lying on that table like every
- * other message in this product.
+ * self-hosted type, and the message is a sheet lying on that table, opening
+ * with the same kop as `signin`, `error`, `global-error` and `loading`. That
+ * file's header comment carries the one thing to know before editing any of
+ * them: which classes survive the paper rebind and which two do not.
+ *
+ * THE KOP IS NEUTRAL HERE, on purpose. Nothing failed. A mistyped address is
+ * not a fault of the app's, and spending the correction pen on it is how red
+ * stops meaning anything by the time something really does break. The figure
+ * on the right is the one thing worth quoting to an administrator.
  *
  * TWO THINGS TO KNOW BEFORE EDITING THIS FILE.
  *
@@ -25,47 +32,52 @@
  */
 
 import Link from "next/link";
+import type { CSSProperties } from "react";
 
-const ACTION_CLASS =
-  "inline-flex items-center justify-center self-start rounded-[4px] border " +
-  "px-4 py-2 text-[0.9375rem] font-semibold transition-opacity hover:opacity-90";
-const ACTION_STYLE = {
-  background: "var(--paper-ink)",
+/**
+ * What a kop costs on paper, in one place.
+ *
+ * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
+ * paints ink on ink. `color` carries the bar itself and survives the fault
+ * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
+ * child that names the token, which is how `.lt-wordmark` stops needing a
+ * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
+ * this constant goes.
+ */
+const KOP_ON_PAPER = {
   color: "var(--paper)",
-  borderColor: "var(--paper-ink)",
-};
+  "--ink": "var(--paper)",
+} as CSSProperties;
 
 export default function NotFound() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-      <div className="mb-[8vh] flex w-full max-w-[30rem] flex-col gap-5 p-8 lt-paper">
-        <h1 className="lt-title" style={{ color: "var(--paper-ink)" }}>
-          Halaman ini tidak ada.
-        </h1>
+      <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
+        <div className="lt-paper overflow-hidden">
+          <div className="lt-kop" style={KOP_ON_PAPER}>
+            <span className="lt-wordmark">tv-validator</span>
+            {/* `.lt-kop-right` rather than a margin utility: one class puts
+                the state at the same end of every kop in the product. */}
+            <span className="lt-figure lt-kop-right">404</span>
+          </div>
 
-        <p
-          className="text-[0.9375rem] leading-6"
-          style={{ color: "var(--paper-ink-2)" }}
-        >
-          Alamat yang Anda buka tidak cocok dengan halaman mana pun di aplikasi
-          ini. Pekerjaan Anda tetap tersimpan di peramban ini.
-        </p>
+          <div className="lt-slab-body flex flex-col gap-6 p-6">
+            {/* An h1, not the shared `Title`: this is the top of the document
+                and `Title` renders an h2. */}
+            <h1 className="lt-title">Halaman tidak ada.</h1>
 
-        {/* Nothing is broken on this screen, only missing, so the router is
-            safe to use here. `error.tsx` deliberately does not, and says why. */}
-        <Link href="/" className={ACTION_CLASS} style={ACTION_STYLE}>
-          Kembali ke aplikasi
-        </Link>
+            <p className="lt-lede">
+              Alamat yang Anda buka tidak cocok dengan halaman mana pun.
+            </p>
 
-        <p
-          className="lt-wordmark border-t pt-4 text-[0.75rem]"
-          style={{
-            borderColor: "var(--paper-edge)",
-            color: "var(--paper-ink-2)",
-          }}
-        >
-          tv-validator
-        </p>
+            {/* Nothing is broken on this screen, only missing, so the router is
+                safe to use here. `error.tsx` deliberately does not, and says
+                why. */}
+            <Link href="/" className="lt-btn self-start" data-tone="primary">
+              Kembali ke aplikasi
+            </Link>
+          </div>
+        </div>
       </div>
     </main>
   );

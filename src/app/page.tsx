@@ -219,7 +219,7 @@ export default async function Home() {
             </a>
 
             <p
-              className="lt-wordmark border-t pt-4 text-[0.75rem]"
+              className="lt-wordmark border-t pt-4 text-[0.8125rem]"
               style={{
                 borderColor: "var(--paper-edge)",
                 color: "var(--paper-ink-2)",
@@ -269,10 +269,15 @@ export default async function Home() {
               "Selesaikan langkah 5 di docs/runbook-deploy.md, lalu deploy ulang."
             }
           >
-            Aplikasi ini sedang berjalan tanpa pemeriksaan akun. Siapa pun yang
-            bisa membuka alamat ini bisa membuka dokumen di dalamnya. Jangan
-            memuat dokumen pelanggan sampai administrator menyalakan lagi
-            pemeriksaan akun.
+            {/* Two sentences, not four. This band cannot be dismissed and
+                cannot be scrolled past, so it is the first thing on every
+                screen of every session, and at four lines it was a paragraph
+                the operator learned to look past. What it has to carry is the
+                fact and the instruction; the deployment detail behind it is
+                already one click away under "Detail teknis". */}
+            Aplikasi berjalan tanpa pemeriksaan akun, jadi siapa pun yang bisa
+            membuka alamat ini bisa membuka dokumennya.{" "}
+            <b>Jangan muat dokumen pelanggan.</b>
           </Interruption>
         }
       />

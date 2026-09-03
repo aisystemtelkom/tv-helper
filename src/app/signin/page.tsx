@@ -17,10 +17,22 @@
  * nothing to fetch. The Google button is therefore a word, not a mark, and the
  * type is this app's own self-hosted family.
  *
- * THE FORM IS A SHEET OF PAPER ON THE TABLE. It is the one document on this
- * page, so it is the one thing that is lit and casts a shadow, and everything
- * written on it takes the paper's own ink (`--paper-ink`), never the graphite
- * ground's `--ink`, which on this sheet is very nearly the sheet itself.
+ * THE FORM IS A SHEET OF PAPER ON THE TABLE, and it opens with a kop: the bar
+ * of ink an Indonesian letterhead starts with. The same sheet and the same kop
+ * carry `not-found.tsx`, `error.tsx`, `global-error.tsx` and `loading.tsx`, so
+ * the five screens a new operator meets before the app itself are one object
+ * seen five times rather than five near-misses.
+ *
+ * WHAT PAPER COSTS, and it is identical on all five of those sheets. Because
+ * `.lt-paper` rebinds the ink tokens, `.lt-title`, `.lt-lede`, `.lt-notice`
+ * and `.lt-btn[data-tone="primary"]` all read correctly on a sheet with no
+ * help at all: petrol and its legend are never rebound, and the edge and the
+ * plate the button draws with become the paper's own ink, which is what a
+ * control printed on a form looks like. TWO CLASSES DO NEED HELP, and both
+ * fail the same way. `.lt-kop` paints `--kop` under `--ink`, and on paper both
+ * rebind to `--paper-ink`, so a kop is ink on ink and its legend has to be
+ * spelled out as `--paper`. `.lt-kotak` fills with `--surface-sunk`, which is
+ * the recess colour of the TABLE and is not a paper token at all.
  *
  * IT IS DELIBERATELY NOT REDIRECTED FOR AN ALREADY-SIGNED-IN VISITOR. The
  * obvious improvement ("you are signed in, go to /") closes the only escape
@@ -30,10 +42,16 @@
  */
 
 import Link from "next/link";
+import type { CSSProperties, ReactNode } from "react";
 
 import { isAuthDisabled } from "@/lib/auth/guard";
 import { signIn } from "@/lib/auth";
-import { TechnicalDetail } from "@/components/operator/chrome";
+import {
+  Btn,
+  Lede,
+  Notice,
+  TechnicalDetail,
+} from "@/components/operator/chrome";
 
 import {
   safeCallbackUrl,
@@ -51,31 +69,58 @@ export const metadata = {
 };
 
 /**
- * A control printed on paper, which is the inverse of a control on the table:
- * dark ink pressed into the sheet rather than a lit key on a dark panel.
- * `.lt-btn` cannot be used here because its ink is the graphite ground's, and
- * on `--paper` that is a white button on a white sheet.
+ * What a kop costs on paper, in one place.
+ *
+ * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
+ * paints ink on ink. `color` carries the bar itself and survives the fault
+ * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
+ * child that names the token, which is how `.lt-wordmark` stops needing a
+ * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
+ * this constant goes.
  */
-const ACTION_CLASS =
-  "inline-flex w-full items-center justify-center rounded-[4px] border " +
-  "px-4 py-2.5 text-[0.9375rem] font-semibold transition-opacity " +
-  "hover:opacity-90";
-const ACTION_STYLE = {
-  background: "var(--paper-ink)",
+const KOP_ON_PAPER = {
   color: "var(--paper)",
-  borderColor: "var(--paper-ink)",
-};
+  "--ink": "var(--paper)",
+} as CSSProperties;
 
 /**
- * The correction pen on paper is a RULE, never a fill and never a text colour.
- * `--gap` measures 2.6:1 against `--paper`, which is right for a 2px stroke
- * and well under AA for a sentence, so the sentence stays in `--paper-ink`.
+ * The kop, on paper: the block's name on the left, whatever it owes on the
+ * right.
+ *
+ * `owes="fault"` turns the whole bar, which is the point of putting the status
+ * in the container: an operator who was refused sees it before reading a word,
+ * and it is one mechanism rather than a mark on every screen that has to
+ * remember to draw itself.
  */
-const REFUSAL_CLASS = "border-s-2 ps-3 text-[0.9375rem] leading-6";
-const REFUSAL_STYLE = {
-  borderInlineStartColor: "var(--gap)",
-  color: "var(--paper-ink)",
-};
+function Kop({ owes, children }: { owes?: "fault"; children?: ReactNode }) {
+  return (
+    <div className="lt-kop" data-owes={owes} style={KOP_ON_PAPER}>
+      <span className="lt-wordmark">tv-validator</span>
+      {/* `.lt-kop-right` rather than a margin utility: one class puts the
+          state at the same end of every kop in the product. */}
+      {children ? <span className="lt-kop-right">{children}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * A value quoted out of the request, in a ruled box.
+ *
+ * ONLY THE FILL IS SPELLED OUT. `.lt-kotak` takes its ink and its rule from
+ * the tokens the sheet already rebinds; what it cannot take is
+ * `--surface-sunk`, which is the TABLE's recess and has no paper value, so a
+ * kotak on a sheet is a dark box until the fill is dropped.
+ */
+function Kotak({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="lt-kotak break-all"
+      style={{ background: "transparent", whiteSpace: "normal" }}
+    >
+      {children}
+    </span>
+  );
+}
 
 export default async function SignInPage(props: PageProps<"/signin">) {
   const params = await props.searchParams;
@@ -97,121 +142,107 @@ export default async function SignInPage(props: PageProps<"/signin">) {
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-      {/* Lifted off the geometric centre. Flush to the top of a 1080px office
-          monitor is the cheapest possible signal that nobody looked at this
-          screen, and dead centre reads as a dialog rather than as a page. */}
-      <div className="mb-[8vh] flex w-full max-w-[26rem] flex-col gap-4">
-        <div className="lt-paper flex flex-col gap-6 p-8">
-          <div className="flex flex-col gap-2">
-            {/* The product name is the heading, because this page IS the
-                identity page. Uppercase and tracked out is sanctioned here
-                and in one other place only: a wordmark is a quotation, not a
-                label given rank by being shouted. */}
-            <h1
-              className="lt-wordmark text-[1.375rem]"
-              style={{ color: "var(--paper-ink)" }}
-            >
-              tv-validator
-            </h1>
+      {/* Lifted off the geometric centre by one step of the space scale. Dead
+          centre reads as a dialog rather than as a page, and flush to the top
+          of a 1080px office monitor is the cheapest possible signal that
+          nobody looked at this screen. */}
+      <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
+        <div className="lt-paper overflow-hidden">
+          {/* A refused sign-in and a deployment running with no account check
+              are both refusals, so the bar carries the correction pen. Neither
+              is a decision the operator owes, so neither is ever amber. */}
+          <Kop owes={message || disabled ? "fault" : undefined} />
+
+          {/* `.lt-slab-body` for the 3px it holds clear under the kop's double
+              rule; the padding is the system's 24px step rather than its own. */}
+          <div className="lt-slab-body flex flex-col gap-6 p-6">
+            {/* An h1, not the shared `Title`, because this is the top of the
+                document and `Title` renders an h2. */}
+            <h1 className="lt-title">Masuk</h1>
+
+            <Lede>Pakai Akun Google yang didaftarkan administrator.</Lede>
+
+            {/* The refusal sits ABOVE the button. An operator who arrives at
+                /signin?error=... arrives because something already failed, and
+                that outranks the control they have already pressed once. A
+                refusal never hides behind a disclosure. */}
+            {message ? (
+              <Notice tone="stop" role="alert">
+                {message}
+              </Notice>
+            ) : null}
+
+            {disabled ? (
+              <div className="flex flex-col gap-4">
+                <Notice tone="stop">
+                  Pemeriksaan akun sedang mati. Siapa pun yang bisa membuka
+                  alamat ini sudah bisa memakai aplikasi.
+                </Notice>
+                {/* This mode used to leave the page with no action at all,
+                    which sends the operator away to guess at a URL. The guard
+                    admits everyone while it is on, so the honest next step is
+                    the app itself. */}
+                <Link href="/" className="lt-btn self-start" data-tone="primary">
+                  Buka aplikasi
+                </Link>
+              </div>
+            ) : (
+              <form
+                action={async (formData: FormData) => {
+                  "use server";
+                  // Re-sanitized here rather than trusted from the form: a
+                  // Server Function is a POST anyone can shape, and this value
+                  // becomes a redirect target.
+                  await signIn("google", {
+                    redirectTo: safeCallbackUrl(
+                      formData.get("callbackUrl")?.toString(),
+                    ),
+                  });
+                }}
+                className="flex flex-col gap-4"
+              >
+                <input type="hidden" name="callbackUrl" value={callbackUrl} />
+                <Btn type="submit" tone="primary" className="self-start">
+                  Masuk dengan Google
+                </Btn>
+
+                {/* Where they will land, when it is not simply the app. The
+                    value has already been through `safeCallbackUrl`, so one
+                    that was rewritten reads `/` and this line does not render
+                    at all: the page never promises a destination it will not
+                    use. */}
+                {callbackUrl !== "/" ? (
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="lt-label">tujuan</span>
+                    <Kotak>{callbackUrl}</Kotak>
+                  </p>
+                ) : null}
+              </form>
+            )}
+
+            {/* The consent, and the document being consented to. This is the
+                only page in the product where consent is actually given, and
+                until now the policy was linked from nowhere at all. It stays on
+                screen at rest: a consent statement is never a hint and never a
+                toast. In bootstrap mode the sentence is dropped and the link
+                kept: nobody is signing in, so nothing is being shared, and
+                saying otherwise would be a claim this page cannot make. */}
             <p
-              className="text-[0.9375rem] leading-6"
-              style={{ color: "var(--paper-ink-2)" }}
+              className="lt-note border-t-2 pt-4"
+              style={{ borderColor: "var(--paper-edge)" }}
             >
-              Gunakan Akun Google yang sudah didaftarkan administrator.
+              {disabled ? null : (
+                <>Yang dibagikan hanya alamat email dan nama Akun Google Anda. </>
+              )}
+              <a
+                href="/privacy"
+                className="underline underline-offset-2"
+                style={{ color: "var(--paper-ink)" }}
+              >
+                Kebijakan Privasi
+              </a>
             </p>
           </div>
-
-          {/* The refusal sits ABOVE the button. An operator who arrives at
-              /signin?error=... arrives because something already failed, and
-              that outranks the control they have already pressed once. */}
-          {message ? (
-            <p role="alert" className={REFUSAL_CLASS} style={REFUSAL_STYLE}>
-              {message}
-            </p>
-          ) : null}
-
-          {disabled ? (
-            <div className="flex flex-col gap-4">
-              <p className={REFUSAL_CLASS} style={REFUSAL_STYLE}>
-                Aplikasi ini sedang berjalan tanpa pemeriksaan akun, jadi tidak
-                ada yang perlu Anda masukkan di sini. Siapa pun yang bisa
-                membuka alamat ini sudah bisa memakai aplikasi.
-              </p>
-              {/* This mode used to leave the page with no action at all, which
-                  sends the operator away to guess at a URL. The guard admits
-                  everyone while it is on, so the honest next step is the app
-                  itself. */}
-              <Link href="/" className={ACTION_CLASS} style={ACTION_STYLE}>
-                Buka aplikasi
-              </Link>
-            </div>
-          ) : (
-            <form
-              action={async (formData: FormData) => {
-                "use server";
-                // Re-sanitized here rather than trusted from the form: a Server
-                // Function is a POST anyone can shape, and this value becomes a
-                // redirect target.
-                await signIn("google", {
-                  redirectTo: safeCallbackUrl(
-                    formData.get("callbackUrl")?.toString(),
-                  ),
-                });
-              }}
-              className="flex flex-col gap-3"
-            >
-              <input type="hidden" name="callbackUrl" value={callbackUrl} />
-              <button
-                type="submit"
-                className={ACTION_CLASS}
-                style={ACTION_STYLE}
-              >
-                Masuk dengan Google
-              </button>
-
-              {/* Where they will land, when it is not simply the app. The
-                  value has already been through `safeCallbackUrl`, so one that
-                  was rewritten reads `/` and this line does not render at all:
-                  the page never promises a destination it will not use. */}
-              {callbackUrl !== "/" ? (
-                <p
-                  className="text-[0.8125rem] leading-5"
-                  style={{ color: "var(--paper-ink-2)" }}
-                >
-                  Setelah masuk, Anda dibawa ke{" "}
-                  <span className="lt-figure break-all">{callbackUrl}</span>
-                </p>
-              ) : null}
-            </form>
-          )}
-
-          {/* The consent, and the document being consented to. This is the
-              only page in the product where consent is actually given, and
-              until now the policy was linked from nowhere at all. In bootstrap
-              mode the sentence is dropped and the link kept: nobody is signing
-              in, so nothing is being shared, and saying otherwise would be a
-              claim this page cannot make. */}
-          <p
-            className="border-t pt-4 text-[0.8125rem] leading-5"
-            style={{
-              borderColor: "var(--paper-edge)",
-              color: "var(--paper-ink-2)",
-            }}
-          >
-            {disabled ? null : (
-              <>
-                Yang dibagikan saat masuk hanya alamat email dan nama Akun
-                Google Anda.{" "}
-              </>
-            )}
-            <a
-              href="/privacy"
-              className="underline underline-offset-2"
-              style={{ color: "var(--paper-ink)" }}
-            >
-              Kebijakan Privasi
-            </a>
-          </p>
         </div>
 
         {/* Off the sheet, on the table: variable names, a runbook step and a

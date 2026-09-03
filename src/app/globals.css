@@ -590,8 +590,16 @@
     box-shadow: 0 3px 0 0 var(--edge);
     font-size: 0.8125rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+
+    /* NOT UPPERCASE, and not tracked out, though the first draft of this rule
+       was both. A bar of ink at full width, ruled 2px and carrying a plate, is
+       already the most emphatic object on the screen; adding caps to it is
+       giving rank to something that has plenty. This system's own rule is that
+       uppercase quotes the DOCUMENT and never labels the interface, and a kop
+       is a label. It also matters that a kop often carries a name transcribed
+       from the sample -- "BA Permintaan", "KB (lanjutan)" -- which arrives in
+       the casing the document itself uses, and shouting it changes the
+       quotation. */
   }
   .lt-kop[data-owes="decision"] {
     background: var(--mark);
@@ -604,6 +612,29 @@
   .lt-kop[data-owes="done"] {
     background: var(--petrol);
     color: var(--petrol-ink);
+  }
+
+  /* Pushed to the far end of the kop: the count, the state word, whatever this
+     block owes. One class so every kop in the product puts it in the same
+     place, and a screen never reaches for `ml-auto` and lands a pixel off. */
+  .lt-kop-right {
+    margin-left: auto;
+    font-weight: 600;
+  }
+
+  /* A ROW INSIDE A SLAB, ruled off from its neighbours. `.lt-kotak` is for a
+     FIGURE quoted out of a document and is inline-flex with a figure's tight
+     padding, so using it as a row container (the first draft of the document
+     manager did) collapses the row to its content and boxes a whole layout as
+     though it were a number. */
+  .lt-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface-sunk);
+    border: 2px solid var(--line-strong);
+    border-radius: 2px;
   }
 
   /* The body of a slab. The 3px gap under the kop is the double rule showing
@@ -864,7 +895,14 @@
     border-radius: 2px;
     transform: rotate(-3deg);
     font-family: var(--font-figure), ui-monospace, monospace;
-    font-size: 0.6875rem;
+    /* 13px, the product's floor, not the 11px this was. `body` states the
+       rule two hundred lines up -- "nothing in this product is smaller than
+       13px, because every small string here is safety copy" -- and a stamp is
+       not the exception: `.lt-stamp` quotes a rubber stamp, and what a rubber
+       stamp says on a validation packet is the kind of thing a validator is
+       meant to read. Tracked out at 0.12em it also sets wider than its size
+       suggests, which is what let 11px look acceptable. */
+    font-size: 0.8125rem;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -1265,6 +1303,40 @@
     transform: rotate(45deg);
   }
   .lt-disclose > summary:hover { color: var(--ink); }
+
+  /* THE SAME GESTURE AS A BUTTON, for the places a `<details>` cannot go.
+     A disclosure in a BAR has controls beside it on the same row, and those
+     controls cannot live inside a `<summary>`: a button nested in a summary is
+     a click target inside a click target, and the outer one wins on tap. So
+     the bar keeps its own button and paints the identical chevron, rather than
+     inventing a second way of saying "there is more under this". */
+  .lt-disclose-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.875rem;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .lt-disclose-btn:hover { color: var(--ink); }
+
+  .lt-chevron {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 120ms ease;
+  }
+  .lt-chevron[data-open="true"] { transform: rotate(45deg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lt-chevron,
+    .lt-disclose > summary::before {
+      transition: none;
+    }
+  }
 
   /* =====================================================================
      THE TOAST. Transient confirmations leave the page and stop pushing the

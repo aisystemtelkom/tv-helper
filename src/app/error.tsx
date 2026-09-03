@@ -9,10 +9,16 @@
  * does NOT wrap the root layout, and `global-error.tsx` is what catches that.
  *
  * THE OPERATOR NEEDS TWO FACTS AND ONE ACTION. Whether their work survived,
- * and what to press. Everything else here (the exception text, the digest that
- * ties this screen to a line in the Cloud Run log) is written for whoever
+ * and what to press. Both stay on the sheet at rest: a fault never hides
+ * behind a disclosure. Everything else here (the exception text, the digest
+ * that ties this screen to a line in the Cloud Run log) is written for whoever
  * deploys this app, so it sits off the sheet behind the disclosure. Both
  * audiences are real; they are not the same person.
+ *
+ * THE KOP CARRIES THE FAULT, which is what makes this screen legible from
+ * across the room and what stops the fault being a small mark somebody has to
+ * hunt for. The sheet is the same one `signin.tsx` documents, including the
+ * two classes that need help to read on paper.
  *
  * `retry()` rather than `reset()`. Next passes both, and both are real, but
  * they answer different questions: `reset()` re-renders the boundary's
@@ -24,16 +30,24 @@
  * `reset` and `retry` side by side.
  */
 
-import { TechnicalDetail } from "@/components/operator/chrome";
+import type { CSSProperties } from "react";
 
-const ACTION_CLASS =
-  "inline-flex items-center justify-center self-start rounded-[4px] border " +
-  "px-4 py-2 text-[0.9375rem] font-semibold transition-opacity hover:opacity-90";
-const ACTION_STYLE = {
-  background: "var(--paper-ink)",
+import { Btn, TechnicalDetail } from "@/components/operator/chrome";
+
+/**
+ * What a kop costs on paper, in one place.
+ *
+ * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
+ * paints ink on ink. `color` carries the bar itself and survives the fault
+ * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
+ * child that names the token, which is how `.lt-wordmark` stops needing a
+ * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
+ * this constant goes.
+ */
+const KOP_ON_PAPER = {
   color: "var(--paper)",
-  borderColor: "var(--paper-ink)",
-};
+  "--ink": "var(--paper)",
+} as CSSProperties;
 
 /**
  * Next's own source carries "Docs say this is an Error object, but we don't
@@ -65,55 +79,36 @@ export default function AppError({
 }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-      <div className="mb-[8vh] flex w-full max-w-[30rem] flex-col gap-4">
-        <div className="lt-paper flex flex-col gap-5 p-8">
-          {/* A fault, so it carries the correction pen, and the pen is a rule:
-              `--gap` measures 2.6:1 on paper, right for a stroke and well
-              under AA for a sentence. */}
-          <h1
-            className="lt-title border-s-2 ps-3"
-            style={{
-              color: "var(--paper-ink)",
-              borderInlineStartColor: "var(--gap)",
-            }}
-          >
-            Halaman ini gagal ditampilkan.
-          </h1>
+      <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
+        <div className="lt-paper overflow-hidden">
+          {/* The whole bar, not a mark beside a heading. `--kop`, `--ink` and
+              `--gap` all rebind on paper, so the legend is spelled out. */}
+          <div className="lt-kop" data-owes="fault" style={KOP_ON_PAPER}>
+            <span className="lt-wordmark">tv-validator</span>
+            <span className="lt-kop-right">gagal</span>
+          </div>
 
-          <p
-            className="text-[0.9375rem] leading-6"
-            style={{ color: "var(--paper-ink-2)" }}
-          >
-            Aplikasi berhenti saat menyiapkan halaman ini. Keputusan yang sudah
-            tersimpan tetap ada di peramban ini. Keputusan yang belum sempat
-            tersimpan perlu Anda ulangi.
-          </p>
+          <div className="lt-slab-body flex flex-col gap-6 p-6">
+            {/* An h1, not the shared `Title`: this is the top of the document
+                and `Title` renders an h2. */}
+            <h1 className="lt-title">Halaman gagal ditampilkan.</h1>
 
-          <button
-            type="button"
-            onClick={() => retry()}
-            className={ACTION_CLASS}
-            style={ACTION_STYLE}
-          >
-            Coba lagi
-          </button>
+            <p className="lt-lede">
+              Keputusan yang sudah tersimpan tetap ada di peramban ini. Yang
+              belum tersimpan perlu diulang.
+            </p>
 
-          <p
-            className="lt-wordmark border-t pt-4 text-[0.75rem]"
-            style={{
-              borderColor: "var(--paper-edge)",
-              color: "var(--paper-ink-2)",
-            }}
-          >
-            tv-validator
-          </p>
+            <Btn tone="primary" className="self-start" onClick={() => retry()}>
+              Coba lagi
+            </Btn>
+          </div>
         </div>
 
         {/* On the table, not on the sheet: the disclosure is drawn in the
-            graphite ground's ink and would be unreadable on paper. The
-            escape hatch lives here too, quietly, because a retry that keeps
-            failing needs somewhere else to go and this boundary also wraps
-            pages that are not the app's root. */}
+            graphite ground's ink and would be unreadable on paper. The escape
+            hatch lives here too, quietly, because a retry that keeps failing
+            needs somewhere else to go and this boundary also wraps pages that
+            are not the app's root. */}
         <TechnicalDetail>{describe(error)}</TechnicalDetail>
         {/* A plain anchor, and NOT `next/link`, on purpose. This screen is
             rendering because the React tree threw; asking the client router to
