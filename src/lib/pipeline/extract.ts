@@ -455,5 +455,10 @@ export async function extractTextFields(
     }
   }
 
-  return reconcileFieldValues(values);
+  // `template.fieldLists` is what tells the reconciler that a key's cell holds
+  // several answers rather than one, and it is the only reason `picContacts`
+  // stops shipping blank -- see `reconcileFieldValues`. Passed from the
+  // template rather than read from a constant here so the pipeline never
+  // carries one form's key names.
+  return reconcileFieldValues(values, template.fieldLists);
 }

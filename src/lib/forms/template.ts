@@ -127,6 +127,22 @@ export type Template = {
    * backed row.
    */
   fieldHints: Record<string, string>;
+  /**
+   * fieldKeys whose cell holds a LIST of answers rather than one value.
+   *
+   * Opt-in, per key, and empty is the safe default: it is the one thing that
+   * stops `reconcileFieldValues` from blanking a cell when two documents
+   * answer with two DIFFERENT things. See that function for the measurement
+   * (`picContacts` shipped blank while the sample's own cell holds both
+   * contacts) and for why marking a single-valued key here would silently
+   * concatenate two different customers instead of reporting them.
+   *
+   * Declared on the TEMPLATE rather than as a constant in the pipeline
+   * because it is a statement about this form's cells: another order form can
+   * hold a list in a different row, and the pipeline must not carry a list of
+   * one template's key names.
+   */
+  fieldLists?: ReadonlySet<string>;
 };
 
 /**
@@ -629,4 +645,15 @@ export const AO_TEMPLATE: Template = {
       "the customer's head-office address from the agreement's party block, " +
       "NOT Telkom's address, and NOT a postal address in an email footer.",
   },
+
+  // `picContacts` is a LIST, and saying so here is what stops it shipping
+  // blank. Measured 2026-09-03 on the sample bundle: the model answers with
+  // two contact people, `sameEntity` correctly reports that two people are not
+  // one person, and `reconcileFieldValues` blanked the cell as a conflict --
+  // while the human-authored sample's own "Contact Last Name" cell holds both
+  // of them joined by a newline, which is also what the hint above asks for.
+  // Only this key is listed: every other backed key holds one value, and
+  // adding one that does would turn a reported disagreement into a silently
+  // concatenated cell.
+  fieldLists: new Set(["picContacts"]),
 };

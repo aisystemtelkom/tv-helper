@@ -140,6 +140,20 @@ export type FieldValue = {
    */
   source?: CitedSource;
   /**
+   * EVERY validated citation behind this value, in the order the value prints
+   * them. Set only for a LIST-VALUED key (see `reconcileFieldValues`' `list`
+   * argument), where the cell holds several answers joined by newlines and one
+   * `source` would name the lines behind only the first of them.
+   *
+   * `source` stays set to the first of these, so every existing consumer keeps
+   * working and keeps pointing at real lines; a consumer that prints
+   * provenance should prefer this when it is present, or it will show a
+   * two-contact cell as though one line range backed the whole of it --
+   * provenance that is true about part of a cell and read as true about all of
+   * it, which is the same failure shape as a citation that is simply wrong.
+   */
+  sources?: CitedSource[];
+  /**
    * What became of the citation the model offered, INCLUDING the two cases
    * `source` cannot tell apart. Optional because a `FieldValue` can be built
    * by hand or by a producer that never asked a model (the order-request
@@ -301,11 +315,38 @@ export async function extractFields(
  * operator settles, which is the outcome this function exists to produce,
  * rather than a silent merge of two different numbers.
  *
+ * A LIST-VALUED KEY IS THE ONE EXCEPTION, and it is opt-in per key. See
+ * `list` below: for a key whose cell legitimately holds SEVERAL answers, two
+ * entries that are not the same entity are agreement, not disagreement, and
+ * blanking the cell over it hides evidence the documents actually supplied.
+ *
  * Order is preserved: keys come back in the order they were first seen, and
  * ties inside a key keep the earlier entry, so an earlier round outranks a
  * later one when nothing else separates them.
+ *
+ * @param list fieldKeys whose cell holds a LIST rather than one value.
+ *
+ * MEASURED, on the sample bundle, 2026-09-03: the model answers `picContacts`
+ * with two contact people, `sameEntity` correctly reports that two people are
+ * not one person, and the key therefore shipped BLANK as a conflict -- while
+ * the human-authored sample's own cell holds both of them joined by a
+ * newline, and `AO_TEMPLATE.fieldHints.picContacts` already asks for exactly
+ * that ("keep every contact listed, one per line"). Nothing was wrong with
+ * the extraction or with `sameEntity`; there was simply no way to say that a
+ * key holds a set, so agreement-on-a-set was indistinguishable from
+ * disagreement-on-a-value.
+ *
+ * IT IS OPT-IN, AND THE DEFAULT IS THE CONFLICT NET. Marking a key that holds
+ * ONE value -- a customer, a quote number, a price -- would silently
+ * concatenate two different answers into one cell instead of reporting them,
+ * which is precisely the failure this function exists to prevent. The
+ * negative tests (`cc` with two customer names still conflicts) are the
+ * guard; whoever widens the set keeps them green.
  */
-export function reconcileFieldValues(values: FieldValue[]): FieldValue[] {
+export function reconcileFieldValues(
+  values: FieldValue[],
+  list: ReadonlySet<string> = new Set(),
+): FieldValue[] {
   const groups = new Map<string, FieldValue[]>();
   for (const value of values) {
     const group = groups.get(value.fieldKey);
@@ -335,6 +376,10 @@ export function reconcileFieldValues(values: FieldValue[]): FieldValue[] {
     // cell" is the question the deliverable actually turns on.
     const agree = spellings.every((s) => sameEntity(s, canonical));
     if (!agree) {
+      if (list.has(fieldKey)) {
+        reconciled.push(joinListValue(fieldKey, spellings, answered));
+        continue;
+      }
       reconciled.push({ fieldKey, value: "", conflict: spellings });
       continue;
     }
@@ -368,6 +413,58 @@ export function reconcileFieldValues(values: FieldValue[]): FieldValue[] {
   }
 
   return reconciled;
+}
+
+/**
+ * The settled entry for a LIST-VALUED key: every distinct spelling joined by
+ * newlines, in first-seen order, carrying every one of their citations.
+ *
+ * THE CELL IS ONLY AS WELL-CITED AS ITS WEAKEST PART, which is why `citation`
+ * is not simply taken from the first entry. A cell holding two contacts where
+ * one was cited and the other was not is not a cited cell, and reporting it as
+ * one would put a `cited`/`high` badge on a value half of which has no
+ * provenance at all. So an `invalid` outcome anywhere wins (it is the
+ * strongest warning: the model confabulated a reference around one of these
+ * answers), a missing or uncited one comes next, and `cited` is reported only
+ * when every part of the value earned it.
+ */
+function joinListValue(
+  fieldKey: string,
+  spellings: string[],
+  answered: FieldValue[],
+): FieldValue {
+  // One carrier per DISTINCT spelling, so the citations line up with the lines
+  // the value actually prints rather than with however many times the model
+  // happened to repeat one of them.
+  const carriers = spellings.map(
+    (spelling) => answered.find((v) => v.value.trim() === spelling) as FieldValue,
+  );
+  // Newline-joined because that is what the human-authored sample's own
+  // "Contact Last Name" cell holds, byte for byte, and what the field hint
+  // asks the model for ("one per line").
+  const settled: FieldValue = { fieldKey, value: spellings.join("\n") };
+
+  const sources = carriers
+    .map((carrier) => carrier.source)
+    .filter((source): source is CitedSource => source !== undefined);
+  if (sources.length > 0) {
+    settled.source = sources[0];
+    settled.sources = sources;
+  }
+
+  const invalid = carriers.find((carrier) => carrier.citation?.status === "invalid");
+  if (invalid?.citation) settled.citation = invalid.citation;
+  else if (carriers.every((carrier) => carrier.citation?.status === "cited")) {
+    settled.citation = { status: "cited", source: sources[0] };
+  } else settled.citation = { status: "uncited" };
+
+  // Provenance for the request-supplied case, taken from the first carrier
+  // that has it for the same reason `source` is: it is a reference into a
+  // spreadsheet cell, and there is only one field to put it in.
+  const requestSource = carriers.find((carrier) => carrier.requestSource);
+  if (requestSource?.requestSource) settled.requestSource = requestSource.requestSource;
+
+  return settled;
 }
 
 /**
