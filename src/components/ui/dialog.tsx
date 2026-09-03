@@ -15,17 +15,39 @@ import { Button } from "@/components/ui/button"
  * veil does not separate anything from a busy
  * graphite proof sheet, so the operator reads the dialog against live
  * evidence; and blurring the backdrop blurs THE CROP THEY ARE STILL DECIDING
- * ON, which is the one pixel-accurate thing on the screen. It is now the
- * sunk tone at 75%, the same recipe `.lt-scrim` uses in the zone editor, so
- * the product has one way of putting the table out of reach.
+ * ON, which is the one pixel-accurate thing on the screen.
+ *
+ * IT IS `.lt-veil`, AND THAT IS NOW ACTUALLY ONE RECIPE WITH `.lt-scrim`.
+ * This comment used to say it already was: "the sunk tone at 75%, the same
+ * recipe `.lt-scrim` uses in the zone editor". It was a different token.
+ * `.lt-scrim` dims with `--mat`; this dimmed with `--surface-sunk`, which is
+ * LIGHTER than the mat, so veiling a crop mounted on its near-black surround
+ * LIFTED that surround by 1.07:1 instead of putting it out of reach. Both now
+ * dim with `--mat`, at the two strengths their two jobs need (78% for the zone
+ * editor, where the operator still has to read the surrounding page; 86% here,
+ * where they do not). Measured: a white scan behind a dialog drops 14.33:1.
+ * The value lives in `globals.css` as `--veil`.
  *
  * THE PANEL IS `.lt-panel`, not a card and not a popover. `--popover` maps to
  * `--surface-rail`, which is chrome, and chrome must never hold a fact you
- * read for meaning; a dialog holds nothing else. `.lt-panel` is the grouped
- * block, `--surface-raised` with a 1px rule at 6px, and taking the class
- * rather than re-deriving it keeps one definition of the material. No shadow:
- * `.lt-paper` owns the only shadow in the stylesheet, and a dialog is not a
- * document.
+ * read for meaning; a dialog holds nothing else. `.lt-panel` is the LIFTED
+ * block: it rebinds `--surface-raised` to `--surface-lift` and takes the
+ * radius scale's top step, 28px, which is the one thing in the product large
+ * enough to wear it. Taking the class rather than re-deriving it keeps one
+ * definition of the material. (This paragraph used to say `--surface-raised`
+ * at 6px; both numbers were left behind by the restyle, and a dialog that is
+ * the same fill as the block behind it is exactly what the lifted value
+ * exists to prevent -- it reads 1.40:1 against a veiled scan where a
+ * slab-coloured panel measured 1.15:1.) No shadow: `.lt-paper` owns the only
+ * shadow in the stylesheet, and a dialog is not a document.
+ *
+ * THE CLOSE AFFORDANCE PINS ITS OWN RADIUS. `Button` is still written against
+ * the pre-restyle scale -- its doc comment says `--radius` is 0.25rem and
+ * `rounded-lg` is 4px -- and `--radius` is now 0.875rem, so `rounded-lg` on a
+ * 28px icon button is a 14px radius on a 28px box, which is a circle. The
+ * product has no circular controls. `rounded-[8px]` is the figure step and
+ * `cn`'s tailwind-merge lets it beat the variant's own class. When `Button` is
+ * brought onto this system the override comes back out.
  *
  * THE DEFAULT WIDTH IS NOT A CROP'S WIDTH. It was 384px, which
  * cannot carry a page of an Indonesian contract at a size anyone can rule on.
@@ -63,7 +85,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-surface-sunk/75 duration-100",
+        "lt-veil fixed inset-0 isolate z-50 duration-100",
         "data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
@@ -105,7 +127,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
+                className="absolute top-2 right-2 rounded-[8px]"
                 size="icon-sm"
               />
             }

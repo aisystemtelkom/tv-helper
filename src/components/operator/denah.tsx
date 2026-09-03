@@ -130,8 +130,17 @@ export function Denah({
       </svg>
 
       {unreadable && size !== "sm" ? (
+        /* 13px, not the 10px this was.
+           The product's floor is 13px and the reason `body` gives for it is
+           that every small string here is safety copy. This is the most
+           literal example in the whole product: it is the device that answers
+           "is this the right page" telling you it could not read the page, and
+           it was set three sizes below anything else on screen. The struck
+           rule through the sheet carries the same fact as a shape, so the
+           words are the second channel rather than the only one, but a second
+           channel nobody can read is not one. */
         <span
-          className="absolute inset-x-0 bottom-1 text-center text-[0.625rem] leading-tight"
+          className="absolute inset-x-0 bottom-1 text-center text-[0.8125rem] leading-tight"
           style={{ color: "var(--gap)" }}
         >
           teks tidak

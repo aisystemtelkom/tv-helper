@@ -4,80 +4,108 @@
 @import "tw-shimmer";
 
 /* =========================================================================
-   STEMPEL BASAH -- the wet stamp.
+   MEJA KACA -- the glass bench.
 
-   "Stempel basah" is Indonesian officialese for an original that a person
-   signed and stamped by hand, as opposed to a photocopy of one. That is
-   literally what this product manufactures: a packet a validator signs with a
-   wet pen. So the app stops being a neutral container for scans and becomes
-   the thing it produces, a file of official paper.
+   THE ONE IDEA: THE TOOL IS GLASS, THE WORK IS SOLID.
 
-   WHY THE LAST TWO ATTEMPTS DID NOT LOOK LIKE ANYTHING. This system used to be
-   written entirely as PROHIBITIONS: no card, no shadow but one, no uppercase,
-   no colour on confirmed work, nothing moves, and a page listing what must not
-   get an icon. Subtract all of that and what is left is bordered HTML, which is
-   exactly what shipped. A STYLE IS A SET OF THINGS YOU ALWAYS DO, and the old
-   system named none. Below are the eight this one always does. If you are
-   adding a screen, you are not choosing how it looks; you are assembling it
-   from these.
+   One gradient ground runs under the whole product. Two materials sit on it,
+   and which one a thing gets is decided by a single question anybody can
+   answer by scrolling:
 
-   1. EVERY BLOCK IS A SLAB. Zero radius, a 2px edge, a fill one value step
-      above its ground, and a hard offset plate 4px down and right with NO blur.
-      A stamp is a hard edge and a flat plane of ink, and so is every container
-      here. There are no floating hairline groups.
+     DOES IT STAY STILL?  -> GLASS. The application strip, the phase rail, the
+       documents bar, the interruption band, a sticky action footer, a toast, a
+       hint panel, a dialog. Translucent, backdrop-blurred, a bright hairline
+       along the top edge where the light catches, a soft drop beneath. The
+       gradient moves under it. This is the TOOL.
 
-   2. EVERY SLAB OPENS WITH A KOP. A header bar carrying the block's name in
-      caps, closed by the KOP SURAT DOUBLE RULE: 2px over 1px at a 3px gap,
-      which is the exact gesture at the top of every Indonesian government
-      letter. Repeating one gesture at three scales is what makes a screen read
-      as one authored thing instead of a stack of blocks.
+     DOES IT MOVE WITH THE WORK?  -> SOLID. Every slab, well, row, stage, mat,
+       kotak and sheet. Opaque, matte, no blur, no translucency, no drop. This
+       is the DOCUMENT UNDER THE TOOL.
 
-   3. THE KOP IS THE BLOCK'S STATUS CHANNEL. Ink by default, amber when the
-      block owes the operator a decision, red when it reports a fault. That
-      makes "an unreviewed thing cannot hide" a property of the container
-      rather than a rule fourteen components have to remember, and a block that
-      owes something is legible from across the room.
+   THE SEAM IS DELIBERATE BECAUSE IT IS ALSO THE PERFORMANCE RULE. A
+   backdrop-filter inside a metre-long scrolling list is the most expensive
+   thing you can put in a page like this one: the review sheet holds two dozen
+   panels and every one of them would re-sample the backdrop on every frame. So
+   "glass is what stays still" is not a taste, it is what keeps this app cheap,
+   and it is why the seam can be pointed at rather than apologised for. Two
+   materials in one product is normally how an interface ends up looking
+   unfinished. Here the two materials answer a question the operator can ask
+   out loud.
 
-   4. THERE IS NO 1PX LINE IN THIS PRODUCT. 2px is the minimum and divides
-      inside a group; 3px is structure and bounds a raised object. The old
-      hairline measured 1.47:1 and was doing every structural job at every
-      level of the hierarchy, which is why the screen read as unstyled.
+   WHAT MAKES THEM ONE PRODUCT RATHER THAN TWO:
 
-   5. IDENTIFIERS LIVE IN A KOTAK ISIAN. Any figure a reader compares (a page
-      number, a quote number, a file name, an email) is set in mono inside a
-      ruled box, the way a form prints a field. Never loose in a sentence.
+   1. ONE LIGHT SOURCE, ABOVE. Glass takes a bright hairline on its top edge. A
+      solid panel takes a faint highlight on its top edge. A control casts a
+      hard lip DOWNWARD. Everything is lit from the same place, so a glass rail
+      and a solid slab read as two things in one room.
+   2. ONE RADIUS FAMILY, ONE TYPE SCALE, ONE MOTION CURVE, ONE BUTTON. The
+      button is identical on glass, on a solid panel and on a white sheet.
+   3. THE SOLID PANELS ARE TINTED OUT OF THE GRADIENT'S OWN HUE. A slab is the
+      ground condensed, not a foreign colour laid on it.
 
-   6. EVIDENCE IS MOUNTED, NEVER PLACED. A crop sits on a sunk stage inside a
-      12px near-black mat, then a bone keyline, then a hard offset. THREE DRAWN
-      CUES for the one boundary the operator is paid to judge, so the crop edge
-      stops depending on a luminance accident and starts being a property of
-      the mount.
+   THE CONTROL IS A PRESSED KEY. Generous radius, heavy weight, a SOLID LIP in
+   a darker shade of the button's own colour sitting hard under it with no
+   blur, and a press that moves the face down onto the lip until the lip is
+   gone. Chunky, tactile, 44px minimum. Chips, toggles and the state boxes
+   share the roundness so the family is legible.
 
-   7. CONTROLS ANSWER THE HAND. 40px minimum, a 2px edge, a hard offset, and a
-      2px press that collapses the offset. This deliberately overrules the old
-      "nothing moves" rule for one case: a control that does not respond is the
-      most reliable unfinished tell there is.
+   TWO HUES, AND HOW THEY MAY BE WORN:
+     --mark (amber) means A DECISION IS OWED HERE and nothing else, ever.
+     --gap  (red)   means A FAULT OR A REFUSAL, absent from a healthy screen.
+   Neither may ever be a saturated fill under light text. That is the exact
+   thing that was rejected. They appear as: a 4px rule down the leading edge of
+   a block, a 12% tint of the block's own ground, a filled chip carrying DARK
+   text, a stroke, a glyph, or plain coloured text. A SATURATED FILL ALWAYS
+   CARRIES DARK TEXT: --mark-ink, --gap-ink and --petrol-ink exist for no other
+   reason, and there is no exception for a colour that looks dark enough.
 
-   8. SIX TYPE STEPS AND FOUR SPACES. display / title / section / body / label /
-      figure, and 8 / 16 / 24 / 48. A seventh size or a fifth gap means a
-      layout is wrong, not that the scale is short.
+   CONFIRMED WORK CARRIES NO COLOUR. A finished packet is a screen with the
+   colour gone out of it, so both hues have to be scarce enough that their
+   absence is visible.
 
-   SATURATION IS STILL RATIONED, BUT BY HUE NOW, WHICH A READER CAN CHECK.
-   HUES 15 TO 105 BELONG TO --mark AND --gap ALONE. No other token may enter
-   that arc at any chroma. Outside it, materials may be as saturated as they
-   need to be, which is what the old blanket chroma cap was wrongly preventing:
-   it held every material at a fifth of the signals' saturation and left four
-   planes inside a 0.144 lightness range, so the screen had nothing to look at.
+   THE EVIDENCE KEEPS ITS DARK SURROUND, and this is functional rather than
+   stylistic. The content is white paper. A scan on a light interface loses its
+   own edge, which is the exact boundary the operator is paid to judge, so
+   --mat stays near-black and a crop reads as a lit rectangle mounted on it.
+
+   MEASURED, NOT ESTIMATED, AND EVERY NUMBER HERE IS A PAINTED COMPOSITE
+   RATHER THAN A TOKEN'S OWN RATIO. That distinction is what the last pass got
+   wrong in three places at once: a hatch quoted at 4.14 was painted at 30%
+   alpha and measured 1.56, and the kop bars were quoted against their tint
+   while a second gradient was layered over the top of them. If a rule paints
+   a mix, the mix is what gets measured.
+
+   The ground was RASTERISED to find its extremes rather than reasoned about,
+   because two radial glows over a linear ramp do not have an obvious maximum:
+
+     the LIGHTEST pixel the ground reaches anywhere is #012c30 (relative
+       luminance 0.0202), in the top-left corner under --glow-1;
+     the DARKEST is #030c1a (0.0036), low on the left where neither glow
+       reaches and the ramp has run out.
+
+   GLASS IS MEASURED AGAINST THE LIGHTEST, and the direction matters. This is
+   a dark interface, so the worst case for light ink is the lightest possible
+   backdrop; the blur only helps, because it averages the corner toward its
+   surroundings, and the saturate() moves chroma rather than luminance. A
+   ratio quoted here therefore holds everywhere on the page, not on average.
+   --ground-hi and --ground-lo below record both, so a later change to the
+   gradient is re-measured against the same two reference points instead of
+   guessed at.
+
+   Every mix in this file is written `color-mix(in srgb, ...)` on purpose. An
+   oklch mix produces a different composite from the one the arithmetic was
+   done on, so the ratios in these comments would stop being the ratios that
+   ship.
    ====================================================================== */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  /* The self-referential `--font-sans: var(--font-sans)` that used to sit here
-     resolved to nothing, so `@apply font-sans` on `html` fell through to the
-     browser's default SERIF and every page outside the operator screens was
-     set in Times. Point these at the variables `next/font` actually defines. */
+  /* Point these at the variables `next/font` actually defines. A
+     self-referential `--font-sans: var(--font-sans)` resolves to nothing and
+     drops every page outside the operator screens into the browser's default
+     serif. */
   --font-sans: var(--font-ui);
   --font-mono: var(--font-figure);
   --font-heading: var(--font-ui);
@@ -87,6 +115,7 @@
   --color-surface-rail: var(--surface-rail);
   --color-surface-raised: var(--surface-raised);
   --color-line: var(--line);
+  --color-line-control: var(--line-control);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
@@ -96,6 +125,8 @@
   --color-paper: var(--paper);
   --color-petrol: var(--petrol);
   --color-edge: var(--edge);
+  --color-kop: var(--kop);
+  --color-hatch: var(--hatch);
 
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -127,20 +158,46 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* WHOLE PIXELS, not multiples of a 4px base. The inherited scale was
-     `calc(var(--radius) * 0.6)` and friends, which at a 4px radius produced
-     2.4px, 3.2px, 5.6px, 7.2px, 8.8px and 10.4px: six values a browser rounds
-     inconsistently against a 1px border, so a corner shimmers next to a
-     straight edge. Radius carries meaning in this system (2px is paper, which
-     is cut; 4px is a control; 6px is a grouped block) and a meaning cannot be
-     a fraction of a pixel. */
-  --radius-sm: 2px;
-  --radius-md: 3px;
+  /* WHOLE PIXELS, and four of them, because radius carries meaning here and a
+     meaning cannot be a fraction of a pixel. The old scale was
+     `calc(var(--radius) * 0.6)` and friends, which produced 2.4px, 3.2px,
+     5.6px and 7.2px: values a browser rounds inconsistently against a border,
+     so a corner shimmers next to a straight edge.
+
+       8px  a figure quoted out of a document, a chip, a state box, a mat
+      14px  a control: button, input, well, row, flat row, nested furniture
+      20px  a block: slab, glass rail, stage, hint panel, toast, full sheet
+      28px  the largest surface: a dialog, which is `.lt-panel`
+
+     FOUR STEPS MEANS FOUR, AND THE FILE DID NOT USED TO MEAN IT. Nine
+     distinct surface radii shipped against this list of four -- 4, 6, 8, 9,
+     10, 12, 14, 16, 18, 20 -- with a state box at 9px sitting beside a chip
+     at 8px in the same row of the review sheet, a 1px difference nothing can
+     defend. A generous consistent radius is the recognisable half of what was
+     asked for, and it cannot be recognisable at nine values. Every painted
+     SURFACE corner below is now one of these four. A pill (`999px`, the hint
+     target and the ends of a leading rule) is a shape rather than a corner and
+     is not on this scale.
+
+     THE ONE EXCEPTION IS `--sheet-corner`, AND IT IS FUNCTIONAL RATHER THAN
+     DECORATIVE: a crop mounted as evidence keeps a near-square corner because
+     its own edge is the boundary the operator is paid to judge, and 20px
+     rounds about 1250 square pixels off each corner of a 300 DPI crop. It is
+     declared once, next to `--slab-radius`, with the concentric arithmetic
+     written down.
+
+     `rounded-lg` in `src/components/ui/*` maps to `--radius`, so the shadcn
+     primitives take the control radius without being told. `--radius-md`,
+     `--radius-2xl` and `--radius-4xl` are the Tailwind scale's own rungs and
+     nothing in this product paints them; they are left in place so a utility
+     class cannot resolve to nothing. */
+  --radius-sm: 8px;
+  --radius-md: 10px;
   --radius-lg: var(--radius);
-  --radius-xl: 6px;
-  --radius-2xl: 8px;
-  --radius-3xl: 10px;
-  --radius-4xl: 12px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 28px;
+  --radius-4xl: 32px;
 
   @keyframes collapsible-down {
     from { height: 0; }
@@ -163,199 +220,518 @@
 
 :root {
   /* =====================================================================
-     TINTA ARSIP: the planes are told apart by TEMPERATURE, not by lightness.
+     THE GROUND. One gradient, painted once, behind everything.
 
-     The palette this replaces was four steps of one graphite at chroma 0.011,
-     which is not a colour, it is a shade of nothing, and it is why the client
-     read the app as monotonous. Nothing about the system's argument changes:
-     the ground is still dark because the content is white paper, paper is
-     still the only lit thing, and a finished packet is still a screen with no
-     saturated colour left on it. What changes is how the planes differ.
+     IT IS A JOURNEY ACROSS 58 DEGREES OF HUE, NOT ONE BLUE UNDER A LAMP, and
+     that is the whole of the change here. The ramp ran 228 to 248 before, and
+     twenty degrees of hue at three lightnesses reads as a single colour lit
+     from one side: correct, and not what was asked for. It now runs teal at
+     206, through blue at 244, to a deep blue-black at 264, with the two
+     corner glows pulled further apart still (196 and 252) and set in OPPOSITE
+     corners rather than both along the top, so the diagonal is a real
+     traverse and not a highlight.
 
-     The table is a dark verdigris, the colour of a ledger cloth. The recesses,
-     which hold what the MACHINE read (OCR text, inputs, technical detail), go
-     to an ink-well blue-black, because what lies in a well is writing and
-     writing is blue-black. The chrome and the grouped blocks cross to warm
-     kraft. So the table is green, the things resting on it are brown, and what
-     is cut into it is blue. WARMTH RISES TOWARD PAPER: the closer a thing is
-     to being a document, the warmer it is, and the crop is the warmest and
-     only lit thing on screen.
+     NO PURPLE ANYWHERE, and 264 is nowhere near it: violet does not begin
+     until roughly 280 in this space, and the ramp stops sixteen degrees
+     short. The two signal hues (88 amber, 24 red) remain the only things
+     outside the 196-to-264 arc.
 
-     THE INVARIANT THAT REPLACES "TWO HUES IN THE WHOLE PRODUCT", which was
-     really a rule about saturation that was only cheap to enforce while
-     everything was grey:
+     THE LIGHTNESSES ARE UNCHANGED ON PURPOSE. Widening the hue moves the
+     composite under every glass panel, so holding L fixed is what keeps the
+     re-measurement a check rather than a rebuild. The measured result is that
+     the new ground is slightly DARKER at its lightest point than the old one
+     (0.0202 against 0.0239), so every light-ink ratio in this file moved in
+     the safe direction and none had to be bought back.
 
-         NO NON-STATUS TOKEN MAY EXCEED CHROMA 0.030.
-
-     The highest below is --wash at 0.030 and --line-strong at 0.026, against
-     --mark at 0.155 and --gap at 0.160: a factor of five. That is what lets
-     hue be free for materials while saturation stays rationed for signals, and
-     unlike the old rule it can be checked by reading the file.
+     THE CHROMAS ARE AT THE GAMUT CEILING, WHICH IS WHY THEY ARE NOT ROUND
+     NUMBERS. At these lightnesses hue 206 runs out of sRGB at about C 0.0403
+     and hue 196 at about C 0.0639. Writing 0.042 and 0.070 (which is what the
+     brighter donor system could afford, because its stops sat lighter) would
+     hand the browser an out-of-gamut colour to map on its own, and the mapped
+     result is not the colour these ratios were computed on. They are written
+     at the value that actually ships.
      ================================================================== */
+  --ground-1: oklch(0.235 0.040 206);
+  --ground-2: oklch(0.185 0.045 244);
+  --ground-3: oklch(0.140 0.030 264);
+  --glow-1: oklch(0.375 0.063 196);
+  --glow-2: oklch(0.310 0.075 252);
 
-  /* The recess. Wells, inputs, the OCR transcript, technical detail behind a
-     disclosure. The one plane that leaves the table's hue entirely. No paper
-     is ever laid in a well, so the objection that warm white reads cold on a
-     blue-black ground does not reach here. */
-  --surface-sunk: oklch(0.156 0.024 246);
+  /* THE TWO EXTREMES THE GROUND REACHES, written down as values. Both were
+     found by rasterising the three background layers at 320x320 and taking
+     the minimum and maximum relative luminance, because a maximum under two
+     overlapping radial gradients is not something to reason about by hand.
 
-  /* Chrome: the application strip, popovers. Warm kraft, a desk blotter.
-     DARKER THAN THE TABLE, which inverts the app's silhouette on purpose: the
-     system's own rule is that a rail never holds a fact you read for meaning,
-     so it should be the quietest plane on screen rather than the second
-     brightest. If that ever proves wrong, oklch(0.290 0.017 74) puts it back
-     above the table and only the step arithmetic changes. */
-  --surface-rail: oklch(0.216 0.017 74);
+     `--ground-hi` is the worst case for light ink and is what every glass
+     measurement in this file is taken against. `--ground-lo` is recorded so
+     that the other direction (is the panel still distinguishable from the
+     table down there?) has a reference too. Nothing paints either. */
+  --ground-hi: #012c30;
+  --ground-lo: #030c1a;
 
-  /* The table itself, the largest area on every screen. Dark verdigris at
-     twice the old chroma, which is still about a fifth of what is available at
-     that lightness: a tint on graphite, not a green product. */
-  --surface: oklch(0.252 0.022 174);
+  /* The solid stand-in for the ground: what an element paints when it needs an
+     opaque version of the table (shadcn's `--background`, an overscroll area).
+     The MIDDLE stop of the ramp, so an overscroll bounce is the ground's own
+     colour rather than a near-match. */
+  --surface: oklch(0.190 0.045 244);
 
-  /* A grouped block, the manila docket lying on the table. THE LIGHTEST GROUND
-     ANY INTERFACE TEXT SITS ON, so it alone sets every floor in the system.
-     Held at 0.300 rather than the 0.322 first proposed: raised is the plane
-     that binds --ink-3, --gap and --line-strong at once, and darkening it buys
-     all three headroom for free. */
-  --surface-raised: oklch(0.300 0.021 82);
+  /* THE WORK SURFACE, and it is SOLID on purpose. A slab is the ground
+     condensed one step up: same hue family, more lightness, no transparency. */
+  --surface-raised: oklch(0.315 0.030 232);
 
-  /* ---- rules -----------------------------------------------------------
-     Sepia, so a rule reads as printed on a form rather than as the border of a
-     UI box.
+  /* THE TWO NEIGHBOURS OF THE WORK SURFACE, and the rule that puts a block on
+     one of them. It is one sentence and it is worth more than any amount of
+     border tinkering:
 
-     THE SPLIT IS NOT COSMETIC AND FIXES A LIVE FAILURE. `--line` is separation
-     between content and nothing else. `--line-strong` is the boundary of
-     anything you can click, type into or focus, because WCAG 1.4.11 asks 3:1
-     of a control boundary and the old `--line` measured 1.47:1 while being the
-     declared border of `.lt-btn`, `.lt-input` and `.lt-mark-box`. */
-  --line: oklch(0.436 0.024 62);
-  --line-strong: oklch(0.600 0.026 66);
+         A LIFTED BLOCK IS LIGHTER THAN ITS GROUND.
+         A SET-IN BLOCK IS DARKER THAN ITS GROUND.
 
-  /* ---- ink -------------------------------------------------------------
-     Warm toner on aged stock, not a tint of the ground, which is what stops
-     text reading as a lighter shade of the table. They get WARMER as they get
-     quieter (hue 88, 78, 72), so subordination reads as fading rather than as
-     greying.
+     The bench had no such rule, and the review sheet is where that cost
+     something real: `contact-sheet.tsx` renders each bagian as a section
+     `.lt-slab` and `proposal-plate.tsx` renders the open capture as an
+     `article.lt-slab` INSIDE it, so the plate the operator is actually ruling
+     on was painted the same fill as the container holding it, separated only
+     by a 12% hairline. The object being decided was not an object.
 
-     `--ink-3` IS THE FLOOR and the rules on it are unchanged: never used for
-     safety copy, and nothing is set below 13px. Quietness is bought with size
-     and position, never with lower contrast. */
-  --ink: oklch(0.970 0.008 88);
-  --ink-2: oklch(0.806 0.016 78);
-  --ink-3: oklch(0.722 0.020 72);
+     A plate opened for a decision is LIFTED. A confirmation, an aside or a
+     register set into a block is SET-IN. Measured against the work surface:
+     lifted 1.22:1 lighter, set-in 1.22:1 darker, with --ink-3 landing at
+     5.49:1 and 8.16:1 respectively, both clear of AA.
 
-  /* ---- the two signals -------------------------------------------------
+     THEY ARE ABSOLUTE VALUES, NOT RELATIVE MIXES, and that is deliberate: a
+     third level of nesting lands on the same value as the second instead of
+     drifting one step further every time, which is how a "just one more
+     wrapper" refactor silently walks a panel off the measured ladder. */
+  --surface-lift: oklch(0.365 0.030 230);
+  --surface-set: oklch(0.255 0.030 236);
+
+  /* The recess: things the MACHINE read. Inputs, the OCR transcript, technical
+     detail behind a disclosure, the trough a progress strip runs in. Cut into
+     the work surface, so it goes darker and colder. */
+  --surface-sunk: oklch(0.185 0.030 244);
+
+  /* THE OPAQUE STAND-IN FOR GLASS, and it is NOT a convenient grey: it is the
+     literal composite, measured, of `--glass` over `--ground-hi`. Written as
+     a hex rather than as an oklch triple for exactly that reason -- it is a
+     measurement, and rounding it into a nicer-looking colour space would make
+     it an approximation of one.
+
+     WHICH GROUND PIXEL IS THE RIGHT ONE TO COMPOSITE OVER DEPENDS ON WHICH
+     WAY THE PALETTE RUNS, and copying the answer from a light system gets it
+     backwards. On a light interface the darkest ground is the worst case, so
+     that is the one a light system composites over. Here the ink is light, so
+     the worst case is the LIGHTEST ground, and taking the fallback there
+     means every ratio quoted against a rail holds under real glass (which is
+     never lighter than this) and holds exactly under the substitution. Taking
+     it over the darkest instead would give better numbers and a visibly
+     different-looking header, which is the opposite of what a fallback is
+     for.
+
+     Measured on it: --ink 10.85:1, --ink-2 7.27:1, --ink-3 6.05:1,
+     --line-strong 5.18:1, --line-control 3.55:1. Real glass over the darkest
+     ground reads 15.14 / 10.15 / 8.45 / 7.23 / 4.96, so the substitution can
+     only ever raise a ratio, never lower one. */
+  --surface-rail: #173e42;
+
+  /* ---- glass ------------------------------------------------------------
+     A low-alpha white film, a real blur, a bright hairline on the top edge
+     where the light catches, and a soft drop beneath. Frosted, not merely
+     transparent: the film alone over this ground is a 1.28:1 difference, which
+     is nothing, so the blur and the hairline are what make the panel exist.
+
+     THE ALPHA IS 8.5% AND NOT MORE. At 8.5% over `--ground-hi` the composite
+     is #173e42 and `--ink-3` sits at 6.06:1; push the film to 20% and the
+     same ink falls under AA on the surface the operator meets first. Glass is
+     bought with blur and a hairline, never with more film. */
+  --glass: rgb(255 255 255 / 8.5%);
+
+  /* THE CHROME'S GLASS IS A DIFFERENT MATERIAL FROM THE PANELS', and the
+     difference is not taste. A panel floats over ONE thing, the gradient, so
+     8.5% white plus a blur is frost over a known dark ground and every ratio
+     in this file was measured against it. The sticky chrome floats over
+     WHATEVER IS SCROLLING, and on the review sheet what is scrolling is a
+     white A4 scan at 300 DPI.
+
+     Measured: --glass over a white scan composites to about #ebeeef, which
+     puts the chrome's own light ink at roughly 1.1:1. The phase rail, the
+     documents bar and the owed count became invisible for as long as a page
+     of evidence passed under them, then came back. Nothing on screen said it
+     had happened, which is the failure mode this product is organised
+     against, arriving in the chrome rather than in a crop.
+
+     So the rail is nearly opaque and keeps the blur: the frost still reads as
+     frost at the edges and against the gradient, and the worst case is now
+     #335559 with light ink at 8.1:1 rather than 1.1:1. The blur is what makes
+     the remaining 10% read as a material instead of as a mistake. */
+  --glass-rail: color-mix(in srgb, var(--surface-rail) 90%, transparent);
+  --glass-raised: rgb(255 255 255 / 10%);
+  --glass-line: rgb(255 255 255 / 42%);
+  --glass-edge: rgb(255 255 255 / 14%);
+  --glass-blur: 14px;
+  --glass-drop:
+    0 10px 30px -12px rgb(2 8 16 / 0.7),
+    0 2px 8px -4px rgb(2 8 16 / 0.45);
+
+  /* The hairline a SOLID block is drawn with: the same light at one third the
+     strength, because a solid panel is separated by its fill and only needs
+     its edge described. Rebinds to ink on paper, where the boundary has to be
+     the dark one. */
+  --edge: rgb(255 255 255 / 12%);
+
+  /* ---- rules ------------------------------------------------------------
+     THREE RULES, NOT TWO, AND THE SPLIT IS NOT COSMETIC.
+
+     `--line` is separation between content and nothing else: 1.74:1 on a
+     slab, which is the correct strength for a hairline whose whole job is to
+     say "these two paragraphs are different paragraphs".
+
+     `--line-control` is THE BOUNDARY OF A CONTROL AT REST, and it exists
+     because the flat control was wearing `--line`. WCAG 1.4.11 asks 3:1 of a
+     control's boundary against what is next to it, and 1.74 is not that.
+     `contact-sheet.tsx` draws every collapsed capture of the review sheet as
+     a full-width `.lt-btn[data-flat]`, so that was two dozen primary controls
+     with no resting boundary in the busiest column of the product. It is set
+     at the 3:1 floor on the LIGHTEST surface a control ever sits on (a lifted
+     plate, 3.22:1) and no louder, which lands it at 3.92:1 on a slab and
+     3.56:1 on glass. Two dozen `--line-strong` rectangles would clear the
+     floor twice over and make a worse screen; that was the old argument for
+     leaving it under, and it was an argument for a quieter rule rather than
+     for no rule.
+
+     `--line-strong` is the boundary of something ACTIVE: an input, the rule
+     an advisory hangs off, a hovered or focused control. 5.71:1 on a slab,
+     5.19:1 on glass, 8.28:1 in a recess, 6.65:1 on the ground at its
+     lightest, 4.70:1 on a lifted plate. */
+  --line: oklch(0.450 0.028 232);
+  --line-control: oklch(0.645 0.026 230);
+  --line-strong: oklch(0.745 0.028 226);
+
+  /* ---- ink --------------------------------------------------------------
+     Cool white, slightly blued, because the ground is petrol and a warm white
+     on it reads as a stain. They get quieter by LIGHTNESS ONLY, never by
+     drifting toward the ground's own hue, which is what makes text read as a
+     lighter shade of the surface.
+
+     `--ink-3` IS THE AA FLOOR AND IT IS MEASURED ON THE WORST GROUND IT LANDS
+     ON. That ground is a LIFTED PLATE with the hand's film over it, which is
+     the lightest thing this ink ever sits on: 4.59:1 there. Everywhere else
+     it has room -- 5.49:1 on a lifted plate dry, 6.06:1 on glass, 6.67:1 on a
+     slab, 7.77:1 on the bare ground, 9.67:1 in a recess. That worst case is
+     also why `--surface-lift` is 0.365 and not the 0.375 it was drafted at:
+     at 0.375 the same pair measured 4.41 and the whole ladder would have had
+     to move to buy back a tenth of a step of panel separation.
+
+     It is never used for safety copy and nothing in this product is set below
+     13px. Quietness is bought with size and position, never with contrast. */
+  --ink: oklch(0.975 0.006 220);
+  --ink-2: oklch(0.845 0.014 222);
+  --ink-3: oklch(0.790 0.018 224);
+
+  /* THE FOCUS RING'S OWN INK, AND `var(--ink)` HERE IS NOT AN ALIAS. It is the
+     mechanism, and the whole defect it closes.
+
+     A custom property is substituted at COMPUTED-VALUE TIME on the element
+     that declares it, and what descendants inherit is the result. So
+     `--focus-ring: var(--ink)` written on `:root` freezes the SURFACE's ink
+     and hands that frozen value down; a component that rebinds `--ink` for its
+     own face cannot move it. Written the obvious way -- the ring reading
+     `var(--ink)` at the point of use -- it does move, and it moved: the rule
+     below that gives a saturated face its own dark ink also gave every
+     primary button and every `data-on` toggle a 2px focus ring in near-black
+     #05222d, drawn at a 2px offset so it sits entirely on the backdrop with
+     backdrop on both sides. Measured there: 1.29:1 on a slab, 1.57:1 on a
+     lifted plate, 1.42:1 on glass and on the opaque rail, 1.05:1 on a set-in
+     block, 1.12:1 in a recess, 1.11:1 on the ground at its lightest. The
+     floor is 3:1 (WCAG 2.4.11 and 1.4.11) and the ring was, for a keyboard
+     operator only, silently not there. Frozen it measures 11.96 / 9.84 /
+     10.85 / 14.63 / 17.34 / 13.93 on those same six grounds.
+
+     TWO SURFACES RE-DECLARE IT, and both re-declare it the same way, because
+     the ring belongs to the ground and not to the control: the paper rebind
+     below (where it computes to `--paper-ink`, 15.65:1 on the sheet) and a
+     sheet's dark masthead (where it computes to `--paper`, 15.65:1 again).
+     Anything else that introduces a new GROUND has to do the same; a component
+     that only changes its own FACE must not.
+
+     Do not "simplify" the outline back to `var(--ink)`. */
+  --focus-ring: var(--ink);
+
+  /* THE KOP'S INK, and this token CHANGED MEANING in this pass.
+
+     It used to be the kop's dark GROUND. It is now the kop's INK, because the
+     kop stopped being a bar of solid colour. Components rebind their children
+     to `var(--kop)` when a kop reports something (`ON_COLOURED_KOP` in
+     proposal-plate.tsx, `KOP_INK` in contact-sheet.tsx), which was right while
+     the bar was amber and the ink had to go dark. The bar is now a 12% tint of
+     the panel it caps, so that same rebind has to resolve to a LIGHT value or
+     every plate that owes a decision loses its heading. Warm white rather than
+     plain `--ink`, so the rebind is visibly a deliberate second ink and not a
+     copy.
+
+     MEASURED AGAINST WHAT THE BAR ACTUALLY PAINTS, WHICH IS TWO LAYERS AND
+     NOT ONE. The figures here used to be 9.13 / 9.69 / 9.22, computed against
+     the 12% tint alone while the rule also lays a `--mark` 7% gradient over
+     the top of the same bar; the real backdrop at the top of the bar, where
+     the text sits, is the composite of both. Corrected: 10.49:1 on a plain
+     kop, 7.88:1 on the amber tint, 8.62:1 on the red, 8.03:1 on the petrol.
+     All still comfortable, which is why this is an honesty fix rather than a
+     colour change, and it is exactly the kind of number that gets quoted from
+     the flattering layer if nobody checks. On a lifted plate the same three
+     read 6.67 / 7.30 / 6.81, and on a set-in block 9.55 / 10.43 / 9.70.
+
+     On paper it rebinds to `--paper`, because there the bar genuinely is
+     dark. */
+  --kop: oklch(0.975 0.012 88);
+
+  /* ---- the two signals --------------------------------------------------
      `--mark` is amber and means exactly one thing: a decision is owed here. It
      is not focus, not the active phase, not a hover, not a drag target, not a
-     heading, and not a warning about a measurement. It is BYTE-IDENTICAL to
-     the value it has always had, because it is the product's most valuable
-     pixel and a palette that repaints it is answering a question nobody asked.
+     heading, and not a warning about a measurement.
 
-     `--gap` is the correction pen: a fault or a refusal, used as rules,
-     strokes and text and NEVER as a fill. Two degrees redder and slightly
-     lighter than before, both forced by gamut and AA arithmetic rather than by
-     taste, so it reads as a correction pen rather than as coral. It is the
-     only token anywhere in the 0 to 40 hue range at any chroma, so nothing on
-     screen can be mistaken for it. */
-  --mark: oklch(0.845 0.155 92);
-  --gap: oklch(0.720 0.160 24);
+     `--gap` is the correction pen: a fault or a refusal.
 
-  /* THE STRUCTURAL ACCENT, and it sits at hue 212, deliberately outside the
-     15-to-105 arc the two signals own, so it can never be mistaken for either.
-     It carries identity and interaction: the wordmark plate, the active step,
-     a primary fill, a focused field. It is not a status and never reports one.
-     Petrol, because a kraft-and-ink document file wants a cold ink against it
-     and because the ban on purple leaves the cold half of the wheel to blue
-     and teal. */
-  --petrol: oklch(0.50 0.115 212);
-  /* Hover DARKENS rather than lifts. Lifting a filled control pushes its own
-     legend below AA, which the first pass of this palette did: near-white on a
-     0.70 petrol measures 2.45:1. */
-  --petrol-lift: oklch(0.44 0.115 212);
-  --petrol-ink: oklch(0.985 0.006 212);
+     NEITHER IS EVER A SATURATED FILL UNDER LIGHT TEXT. Worn as a fill (a chip,
+     a toggle, a stamp) each carries its own dark ink, which is what
+     `--mark-ink` and `--gap-ink` are for: 10.12:1 on the amber face, and
+     4.75:1 for the reject label on the neutral face. The `-lip` values are the
+     solid darker shade that sits under a filled control of that hue.
 
-  /* The film a hand leaves: hover and pressed states. It exists because the
-     mix it replaces, `color-mix(in oklch, var(--ink), transparent 92%)`, is a
-     COOL white film, and on a warm kraft plane that pulls the surface back
-     toward grey. Miss one and the temperature ladder exists in some states and
-     not others, which is worse than not having it at all.
+     `--gap` sits at hue 24 and is the only token anywhere in the 0-to-50 arc,
+     so nothing on screen can be mistaken for it. It is light (0.775) because
+     glass forces it there: at 0.72 it measures 4.45:1 on a frosted panel over the lightest ground, and lower still under the hand's film, below
+     AA, and light is what buys the ratio back. */
+  --mark: oklch(0.855 0.155 88);
+  --mark-lip: oklch(0.680 0.140 80);
+  --mark-ink: oklch(0.255 0.045 80);
 
-     ITS CONTRAST RULE, WHICH IS NOT OPTIONAL: `--wash` may only sit under
-     `--ink` or `--ink-2`. Under it on a raised plane, `--ink-3` falls to about
-     4.2:1 and `--gap` to about 4.0:1, both below AA. The mix it replaces has
-     the identical hazard today with nothing written down about it. */
-  --wash: oklch(0.880 0.030 84 / 0.08);
+  --gap: oklch(0.775 0.125 24);
+  /* 0.580, not the 0.600 this was: at 0.600 the correction pen's lip measured
+     1.49:1 against the neutral face it sits under, which is the only lip in
+     the set that did not read as a shelf. 1.62:1 now, in line with the other
+     three (neutral 2.08, petrol 1.87, amber 1.87). */
+  --gap-lip: oklch(0.580 0.120 25);
+  --gap-ink: oklch(0.320 0.115 26);
 
-  /* A deliberate absence, on the record. The one thing on screen COLDER and
+  /* THE TWO SIGNALS AS THEY READ ON A DARK GROUND, FROZEN, for the one place
+     inside a sheet where the ground is dark: the masthead. Same mechanism as
+     `--focus-ring` above -- these compute here, on the bench, and the paper
+     rebind below cannot reach them.
+
+     A sheet rebinds `--mark` and `--gap` to values tuned for white, which is
+     right for a stroke or a word ON the sheet and wrong for the near-black bar
+     that caps it: the sheet's own red measures 2.06:1 on that bar and its
+     amber 3.43:1, both under the 3:1 a status rule owes. The bench values
+     measure 7.56:1 and 10.36:1 there.
+
+     Nothing else may paint these. If a second dark ground appears inside a
+     light one, it re-declares `--mark` and `--gap` from them; it does not
+     reach past the token that means the signal. */
+  --mark-bench: var(--mark);
+  --gap-bench: var(--gap);
+
+  /* THE STRUCTURAL ACCENT: identity, and the one action a screen wants. Hue
+     200, inside the ground's own arc and nowhere near either signal, so a
+     primary button can never be mistaken for a decision owed. It is BRIGHT
+     (0.800) rather than deep, because a saturated fill has to carry dark text
+     and dark text needs a light fill to sit on: `--petrol-ink` measures 9.26:1
+     on it. It is also 7.18:1 against a slab, so the button's own face is its
+     boundary and it needs no border to satisfy 1.4.11. */
+  --petrol: oklch(0.800 0.115 200);
+  --petrol-lip: oklch(0.630 0.105 202);
+  --petrol-ink: oklch(0.235 0.040 228);
+
+  /* THE NEUTRAL CONTROL. A light slate face with dark ink and a solid darker
+     lip: a pressed key, which is what a control is.
+
+     WHY THE FACE IS LIGHT AND NOT A DARKER SHADE OF THE PANEL. WCAG 1.4.11
+     wants 3:1 between a control and what is next to it. Between two dark
+     values that is arithmetically impossible: a slab sits at 0.068 relative
+     luminance and 3:1 darker than that is a negative number. The boundary has
+     to come from the light side, so either the button wears a bright ring or
+     the button IS bright. A bright face is the honest one, it is what makes a
+     control look pressable, and it measures 4.57:1 against a slab, 4.15:1 on
+     glass, 5.32:1 on the ground, 3.76:1 on a lifted plate and 6.63:1 in a
+     recess, with no border at all. */
+  --btn: oklch(0.685 0.022 226);
+  --btn-lip: oklch(0.505 0.024 228);
+  --btn-ink: oklch(0.205 0.030 234);
+
+  /* THE LIP'S HEIGHT, DECLARED ONCE, BECAUSE FOUR PLACES HAVE TO AGREE ON IT
+     AND NOTHING MADE THEM. The shadow offset, the `margin-bottom` that
+     reserves room for a shadow taking no layout space, the `:active`
+     translate that has to move the face by EXACTLY the shelf's height, and
+     the disabled state's resting position were four separate literal `4px`
+     values. Change one and the key lands beside its own lip instead of on it,
+     and nothing anywhere says the four are the same number. Now they are the
+     same number. */
+  --lip-h: 4px;
+
+  /* THE LIP, as a reusable shadow. `--lip` is set per tone on the control
+     itself and this substitutes it at the point of use, so one token carries
+     every tone. The 1.5px ring is the same lip colour: on the dark ground it
+     is definition, and on a white sheet it is the whole boundary, because
+     there a bright face cannot clear 3:1 against paper (measured on paper:
+     12.20:1 for the neutral lip, 4.05:1 for petrol's, 3.94:1 for amber's,
+     6.26:1 for the correction pen's).
+
+     THE LIP IS AN AFFORDANCE, NOT THE CONTROL'S WCAG BOUNDARY, and it is
+     worth being clear about which is which. Against its own face a lip
+     measures 2.08:1 (neutral), 1.87:1 (petrol and amber) and 1.62:1 (the
+     correction pen) -- a shelf you can see, well short of 3:1 and not
+     required to be there. On the bench the boundary 1.4.11 asks for is the
+     FACE against the surface behind it (4.57:1 on a slab, 4.15:1 on glass,
+     5.32:1 on the ground, 3.76:1 on a lifted plate); on paper it is the
+     1.5px ring, measured above.
+
+     THE NAMES SURVIVE FROM THE STAMPED-PLATE SYSTEM AND THE MEANING IS INTACT:
+     a hard offset with no blur. It is under a key now instead of under a
+     stamped metal part. */
+  --plate:
+    0 0 0 1.5px var(--lip, var(--btn-lip)),
+    0 var(--lip-h) 0 0 var(--lip, var(--btn-lip));
+  --plate-sm:
+    0 0 0 1.5px var(--lip, var(--btn-lip)),
+    0 calc(var(--lip-h) - 1px) 0 0 var(--lip, var(--btn-lip));
+  /* Pressed: the shelf is gone, because the face is standing on it. */
+  --plate-press: 0 0 0 1.5px var(--lip, var(--btn-lip));
+
+  /* The film a hand leaves: hover and pressed states on something that is not
+     a control. Neutral white rather than a tint, so it behaves identically
+     over glass and over a slab.
+
+     ITS CONTRAST RULE, WHICH IS NOT OPTIONAL: `--wash` may sit under `--ink`,
+     `--ink-2` or `--ink-3` and under nothing dimmer. Measured worst case is
+     `--ink-3` over a wash over a LIFTED PLATE at 4.59:1 (5.08:1 over glass),
+     which is why it is 6% and not
+     the 9% it started at. */
+  --wash: rgb(255 255 255 / 6%);
+
+  /* A deliberate absence, on the record. The one thing on screen colder and
      flatter than its surroundings, because "nothing will ever be here" must
-     not look like a material, and warm hatching would sit too close to amber.
-     The moment it appears anywhere except `.lt-hatch`, the signal is diluted. */
-  --hatch: oklch(0.628 0.012 242);
+     not look like a material and a warm hatch would sit too close to amber.
+     The moment it appears anywhere except `.lt-hatch`, the signal is diluted.
 
-  /* ---- paper -----------------------------------------------------------
-     UNCHANGED as a colour. A crop is a photograph of a document, and tinting
-     the surface a scan sits on is how a crop's own white edge becomes
-     ambiguous, which is the exact boundary the operator is paid to judge.
+     4.14:1 ON A SLAB, AND THAT IS NOW WHAT THE STRIPE ACTUALLY MEASURES. It
+     was not: the rule painted `color-mix(var(--hatch) 30%, transparent)` and
+     the 4.14 quoted here was the TOKEN's ratio, not the paint's. The painted
+     stripe was 1.56:1, a texture nobody can see. That mattered more than it
+     sounds, because `Missing` in `denah.tsx` renders a hatched sheet as the
+     ONLY thing standing for a capture with no evidence -- an invisible hatch
+     is a wrong-and-quiet surface built by the device meant to close one. The
+     stripes are solid now; see `.lt-hatch`.
 
-     `--paper-edge` is the one part that moves, and it moves COOL. The sheet
-     now sits on warm kraft, so a warm hairline was the one place a crop's
-     boundary lost its temperature break, at the boundary the operator is
-     actually paid to judge. It has to clear 3:1 in BOTH directions, because
-     half the time they are judging where the sheet ends and half the time
-     where it begins. */
+     THERE ARE TWO HATCHES AND ONLY ONE OF THEM IS A PICTURE. The solidity that
+     makes the texture legible makes the sentences printed ON a hatch
+     illegible, and there is no alpha that does both: the worst text pair
+     (`--ink-2` over a stripe on a lifted plate) crosses AA at about 26%, where
+     the same stripe measures 1.40:1 against the plate -- the invisible texture
+     this paragraph is about. So `.lt-hatch` is
+     the picture and `.lt-hatch:not(:empty)` is the one that carries words and
+     clears a field under them. Both rules are below, each with its own
+     measurements. */
+  --hatch: oklch(0.660 0.020 242);
+
+  /* ---- paper ------------------------------------------------------------
+     The sheet colour is UNCHANGED and it is not up for restyling: a crop is a
+     photograph of a document, and tinting the surface a scan sits on is how a
+     crop's own white edge becomes ambiguous, which is the exact boundary the
+     operator is paid to judge.
+
+     `--paper-edge` has to clear 3:1 in BOTH directions, because half the time
+     the operator is judging where the sheet ends and half the time where it
+     begins. Measured: 3.50:1 against the sheet, 3.54:1 against a slab, 4.13:1
+     against the ground at its lightest, 5.62:1 against the mat. */
   --paper: oklch(0.988 0.004 91);
-  --paper-ink: oklch(0.248 0.018 66);
-  --paper-ink-2: oklch(0.462 0.018 66);
-  --paper-edge: oklch(0.600 0.014 212);
+  --paper-ink: oklch(0.245 0.018 245);
+  --paper-ink-2: oklch(0.455 0.018 245);
+  --paper-edge: oklch(0.620 0.020 232);
 
-  /* Cast in the recess blue rather than in the table's green, so a sheet reads
-     as lifted off the desk rather than as bruising it. Still the only shadow
-     in this stylesheet, and still only on `.lt-paper`. */
-  /* THE PLATE: a hard offset with no blur, which is what a stamp leaves and
-     what makes a block read as a physical part rather than a tinted rectangle.
-     A blurred shadow says "floating card"; an offset plate says "object on a
-     desk", and this app is a file of paper on a desk.
+  /* THE ONLY DROP SHADOW ON A SOLID OBJECT, and it belongs to paper alone. A
+     sheet is the one thing here that is physically lying on something else.
+     Glass has its own, softer, because glass floats. */
+  --lift:
+    0 18px 40px -18px rgb(2 8 16 / 0.75),
+    0 3px 10px -6px rgb(2 8 16 / 0.5);
 
-     IT IS DRAWN IN `--edge`, SO IT IS BONE ON THE TABLE AND INK ON PAPER. A
-     dark offset cast onto a dark ground is not a shadow, it is nothing: the
-     table sits at lightness 0.252 and near-black measures 1.28:1 against it.
-     A light offset on a dark ground reads as a hard-lit edge, which is the
-     brutalist gesture inverted for a dark theme rather than abandoned. */
-  --plate: 4px 4px 0 0 var(--edge);
-  --plate-sm: 3px 3px 0 0 var(--edge);
-  --plate-press: 1px 1px 0 0 var(--edge);
+  /* The bone keyline that bounds evidence, and the mat it is mounted on. The
+     mat stays near-black whatever else happens to this palette: it is what
+     makes a crop read as a lit rectangle with an edge, and 19.69:1 against the
+     sheet is the whole reason an operator can see where a scan stops. */
+  --keyline: oklch(0.900 0.012 90);
+  --mat: oklch(0.115 0.018 246);
 
-  /* The bone keyline that bounds evidence, and the mat it sits in. */
-  --keyline: oklch(0.88 0.014 84);
-  --mat: oklch(0.128 0.014 246);
+  /* PUTTING THE TABLE OUT OF REACH. One ink, `--mat`, two strengths, and the
+     product now genuinely has one recipe for this rather than a comment
+     claiming it does: `.lt-scrim` dims the page outside a drawn rectangle at
+     78%, and a modal veils everything at 86%.
 
-  /* THE EDGE EVERY SLAB IS DRAWN WITH, and it is BONE rather than ink.
-     A stamped part wants a dark printed boundary, which is what this was
-     first: near-black at lightness 0.118. Measured on the actual grounds it
-     bounds, that is 1.29:1 on the table and 1.16:1 on the rail, which is to
-     say invisible. A dark edge is a light-ground idea. On this ground the
-     boundary has to be the light one, and it measures 9:1 on the table.
+     THE TWO STRENGTHS ARE NOT AN INCONSISTENCY, they are the two jobs. The
+     zone editor's operator still has to see the surrounding page well enough
+     to know where on it the rectangle sits, so the scrim stops at 78%. A
+     dialog is asking for a decision about something else entirely, so it goes
+     further: at 86% a white scan behind it drops 14.33:1, and the panel in
+     front reads 1.40:1 against it.
 
-     Inside `.lt-paper` it rebinds to ink, so a sheet gets the dark boundary
-     the same rule wants there. One token, two grounds, no component deciding. */
-  --edge: oklch(0.82 0.020 84);
+     `dialog.tsx` used to veil with `--surface-sunk` at 75%, on the reasoning
+     that this was "the same recipe `.lt-scrim` uses". It was not the same
+     token, and the mismatch is visible in the one place it matters: at 75%
+     `--surface-sunk` LIGHTENS the near-black mat under a crop (1.07:1 the
+     wrong way) instead of veiling it. `--mat` over `--mat` is 1.00:1 by
+     construction, so the evidence goes quiet rather than glowing. */
+  --veil: color-mix(in srgb, var(--mat) 86%, transparent);
 
-  /* The kop's own ground. Dark, because a title bar is a bar of ink. */
-  --kop: oklch(0.155 0.014 246);
+  /* THE RADIUS A KOP TAKES ITS TOP CORNERS FROM, and it INHERITS on purpose.
+     Each container declares it once; a kop reads it and derives its own
+     corners with `calc(... - 1px)` for the border it sits inside. The bench
+     hard-coded 19px on `.lt-kop` and 15px on `.lt-slab-flat > .lt-kop`, which
+     is two literals that have to be kept in step with two other literals in
+     two other rules, and a mismatched corner wherever a kop opens a block
+     nobody remembered to add a case for. A kop now rounds correctly inside
+     whatever block opens it without knowing which one it is in. */
+  --slab-radius: 20px;
 
-  /* ---- shadcn primitives, pointed at the same tokens -------------------
-     src/components/ui/* is styled from these names. Mapping them here is what
-     stops the app carrying two parallel design systems, which is what it had:
-     a `Button` primitive nothing used, hardwired to a light palette, and a
-     hand-rolled button class beside it that looked nothing like it. */
+  /* THE SHEET CORNER, and it is the one radius in the product that is NOT on
+     the four-step scale, on purpose and for a functional reason.
+
+     A crop is a photograph of a document and its own edge is the boundary the
+     operator is paid to judge. `.lt-paper` carried the block radius, so the
+     two places that mount real evidence -- `proposal-plate.tsx` clipping the
+     crop with `overflow-hidden`, and the page `zone-editor.tsx` draws
+     rectangles on -- had 20px rounded off each corner of the picture itself,
+     which is about 1250 square pixels of evidence per corner at 300 DPI. The
+     same 20px also made the nest run backwards: stage 20px, 12px of padding,
+     mat 14px, 12px of padding, sheet 20px, so the innermost box had the
+     largest corner and the sheet read as sitting proud of its own mount.
+
+     THE ARITHMETIC IS CONCENTRIC, which is the same `calc(... - 1px)`
+     discipline `.lt-kop` already uses one level out: an inner corner is the
+     outer one minus the padding between them. Stage 20 - 12 = 8, which is why
+     `.lt-mat` is 8px and not the 14px it was. Mat 8 - 12 is negative, so the
+     sheet lands at the floor, which is this: square enough that nothing of the
+     crop is cut, round enough that its 1.5px border does not mitre.
+
+     It is also what `.lt-denah` takes, because a denah is a drawing of the
+     same sheet. */
+  --sheet-corner: 2px;
+
+  /* One curve for everything that moves. Fast out of the gate, settled at the
+     end: a key being pressed, not an object being animated. */
+  --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  /* ---- shadcn primitives, pointed at the same tokens --------------------
+     `src/components/ui/*` is styled from these names. Mapping them here is
+     what stops the app carrying two parallel design systems. `--primary` is
+     the petrol face and `--primary-foreground` its dark ink, so the generic
+     Button and `.lt-btn[data-tone="primary"]` are the same object rather than
+     two buttons that happen to sit near each other. */
   --background: var(--surface);
   --foreground: var(--ink);
   --card: var(--surface-raised);
   --card-foreground: var(--ink);
   --popover: var(--surface-rail);
   --popover-foreground: var(--ink);
-  --primary: var(--ink);
-  --primary-foreground: var(--surface);
+  --primary: var(--petrol);
+  --primary-foreground: var(--petrol-ink);
   --secondary: var(--surface-rail);
   --secondary-foreground: var(--ink);
   --muted: var(--surface-rail);
@@ -367,15 +743,15 @@
   --input: var(--line);
   --ring: var(--ink);
   --chart-1: var(--mark);
-  --chart-2: var(--ink-2);
+  --chart-2: var(--petrol);
   --chart-3: var(--gap);
-  --chart-4: var(--ink-3);
+  --chart-4: var(--ink-2);
   --chart-5: var(--line-strong);
-  --radius: 0.25rem;
+  --radius: 0.875rem;
   --sidebar: var(--surface-rail);
   --sidebar-foreground: var(--ink);
-  --sidebar-primary: var(--ink);
-  --sidebar-primary-foreground: var(--surface);
+  --sidebar-primary: var(--petrol);
+  --sidebar-primary-foreground: var(--petrol-ink);
   --sidebar-accent: var(--surface-raised);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--line);
@@ -389,8 +765,15 @@
     @apply border-border;
   }
 
-  body {
+  /* The ground is on `html` as a flat colour so an overscroll bounce and any
+     area the gradient does not reach is still the product's own colour rather
+     than the browser's white. */
+  html {
     background: var(--surface);
+  }
+
+  body {
+    background: transparent;
     color: var(--ink);
     font-family: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
     /* 15px, not 14. The operator reads a citation and a scan side by side for
@@ -400,24 +783,70 @@
     font-size: 0.9375rem;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
   }
 
-  /* FOCUS IS INK, NEVER AMBER. Amber means a decision is owed on this piece
-     of evidence; a keyboard position is not that, and letting the two share a
-     colour means a focused control reads as a slot demanding attention. */
+  /* THE GRADIENT IS A FIXED PSEUDO-ELEMENT, NOT `background-attachment: fixed`.
+     Two reasons, both practical. `fixed` forces a full-surface repaint on every
+     scroll frame in several engines, and this page scrolls a metre at a time.
+     And a backdrop-filter can only sample what is painted BEHIND it, so the
+     gradient has to be a real painted layer under the chrome rather than a
+     property of the scrolling box: put a background on the scroll container and
+     the glass has nothing to frost. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    /* THE GLOWS SIT IN OPPOSITE CORNERS, which is what turns a lit edge into
+       a traverse: teal high on the left, blue low on the right, with the ramp
+       running between them. Both were at the top before, which lights one
+       edge and leaves the other three flat.
+
+       The alphas are 30% and the stops end at 58% and 60% of their own ray;
+       between them they set `--ground-hi` at #012c30, which is the value
+       every glass ratio in this file is computed against. Raising either
+       alpha, or moving either centre further into the box, raises that
+       maximum and invalidates the ink ladder above. */
+    background:
+      radial-gradient(130% 95% at 8% -12%, color-mix(in srgb, var(--glow-1) 30%, transparent) 0%, transparent 58%),
+      radial-gradient(110% 85% at 104% 108%, color-mix(in srgb, var(--glow-2) 30%, transparent) 0%, transparent 60%),
+      linear-gradient(168deg, var(--ground-1) 0%, var(--ground-2) 46%, var(--ground-3) 100%);
+  }
+
+  /* FOCUS IS INK, NEVER AMBER, AND NEVER THE ACCENT. Amber means a decision is
+     owed on a piece of evidence; a keyboard position is not that.
+
+     IT READS `--focus-ring` AND NOT `--ink`, and the difference is the whole
+     of a defect that was invisible to everyone except a keyboard operator; the
+     token's own comment carries the measurements. The 2px offset is what makes
+     the ring the GROUND's object rather than the control's -- it is drawn
+     clear of the face, with backdrop on both sides -- which is the same reason
+     it must not take a colour the face rebound for itself.
+
+     ONE RING, NOT TWO. The old comment here described "a dark hairline
+     immediately outside the control, then the ink outline"; the rule paints a
+     single outline and always did. The offset is what stops a light face from
+     swallowing it.
+
+     The radius is the figure step, for a focusable element that has no corner
+     of its own. Anything in this file that does have one keeps it: these
+     declarations are in `@layer base` and every `.lt-*` rule is in
+     `@layer components`, which wins. */
   :focus-visible {
-    outline: 2px solid var(--ink);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 8px;
   }
 
   ::selection {
-    background: color-mix(in oklch, var(--ink), transparent 78%);
+    background: color-mix(in srgb, var(--ink) 24%, transparent);
     color: var(--ink);
   }
 
   * {
-    scrollbar-color: var(--line) transparent;
+    scrollbar-color: var(--line-strong) transparent;
     scrollbar-width: thin;
   }
 }
@@ -440,16 +869,15 @@
 
      The mono rule is a promise with a one-line test: IF TWO INSTANCES OF THE
      STRING WOULD EVER BE READ AGAINST EACH OTHER DOWN A COLUMN, IT IS MONO,
-     OTHERWISE IT IS NOT. Page numbers, line ranges, sizes, counts, file
-     names, quote and LOP identifiers, email addresses in the allowlist. Never
-     prose, never a button, never a status word, and never merely to make a
-     small label look technical, which is what the old system did to filenames,
-     nav pills, chips and placeholder prose.
+     OTHERWISE IT IS NOT. Page numbers, line ranges, sizes, counts, file names,
+     quote and LOP identifiers, email addresses in the allowlist. Never prose,
+     never a button, never a status word, and never merely to make a small
+     label look technical.
 
      UPPERCASE IS RESERVED FOR QUOTING THE DOCUMENT: DOKUMEN VALIDASI, the
      stamps a clerk presses. The interface never puts a label in caps to give
-     it rank. That one rule retires every tracked-out eyebrow in the tree and
-     replaces it with something that carries information.
+     it rank, and positive letter-spacing appears in exactly two rules below,
+     `.lt-wordmark` and `.lt-stamp`, both of which are quotations.
      ================================================================== */
 
   .lt-figure {
@@ -467,19 +895,28 @@
     color: var(--ink);
   }
 
-  /* A screen or section title. Sentence case, real weight, sitting on a rule.
-     No label floats above it in caps: the title IS the label. */
+  /* A screen or section title. Sentence case, real weight. No label floats
+     above it in caps: the title IS the label.
+
+     THREE WEIGHTS EXIST AND THIS IS THE TOP ONE. `layout.tsx` loads Atkinson
+     Hyperlegible Next and Mono at 400, 600 and 700, so 800 -- which this and
+     `.lt-btn` both used to ask for -- matched 700 and rendered no heavier,
+     silently, with nothing logged. The scale a reader can actually see is
+     400 for body, 600 for labels and rows, 700 for titles, field names, kops
+     and keys, and rank above that is bought with SIZE: a title is 21px and a
+     kop is 13px at the same weight. If a fourth weight is ever wanted, the
+     weight array in `layout.tsx` has to grow first. */
   .lt-title {
-    font-size: 1.25rem;
+    font-size: 1.3125rem;
     font-weight: 700;
     line-height: 1.25;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.018em;
     color: var(--ink);
   }
 
-  /* The question being asked: the field the operator is ruling on. The
-     largest thing on a plate after the picture, because nobody should have to
-     re-read to know which field they are judging. It was 14px. */
+  /* The question being asked: the field the operator is ruling on. The largest
+     thing on a plate after the picture, because nobody should have to re-read
+     to know which field they are judging. */
   .lt-field-name {
     font-size: 1.375rem;
     font-weight: 700;
@@ -501,7 +938,7 @@
   }
 
   /* The label column of a form or a register. Subordinate by size and colour,
-     not by being shouted in caps. */
+     never by being shouted in caps. */
   .lt-label {
     font-size: 0.8125rem;
     font-weight: 600;
@@ -509,139 +946,325 @@
   }
 
   /* =====================================================================
-     MATERIALS. Five, and each declares what it is. A control and a piece of
-     evidence are physically different objects.
+     MATERIAL ONE: GLASS. The tool, and only the parts of it that stay still.
+
+     `.lt-rail` is the class every piece of app chrome already reaches for, so
+     it is the one that becomes glass: the application strip, the phase nav,
+     the documents bar, the interruption ground, and the two sticky action
+     footers (export, zone editor). `.lt-toast` and `.lt-hint-panel` are the
+     same material one step brighter, because they float above the chrome
+     rather than sitting in it.
+
+     THE RECIPE IS FOUR THINGS AND ALL FOUR ARE REQUIRED:
+       a low-alpha white film, so the ground shows through;
+       a real backdrop blur, so it is frosted and not merely transparent;
+       a BRIGHT hairline along the top edge, which is where the light catches
+         a physical sheet of glass and is what makes the panel have a thickness;
+       a soft drop beneath, so it floats over the gradient rather than being
+         printed on it.
+
+     WHAT MUST NEVER GET THIS MATERIAL: anything inside the scrolling work
+     column. See the fallbacks at the end of this file for what happens when
+     the blur is unavailable or unwanted.
      ================================================================== */
 
-  /* Chrome. Never holds a fact you read for meaning, so: zero radius, a
-     hairline edge, no shadow. If information ends up here it is in the wrong
-     place. */
   .lt-rail {
-    background: var(--surface-rail);
-    border-color: var(--line);
+    position: relative;
+    background: var(--glass-rail);
+    /* PREFIXED FIRST, STANDARD LAST, and this order is load-bearing rather
+       than a convention. Written the other way round, Lightning CSS collapses
+       the pair and emits ONLY `-webkit-backdrop-filter`. Chrome has no
+       `-webkit-` alias for this property, so every piece of glass in the
+       product rendered with no blur at all: measured in the browser as
+       `backdrop-filter: none` on a bare `.lt-rail`, while the background from
+       the same rule applied normally. It looked like a design decision. */
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    border-color: var(--glass-edge);
+    color: var(--ink);
   }
 
-  /* Recessed into the table: things the app READ rather than things it is
-     telling you. Inputs, the OCR transcript, technical detail behind a
-     disclosure, the trough a progress strip runs in. */
+  /* The light catching the top edge. A pseudo-element rather than a border, so
+     a rail can still carry `border-b` from a utility class without the two
+     fighting over the same property, and so a stack of rails in one sticky
+     header draws exactly one bright line each. */
+  .lt-rail::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 1px;
+    background: var(--glass-line);
+    pointer-events: none;
+  }
+
+  /* A rail that is the BOTTOM of the sticky stack, or a floating footer, casts
+     its drop downward. Applied by position rather than by a variant, because a
+     rail in the middle of a stack casting a shadow onto the rail below it is
+     the thing that makes stacked chrome look like a pile of cards. */
+  .lt-rail:last-child,
+  .lt-rail[class*="sticky"] {
+    box-shadow: var(--glass-drop);
+  }
+
+  /* A rail pinned to the BOTTOM of the viewport (the export screen's action
+     footer, the zone editor's) casts upward instead, because the work it is
+     covering is above it. The drop is the same shadow with its offset
+     inverted, so the two footers and the header stay one material. */
+  .lt-rail[class*="bottom-0"] {
+    box-shadow:
+      0 -10px 30px -12px rgb(2 8 16 / 0.7),
+      0 -2px 8px -4px rgb(2 8 16 / 0.45);
+  }
+  /* ...and its light catches the top edge from below, which is still the top
+     edge, so `::before` needs no variant. */
+
+  /* =====================================================================
+     MATERIAL TWO: SOLID. The work, and everything that scrolls with it.
+
+     Opaque, matte, no blur, no drop. A slab is separated from the ground by
+     its fill and described by a hairline, and it takes the same top-edge
+     highlight as glass at a tenth of the strength, which is what keeps the two
+     materials lit by the same lamp.
+     ================================================================== */
+
+  .lt-slab,
+  .lt-panel {
+    position: relative;
+    --slab-radius: 20px;
+    background: var(--surface-raised);
+    border: 1px solid var(--edge);
+    border-radius: var(--slab-radius);
+    /* The top highlight, drawn inside so it cannot be clipped by a child, and
+       an inner floor line so the block has a bottom as well as a top. No drop
+       shadow: a solid panel is on the bench, not floating over it. */
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 6%),
+      inset 0 -1px 0 0 rgb(0 0 0 / 12%);
+  }
+
+  /* A PANEL IS A LIFTED BLOCK, and it is the one member of this family that
+     floats: `dialog.tsx` renders every modal as `.lt-panel` over the veil,
+     and `allowlist-editor.tsx` uses it for a block standing on the bench.
+     Lighter than a slab by the rule at the top of this file, which is what
+     makes a dialog read as the object in front (1.40:1 against a veiled scan
+     behind it, where a slab-coloured panel measured 1.15:1 and could land
+     either side of the veil depending on what was under it). */
+  .lt-panel {
+    /* 28px: the fourth step of the radius scale, and the only thing in the
+       product large enough to take it. It was declared in the theme block and
+       painted nowhere, so the scale's own top rung was fiction. A dialog is
+       the largest surface here and it is the one that should read as the most
+       generously cut. Its kop derives 27px on its own. */
+    --slab-radius: 28px;
+    --surface-raised: var(--surface-lift);
+    background: var(--surface-raised);
+  }
+
+  /* A SLAB INSIDE A SLAB IS A LIFTED BLOCK. This is the review sheet's own
+     shape: `contact-sheet.tsx` renders each bagian as a section `.lt-slab`
+     and `proposal-plate.tsx` renders the open capture as an `article.lt-slab`
+     inside its body, so without this the plate under decision was painted the
+     same fill as the container holding it.
+
+     A DESCENDANT SELECTOR, NOT A CHILD ONE, because the nesting always goes
+     through `.lt-slab-body`. `--surface-raised` is rebound rather than only
+     `background` being set, so the kop tints, the wash and everything else
+     that mixes against the block's own ground composites against the ground
+     it is actually on. The value is absolute, so a third level lands on the
+     same colour rather than walking one step lighter again. */
+  :is(.lt-slab, .lt-panel, .lt-slab-flat) :is(.lt-slab, .lt-panel) {
+    --surface-raised: var(--surface-lift);
+    background: var(--surface-raised);
+  }
+
+  /* A slab that is furniture rather than content: the readout column beside
+     the zone editor, the runs list, a section of the export inventory. On the
+     bench it keeps the work surface and loses the lighting, so it reads as a
+     panel without competing with the block that holds the work. */
+  .lt-slab-flat {
+    position: relative;
+    /* The control step, not the 16px this was. 16 is not on the scale, and
+       furniture set inside a 20px block wants the step BELOW its container,
+       not one two pixels short of it. */
+    --slab-radius: 14px;
+    background: var(--surface-raised);
+    border: 1px solid var(--edge);
+    border-radius: var(--slab-radius);
+    box-shadow: none;
+  }
+
+  /* NESTED, IT IS A SET-IN BLOCK: darker than the block holding it, with the
+     shallow inner shadow that says so. A bulk-accept confirmation inside a
+     bagian, a nested section of the inventory. The other half of the rule at
+     the top of this file, and the reason `.lt-slab-flat` does not simply take
+     `--surface-set` unconditionally: standing on the bare bench it would be
+     within 1.05:1 of the ground and stop being a panel at all. Set into a
+     slab it measures 1.22:1 darker, and every ink on it improves. */
+  :is(.lt-slab, .lt-panel, .lt-slab-flat) .lt-slab-flat {
+    --surface-raised: var(--surface-set);
+    background: var(--surface-raised);
+    box-shadow: inset 0 1px 3px -1px rgb(0 0 0 / 35%);
+  }
+
+  /* Recessed into the work surface: things the app READ rather than things it
+     is telling you. Inputs, the OCR transcript, technical detail behind a
+     disclosure, the trough a progress strip runs in. The inner top shadow is
+     the inverse of a slab's highlight, so sunk and raised are the same lamp
+     seen from two sides. */
   .lt-well {
     background: var(--surface-sunk);
-    border: 2px solid var(--line-strong);
-    border-radius: 4px;
+    border: 1px solid var(--edge);
+    border-radius: 14px;
+    box-shadow: inset 0 2px 5px -2px rgb(0 0 0 / 45%);
+  }
+
+  /* A ROW INSIDE A BLOCK. `.lt-kotak` is for a FIGURE quoted out of a document
+     and is inline-flex with a figure's tight padding, so using it as a row
+     container (which the first draft of the document manager did) collapses
+     the row to its content and boxes a whole layout as though it were a
+     number. This is the row. */
+  .lt-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.625rem 0.85rem;
+    background: var(--surface-sunk);
+    border: 1px solid var(--edge);
+    border-radius: 14px;
   }
 
   /* =====================================================================
-     THE SLAB, and the kop that opens it.
+     THE KOP: the header row that opens a block, and its status channel.
 
-     This is the one container in the product. It is not "the exception to a
-     block being the space between two rules": that rule is gone, because it
-     is what produced a screen of bordered HTML. Every grouped thing on every
-     screen is a slab, so the app has ONE repeated form, which is the thing a
-     style actually is.
+     IT IS NO LONGER A BAR OF SOLID INK, and that is the single biggest change
+     in this pass. It was a full-width dark bar that turned full-width amber
+     when the block owed a decision, which is exactly the gesture the client
+     pointed at. It is now a faint tint of the block's own fill, capped to the
+     block's radius, closed by a hairline.
+
+     THE STATUS IS STILL CARRIED BY THE CONTAINER, which was the good idea in
+     the old bar and is worth keeping: a block that owes something is legible
+     from across the room without any of the fourteen components that draw one
+     having to remember a rule. It is carried three ways at once now, none of
+     them a saturated fill:
+       a 4px rule down the leading edge, which is the loudest and reads at a
+         glance down a column of stacked blocks;
+       a 12% tint of the hue over the block's own ground;
+       a soft inner glow of the hue at the top of the bar.
+
+     MEASURED AGAINST BOTH LAYERS, WHICH IS THE CORRECTION THIS PASS MAKES.
+     The tint and the gradient are two paints on one bar and the text sits at
+     the top where both are present, so a figure taken against the tint alone
+     is the flattering half of the answer. On the work surface: `--kop` reads
+     7.88:1 on the amber bar, 8.62:1 on the red, 8.03:1 on the petrol, and
+     10.49:1 on a plain one; plain `--ink` is within 0.02 of each. Nothing
+     changed colour -- the old 9.13 / 9.69 / 9.22 were simply the wrong
+     numbers for the right design.
      ================================================================== */
 
-  .lt-slab {
-    background: var(--surface-raised);
-    border: 3px solid var(--edge);
-    border-radius: 0;
-    box-shadow: var(--plate);
-  }
-
-  /* A slab that is furniture rather than content: the runs list, an aside. It
-     keeps the edge and loses the plate, so it sits ON the desk rather than
-     lifting off it. */
-  .lt-slab-flat {
-    background: var(--surface-raised);
-    border: 3px solid var(--edge);
-    border-radius: 0;
-  }
-
-  /* `.lt-panel` is the name every screen already uses, so it becomes the slab
-     rather than being deleted out from under them. That way the whole app
-     adopts the new material in one step and the migration to an explicit
-     slab-plus-kop happens screen by screen, where a kop has something to say. */
-  .lt-panel {
-    background: var(--surface-raised);
-    border: 3px solid var(--edge);
-    border-radius: 0;
-    box-shadow: var(--plate);
-  }
-
-  /*
-   * THE KOP, and its double rule.
-   *
-   * 2px over 1px at a 3px gap is the gesture that closes the masthead of every
-   * Indonesian government letter. It is drawn here as a bottom border plus a
-   * box-shadow line rather than as two elements, so a kop is one node.
-   *
-   * IT IS ALSO THE BLOCK'S STATUS CHANNEL. Ink by default; amber when the
-   * block owes the operator a decision; red when it reports a fault. One
-   * mechanism, three values, and a block that owes something is legible from
-   * across the room without any component remembering a rule.
-   */
   .lt-kop {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--kop);
+    padding: 0.625rem 0.95rem;
+    background: color-mix(in srgb, var(--ink) 4.5%, var(--surface-raised));
     color: var(--ink);
-    border-bottom: 2px solid var(--edge);
-    box-shadow: 0 3px 0 0 var(--edge);
+    border-bottom: 1px solid var(--edge);
+    /* Derived from the block, not from a literal. `- 1px` is the border the
+       bar sits inside; the container declares `--slab-radius` once and any
+       kop opening any block rounds to match it. */
+    border-start-start-radius: calc(var(--slab-radius) - 1px);
+    border-start-end-radius: calc(var(--slab-radius) - 1px);
     font-size: 0.8125rem;
     font-weight: 700;
 
-    /* NOT UPPERCASE, and not tracked out, though the first draft of this rule
-       was both. A bar of ink at full width, ruled 2px and carrying a plate, is
-       already the most emphatic object on the screen; adding caps to it is
-       giving rank to something that has plenty. This system's own rule is that
-       uppercase quotes the DOCUMENT and never labels the interface, and a kop
-       is a label. It also matters that a kop often carries a name transcribed
-       from the sample -- "BA Permintaan", "KB (lanjutan)" -- which arrives in
-       the casing the document itself uses, and shouting it changes the
-       quotation. */
+    /* NO `overflow: hidden`, AND THAT IS A FIX RATHER THAN AN OMISSION. The
+       bar carries focusable children -- `proposal-plate.tsx` and
+       `contact-sheet.tsx` both put a Hint button inside it, and the base rule
+       puts flat controls there too -- and the global focus ring is an outline
+       at 2px with a 2px offset, so it reaches 4px outside whatever it is on.
+       A clipping ancestor cuts that ring off at the bar's edge, silently, for
+       keyboard operators only. The leading rule that `overflow` was there to
+       contain is now an INSET BOX-SHADOW, which follows the border radius on
+       its own and needs no clip at all.
+
+       NOT UPPERCASE and not tracked out. A kop very often carries a name
+       transcribed from the sample ("BA Permintaan", "KB (lanjutan)"), which
+       arrives in the casing the document itself uses, and shouting it changes
+       the quotation. */
   }
+
+  /* The children of a kop that reports something take the bar's own ink.
+
+     THE REBIND IS DONE HERE RATHER THAN LEFT TO EACH COMPONENT, which is a
+     change of who is responsible. `ON_COLOURED_KOP` in `proposal-plate.tsx`
+     already maps `--ink`, `--ink-2`, `--ink-3`, `--mark` and `--gap` onto
+     `--kop`; `KOP_INK` in `contact-sheet.tsx` maps only two of the five, and
+     any new component that forgets gets a hue painted on a tint of itself
+     (`--gap` on the red bar measures 4.32:1 on a slab and 3.66:1 on a lifted
+     plate, under AA in the second case). Declaring it on the bar's children
+     makes both constants redundant rather than load-bearing, which is the
+     same move the paper kop already makes for its inline `color`.
+
+     `> *` rather than the bar itself, because the bar's OWN background is
+     written in terms of `--mark` and `--gap` and rebinding them on the
+     element would resolve its fill to near-white. The consequence to know: a
+     control that wants to keep a hue of its own inside a coloured kop cannot,
+     and would have to say so; nothing in the product does. */
+  .lt-kop[data-owes] {
+    color: var(--kop);
+  }
+  .lt-kop[data-owes] > * {
+    --ink: var(--kop);
+    --ink-2: var(--kop);
+    --ink-3: var(--kop);
+    --mark: var(--kop);
+    --gap: var(--kop);
+  }
+
+  /* The leading rule, as an INSET box-shadow. An inset shadow is clipped to
+     the element's own padding box, so it follows the rounded top corner
+     without a pseudo-element, without a positioning trick, and without the
+     `overflow: hidden` that was eating focus rings. */
   .lt-kop[data-owes="decision"] {
-    background: var(--mark);
-    color: var(--kop);
+    background:
+      linear-gradient(to bottom, color-mix(in srgb, var(--mark) 7%, transparent), transparent 70%),
+      color-mix(in srgb, var(--mark) 12%, var(--surface-raised));
+    box-shadow: inset 4px 0 0 0 var(--mark);
   }
+
   .lt-kop[data-owes="fault"] {
-    background: var(--gap);
-    color: var(--kop);
+    background:
+      linear-gradient(to bottom, color-mix(in srgb, var(--gap) 7%, transparent), transparent 70%),
+      color-mix(in srgb, var(--gap) 12%, var(--surface-raised));
+    box-shadow: inset 4px 0 0 0 var(--gap);
   }
+
+  /* `done` exists in the contract and is deliberately unused by the review
+     screens: a finished packet is a screen with the colour gone out of it, and
+     twenty petrol bars would be the loudest thing on it. It stays defined
+     because the outstanding panel uses it for a block that has nothing left to
+     ask. */
   .lt-kop[data-owes="done"] {
-    background: var(--petrol);
-    color: var(--petrol-ink);
+    background:
+      linear-gradient(to bottom, color-mix(in srgb, var(--petrol) 7%, transparent), transparent 70%),
+      color-mix(in srgb, var(--petrol) 12%, var(--surface-raised));
+    box-shadow: inset 4px 0 0 0 var(--petrol);
   }
 
   /* Pushed to the far end of the kop: the count, the state word, whatever this
-     block owes. One class so every kop in the product puts it in the same
-     place, and a screen never reaches for `ml-auto` and lands a pixel off. */
+     block owes. One class, so every kop in the product puts it in the same
+     place and no screen reaches for `ml-auto` and lands a pixel off. */
   .lt-kop-right {
     margin-left: auto;
     font-weight: 600;
   }
 
-  /* A ROW INSIDE A SLAB, ruled off from its neighbours. `.lt-kotak` is for a
-     FIGURE quoted out of a document and is inline-flex with a figure's tight
-     padding, so using it as a row container (the first draft of the document
-     manager did) collapses the row to its content and boxes a whole layout as
-     though it were a number. */
-  .lt-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--surface-sunk);
-    border: 2px solid var(--line-strong);
-    border-radius: 2px;
-  }
-
-  /* The body of a slab. The 3px gap under the kop is the double rule showing
-     through, so nothing may sit in it. */
+  /* The body of a block. */
   .lt-slab-body {
-    padding: 1rem;
-    margin-top: 3px;
+    padding: 1.1rem 1.15rem 1.25rem;
   }
 
   /* =====================================================================
@@ -652,8 +1275,9 @@
   .lt-kotak {
     display: inline-flex;
     align-items: center;
-    padding: 0.1rem 0.4rem;
-    border: 2px solid var(--line-strong);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--edge);
+    border-radius: 8px;
     background: var(--surface-sunk);
     font-family: var(--font-figure), ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
@@ -666,93 +1290,346 @@
   /* =====================================================================
      THE STAGE AND THE MAT: how evidence is mounted.
 
-     Three drawn cues for the one boundary the operator is paid to judge, so
-     the crop's edge stops being a luminance accident: a sunk stage, a 12px
-     near-black mat, and a bone keyline. The old single cue was the difference
-     in brightness between white paper and a graphite ground, which works
-     until a scan is dark or a plane changes.
+     Three drawn cues for the one boundary the operator is paid to judge, so a
+     crop's edge stops being a luminance accident: a sunk stage, a near-black
+     mat, and the sheet's own `--paper-edge`. Whatever happens elsewhere in
+     this palette, THIS STAYS DARK. The content is white paper and a scan on a
+     light interface loses exactly the edge the operator is ruling on.
      ================================================================== */
 
   .lt-stage {
     background: var(--surface-sunk);
-    border: 3px solid var(--edge);
+    border: 1px solid var(--edge);
+    border-radius: 20px;
     padding: 12px;
+    box-shadow: inset 0 2px 6px -2px rgb(0 0 0 / 50%);
   }
+
   .lt-mat {
     background: var(--mat);
+    /* 8px, CONCENTRIC WITH THE STAGE, not the 14px it was: the stage is 20px
+       and holds the mat inside 12px of padding, and 20 - 12 = 8. At 14 the
+       mount's corners were tighter than the box holding them, which is the
+       arithmetic that made the whole nest read as three unrelated boxes. See
+       `--sheet-corner`. */
+    border-radius: 8px;
     padding: 12px;
+    /* A faint bone ring so the mat has an edge of its own against the stage.
+       The crop's edge is drawn by `.lt-paper`, not here: two hard rules one
+       inside the other would compete for the boundary that matters. */
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--keyline) 18%, transparent);
   }
 
-  /* PAPER. The only lit material and the only shadow in this stylesheet.
+  /* =====================================================================
+     PAPER. The only lit material, and the only solid object that casts a drop.
      A crop, a rendered page, and the single sheet that carries sign-in, the
-     privacy policy, the allowlist register and the failure screens. */
-  /* EVERY SURFACE THAT IS PAPER REBINDS THE INK TOKENS, and the list is a
-     selector rather than one class because forgetting a member of it is how
-     the hero device broke.
+     privacy policy, the allowlist register and the failure screens.
 
-     The one global `:focus-visible` rule draws its outline in `var(--ink)`,
-     which is near-white: on a sheet that was an invisible focus ring, on
-     exactly the surfaces a keyboard user meets first. Both hues need paper
-     values too, and that is the half that is easy to forget: the table's
-     `--gap` measures about 2.6:1 on this warm white and the table's `--mark`
-     about 1.6:1, so a refusal in red becomes a pale smudge and an amber mark
-     is very nearly not there. The meanings never change, only the values that
-     carry them.
+     EVERY SURFACE THAT IS PAPER REBINDS THE INK TOKENS, and the list is a
+     shared selector rather than one class because forgetting a member of it is
+     how the hero device broke once already: `.lt-denah` paints `--paper` as
+     its ground and then drew its cut in the TABLE's amber, at 1.26:1.
 
-     `.lt-denah` IS IN THIS LIST BECAUSE IT IS A PICTURE OF A PAGE. It paints
-     `--paper` as its ground and then drew its cut rectangle in the TABLE's
-     amber, which measured 1.13:1 against that white: the rectangle survived
-     only on its 1.5px stroke, on the one device in the product whose whole job
-     is answering "is this the right page" with a shape. The old paper `--mark`
-     was also out of the sRGB gamut at oklch(0.52 0.13 75) and was being
-     silently clamped, so it was not a colour anyone had chosen either. */
+     `--kop` REBINDS TO `--paper` HERE, WHICH IS THE OPPOSITE OF ITS VALUE ON
+     THE BENCH, and it is right in both places because the token means "the
+     kop's ink": on the bench a kop is a tint and its ink is light, on a sheet
+     a kop is a dark masthead and its ink is the sheet.
+
+     `*:has(> .lt-denah)` IS THE THIRD MEMBER, and it closes the exact gap
+     this comment warns about. `denah.tsx` puts the caption "teks tidak
+     terbaca" in a `<span>` that is a SIBLING of the svg, inside the wrapper
+     div, painted `var(--gap)` from an inline style. That span is not inside
+     `.lt-denah`, so a rebind scoped to the svg never reaches it and the
+     interface's coral landed on a white sheet at 2.07:1 -- on the one string
+     whose whole job is to admit that the page would not read. Selecting the
+     box that DIRECTLY CONTAINS a denah puts the picture and its caption on
+     paper's own ink together: 7.60:1. The `>` matters; a plain descendant
+     `:has()` would repaint every ancestor up to the body.
+     ================================================================== */
+
   .lt-paper,
-  .lt-denah {
+  .lt-denah,
+  *:has(> .lt-denah) {
     --ink: var(--paper-ink);
     --ink-2: var(--paper-ink-2);
     --ink-3: var(--paper-ink-2);
     --line: var(--paper-edge);
+    --line-control: var(--paper-edge);
     --line-strong: var(--paper-ink-2);
-    --gap: oklch(0.455 0.150 25);
-    --mark: oklch(0.505 0.100 75);
-    --edge: var(--paper-ink);
-    --kop: var(--paper-ink);
+    --edge: color-mix(in srgb, var(--paper-ink) 18%, transparent);
+    --kop: var(--paper);
+    /* The ring belongs to the GROUND, and here the ground is a white sheet.
+       Re-declared rather than inherited, and re-declared as `var(--ink)` for
+       the reason `--focus-ring`'s own comment gives: written here it computes
+       against the ink this very rule has just set, so it lands on
+       `--paper-ink` at 15.65:1 instead of arriving from `:root` as a near-
+       white outline on white paper. `allowlist-editor.tsx` carries a
+       hand-rolled inline copy of this whole block for exactly that reason and
+       can now drop it. */
+    --focus-ring: var(--ink);
+    /* THE RECESS, REBOUND RATHER THAN OVERRIDDEN COMPONENT BY COMPONENT. Four
+       explicit descendant selectors used to carry this (`.lt-paper .lt-kotak`,
+       `.lt-well`, `.lt-row`, `.lt-input`), which is a list that is correct
+       until somebody puts a fifth component on a sheet and gets a near-black
+       box on white with nothing to tell them why. One token, and anything that
+       names the recess comes out right on paper without being added to a list.
+       Measured on it: `--paper-ink` 14.36:1, `--paper-ink-2` 6.44:1, and the
+       recess itself 1.09:1 against the sheet, which is a visible tray rather
+       than a second colour. */
+    --surface-sunk: color-mix(in srgb, var(--paper-ink) 4.5%, var(--paper));
+    --hatch: oklch(0.600 0.022 242);
+    /* Both signals need paper values, and this is the half that is easy to
+       forget: the bench's `--gap` measures 2.07:1 on this warm white and the
+       bench's `--mark` 1.51:1, so a refusal becomes a smudge and a mark is
+       very nearly not there. The meanings never change, only the values that
+       carry them. Measured on paper: `--gap` 7.60:1, `--mark` 4.57:1. */
+    --gap: oklch(0.455 0.150 27);
+    --mark: oklch(0.560 0.110 78);
+    /* A CONTROL ON A WHITE SHEET NEEDS A DARKER FACE. The bench's light slate
+       measures 2.74:1 against paper, below the 3:1 a control boundary owes, so
+       the neutral button inverts here: a dark face with the sheet as its ink
+       (7.45:1 both ways). The bright faces (petrol, amber) keep their colour
+       and lean on the ring, whose lip colours measure 4.05:1 and 3.94:1
+       against paper. */
+    --btn: oklch(0.440 0.028 232);
+    --btn-lip: oklch(0.320 0.026 236);
+    --btn-ink: var(--paper);
+    --petrol-lip: oklch(0.575 0.095 202);
+    --mark-lip: oklch(0.595 0.115 82);
+    --gap-lip: oklch(0.500 0.150 26);
+    /* `--gap-ink` FLIPS DIRECTION WITH THE FACE, and this is the half of the
+       button inversion above that was left behind. Everywhere else on a sheet
+       the correction pen goes DARKER, because it is drawn on white. Not here:
+       `--gap-ink` is the label of the reject button, the reject button keeps
+       the neutral face, and three lines up the neutral face inverted to a DARK
+       slate with the sheet as its ink. Carried over from the bench it was
+       #861213 on #435660 -- 1.29:1, and 1.23:1 on hover -- on the revoke
+       confirmation of the allowlist register, which carries `autoFocus`, so
+       focus landed on a button whose label could not be read on the one screen
+       where the wrong press removes somebody's access. Its neighbour "Batal"
+       measured 7.45:1.
+
+       0.860 lightness, chroma at the sRGB ceiling for it (0.075 at this hue,
+       so 0.070 ships in gamut rather than being mapped by the browser into a
+       colour these numbers were not computed on). Measured on the sheet's
+       button face: 4.91:1, and 5.16:1 on hover. The refusal stays legible AS
+       the correction pen, which `--paper` at 7.45:1 would not have been: that
+       makes the reject key and the neutral key the same object.
+
+       DO NOT "RESTORE" THIS TO A DARK RED TO MATCH `--gap`. `--gap` is drawn
+       on the sheet; `--gap-ink` is drawn on the sheet's darkest control. */
+    --gap-ink: oklch(0.860 0.070 24);
+    --wash: rgb(0 0 0 / 5%);
   }
 
+  /* THE SHEET RADIUS IS ITS OWN TOKEN, BECAUSE A SHEET DOES TWO JOBS. A full
+     page sheet -- sign-in, the privacy policy, the allowlist register, the
+     three failure screens -- is a block and takes the block radius. A sheet
+     MOUNTED AS EVIDENCE is a photograph of a document and takes
+     `--sheet-corner`, for the functional reason recorded there. `--slab-radius`
+     stays 20px in both cases, so a kop opening a full sheet still derives its
+     own corners correctly. */
   .lt-paper {
+    --slab-radius: 20px;
+    --paper-radius: var(--slab-radius);
     background: var(--paper);
-    border: 2px solid var(--paper-edge);
-    border-radius: 2px;
+    border: 1.5px solid var(--paper-edge);
+    border-radius: var(--paper-radius);
     box-shadow: var(--lift);
     color: var(--paper-ink);
   }
 
-  /* A deliberate absence, on the record. A blank cell and a cell nobody
-     looked at must never be the same picture, and telling those two apart is
-     the entire point of the dokumen tambahan loop. */
+  /* MOUNTED ON A MAT, A SHEET IS EVIDENCE. `proposal-plate.tsx` clips the crop
+     to this box with `overflow-hidden` and `zone-editor.tsx` scrolls the page
+     the operator draws rectangles on inside it, so the corner is cut out of
+     the picture itself. Descendant rather than child: the zone editor puts the
+     scroll frame directly in the mat, the plate puts the picture there, and a
+     future wrapper between them must not silently restore 20px. */
+  .lt-mat .lt-paper {
+    --paper-radius: var(--sheet-corner);
+  }
+
+  /* The `.lt-paper-*` family: the parts of a sheet that need the sheet's own
+     values rather than the bench's. Small on purpose. */
+  .lt-paper-body {
+    padding: 1.5rem;
+  }
+  .lt-paper-rule {
+    border-top: 1px solid var(--paper-edge);
+  }
+
+  /* A KOP ON A SHEET IS A MASTHEAD, and it is the one place in this system
+     where a solid bar survives, because on white there is nothing else a
+     header cap can be. A bar of INK, never of hue: the three coloured versions
+     of it are gone and the rule below says why. `signin/page.tsx` and the
+     three failure screens hand it `color: var(--paper)` inline; this rule is
+     what makes that constant redundant rather than load-bearing. */
+  .lt-paper .lt-kop {
+    background: var(--paper-ink);
+    color: var(--paper);
+    border-bottom: 0;
+    /* The masthead is the one DARK ground a sheet contains, so the ring flips
+       back. See `--focus-ring`. 15.65:1 on the bar. */
+    --focus-ring: var(--paper);
+  }
+
+  /* THE STATUS IS THE LEADING RULE, AND THE THREE COLOURED BARS ARE GONE.
+
+     They were the last three saturated fills under light text left in the
+     product, and the loudest of them fired on the SIGN-IN SCREEN
+     (`signin/page.tsx` hands the kop `owes="fault"` on any refusal) and
+     unconditionally on `error.tsx`. `fault` was #7b1617 at chroma 0.135 --
+     higher than `--gap`'s own 0.125 -- laid full width across the top of a
+     sheet under near-white text. The contrast was never the problem (10.34:1,
+     7.28:1 and 7.87:1); the gesture was, and it is the exact gesture the
+     client named. The file states the rule three sections above with the words
+     "there is no exception for a colour that looks dark enough", and then made
+     three. `done` was also outside sRGB (red channel -0.040) and was being
+     silently mapped by the browser, which is what the ground's own comment
+     says it wrote non-round chromas to avoid.
+
+     WHAT CARRIES THE STATE NOW IS WHAT CARRIES IT ON THE BENCH: a 4px rule
+     down the leading edge, which the file already calls the loudest of the
+     three channels and the one that reads down a column at a glance. The
+     masthead stays the plain `--paper-ink` bar it is in the default state, so
+     the four states are one object with one thing changed.
+
+     THE RULE WEARS THE BENCH VALUE OF ITS HUE, not the sheet's. The bar is
+     dark, and a sheet's `--gap` and `--mark` are tuned for white: on this bar
+     they measure 2.06:1 and 3.43:1, under the 3:1 a status indicator owes as a
+     graphical object. `--mark-bench` and `--gap-bench` are frozen at `:root`
+     for this one use. Measured on the masthead: the correction pen 7.56:1,
+     the mark 10.36:1, petrol 9.06:1, and the bar's own text 15.65:1. */
+  .lt-paper .lt-kop[data-owes] {
+    /* Written out rather than left to `.lt-paper .lt-kop` above. Both that
+       rule and the bench's `.lt-kop[data-owes="fault"]` are one class and one
+       attribute, so which of the two paints the bar is decided by source order
+       alone -- and a bar of amber arriving on a white sheet because somebody
+       moved a block is not a thing to leave to source order. */
+    background: var(--paper-ink);
+    color: var(--paper);
+    box-shadow: inset 4px 0 0 0 color-mix(in srgb, var(--paper) 55%, transparent);
+  }
+  .lt-paper .lt-kop[data-owes="decision"] {
+    box-shadow: inset 4px 0 0 0 var(--mark-bench);
+  }
+  .lt-paper .lt-kop[data-owes="fault"] {
+    box-shadow: inset 4px 0 0 0 var(--gap-bench);
+  }
+  .lt-paper .lt-kop[data-owes="done"] {
+    box-shadow: inset 4px 0 0 0 var(--petrol);
+  }
+
+  /* THE RECESS ON PAPER IS A TOKEN REBIND NOW (see `--surface-sunk` above),
+     so the four selectors that used to live here are gone. THIS ONE STAYS,
+     because it is not a rebind: a kop on a sheet is a dark masthead and the
+     bench's inset shadow, drop and hairline are all wrong on it. The rules
+     above it own the ground and the ink; this one owns the removals. */
+  .lt-paper .lt-well,
+  .lt-paper .lt-input {
+    box-shadow: none;
+  }
+
+  /* A deliberate absence, on the record. A blank cell and a cell nobody looked
+     at must never be the same picture, and telling those two apart is the
+     entire point of the dokumen tambahan loop.
+
+     THE STRIPES ARE SOLID, AND THE ALPHA THEY LOST WAS NOT A STYLE CHOICE.
+     They were `color-mix(var(--hatch) 30%, transparent)`, which paints 1.56:1
+     on a slab while the comment beside it claimed 4.14 -- the token's ratio,
+     not the paint's. `Missing` in `denah.tsx` renders one of these as the
+     ENTIRE representation of a capture with no evidence, so an invisible
+     hatch is a wrong-and-quiet surface built by the device meant to close
+     one. Solid, the stripe measures what the token measures: 4.14:1 on a
+     slab, 3.41:1 on a lifted plate, 6.00:1 in a recess, 6.57:1 on the mat,
+     3.80:1 on a sheet. Narrower and further apart than before, so that
+     solidity buys legibility without the panel turning into a barcode.
+
+     THOSE FIVE FIGURES ARE THE STRIPE AGAINST ITS PANEL. NONE OF THEM IS TEXT
+     AGAINST THE STRIPE, and four of the eight call sites print text on a
+     hatch, which is the half the solidity fix did not measure. On a solid
+     #88949e stripe the copy reads `--gap` 1.45:1, `--ink` 2.89:1, `--ink-2`
+     1.94:1 -- against 6.20, 7.67 and 5.14 over the 30% stripe it replaced. A
+     third of every glyph vanished and two thirds did not, which is worse to
+     read than either alone, and `prefers-contrast: more` widens the stripe to
+     45% coverage, so the accessibility preference made it worse. The four
+     sentences hidden were "the page failed to open", "the page is gone",
+     "there is no image for this section" and "there is no image for this
+     capture" -- the product's own account of missing evidence, one of which
+     `export-panel.tsx` labels in its own comment as safety copy.
+
+     THERE IS NO ALPHA THAT DOES BOTH JOBS, so they are two objects. The
+     frontier, measured on a lifted plate because that is the lightest panel a
+     hatch lands on: `--ink-2` over the stripe crosses AA at about 26% alpha
+     (4.70:1), and at 26% the stripe itself measures 1.40:1 against the plate,
+     which is the invisible texture this whole rule was written to end. Solid
+     it is 3.41:1 there. Below is the picture; the rule after it is the one
+     that carries words. */
   .lt-hatch {
     background-image: repeating-linear-gradient(
       -45deg,
-      color-mix(in oklch, var(--hatch), transparent 82%) 0 6px,
-      transparent 6px 14px
+      var(--hatch) 0 4px,
+      transparent 4px 12px
     );
-    border: 2px dashed color-mix(in oklch, var(--hatch), transparent 35%);
-    border-radius: 2px;
+    border: 1.5px dashed var(--hatch);
+    /* The figure step. A hatch with no words in it is a chip, a swatch, or a
+       drawn sheet standing for a page nobody can show you. */
+    border-radius: 8px;
+  }
+
+  /* A HATCH THAT CARRIES WORDS KEEPS THE STRIPES AS A FRAME AND CLEARS THE
+     FIELD UNDER THE TEXT.
+
+     `:empty` IS THE DISCRIMINATOR AND IT IS NOT A GUESS. Every decorative
+     hatch in the product is a childless element -- the swatches in
+     `contact-sheet.tsx` and `proposal-plate.tsx`, the sample in
+     `zone-editor.tsx`, and `Missing` in `denah.tsx`, which is the one place
+     the hatch IS the entire representation of a capture with no evidence.
+     Every hatch that carries a sentence has content. Two of the four text
+     sites put that sentence in a BARE TEXT NODE rather than an element, so
+     `.lt-hatch > *` reaches neither of them; the field has to be cleared by
+     the container itself.
+
+     HOW: two background layers. The first listed layer paints on top, and it
+     is a flat opaque fill inset by a fixed 10px on every side, so the stripes
+     survive only as a 10px frame and the words stand on the fill. The second
+     is the stripe pattern across the whole padding box, underneath it.
+
+     THE INSET IS A FIXED LENGTH RATHER THAN THE CONTENT BOX, deliberately.
+     Clipping the fill to `content-box` reads better and ties the frame to
+     whatever padding the call site happens to carry -- all four carry `p-4`
+     today -- which means the frame width is a property of a Tailwind class in
+     another file, and a text hatch with no padding would lose its stripes
+     entirely. A fixed 10px frame is the same on every call site, survives a
+     padding change, and leaves the copy 6px of clearance inside the fill
+     before it could reach a stripe.
+
+     MEASURED WHERE THE GLYPHS ACTUALLY SIT, which is the recess: `--gap`
+     8.68:1, `--ink` 17.34:1, `--ink-2` 11.63:1. The stripes in the frame keep
+     the figures quoted for the rule above, because they are the same paint on
+     the same grounds. */
+  .lt-hatch:not(:empty) {
+    background-image:
+      linear-gradient(var(--surface-sunk), var(--surface-sunk)),
+      repeating-linear-gradient(-45deg, var(--hatch) 0 4px, transparent 4px 12px);
+    background-position: 10px 10px, 0 0;
+    background-size: calc(100% - 20px) calc(100% - 20px), auto;
+    background-repeat: no-repeat, repeat;
+    background-origin: padding-box;
+    background-clip: padding-box;
+    /* The block step: with words in it this is a block and not a chip. */
+    border-radius: 20px;
   }
 
   /* =====================================================================
      THE REGISTER (blok keterangan): where a crop came from.
 
-     Replaces `file.pdf · p 1/2 · L 0-7 · 8 lines · 6.3 x 2.5 in`, which
-     buried the page number -- the value this product's failure class is
-     named after -- third in an undifferentiated grey run.
-
-     Label, then value, on stacked rows with the values sharing one left
-     edge and set in tabular figures. Twelve captures down the sheet put
-     twelve `halaman` values in one column, so a crop taken from the wrong
-     page is a digit that does not belong in a column of digits. The
-     wrongness becomes structural instead of chromatic, which is the only
-     kind a tired operator catches reliably.
+     Label, then value, on stacked rows with the values sharing one left edge
+     and set in tabular figures. Twelve captures down the sheet put twelve
+     `halaman` values in one column, so a crop taken from the wrong page is a
+     digit that does not belong in a column of digits. The wrongness becomes
+     structural instead of chromatic, which is the only kind a tired operator
+     catches reliably.
      ================================================================== */
 
   .lt-register {
@@ -792,7 +1669,7 @@
   .lt-count {
     font-family: var(--font-figure), ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
-    font-size: 2rem;
+    font-size: 2.125rem;
     font-weight: 700;
     line-height: 1;
     letter-spacing: -0.03em;
@@ -801,16 +1678,16 @@
   /* =====================================================================
      ADVISORIES about the crop's own geometry.
 
-     They wear no colour. Amber already means "a decision is owed here", and
-     these were previously set in the dimmest token in the system, which put
-     the tells the product depends on in the least readable place on screen.
-     An advisory earns attention by being the only full-strength small text
-     near the picture, and it always ends in something to do.
+     They wear no colour. Amber already means "a decision is owed here", and a
+     hue asked to mean act-on-this and be-suspicious-of-this at once teaches an
+     operator to read neither. An advisory earns attention by being the only
+     full-strength small text near the picture, and it always ends in something
+     to do.
      ================================================================== */
 
   .lt-advisory {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.6rem;
     font-size: 0.8125rem;
     line-height: 1.45;
     color: var(--ink);
@@ -819,53 +1696,75 @@
   .lt-advisory::before {
     content: "";
     flex: none;
-    width: 2px;
+    width: 3px;
     align-self: stretch;
     background: var(--line-strong);
-    border-radius: 1px;
+    border-radius: 999px;
   }
 
   /* =====================================================================
      THE STATE MARKS
 
-     Six states, six SHAPES, in one ruled box at one size in one fixed
-     position. The shapes are drawn in `chrome.tsx` as inline SVG; this is
-     only the box they sit in and the colour each is allowed.
+     Six states, six SHAPES, in one box at one size in one fixed position. The
+     shapes are drawn in `chrome.tsx` as inline SVG; this is only the box they
+     sit in and the colour each is allowed.
 
-     THE STATE THAT OWES YOU SOMETHING IS THE ONE WITH NO MARK. In a column
-     of initialled boxes an empty box is the loudest thing on the page, which
-     is exactly how a missing paraf is caught on a real contract. That is why
-     the most urgent state in the product needs almost no hue: it is
-     reinforced by area and light instead, because an undecided capture is
-     the only plate that is open at full size while settled ones are filed to
-     a strip.
+     THE STATE THAT OWES YOU SOMETHING IS THE ONE WITH NO MARK. In a column of
+     initialled boxes an empty box is the loudest thing on the page, which is
+     exactly how a missing paraf is caught on a real contract.
 
      Printed in greyscale the six are six different silhouettes: dashed and
      empty, solid and empty, one stroke, a split box, a diagonal, a word.
-     Nothing is lost. Colour is redundant with shape in every case.
+     Nothing is lost, because colour is redundant with shape in every case.
      ================================================================== */
 
   .lt-mark-box {
     display: grid;
     place-items: center;
     flex: none;
-    width: 1.75rem;
-    height: 1.75rem;
-    border: 2px solid var(--line-strong);
-    border-radius: 2px;
+    width: 1.875rem;
+    height: 1.875rem;
+    border: 1.5px solid var(--line-strong);
+    /* The figure step. It was 9px, one pixel off a `.lt-kotak` sitting in the
+       same row of the review sheet: a difference nothing can justify and
+       nobody can defend. A chip and a state box are one family. */
+    border-radius: 8px;
     color: var(--ink-2);
-    background: transparent;
+    background: color-mix(in srgb, var(--ink) 4%, transparent);
   }
   .lt-mark-box[data-status="pending"] {
     border-style: dashed;
+    background: transparent;
   }
+  /* THE ONE PLACE AMBER IS A FILL, and it carries its own dark ink at 10.12:1.
+     A 30px box is small enough that a fill reads as a chip rather than as a
+     bar, which is the distinction the client drew. */
   .lt-mark-box[data-status="proposed"],
   .lt-mark-box[data-status="partial"] {
-    border-color: var(--mark);
-    color: var(--mark);
+    border-color: var(--mark-lip);
+    background: var(--mark);
+    color: var(--mark-ink);
   }
+  /* THE BOUNDARY IS THE PEN AT FULL STRENGTH, NOT 55% OF IT. A border-color
+     written with alpha composites over the element's OWN background first, so
+     the 55% mix was painted onto the 14% fill and then read against the panel:
+     2.78:1 on a lifted plate, 2.91:1 on the opaque rail, 2.92:1 on glass,
+     3.16:1 on a slab, 3.58:1 on a set-in block. The floor is 3:1 (1.4.11 -- a
+     status indicator is a graphical object you need to understand the
+     content), and a lifted plate is precisely where the open capture under
+     decision renders. This was the one status of the six whose box was quieter
+     than the rest, and it is the status that means the evidence is missing:
+     every other member wears `--line-strong` at 4.70 to 5.71:1.
+
+     Opaque, the same rule measures 4.93:1 on a lifted plate, 5.43:1 on the
+     rail, 5.44:1 on glass, 5.99:1 on a slab and 7.32:1 set in -- the same band
+     as the rest of the family. It is also what the flat reject control already
+     learned when its own boundary was raised from 45% to 70% for this reason.
+     The 14% fill and the `--gap` glyph inside it are unchanged (the glyph
+     reads 3.93:1 at worst, on a lifted plate). */
   .lt-mark-box[data-status="outstanding"] {
-    border-color: color-mix(in oklch, var(--gap), transparent 45%);
+    border-color: var(--gap);
+    background: color-mix(in srgb, var(--gap) 14%, transparent);
     color: var(--gap);
   }
   .lt-mark-box[data-status="confirmed"] {
@@ -874,34 +1773,32 @@
   }
   .lt-mark-box[data-status="unfilled"] {
     border-style: dashed;
+    background: transparent;
     color: var(--ink-3);
   }
 
   /* The paraf itself: one stroke, drawn rather than faded, and only in answer
-     to the operator's own click. `--paraf-length` is set by the component
-     from the path length. */
+     to the operator's own click. `--paraf-length` is set by the component from
+     the path length. */
   .lt-paraf[data-fresh="true"] {
     stroke-dasharray: var(--paraf-length, 60);
-    animation: lt-paraf 240ms cubic-bezier(0.35, 0.9, 0.4, 1) both;
+    animation: lt-paraf 240ms var(--ease) both;
   }
 
-  /* A clerk's stamp. The ONE place the interface generates uppercase and
-     positive tracking, and it is quoting a rubber stamp rather than labelling
-     a block. Rotated, because a stamp is pressed by a hand. */
+  /* A clerk's stamp. One of the two places the interface generates uppercase
+     and positive tracking, and it is quoting a rubber stamp rather than
+     labelling a block. Rotated, because a stamp is pressed by a hand. */
   .lt-stamp {
     display: inline-block;
-    padding: 0.15rem 0.45rem;
+    padding: 0.2rem 0.55rem;
     border: 1.5px solid currentColor;
-    border-radius: 2px;
+    border-radius: 8px;
     transform: rotate(-3deg);
     font-family: var(--font-figure), ui-monospace, monospace;
-    /* 13px, the product's floor, not the 11px this was. `body` states the
-       rule two hundred lines up -- "nothing in this product is smaller than
-       13px, because every small string here is safety copy" -- and a stamp is
-       not the exception: `.lt-stamp` quotes a rubber stamp, and what a rubber
-       stamp says on a validation packet is the kind of thing a validator is
-       meant to read. Tracked out at 0.12em it also sets wider than its size
-       suggests, which is what let 11px look acceptable. */
+    /* 13px, the product's floor. `body` states the rule above: nothing here is
+       smaller than 13px because every small string is safety copy, and what a
+       rubber stamp says on a validation packet is exactly the kind of thing a
+       validator is meant to read. */
     font-size: 0.8125rem;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -910,10 +1807,9 @@
   }
 
   /* The coretan: a clerk voids a line by striking it, so nothing can be
-     written into it afterwards. Used where something is being taken out
-     rather than merely hidden, and it is the honest picture of the
-     allowlist's sixty-second revocation window: visibly struck, and visibly
-     still live. */
+     written into it afterwards. Used where something is being taken out rather
+     than merely hidden, and it is the honest picture of the allowlist's sixty
+     second revocation window: visibly struck, and visibly still live. */
   .lt-coretan {
     position: relative;
     color: var(--ink-3);
@@ -924,6 +1820,7 @@
     inset-inline: -0.25rem;
     top: 50%;
     height: 2px;
+    border-radius: 999px;
     background: var(--gap);
     transform: rotate(-0.4deg);
     pointer-events: none;
@@ -942,34 +1839,67 @@
   /* =====================================================================
      THE DENAH HALAMAN: a plan of the page, with the crop knocked out.
 
-     The single cheapest thing in this product that attacks its named failure
+     The cheapest thing in this product that attacks its named failure
      directly. Every OCR line of the page is drawn as a bar at its true
-     position, and the cut rectangle is drawn over them. A signature block, a
-     Pasal table and a printed email have completely different line patterns,
-     so an operator recognises the wrong page from the SHAPE of the plan
-     before reading a single number, and a crop that ran on into a footer is a
-     rectangle visibly touching the bottom of the sheet.
+     position and the cut rectangle is drawn over them, so an operator
+     recognises a wrong page from the SHAPE of the plan before reading a single
+     number, and a crop that ran on into a footer is a rectangle visibly
+     touching the bottom of the sheet.
 
-     It costs nothing: no bitmap, no blob URL, no network, no model call. One
-     inline SVG built from `StoredPage.lines`, which the run already holds.
+     THE FILL IS A WASH THAT DARKENS THE SHEET, NOT A TINT LAID OVER IT, and
+     that one word is the whole of the fix. Painted the ordinary way the two
+     things this rectangle has to do are in direct competition: raise the
+     amber until the cut clears 3:1 against paper and it also drowns the line
+     bars under it, so the operator can see the rectangle and can no longer
+     see WHICH LINES ARE INSIDE IT, which is the entire question. Every alpha
+     is a loss somewhere. The bench sat at the crossing point of the two
+     curves and got 2.13:1 for the cut and 1.98:1 for the lines under it,
+     which is the best that trade has to offer.
+
+     `mix-blend-mode: multiply` is not a trade. A wash of ink over a page
+     darkens what is under it MULTIPLICATIVELY, so a bar that was half the
+     brightness of the paper stays half the brightness of the wash: the
+     rectangle can go as dark as it likes and the pattern under it survives
+     in proportion. It is also the honest picture of what this rectangle is,
+     which is a highlighter passed over a page. Measured at 80%:
+
+       the cut against the sheet          3.26:1  (was 2.13)
+       the lines still legible under it   2.70:1  (was 1.98)
+       the 2px stroke against the fill    4.80:1
+       the 2px stroke against the sheet  15.65:1
+
+     Both numbers went up at once, which the source-over version cannot do.
+
+     THE TRADE-OFF THAT REMAINS, so nobody "fixes" this by making the fill
+     opaque: there is no alpha at which both the cut and the lines beneath it
+     clear 3:1 -- the frontier peaks at about 2.8 and 2.8 -- and 80% spends
+     the surplus on the cut because the cut is the graphical object WCAG names
+     while the lines are texture whose boundary is separately drawn at
+     15.65:1. Opaque would read 4.68:1 for the cut and take the lines to
+     2.33:1 and falling.
+
+     If a renderer ignored the blend mode the declarations degrade to a plain
+     80% wash: 3.20:1 for the cut, 1.38:1 for the lines. That is the one case
+     this rule is worse than the old one, and `mix-blend-mode` has been
+     baseline in every engine for a decade.
      ================================================================== */
 
   .lt-denah {
     display: block;
     background: var(--paper);
-    border: 2px solid var(--paper-edge);
-    border-radius: 1px;
+    border: 1px solid var(--paper-edge);
+    /* The same corner a mounted crop takes: a denah is a drawing of the same
+       sheet, and it was the last remaining 4px in the file. */
+    border-radius: var(--sheet-corner);
   }
   .lt-denah .lt-denah-line {
-    fill: color-mix(in oklch, var(--paper-ink), transparent 62%);
+    fill: color-mix(in srgb, var(--paper-ink) 55%, transparent);
   }
   .lt-denah .lt-denah-cut {
-    /* 60%, not 72%: with the paper rebind above this is finally a fill the eye
-       resolves rather than a stroke doing all the work. The stroke stays,
-       because at a 34px rail glyph the fill alone is a few pixels of tint. */
-    fill: color-mix(in oklch, var(--mark), transparent 60%);
+    fill: color-mix(in srgb, var(--mark) 80%, transparent);
+    mix-blend-mode: multiply;
     stroke: var(--paper-ink);
-    stroke-width: 1.5;
+    stroke-width: 2;
     vector-effect: non-scaling-stroke;
   }
 
@@ -982,8 +1912,8 @@
      different order would print it differently, or if it is the reason a
      control on screen is refusing to work. Nothing set in `--gap` ever hides.
 
-     The mark is INK, never `--mark`, because amber means a decision is owed
-     and a question mark owes nothing. It is a real button at a real hit size,
+     The mark is INK, never `--mark`, because amber means a decision is owed and
+     a question mark owes nothing. It is a real button at a real hit size,
      because a hover-only control does not exist on a touchscreen and cannot be
      reached from a keyboard.
      ================================================================== */
@@ -996,7 +1926,7 @@
     flex: none;
     border-radius: 999px;
     color: var(--ink-3);
-    transition: color 90ms ease, background-color 90ms ease;
+    transition: color 90ms var(--ease), background-color 90ms var(--ease);
   }
   .lt-hint:hover,
   .lt-hint[data-popup-open] {
@@ -1004,138 +1934,403 @@
     background: var(--wash);
   }
 
-  /* Chrome, and it keeps declaring that it is: the rail tone with a rule round
-     it, never a lit panel. On a surface where the one thing allowed to be
-     light is a document, a pale popup reads as a scrap of paper. */
+  /* GLASS, because it floats: a hint panel is over the work rather than in it,
+     and it is one of the few blurred surfaces that is allowed to exist above a
+     scroll because only one is ever open. */
   .lt-hint-panel {
+    position: relative;
     max-width: 30rem;
-    padding: 0.7rem 0.85rem;
-    border: 2px solid var(--line-strong);
-    border-radius: 6px;
-    background: var(--surface-rail);
+    padding: 0.8rem 0.95rem;
+    border: 1px solid var(--glass-edge);
+    /* The block step, not 16px. A floating panel is a block. */
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--surface-rail) 82%, transparent);
+    /* PREFIXED FIRST, STANDARD LAST, and this order is load-bearing rather
+       than a convention. Written the other way round, Lightning CSS collapses
+       the pair and emits ONLY `-webkit-backdrop-filter`. Chrome has no
+       `-webkit-` alias for this property, so every piece of glass in the
+       product rendered with no blur at all: measured in the browser as
+       `backdrop-filter: none` on a bare `.lt-rail`, while the background from
+       the same rule applied normally. It looked like a design decision. */
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    box-shadow: var(--glass-drop);
     color: var(--ink-2);
     font-size: 0.8125rem;
     line-height: 1.5;
-    box-shadow: none;
+  }
+  .lt-hint-panel::before {
+    content: "";
+    position: absolute;
+    inset-inline: 12px;
+    top: 0;
+    height: 1px;
+    background: var(--glass-line);
+    pointer-events: none;
   }
   .lt-hint-panel strong {
     color: var(--ink);
-    font-weight: 600;
+    font-weight: 700;
   }
-
-  /* =====================================================================
-     CONTROLS
-     ================================================================== */
 
   /* =====================================================================
      CONTROLS THAT ANSWER THE HAND.
 
-     40px minimum, a 2px edge, a hard offset, and a press that TRANSLATES the
-     control into its own offset so the plate collapses under the finger. This
-     deliberately overrules the old "nothing in this product moves" rule, for
-     one case and with a reason: a control that does not respond to a pointer
-     is the single most reliable sign that nobody finished an interface, and
-     the client has now said so three times.
+     A key, not a rectangle. Generous radius, heavy weight, a 44px hit area,
+     and a SOLID LIP: a hard offset in a darker shade of the button's own
+     colour, no blur, drawn as a box-shadow so it cannot be mistaken for a
+     border. Pressing translates the face down by exactly the lip's height, so
+     the lip shrinks to nothing under the finger and the key bottoms out. The
+     ring is the same lip colour at 1.5px, which is decoration on the bench and
+     the entire WCAG boundary on a white sheet.
 
-     The old button was 32px tall, transparent, drawn with a 1px hairline, and
-     had its press state removed on purpose. Its hover set border-color to the
-     value the border already had, so half of it was dead code.
+     THE HEIGHT IS `--lip-h` AND IT IS WRITTEN ONCE. Four places have to agree
+     on it -- the shadow's offset, the `margin-bottom` that reserves room a
+     box-shadow does not take, the `:active` translate, and the disabled
+     state's resting position -- and they were four separate literals. "The
+     key lands exactly on its own shelf" is the entire gesture, and it was
+     resting on four numbers nothing kept in step.
+
+     `margin-bottom` reserves the lip's own height, because a box-shadow takes
+     no layout space and without it every button overhangs whatever is under
+     it.
+
+     THE PRESS SURVIVES `prefers-reduced-motion` ON PURPOSE. It is a direct
+     response to the operator's own finger, not an animation announcing itself;
+     what the reduced-motion block at the end of this file removes is the
+     transition, so the key snaps instead of easing.
      ================================================================== */
 
+  /* EVERY LIGHT FACE REBINDS THE INK IT CARRIES, AND THE NEUTRAL FACE IS ONE.
+     This is a real defect rather than defensive tidiness, and the first pass at
+     it fixed the two saturated faces and left the busiest one alone.
+
+     `operator-app.tsx` draws each phase step as a `.lt-btn` holding
+     `<span class="lt-figure" style="color: var(--ink-3)">` for the step's
+     number, and it sets `data-on` only on the step you are STANDING on.
+     `ingest-panel.tsx` prints every closed run's date in `--ink-2` inside a
+     `.lt-btn` that carries `data-on` only while that run is open. `--ink-3` and
+     `--ink-2` are tokens for quiet text on the TABLE; `--btn` is a LIGHT slate
+     face (#8c9da4, relative luminance 0.324), so on it they measure 1.46:1 and
+     1.75:1. Rebinding only the two toned faces therefore fixed the one step the
+     operator is standing on and left the other two, on the phase rail, on every
+     screen, at 1.46:1 -- and every date in the run list at 1.75:1.
+
+     The ladder is on the base FACE now and the toned rule overrides it. Same
+     mechanism, one selector wider. Measured on the face each lands on:
+
+       neutral   --ink 6.36:1   --ink-2 5.32:1   --ink-3 4.79:1
+       petrol    --ink 9.26:1   --ink-2 7.15:1   --ink-3 6.17:1
+
+     ONE MIX SHAPE FOR BOTH, 88% and 82%. The 78% the petrol rule shipped puts
+     the neutral `--ink-3` at 4.44:1, four hundredths under AA, and two ladders
+     that differ by four points of mix are two ladders somebody has to keep in
+     step. 82% clears both faces and both hover faces (5.54:1 neutral, 6.53:1
+     petrol).
+
+     `.lt-btn[data-flat]` IS TRANSPARENT AND MUST NOT TAKE THIS, which is why
+     the selector carries `:not([data-flat="true"])` rather than being the bare
+     class. A row with no face of its own stands on the table and takes the
+     table's ink. A flat control that does carry a petrol face still gets the
+     petrol ladder, because the tone rule below matches it as well.
+
+     This is the same mechanism as the coloured kop above: a component that
+     paints an ink token should land on the right ink wherever it is put,
+     rather than every component having to know what it is standing on. What it
+     must NOT reach is the focus ring, which belongs to the ground the control
+     sits ON rather than to its face -- see `--focus-ring`. */
+  .lt-btn:not([data-flat="true"]) {
+    --ink: var(--btn-ink);
+    --ink-2: color-mix(in srgb, var(--btn-ink) 88%, var(--btn));
+    --ink-3: color-mix(in srgb, var(--btn-ink) 82%, var(--btn));
+  }
+
   .lt-btn {
+    --lip: var(--btn-lip);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
-    min-height: 2.5rem;
-    padding: 0 0.9rem;
-    border: 2px solid var(--edge);
-    border-radius: 0;
-    background: var(--surface-raised);
-    box-shadow: var(--plate-sm);
-    color: var(--ink);
-    font-size: 0.8125rem;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1.1rem;
+    margin-bottom: var(--lip-h);
+    border: 0;
+    border-radius: 14px;
+    background: var(--btn);
+    color: var(--btn-ink);
+    box-shadow: var(--plate);
+    font-family: inherit;
+    font-size: 0.875rem;
+    /* 700, NOT THE 800 THIS ASKED FOR. `layout.tsx` loads Atkinson Hyperlegible
+       Next and Mono at 400, 600 and 700 only, so a face at or above 800 does
+       not exist, the font-matching algorithm falls back to 700, and nothing
+       synthesises: the declaration was a silent no-op that made `.lt-title`
+       (800) and `.lt-kop` (700) render identically while the file argued they
+       were two steps apart. Written at what ships. The product's three real
+       weights are 400 body, 600 labels and rows, 700 titles, field names, kops
+       and keys -- and 700 on a key is what keeps it distinct from the 600 of a
+       flat row, which is the only cue separating a key from a list item. */
     font-weight: 700;
     line-height: 1.2;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
     transition:
-      background-color 90ms ease,
-      box-shadow 90ms ease,
-      transform 90ms ease;
+      transform 90ms var(--ease),
+      box-shadow 90ms var(--ease),
+      background-color 120ms var(--ease);
   }
-  .lt-btn:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--surface-raised), var(--ink) 10%);
+  .lt-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: color-mix(in srgb, white 12%, var(--btn));
   }
-  .lt-btn:active:not(:disabled) {
-    transform: translate(2px, 2px);
+  .lt-btn:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(var(--lip-h));
     box-shadow: var(--plate-press);
   }
-  .lt-btn:disabled {
-    opacity: 0.45;
-    box-shadow: none;
+
+  /* The two saturated faces take their own ink, overriding the neutral ladder
+     on the base rule. Petrol is a much lighter face than the slate, so its dark
+     ink has further to travel and the same 88/82 mixes land higher: 7.15:1 and
+     6.17:1.
+
+     THERE IS NO AMBER FACE IN THIS FILE and this comment used to claim
+     measurements for one. It quoted "1.08:1 ... 5.58:1 (petrol) and 5.82:1
+     (amber)": 1.08 is the petrol figure and the amber one is 1.23; and the rule
+     as written mixes `--petrol-ink`, which on an amber face would be 6.38:1,
+     not 5.82. 5.82 belongs to `color-mix(--mark-ink 78%, --mark)`, the rule the
+     merge replaced. Both amber halves were transcribed from a system that no
+     longer exists and read as evidence of a measurement nobody took. If an
+     amber face is ever reintroduced it needs its own rebind against
+     `--mark-ink` and its own numbers; it cannot inherit these. */
+  .lt-btn[data-tone="primary"],
+  .lt-btn[data-on="true"] {
+    --ink: var(--petrol-ink);
+    --ink-2: color-mix(in srgb, var(--petrol-ink) 88%, var(--petrol));
+    --ink-3: color-mix(in srgb, var(--petrol-ink) 82%, var(--petrol));
+  }
+
+  /* THE ONE ACTION A SCREEN WANTS. Petrol, which is identity rather than
+     status, so a primary button can never be mistaken for a decision owed. A
+     saturated fill, so it carries dark ink: 9.26:1. */
+  .lt-btn[data-tone="primary"] {
+    --lip: var(--petrol-lip);
+    background: var(--petrol);
+    color: var(--petrol-ink);
+  }
+  .lt-btn[data-tone="primary"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: color-mix(in srgb, white 14%, var(--petrol));
+  }
+
+  /* REFUSING IS A SMALLER, RARER CLAIM THAN ACCEPTING, so it keeps the neutral
+     face and wears the correction pen as its ink and its lip: 4.75:1 for the
+     label on the bench, 4.91:1 on a sheet. Red is never the fill, here or
+     anywhere.
+
+     THE TWO NUMBERS COME FROM TWO OPPOSITE `--gap-ink` VALUES, and that is not
+     an inconsistency: the face inverts on paper, so its ink has to invert with
+     it. The token's comment in the paper block carries the argument. */
+  .lt-btn[data-tone="reject"] {
+    --lip: var(--gap-lip);
+    background: var(--btn);
+    color: var(--gap-ink);
+  }
+  .lt-btn[data-tone="reject"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: color-mix(in srgb, var(--gap) 14%, var(--btn));
+  }
+
+  /* A TOGGLE THAT IS ON, AND IT IS PETROL RATHER THAN AMBER. This was the
+     decision hue, and it was the single largest leak in the system's safety
+     story. `data-on` is a STRUCTURAL state: `operator-app.tsx` sets it on the
+     phase step you are standing on, `ingest-panel.tsx` on the run that is
+     open, and `chrome.tsx` exposes it on any Btn as `on`. None of those owes
+     the operator a decision about a piece of evidence, and amber means that
+     and nothing else, ever. Three controls wearing the product's loudest
+     signal for "you are here" teaches an operator to stop reading it, which
+     costs the amber everywhere it IS right.
+
+     Petrol is identity and selection, it is inside the ground's own arc, and
+     it carries dark ink like every other saturated fill here (9.26:1). */
+  .lt-btn[data-on="true"] {
+    --lip: var(--petrol-lip);
+    background: var(--petrol);
+    color: var(--petrol-ink);
+  }
+  .lt-btn[data-on="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: color-mix(in srgb, white 14%, var(--petrol));
+  }
+
+  /* A CONTROL THAT CANNOT BE PRESSED, AND IT HAS TO LOOK LIKE ONE. A disabled
+     control is exempt from the contrast minimums, and it has to LOOK exempt:
+     the lip goes first, because a key with no lip is a key that cannot be
+     pressed, and that reads before any colour does.
+
+     `[aria-disabled="true"]` IS THE SECOND HALF, AND WITHOUT IT A LOCKED PHASE
+     STEP HAD NO DISABLED STATE AT ALL. `operator-app.tsx` marks a locked step
+     with an inline `borderStyle: "dashed"`, and `.lt-btn` sets `border: 0`, so
+     the border-width is zero and changing its style paints nothing; the button
+     carries `aria-disabled` rather than `disabled`, so `:disabled` never fired
+     either. A locked step therefore rendered as a normal, full-strength,
+     lipped slate key -- visually identical to a live one -- whose only
+     differences were a cursor and a label. `isLocked` is true for Periksa and
+     Berkas on any run with no pages and for all three steps whenever the zone
+     editor is open, so that is the common path, and it is a control that looks
+     live and is not. Not fixed by restoring a border: the lip is drawn as a
+     box-shadow on purpose.
+
+     IT SITS AFTER THE TONE RULES, WHICH IS A FIX AND NOT A TIDY-UP.
+     `.lt-btn:disabled` is one class and one pseudo-class; `.lt-btn[data-tone=
+     "primary"]` is one class and one attribute. Equal specificity, so source
+     order decided it, and the disabled rule was FIRST -- meaning a disabled
+     Terima kept the full petrol face and a disabled Bukan ini kept the full
+     neutral one. The two controls that spend the most time disabled in this
+     product (Terima, while the write is in flight; the zone editor's Pakai
+     area ini, while nothing is drawn) both looked pressable while they were
+     not.
+
+     `margin-bottom` IS KEPT, WHICH IS THE FIFTH NUMBER `--lip-h` DID NOT
+     CLOSE. The rule used to set it to 0 while still translating the face down
+     by the lip's height, so a disabled key reserved h of layout and painted
+     4..h+4: its face ran 4px past its own box. In a `flex items-center` row
+     -- which is exactly how `proposal-plate.tsx` lays out Terima beside a
+     never-disabled Gambar ulang -- the enabled key's outer box is 48px and the
+     disabled one's was 44px, so it was centred with a 2px offset and its face
+     painted about 6px below its neighbour's, and the whole row jumped 4px the
+     moment a button became disabled. Keeping the reserve holds the footprint
+     at 48px and lets the translate consume the space the lip was holding,
+     which is the geometry the comment on `--lip-h` describes.
+
+     THE INK LADDER FADES WITH THE LABEL. A child painting `--ink-3` inside a
+     disabled key would otherwise be louder than the key's own text; here both
+     are the same 55% ink, so the locked phase step's inline
+     `color: var(--ink-3)` lands exactly on the button's own colour. */
+  .lt-btn:disabled,
+  .lt-btn[aria-disabled="true"] {
+    --ink: color-mix(in srgb, var(--btn-ink) 55%, transparent);
+    --ink-2: var(--ink);
+    --ink-3: var(--ink);
+    background: color-mix(in srgb, var(--btn) 45%, var(--surface-raised));
+    color: color-mix(in srgb, var(--btn-ink) 55%, transparent);
+    box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--lip) 45%, transparent);
+    transform: translateY(var(--lip-h));
     cursor: not-allowed;
   }
 
-  /* The one action a screen wants. Petrol, which is identity rather than
-     status, so a primary button can never be mistaken for a decision owed. */
-  .lt-btn[data-tone="primary"] {
+  /* =====================================================================
+     THE FLAT CONTROL: a row in a list, and a control inside a kop.
+
+     `CaptureLine` renders every collapsed capture of the review sheet as a
+     full-width `.lt-btn[data-flat]`, so this variant is drawn two dozen times
+     down one column. A light chunky key repeated two dozen times is a light
+     interface, which is not this product, and a lip on each of them is a
+     stack of ledges.
+
+     ITS BOUNDARY IS NOW `--line-control`, AND THE OLD NOTE HERE WAS AN
+     ARGUMENT FOR A QUIETER RULE DRESSED UP AS AN ARGUMENT FOR NO RULE. It
+     used to wear `--line`, which measures 1.74:1 on a slab against the 3:1
+     WCAG 1.4.11 asks of a control boundary, and the defence was that the row
+     is identified by its content and spans the whole column. Both of those
+     are true and neither is the standard: this is the main work column of the
+     busiest screen in the product, two dozen primary controls deep, and it
+     was the one place in the system with no resting boundary at all.
+
+     `--line-control` is set at the 3:1 floor on the lightest surface a
+     control ever sits on and no louder: 3.22:1 on a lifted plate, 3.92:1 on a
+     slab, 3.56:1 on glass, 3.50:1 on a sheet. That is a visible rule and a
+     long way short of the two dozen `--line-strong` rectangles the old note
+     was right to refuse. Hover and focus still raise it to `--line-strong`.
+     ================================================================== */
+
+  /* IT KEEPS THE BENCH INK LADDER, and the base rule's selector is what
+     guarantees it: the neutral rebind is written `.lt-btn:not([data-flat=
+     "true"])` because this face is TRANSPARENT, so its ground is whatever the
+     row is standing on and the table's own ink is the right ink. A flat
+     control that is nonetheless carrying a petrol face still gets the petrol
+     ladder, because the tone rule matches it too.
+
+     THE GESTURE, WITHOUT THE LEDGE. A row cannot wear a 4px shelf two dozen
+     times down one column, but it can answer the hand: a 2px inset line along
+     its own bottom edge at rest, gone under the finger while the face moves
+     down onto it. Same idea as the key, one tenth the furniture, and it is what
+     stops the busiest screen in the product being a stack of hairline
+     rectangles that do not respond to a press. `--line-control` is already the
+     row's resting boundary (3.22:1 on a lifted plate, 3.92:1 on a slab), so the
+     inset line introduces no new colour.
+
+     THE RADIUS IS THE CONTROL STEP, not the 12px it was. A row and a key are
+     the same kind of object and 12 is not on the scale. */
+  .lt-btn[data-flat="true"] {
+    min-height: 2.5rem;
+    margin-bottom: 0;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-control);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--ink);
+    box-shadow: inset 0 -2px 0 0 var(--line-control);
+    font-weight: 600;
+  }
+  .lt-btn[data-flat="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: var(--wash);
+    border-color: var(--line-strong);
+    box-shadow: inset 0 -2px 0 0 var(--line-strong);
+  }
+  .lt-btn[data-flat="true"]:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+  .lt-btn[data-flat="true"]:disabled,
+  .lt-btn[data-flat="true"][aria-disabled="true"] {
+    background: transparent;
+    color: var(--ink-3);
+    box-shadow: none;
+    transform: none;
+  }
+  /* A flat control that is nonetheless carrying a tone or a state keeps the
+     colour and loses only the ledge. Specificity puts these after the shape
+     rules above without either needing `!important`. */
+  .lt-btn[data-flat="true"][data-on="true"] {
     background: var(--petrol);
     color: var(--petrol-ink);
-    border-color: var(--edge);
+    border-color: var(--petrol-lip);
   }
-  .lt-btn[data-tone="primary"]:hover:not(:disabled) {
-    background: var(--petrol-lift);
+  .lt-btn[data-flat="true"][data-tone="primary"] {
+    background: var(--petrol);
+    color: var(--petrol-ink);
+    border-color: var(--petrol-lip);
   }
-
-  /* Refusing is a smaller, rarer claim than accepting, so it is outlined where
-     primary is filled, and it carries the correction pen. */
-  .lt-btn[data-tone="reject"] {
-    color: color-mix(in oklch, var(--gap), white 18%);
-    border-color: var(--edge);
-    background: var(--surface-raised);
-  }
-  .lt-btn[data-tone="reject"]:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--gap), transparent 86%);
-  }
-
-  .lt-btn[data-on="true"] {
-    background: var(--mark);
-    color: var(--edge);
-  }
-
-  /* A control with no plate: it lives inside a kop or a dense row, where an
-     offset on every item would be noise. It keeps the press. */
-  .lt-btn[data-flat="true"] {
-    box-shadow: none;
-    min-height: 2rem;
-    border-width: 2px;
-  }
-  .lt-btn[data-flat="true"]:active:not(:disabled) {
-    transform: translate(1px, 1px);
-    box-shadow: none;
+  /* 70%, not the 45% this was: at 45% the boundary measured 2.33:1 on a slab
+     and 2.13:1 on a lifted plate, so the one flat control that refuses
+     something was the one with the weakest edge. 3.69:1 and 3.19:1 now, which
+     is the same 3:1 floor `--line-control` holds the neutral rows to. */
+  .lt-btn[data-flat="true"][data-tone="reject"] {
+    color: var(--gap);
+    border-color: color-mix(in srgb, var(--gap) 70%, transparent);
   }
 
   .lt-input {
-    min-height: 2.5rem;
-    padding: 0 0.6rem;
-    border: 2px solid var(--line-strong);
-    border-radius: 0;
+    min-height: 2.75rem;
+    padding: 0 0.9rem;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 14px;
     background: var(--surface-sunk);
     color: var(--ink);
     font-family: var(--font-figure), ui-monospace, monospace;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     width: 100%;
-    transition: border-color 90ms ease, box-shadow 90ms ease;
+    box-shadow: inset 0 2px 5px -3px rgb(0 0 0 / 50%);
+    transition: border-color 90ms var(--ease), box-shadow 90ms var(--ease);
   }
-  /* A REAL hover. The rule this replaces set border-color to the value the
+  /* A REAL hover. The rule this replaces set `border-color` to the value the
      border already had, so the field had no pointer response at all. */
   .lt-input:hover {
-    border-color: var(--ink-3);
+    border-color: var(--ink-2);
   }
+  /* Focus is ink here too, matching the global rule rather than inventing an
+     accent ring for one control. */
   .lt-input:focus-visible {
     outline: none;
-    border-color: var(--petrol-lift);
-    box-shadow: inset 0 0 0 2px var(--petrol);
+    border-color: var(--ink);
+    box-shadow:
+      inset 0 2px 5px -3px rgb(0 0 0 / 50%),
+      0 0 0 3px color-mix(in srgb, var(--ink) 26%, transparent);
   }
   .lt-input::placeholder {
     color: var(--ink-3);
@@ -1143,39 +2338,42 @@
   }
 
   /* =====================================================================
-     THE STEP BAR: previous and next, at the bottom, where a wizard puts them.
+     THE STEP BAR: previous and next, at the foot of the work.
 
-     The product is three ordered steps and never had a way to walk them
-     except by aiming at a nav item in the top chrome. This sits at the foot of
-     the screen, states which step you are on, and says what the next one is
-     rather than only naming it.
+     SOLID, NOT GLASS, and that is the seam rule doing its job rather than an
+     inconsistency. It sits inside the scrolling column (`mt-6` in
+     `operator-app.tsx`), so it moves with the work and takes the work's
+     material. The two sticky footers that do the same job in the export screen
+     and the zone editor are `.lt-rail` and are glass, because those stay put.
      ================================================================== */
 
   .lt-steps {
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: 0.75rem 1rem;
-    border-top: 3px solid var(--edge);
-    background: var(--surface-rail);
+    padding: 0.85rem 1.1rem;
+    background: var(--surface-raised);
+    border: 1px solid var(--edge);
+    border-radius: 20px;
+    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 6%);
   }
 
   /* =====================================================================
      NOTICES AND THE INTERRUPTION BAND
 
      A save that failed cannot be a tinted paragraph at the top of a scrolling
-     column. `.lt-band` is bracketed by rules with the ground unchanged, it
-     pushes content down rather than overlaying it so it can never be scrolled
-     past, and it carries role="alert".
+     column. `.lt-band` pushes content down rather than overlaying it so it can
+     never be scrolled past, and it carries role="alert".
 
      Blocking and advisory must be different objects. A stop-toned rectangle
-     sitting beside a live button, which is what the export screen shipped,
-     teaches an operator that stop means nothing.
+     sitting beside a live button teaches an operator that stop means nothing.
      ================================================================== */
 
   .lt-notice {
-    border-inline-start: 2px solid var(--line-strong);
-    padding: 0.15rem 0 0.15rem 0.85rem;
+    border-inline-start: 3px solid var(--line-strong);
+    border-start-start-radius: 3px;
+    border-end-start-radius: 3px;
+    padding: 0.2rem 0 0.2rem 0.9rem;
     font-size: 0.875rem;
     line-height: 1.5;
     color: var(--ink-2);
@@ -1190,13 +2388,18 @@
     color: var(--ink);
   }
 
+  /* THE BAND IS A TINT AND A RULE, NEVER A FILL. 12% of the correction pen
+     over the raised ground, which measures 9.70:1 under `--ink` and 4.86:1
+     under `--gap` itself, plus a 4px leading rule. It sits inside the sticky
+     glass header, so it paints its own opaque ground: a tint over a blurred
+     panel would be a second translucent layer and the text would ride on
+     whatever happened to be scrolling underneath. */
   .lt-band {
-    /* Bracketed by rules, ground unchanged. It carried a red tint until now,
-       which contradicted this system's own rule that red is never a fill: a
-       rule that is stated and then broken stops being read. The band already
-       does its work by pushing the page down so it cannot be scrolled past. */
-    border-block: 2px solid var(--gap);
-    padding: 0.85rem 0;
+    background: color-mix(in srgb, var(--gap) 12%, var(--surface-raised));
+    border-inline-start: 4px solid var(--gap);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    margin-block: 0.75rem;
   }
 
   /* =====================================================================
@@ -1209,81 +2412,79 @@
 
   .lt-tick {
     height: 100%;
-    border-right: 2px solid var(--edge);
-    background: var(--surface-sunk);
+    border-right: 2px solid var(--surface-sunk);
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
   }
   .lt-tick[data-done="true"] {
-    /* NOT amber. A page arriving from ingest is not a decision owed, and the
-       strip marches across the screen in the same colour as the mark the
-       operator is hunting for. This was the loudest of the amber leaks. */
+    /* NOT amber. A page arriving from ingest is not a decision owed, and a
+       strip marching across the screen in the colour the operator is hunting
+       for is the loudest possible false signal. */
     background: var(--ink-2);
-    animation: lt-tick-in 200ms ease-out both;
+    animation: lt-tick-in 200ms var(--ease) both;
   }
 
   /* =====================================================================
      THE ZONE EDITOR: the page dims, the chosen rectangle does not.
      ================================================================== */
 
+  /* THE SCRIM, THE ZONE AND THE GUIDES ALL LIVE INSIDE `.lt-paper` in
+     `zone-editor.tsx` -- the scrolling frame that holds the page image
+     carries the class -- so every token the sheet rebinds reaches them. That
+     is checked rather than assumed, because it is exactly where a paper
+     rebind can turn "the page dims outside your rectangle" into a near-white
+     wash:
+
+       `--mat` is NOT rebound on paper, by design, so the scrim stays the
+         near-black it has to be;
+       `--mark` IS rebound, and here that HELPS: the bench's amber measures
+         1.51:1 on a white scan, and the sheet's own amber measures 4.57:1, so the drawn rectangle is more visible on paper, not less.
+
+     Anything added to the paper rebind has to be re-checked against this
+     screen. */
   .lt-scrim {
     position: absolute;
-    background: color-mix(in oklch, var(--surface-sunk), transparent 25%);
+    background: color-mix(in srgb, var(--mat) 78%, transparent);
     pointer-events: none;
   }
+
+  /* The modal veil is the same ink at a heavier strength; it is written
+     unlayered at the end of this file, for the reason given there. */
   .lt-zone {
     position: absolute;
     outline: 2px solid var(--mark);
     /* INSIDE THE BOX, NOT AROUND IT. An outline paints outside the element by
        default, so the rectangle the operator sees was 2px larger on every side
-       than the rectangle that actually gets cut. On this screen that is not a
-       cosmetic difference: the drawn rectangle is a claim about what the crop
-       will contain, and a claim that is two pixels generous is a picture of a
-       lie. Everything else about the overlay is already expressed in
-       percentages of the page for the same reason. */
+       than the rectangle that actually gets cut. On this screen that is not
+       cosmetic: the drawn rectangle is a claim about what the crop will
+       contain, and a claim that is two pixels generous is a picture of a lie. */
     outline-offset: -2px;
-    box-shadow: 0 0 0 2px color-mix(in oklch, var(--surface-sunk), transparent 10%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mat) 55%, transparent);
     pointer-events: none;
   }
   .lt-guide {
     position: absolute;
     left: 0;
     right: 0;
-    border-top: 2px solid color-mix(in oklch, var(--mark), transparent 55%);
+    border-top: 2px solid color-mix(in srgb, var(--mark) 45%, transparent);
     pointer-events: none;
   }
-}
 
-/* One rule at the end, so nothing above has to remember it, and so the
-   primitives in src/components/ui/ (which animated unconditionally) are
-   covered too. Motion in this app answers an action: a paraf being drawn, a
-   page being counted. It never announces a section's arrival. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-@layer components {
   /* =====================================================================
      DISCLOSURES.
 
-     A bare <summary> renders the browser's own triangle, which is the single
-     most reliable sign on the web that nobody styled a page, and the client's
-     screenshot had two of them on one screen. The marker is removed and the
-     set's own chevron is drawn with a rotating box, so a disclosure looks like
-     it belongs to this product.
+     A bare `<summary>` renders the browser's own triangle, which is the most
+     reliable sign on the web that nobody styled a page. The marker is removed
+     and the set's own chevron is drawn with a rotating box, so a disclosure
+     looks like it belongs to this product.
      ================================================================== */
 
   .lt-disclose > summary {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.55rem;
     cursor: pointer;
     list-style: none;
-    padding: 0.4rem 0;
+    padding: 0.45rem 0;
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--ink-2);
@@ -1296,26 +2497,29 @@
     height: 0.45rem;
     border-right: 2px solid currentColor;
     border-bottom: 2px solid currentColor;
+    border-end-end-radius: 2px;
     transform: rotate(-45deg);
-    transition: transform 120ms ease;
+    transition: transform 120ms var(--ease);
   }
   .lt-disclose[open] > summary::before {
     transform: rotate(45deg);
   }
   .lt-disclose > summary:hover { color: var(--ink); }
 
-  /* THE SAME GESTURE AS A BUTTON, for the places a `<details>` cannot go.
-     A disclosure in a BAR has controls beside it on the same row, and those
-     controls cannot live inside a `<summary>`: a button nested in a summary is
-     a click target inside a click target, and the outer one wins on tap. So
-     the bar keeps its own button and paints the identical chevron, rather than
+  /* THE SAME GESTURE AS A BUTTON, for the places a `<details>` cannot go. A
+     disclosure in a BAR has controls beside it on the same row, and those
+     cannot live inside a `<summary>`: a button nested in a summary is a click
+     target inside a click target and the outer one wins on tap. So the bar
+     keeps its own button and paints the identical chevron, rather than
      inventing a second way of saying "there is more under this". */
   .lt-disclose-btn {
     display: inline-flex;
     align-items: center;
+    gap: 0.55rem;
     min-height: 2.5rem;
     padding: 0.25rem 0;
     font-size: 0.875rem;
+    font-weight: 600;
     color: var(--ink-2);
     cursor: pointer;
   }
@@ -1326,39 +2530,293 @@
     height: 0.45rem;
     border-right: 2px solid currentColor;
     border-bottom: 2px solid currentColor;
+    border-end-end-radius: 2px;
     transform: rotate(-45deg);
-    transition: transform 120ms ease;
+    transition: transform 120ms var(--ease);
   }
   .lt-chevron[data-open="true"] { transform: rotate(45deg); }
-
-  @media (prefers-reduced-motion: reduce) {
-    .lt-chevron,
-    .lt-disclose > summary::before {
-      transition: none;
-    }
-  }
 
   /* =====================================================================
      THE TOAST. Transient confirmations leave the page and stop pushing the
      work down. What may NOT become one: a consent statement, the reason a
      control is disabled, and anything the operator has to act on.
+
+     Glass, one step brighter than the rails, because it floats above
+     everything. It is the only blurred surface that ever appears over the
+     review sheet, and there is at most a handful at a time.
      ================================================================== */
 
   .lt-toast {
+    position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: 0.85rem;
     min-width: 18rem;
     max-width: 26rem;
-    padding: 0.75rem 0.9rem;
-    background: var(--surface-raised);
-    border: 3px solid var(--edge);
-    box-shadow: var(--plate);
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--glass-edge);
+    /* The block step, not 18px. */
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--surface-rail) 86%, transparent);
+    /* PREFIXED FIRST, STANDARD LAST, and this order is load-bearing rather
+       than a convention. Written the other way round, Lightning CSS collapses
+       the pair and emits ONLY `-webkit-backdrop-filter`. Chrome has no
+       `-webkit-` alias for this property, so every piece of glass in the
+       product rendered with no blur at all: measured in the browser as
+       `backdrop-filter: none` on a bare `.lt-rail`, while the background from
+       the same rule applied normally. It looked like a design decision. */
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
+    box-shadow: var(--glass-drop);
     color: var(--ink);
     font-size: 0.875rem;
   }
+  .lt-toast::before {
+    content: "";
+    position: absolute;
+    inset-inline: 14px;
+    top: 0;
+    height: 1px;
+    background: var(--glass-line);
+    pointer-events: none;
+  }
+  /* A fault keeps the glass and takes the correction pen down its leading
+     edge, because red is a rule here and not a ground. */
   .lt-toast[data-tone="fault"] {
-    border-color: var(--edge);
-    background: color-mix(in oklch, var(--surface-raised), var(--gap) 16%);
+    border-inline-start: 4px solid var(--gap);
+    background: color-mix(in srgb, var(--gap) 10%, color-mix(in srgb, var(--surface-rail) 86%, transparent));
+  }
+}
+
+/* =========================================================================
+   THE MODAL VEIL.
+
+   UNLAYERED ON PURPOSE, AND THAT IS THE WHOLE MECHANISM. `dialog.tsx` writes
+   its backdrop with a Tailwind utility (`bg-surface-sunk/75`), and Tailwind
+   utilities live in a cascade layer; unlayered CSS beats layered CSS whatever
+   the specificity, so this rule wins whether or not that component is edited.
+   It is keyed on the data-slot as well as on a class so it lands either way.
+
+   WHY THE TOKEN CHANGED. The old veil was `--surface-sunk` at 75%, chosen on
+   the reasoning that it was "the same recipe `.lt-scrim` uses in the zone
+   editor". It was a different token, and the difference shows up in the one
+   place that matters most on this product: `--surface-sunk` is LIGHTER than
+   `--mat`, so veiling a crop's near-black mount LIFTED it 1.07:1 instead of
+   putting it out of reach. `--mat` over `--mat` is 1.00:1 by construction.
+
+   Measured: a white scan behind a dialog drops 14.33:1 under this veil,
+   against 8.25:1 under the old one, and the panel in front reads 1.40:1
+   against the veiled scan, where a slab-coloured panel measured 1.15:1 and
+   could land on either side of the veil depending on what happened to be
+   behind it. That is why `.lt-panel` is a lifted block.
+   ====================================================================== */
+.lt-veil,
+[data-slot="dialog-overlay"] {
+  background: var(--veil);
+}
+
+/* =========================================================================
+   THE FOUR THINGS THAT CAN TAKE THE GLASS AWAY, and what is left when they
+   do. They land on the same short selector list, so the chrome has ONE
+   fallback rather than four that can drift apart.
+
+   `--surface-rail` IS THE MEASURED COMPOSITE, not an approximation of it:
+   #173e42 is `--glass` over `--ground-hi` to within half a channel step out
+   of 255. So every one of these is the same interface with the frost switched
+   off. The layout does not move, the hairline and the drop both stay, and no
+   text changes contrast band -- the substituted ground is exactly the
+   worst-case real one, so a ratio quoted anywhere in this file holds under
+   the substitution too, and is bettered wherever real glass sat over a darker
+   part of the gradient (10.85 against 15.14 for --ink, 6.05 against 8.45 for
+   --ink-3, 5.18 against 7.23 for --line-strong).
+   ====================================================================== */
+
+/* 1. The browser cannot blur. A translucent panel with no blur over a
+      gradient is an unreadable box, so the film is replaced by the opaque
+      stand-in rather than merely left as it is. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lt-rail,
+  .lt-toast,
+  .lt-hint-panel {
+    background: var(--surface-rail);
+  }
+  /* THE FAULT TOAST HAS TO BE NAMED IN ALL THREE FALLBACKS OR THEY ARE NOT ONE
+     FALLBACK. It was named in two, and the drift the header above says cannot
+     happen had already happened here: in a browser with no backdrop-filter the
+     fault toast silently dropped to an untinted rail. It kept its 4px `--gap`
+     leading rule, so nothing became unreadable and nothing looked broken --
+     the tinted ground simply went, which is the quiet kind of difference this
+     file exists to catch. Measured on the opaque mix: `--ink` 9.29:1, the
+     `--gap` rule 4.65:1. */
+  .lt-toast[data-tone="fault"] {
+    background: color-mix(in srgb, var(--gap) 10%, var(--surface-rail));
+  }
+}
+
+/* 2. The reader has asked for less transparency. Same answer, and the blur
+      goes too: an operating-system preference for reduced transparency is a
+      request about the effect, not only about the alpha. */
+@media (prefers-reduced-transparency: reduce) {
+  .lt-rail,
+  .lt-toast,
+  .lt-hint-panel {
+    background: var(--surface-rail);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .lt-toast[data-tone="fault"] {
+    background: color-mix(in srgb, var(--gap) 10%, var(--surface-rail));
+  }
+  /* THE HUE JOURNEY SURVIVES; ONLY THE GLOWS GO. The gradient is the product's
+     ground, not a transparency effect, and 206 through 264 is what the client
+     asked for. The two radial lights exist to give glass something to refract
+     and have no job left once nothing is refracting, so they are dropped and
+     the ramp keeps its three stops. This is also the only place the ground is
+     guaranteed to be at or below `--ground-hi` everywhere, so nothing here
+     needs re-measuring. */
+  body::before {
+    background: linear-gradient(168deg, var(--ground-1) 0%, var(--ground-2) 46%, var(--ground-3) 100%);
+  }
+}
+
+/* 3. The reader has asked for less motion. One rule at the end so nothing
+      above has to remember it, and so the primitives in `src/components/ui/`
+      (which animate unconditionally) are covered too.
+
+      THE BUTTON PRESS IS NOT REMOVED, ONLY ITS MOVEMENT. Motion in this app
+      answers an action: a paraf being drawn, a page being counted, a key going
+      down under a finger. A control that does not respond to a press is the
+      single most reliable sign nobody finished an interface. What goes is
+      everything that announces itself. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* THE PRESS NEEDS ITS OWN RULE AND THE BLANKET OVERRIDE ABOVE DOES NOT
+     REACH IT. `transform: translateY(var(--lip-h))` on `:active` is a state
+     style, not a transition, so zeroing every duration does not remove the
+     movement -- it makes the same movement instant, which is a jump rather
+     than less motion. Removing only the transform would be worse still: the
+     lip would collapse under a face that had not moved, so the key would
+     appear to grow four pixels.
+
+     So the shelf STAYS and the press answers with tone instead, which is a
+     colour change and not a movement. The control still visibly responds to
+     the finger, which is the thing worth keeping. */
+  .lt-btn:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+    box-shadow: var(--plate);
+    filter: brightness(0.92);
+  }
+  .lt-btn[data-flat="true"]:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+    box-shadow: inset 0 -2px 0 0 var(--line-control);
+    filter: brightness(0.92);
+  }
+  .lt-chevron,
+  .lt-disclose > summary::before {
+    transition: none;
+  }
+}
+
+/* =========================================================================
+   4. THE READER HAS ASKED FOR MORE CONTRAST.
+
+   The cheapest answer to this system's weakest number. `--edge` is a 12%
+   white film and it carries `.lt-kotak`'s ruled box, `.lt-well`'s rim, the
+   hairline of every slab and the boundary of every set-in block: 1.45:1 on a
+   slab, which is a hairline you can see and not one you can rely on. At the
+   operating system's request the rules take their full weight, the film goes
+   to 40%, the control boundary is promoted to the active one, and glass loses
+   the last of its translucency.
+
+   EVERY RAISED VALUE IS QUOTED ON EVERY GROUND IT LANDS ON, NOT ON THE ONE
+   THAT FLATTERS IT. The block used to claim "the rules take their full weight"
+   and print a single figure, 3.14:1, which was `--line` on a slab -- while the
+   same token measured 2.59:1 on a lifted plate (the ground `proposal-plate.tsx`
+   nests its open capture onto) and 2.85:1 on `--surface-rail`, which is what
+   every piece of glass chrome becomes under this very media query. So the two
+   surfaces an operator meets most under a high-contrast preference were the
+   two the raised rule did not reach. Set on the lightest ground it lands on
+   instead, `--line` now measures 3.84:1 on a slab, 3.16:1 on a lifted plate,
+   3.48:1 on the opaque rail, 4.70:1 on a set-in block and 5.57:1 in a recess.
+   `--edge` at 40% clears everywhere already (3.12:1 lifted, 3.23:1 rail,
+   3.41:1 slab, 3.69:1 set-in, 3.80:1 recess) and `--line-control` is promoted
+   whole to `--line-strong`.
+
+   NOTHING CHANGES MEANING HERE. The same objects are drawn harder: no hue is
+   introduced, no state is re-coloured, and `--mark` and `--gap` still mean
+   the two things they mean.
+   ====================================================================== */
+@media (prefers-contrast: more) {
+  :root {
+    --edge: rgb(255 255 255 / 40%);
+    /* 0.640, not the 0.590 this was. See the block comment: 0.590 cleared 3:1
+       on a slab and nowhere else that matters. */
+    --line: oklch(0.640 0.026 232);
+    --line-control: var(--line-strong);
+    --glass-edge: rgb(255 255 255 / 40%);
+  }
+  .lt-paper,
+  .lt-denah,
+  *:has(> .lt-denah) {
+    --edge: var(--paper-ink-2);
+    --line: var(--paper-ink-2);
+    --line-control: var(--paper-ink-2);
+  }
+  .lt-rail,
+  .lt-toast,
+  .lt-hint-panel {
+    background: var(--surface-rail);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* NAMED SEPARATELY BECAUSE OF THE LAYER, NOT BECAUSE OF SPECIFICITY, and the
+     old reasoning here was exactly backwards in a way that hid a real gap.
+
+     `.lt-toast[data-tone="fault"]` lives inside `@layer components`; this block
+     is UNLAYERED, and unlayered CSS beats layered CSS whatever the specificity
+     -- which is the mechanism `.lt-veil` relies on above and states correctly
+     there. So without this rule the fault toast does not stubbornly KEEP its
+     translucent mix; it loses the mix AND the red tint and takes a plain
+     `--surface-rail`. This line restores the tint rather than overriding a
+     stubborn one. Read the wrong way round, the `@supports` fallback looks
+     covered when it is not, which is how it went two years without one.
+     Measured on the opaque mix: `--ink` 9.29:1, the `--gap` rule 4.65:1. */
+  .lt-toast[data-tone="fault"] {
+    background: color-mix(in srgb, var(--gap) 10%, var(--surface-rail));
+  }
+  /* A hatch that means "nothing will ever be here" is exactly the kind of
+     texture this preference exists for. Solid stripes, closer together.
+
+     AND THE TEXT VARIANT HAS TO BE RESTATED FOR THE SAME LAYER REASON. This
+     block is unlayered and `.lt-hatch:not(:empty)` is not, so a single
+     `.lt-hatch` rule here would repaint the stripes straight back across the
+     four sentences that say what the deliverable will be missing -- at 45%
+     coverage instead of 33%, so the accessibility preference would have made
+     the copy less legible, which is what it did before. The frame goes to
+     5px-in-11px with it; the field stays clear. */
+  .lt-hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--hatch) 0 5px,
+      transparent 5px 11px
+    );
+  }
+  .lt-hatch:not(:empty) {
+    background-image:
+      linear-gradient(var(--surface-sunk), var(--surface-sunk)),
+      repeating-linear-gradient(-45deg, var(--hatch) 0 5px, transparent 5px 11px);
+    background-position: 10px 10px, 0 0;
+    background-size: calc(100% - 20px) calc(100% - 20px), auto;
+    background-repeat: no-repeat, repeat;
+    background-origin: padding-box;
+    background-clip: padding-box;
   }
 }
