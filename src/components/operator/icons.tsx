@@ -271,3 +271,21 @@ export function Cari(props: IconProps) {
     </Icon>
   );
 }
+
+/**
+ * Dismiss a dialog.
+ *
+ * The set's rule is that a verb icon is the shape of what the verb leaves
+ * behind, and closing leaves nothing, so this is the one member that is simply
+ * chrome. It is here anyway rather than borrowed from a library, because the
+ * alternative was one import of lucide-react for one glyph, which is a
+ * dependency, a second drawing hand and a second grid for a mark that is four
+ * line segments. Round caps: a stroke a hand made.
+ */
+export function Tutup(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5.6 5.6 14.4 14.4M14.4 5.6 5.6 14.4" />
+    </Icon>
+  );
+}

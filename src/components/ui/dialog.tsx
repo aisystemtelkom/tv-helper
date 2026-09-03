@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
-import { XIcon } from "lucide-react"
+import { Tutup } from "@/components/operator/icons"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -110,7 +110,7 @@ function DialogContent({
               />
             }
           >
-            <XIcon className="size-3.5" aria-hidden="true" />
+            <Tutup size={16} />
             <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
