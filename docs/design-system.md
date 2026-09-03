@@ -89,40 +89,73 @@ The ground is deliberately **not a near-black**: oklch lightness 0.235 with a
 faint green cast, because warm photocopy white on a blue-black ground reads
 cold.
 
-## Colour: two hues in the whole product
+## Colour: temperature for materials, saturation for signals
 
-| Token | Means |
-| --- | --- |
-| `--mark` amber | A decision is owed here. Nothing else, ever. |
-| `--gap` red | A fault or a refusal. Absent from a healthy screen. |
+The first version of this system was four steps of one graphite at chroma
+0.011. The client's word for it was **monotonous**, and they were right: that
+is not a colour, it is a shade of nothing. The planes are now told apart by
+**temperature as well as lightness**.
 
-`--mark` is not focus, not the active phase, not a hover, not a drag target,
-not a heading, and not a warning about a measurement. The old `--lt-mark`
-carried five unrelated signals at once, which teaches an operator to read none
-of them.
+| Plane | Value | Material |
+| --- | --- | --- |
+| `--surface-sunk` | oklch(0.156 0.024 246) | ink-well blue-black: what the MACHINE read |
+| `--surface-rail` | oklch(0.216 0.017 74) | warm kraft: chrome, a desk blotter |
+| `--surface` | oklch(0.252 0.022 174) | dark verdigris: the table itself |
+| `--surface-raised` | oklch(0.300 0.021 82) | warm kraft: a manila docket on the table |
+| `--paper` | oklch(0.988 0.004 91) | the only lit material |
 
-`--gap` is used as rules, strokes and text, **never as a fill**, so red never
-becomes a background the eye adapts to and stops reading.
+**Warmth rises toward paper.** The closer a thing is to being a document, the
+warmer it is, and the crop is the warmest and only lit thing on screen. What
+lies in a well is writing, and writing is blue-black; no paper is ever laid in
+a well, so the objection that warm white reads cold on a blue ground does not
+reach there.
 
-**Confirmed work has no colour at all.** It is an ink paraf in a ruled box. A
-finished packet is a screen with no saturated colour left on it, and that is
-the point: the remaining colour is the remaining work.
+The lightness steps are only about 1.12, so the material difference is carried
+by hue. Blocks are separated by rules rather than by fills, so plane identity
+is never the only cue, and the rail sits *below* the table because a rail never
+holds a fact you read for meaning.
 
-**Focus is ink, never amber.** A keyboard position is not a decision that is
-owed, and letting them share a colour means a focused control reads as a slot
-demanding attention.
+### The invariant that replaced "two hues in the whole product"
 
-### Ink
+**No non-status token may exceed chroma 0.030.** The highest is `--wash` at
+0.030 and `--line-strong` at 0.026, against `--mark` at 0.155 and `--gap` at
+0.160: a factor of five. Hue is free for materials; saturation stays rationed
+for signals. Unlike the old rule this one can be checked by reading the file.
 
-`--ink` 12.1:1, `--ink-2` 6.8:1, `--ink-3` 5.0:1, all measured against
-`--surface-raised`, the lightest ground any of this text sits on. `--ink-3` was
-0.622 and measured **3.7:1**, below AA, while carrying every advisory the
-product depends on.
+`--mark` (amber) still means exactly one thing, a decision is owed, and is
+byte-identical to the value it has always had. `--gap` (red) is a fault or a
+refusal, used as rules, strokes and text and **never as a fill**. Confirmed
+work still has no colour at all.
 
-**The rule that follows: quietness is bought with size and position, never
-with lower contrast, and safety copy never uses `--ink-3` at all.** Nothing in
-the product is smaller than 13px, because every small string here is safety
-copy.
+### Four defects this pass fixed, all measured
+
+- **`.lt-denah` never rebound the ink tokens**, so the crop rectangle in the
+  hero device used the *table's* amber on white and measured **1.13:1**. It
+  survived only on its stroke, on the one device whose whole job is answering
+  "is this the right page" with a shape. The paper rebinds are now a shared
+  selector covering `.lt-paper` and `.lt-denah`, and the cut measures 1.82:1.
+  The old paper `--mark` was also outside the sRGB gamut and being silently
+  clamped, so it was not a colour anyone had chosen.
+- **`--line` measured 1.47:1** while being the declared border of `.lt-btn`,
+  `.lt-input` and `.lt-mark-box`. WCAG 1.4.11 asks 3:1 of a control boundary.
+  `--line` is now separation only; `--line-strong` (3.42:1 on the tightest
+  ground) is the boundary of anything you can click, type into or focus.
+- **Amber was on nine surfaces**, not the four the rule claimed: the ingest
+  ticks, the denah cut and text selection were all borrowing the product's
+  loudest signal for things that owe nobody anything.
+- **Red was used as a fill** in `.lt-band`, contradicting this document. A rule
+  that is stated and then broken stops being read.
+
+### Measured floors, on `--surface-raised`, the lightest ground text sits on
+
+`--ink` 12.5:1, `--ink-2` 7.5:1, `--ink-3` 5.5:1, `--mark` 8.5:1, `--gap`
+5.1:1, `--line-strong` 3.4:1. Paper's own edge clears 3:1 in **both**
+directions (3.78 on paper, 3.49 on a docket), because half the time the
+operator is judging where a sheet ends and half the time where it begins.
+
+`--wash` has a rule that is not optional: **it may only sit under `--ink` or
+`--ink-2`.** Under it on a raised plane, `--ink-3` falls to about 4.2:1 and
+`--gap` to about 4.0:1, both below AA.
 
 ## Typography
 
@@ -411,6 +444,67 @@ an empty field, because an empty field asks to be filled and a filled one does
 not. The rules were rewritten and the failures fixed, and the phrasing still
 has to carry the difference between "this was stated" and "this was read off a
 page".
+
+## What may hide behind a question mark
+
+The client asked for less on screen. The trap is that this product's whole
+argument is that a tell must be visible, so hiding a warning behind a hover
+would be the wrong-crop failure delivered by the very control meant to tidy up.
+
+**The rule, applied clause by clause and never paragraph by paragraph:**
+
+> A line keeps the screen if a different order would print it differently, or
+> if it is the reason a control on screen is refusing to work. It goes behind
+> the question mark if it would read word for word the same on every order and
+> everything it describes still works. Nothing set in `--gap` ever hides.
+
+Most paragraphs here are one sentence that varies followed by one that never
+does, and the whole win is in splitting them. That took the primary screen from
+about 1300 words to about 750, and the first crop from roughly 1000px to about
+340px on a 1366x768 laptop.
+
+**What refused to move**, and this list matters as much as the other one: every
+per-crop advisory (each is a measurement from *this* rectangle on *this* page),
+the citation register and the denah, the reason a disabled control is disabled,
+**consent statements about data leaving the device** even though they are
+identical on every run, `Interruption` in every form, the affirmative clears
+("Siap diekspor"), the completeness figure, and the state word on every row.
+
+`Hint` in `chrome.tsx` opens on hover, on focus **and on tap**. A hover-only
+control does not exist on a touchscreen and cannot be reached from a keyboard,
+and this is a tool people use all day. The mark is ink, never `--mark`, because
+amber means a decision is owed and a question mark owes nothing.
+
+## The icon set
+
+`src/components/operator/icons.tsx`, hand-drawn, no dependency. The governing
+idea:
+
+> **A verb icon is never a picture of the verb. It is the shape of what the
+> verb leaves behind.**
+
+`Terima` leaves a paraf, so the Terima button carries the paraf, drawn from the
+same path constant the confirmed mark uses. `Bukan ini` leaves a coretan.
+`Kosongkan` leaves a double-ruled empty cell. The button previews its own
+outcome, which is a real information gain rather than decoration, and it is why
+the set contains no pencil, no trash can, no tick in a circle and no chevron.
+
+A **folded** corner means a file the operator supplied; a **square** corner
+means a page inside the run. The page family is the denah at icon scale, so
+somebody who has read the index rail for an hour can already read these.
+
+Everything is `currentColor` and no icon may name `--mark` or `--gap` itself,
+so "one hue, one meaning" stays a property of the system rather than a
+convention fourteen files must remember. Grid: 20 units, 1.5 inset, stroke 1.5
+with `vector-effect: non-scaling-stroke`, round joins, caps by stroke kind
+(round for a mark a hand made, butt for a printed edge). Three sizes only.
+
+**What must not get an icon** is as long as the set and is written at the top of
+that file: the six slot states (`Mark` already gives them six shapes, and a
+second vocabulary for the same six facts is worse than none), a page as such,
+the phase nav, a padlock on a locked phase, notice tones, every row of a
+homogeneous list, a glyph per slot or section (those names are the document
+quoted verbatim), and the crop advisories.
 
 ## The constraint that outranks all of this
 

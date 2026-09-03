@@ -52,6 +52,36 @@
  * docx. A capture that holds a zone the export will not print (an `unfilled`
  * capture that kept its rectangle) is drawn as a deliberate absence and says
  * so, never as a picture.
+ *
+ * WHAT WENT BEHIND A QUESTION MARK, AND THE LINE THAT DECIDED IT. A clause
+ * that would read word for word the same on every order, and that is not the
+ * reason a control on screen is refusing to work, is an explanation rather
+ * than a fact about this run, so it belongs in a `Hint`. That took the screen
+ * lede's rationale clause, the manifest's preamble, the header table's
+ * fifty-six word lede, the workbook's row count and the workbook notice's
+ * argument for the empty column.
+ *
+ * IT DID NOT TAKE THE BLOCK, and that is the half worth defending. The
+ * paragraph explaining why nothing is built before every area is checked never
+ * changes either, and it stays on screen because it is exactly why the build
+ * button will not fire: a disabled control whose reason is behind a hover is
+ * the same defect as one whose reason is off screen. "Siap diekspor" stays for
+ * the same reason in the other direction, because an absent warning is not a
+ * confirmation. Nor did it take one word of the six header fields' provenance,
+ * which names the file a value was read out of and is what stops a guess
+ * looking like a typed value, nor any per-crop advisory, each of which is a
+ * measurement of one rectangle on one page, nor the manifest's three lines of
+ * counts, nor the download-may-not-have-arrived remedy, which is an
+ * interruption wearing a calm voice.
+ *
+ * THE TWO ON-DEVICE LINES MOVED, AND THEY ARE NOT A CONSENT STATEMENT. A
+ * sentence said at the moment data leaves the device stays on screen however
+ * invariant it is; this one is its opposite, a promise that nothing leaves,
+ * made by a button that uploads nothing. The consent the operator does owe is
+ * made on Muat, where the page images actually go out. Every line inside the
+ * sticky bar is subtracted from the manifest's viewport twice, once as the bar
+ * and once as the space `useBarHeight` reserves for it, so two lines there
+ * cost four.
  */
 
 import type { ReactNode } from "react";
@@ -90,6 +120,7 @@ import {
   Btn,
   Cite,
   CiteAdvisories,
+  Hint,
   Interruption,
   Mark,
   Notice,
@@ -100,6 +131,7 @@ import {
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
+import { BukuKerja, Paket } from "./icons";
 
 const DOCX_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -940,11 +972,19 @@ export function ExportPanel({
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-2">
-        <Title>Buat berkas hasil</Title>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The packet is what this screen builds, so the screen wears its
+              mark. One icon for the screen, none on the rows below it. */}
+          <Paket size={20} className="shrink-0" />
+          <Title>Buat berkas hasil</Title>
+          <Hint label="Kenapa isinya diperlihatkan dulu">
+            Kedua berkas akan terbuka dengan rapi entah buktinya benar atau
+            salah, jadi isinya diperlihatkan di sini sebelum ditulis.
+          </Hint>
+        </div>
         <p className="lt-lede">
           Dua berkas: dokumen validasi dan buku kerja EPIC. Halaman ini
-          memperlihatkan isi keduanya sebelum ditulis, karena keduanya akan
-          terbuka dengan rapi entah buktinya benar atau salah.
+          memperlihatkan isi keduanya sebelum ditulis.
         </p>
       </header>
 
@@ -973,14 +1013,19 @@ export function ExportPanel({
         className="flex max-w-[72rem] flex-col gap-5"
       >
         <div className="flex flex-col gap-3">
-          <h3 className="lt-title" id="isi-berkas">
-            Yang akan masuk ke kedua berkas ini
-          </h3>
-          <p className="lt-lede">
-            Seluruh bagian dokumen validasi, berurutan seperti di dokumennya,
-            termasuk yang sudah beres. Setiap potongan yang akan dicetak
-            ditampilkan gambarnya di sini.
-          </p>
+          {/* The preamble describes the manifest's SHAPE, which is the same on
+              every order. The counts under it describe THIS order, so they
+              stay: three lines of figures, no line of prose. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="lt-title" id="isi-berkas">
+              Yang akan masuk ke kedua berkas ini
+            </h3>
+            <Hint label="Isi daftar ini">
+              Seluruh bagian dokumen validasi, berurutan seperti di dokumennya,
+              termasuk yang sudah beres. Setiap potongan yang akan dicetak
+              ditampilkan gambarnya di sini.
+            </Hint>
+          </div>
 
           {/* Slots and captures are counted in separate sentences, never
               folded into one figure. "12 potongan" over a bagian that needs
@@ -1077,18 +1122,32 @@ export function ExportPanel({
         aria-labelledby="buku-kerja"
         className="flex max-w-[72rem] flex-col gap-3"
       >
-        <h3 className="lt-title" id="buku-kerja">
-          Buku kerja EPIC
-        </h3>
-        <p className="lt-lede">
-          <span className="lt-figure">{AO_TEMPLATE.xlsxRows.length}</span> baris,
-          isinya sama pada setiap pekerjaan. Kolom E dikosongkan, isi di EPIC.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="lt-title" id="buku-kerja">
+            Buku kerja EPIC
+          </h3>
+          {/* The row count is a constant of the template rather than a fact
+              about this order, and the ready-to-export verdict in the action
+              bar prints it again where it decides something. */}
+          <Hint label="Isi buku kerja">
+            Isinya sama pada setiap pekerjaan:{" "}
+            <span className="lt-figure">{AO_TEMPLATE.xlsxRows.length}</span>{" "}
+            baris, dan kolom E dikosongkan supaya Anda isi di EPIC.
+          </Hint>
+        </div>
+        {/* The first sentence is what the operator opens the file and finds,
+            so it stays on screen. The argument for why an empty cell is the
+            honest output reads the same on every order. */}
         <Notice tone="warn">
-          Kolom E terbit kosong di seluruh baris. Pekerjaan di peramban ini
-          menyimpan halaman dan area, bukan nilai teks, jadi tidak ada nilai
-          yang bisa diisikan di sini. Sel kosong adalah keluaran yang jujur;
-          nilai tebakan adalah kegagalan yang dicegah alat ini.
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Kolom E terbit kosong di seluruh baris.</span>
+            <Hint label="Kenapa kolom E kosong">
+              Pekerjaan di peramban ini menyimpan halaman dan area, bukan nilai
+              teks, jadi tidak ada nilai yang bisa diisikan di sini. Sel kosong
+              adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
+              dicegah alat ini.
+            </Hint>
+          </div>
         </Notice>
       </section>
 
@@ -1097,18 +1156,22 @@ export function ExportPanel({
         aria-labelledby="tabel-kepala"
         className="flex max-w-[72rem] flex-col gap-4"
       >
-        <div className="flex flex-col gap-2">
+        {/* Fifty-six words that never change, over six fields that each say
+            their own provenance one line under themselves. Those per-field
+            lines name the FILE a value was read out of, so they vary by run,
+            and not one of them moved. */}
+        <div className="flex flex-wrap items-center gap-2">
           <h3 className="lt-title" id="tabel-kepala">
             Tabel kepala dokumen
           </h3>
-          <p className="lt-lede">
+          <Hint label="Isi tabel kepala">
             Enam isian di kepala dokumen validasi. Dua di antaranya, ID EPIC dan
             Quote, dibaca dari nama berkas sumber bila namanya memuatnya, dan
             keduanya tebakan yang perlu Anda periksa. Empat sisanya Anda isi
             sendiri: pekerjaan di peramban ini menyimpan halaman dan area, bukan
             nilai teks, jadi tidak ada satu pun nilai yang bisa diambil dari isi
             dokumen.
-          </p>
+          </Hint>
         </div>
 
         <div className="lt-panel grid gap-4 p-5 sm:grid-cols-2">
@@ -1314,6 +1377,7 @@ export function ExportPanel({
           {state.kind === "built" ? (
             <ul className="flex flex-col gap-2">
               <SaveRow
+                icon={<Paket className="shrink-0" />}
                 name={state.names.docx}
                 size={fileSize(state.docx)}
                 disabled={stale}
@@ -1324,6 +1388,7 @@ export function ExportPanel({
                 }}
               />
               <SaveRow
+                icon={<BukuKerja className="shrink-0" />}
                 name={state.names.xlsx}
                 size={fileSize(state.xlsx)}
                 disabled={stale}
@@ -1335,12 +1400,22 @@ export function ExportPanel({
               />
             </ul>
           ) : (
+            /* Two rows, two DIFFERENT marks. The packet and the workbook are
+               not one homogeneous list, and which of the two a name belongs to
+               is read faster from the shape than from an extension at the end
+               of a break-all string. */
             <ul className="flex flex-col gap-0.5">
-              <li className="lt-figure text-[0.8125rem] break-all">
-                {names.docx}
+              <li className="flex items-center gap-2">
+                <Paket className="shrink-0" />
+                <span className="lt-figure text-[0.8125rem] break-all">
+                  {names.docx}
+                </span>
               </li>
-              <li className="lt-figure text-[0.8125rem] break-all">
-                {names.xlsx}
+              <li className="flex items-center gap-2">
+                <BukuKerja className="shrink-0" />
+                <span className="lt-figure text-[0.8125rem] break-all">
+                  {names.xlsx}
+                </span>
               </li>
             </ul>
           )}
@@ -1380,6 +1455,18 @@ export function ExportPanel({
               {state.kind === "built" ? "Buat ulang" : "Buat kedua berkas"}
             </Btn>
 
+            {/* NOT a consent statement, which is why it may hide. A sentence
+                said at the moment data leaves the device stays on screen
+                however invariant it is; this is the opposite, a promise that
+                nothing leaves, made by a button that uploads nothing. The
+                consent that is owed is made on Muat, where the page images
+                actually go out. Two lines inside a bar that reserves its own
+                measured height cost the manifest four. */}
+            <Hint label="Ke mana kedua berkas ditulis">
+              Kedua berkas ditulis di peramban ini. Tidak ada berkas PDF yang
+              diunggah untuk membuatnya.
+            </Hint>
+
             {state.kind === "working" ? (
               <div className="flex items-center gap-3">
                 {/* Countable, never a percentage: this step only ever learns
@@ -1414,11 +1501,6 @@ export function ExportPanel({
               </div>
             ) : null}
           </div>
-
-          <p className="lt-note">
-            Kedua berkas ditulis di peramban ini. Tidak ada berkas PDF yang
-            diunggah untuk membuatnya.
-          </p>
         </div>
       </div>
     </div>
@@ -1434,12 +1516,18 @@ export function ExportPanel({
  * browser. An operator who saw nothing arrive gets told what to do about it.
  */
 function SaveRow({
+  icon,
   name,
   size,
   disabled,
   done,
   onSave,
 }: {
+  /**
+   * The packet's mark or the workbook's, never the same one twice. It labels
+   * the ROW, which is the file; the button beside it keeps its plain word.
+   */
+  icon: ReactNode;
   name: string;
   size: string;
   disabled: boolean;
@@ -1448,8 +1536,11 @@ function SaveRow({
 }) {
   return (
     <li className="flex flex-wrap items-center gap-3">
-      <span className="lt-figure min-w-0 flex-1 text-[0.8125rem] break-all">
-        {name}
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        {icon}
+        <span className="lt-figure min-w-0 text-[0.8125rem] break-all">
+          {name}
+        </span>
       </span>
       <span className="lt-figure text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
         {size}

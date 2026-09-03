@@ -16,15 +16,21 @@
    WHY THE SURFACE IS DARK, on every page including the ones that show no
    scans. The content is white paper. A scan's own white ground bleeds into a
    white interface, and the crop's edge -- the exact boundary the operator is
-   being asked to judge -- stops being visible. On a toned graphite every crop
-   is a lit rectangle with a hard edge. Functional, so it is not offered as a
-   preference. The ground is deliberately NOT a near-black: it sits at oklch
-   lightness 0.235 with a faint green cast, because warm photocopy white on a
-   blue-black ground reads cold.
+   being asked to judge -- stops being visible. On a dark ground every crop is
+   a lit rectangle with a hard edge. Functional, so it is not offered as a
+   preference.
 
-   TWO HUES IN THE WHOLE PRODUCT.
+   THE PLANES ARE TOLD APART BY TEMPERATURE, NOT BY LIGHTNESS, and the token
+   block below says why at length. The short version: a green-black table, a
+   blue-black recess, warm kraft chrome and dockets, sepia rules, warm toner
+   ink. The lightness steps between them are only about 1.12, so the material
+   difference is carried by hue, and blocks are separated by rules rather than
+   by fills so plane identity is never the only cue.
+
+   SATURATION IS RATIONED, HUE IS NOT.
      `--mark`  amber. A decision is owed here. Nothing else, ever.
      `--gap`   red.   A fault, or a refusal. Absent from a healthy screen.
+   No other token exceeds chroma 0.030, against those two at 0.155 and 0.160.
    Confirmed work has NO colour at all: it is an ink paraf in a ruled box.
    A finished packet is a screen with no saturated colour left on it, and
    that is the point -- the remaining colour is the remaining work.
@@ -128,63 +134,144 @@
 }
 
 :root {
-  /* ---- the table -------------------------------------------------------
-     Four values of one graphite, distinguished by ROLE and never mixed up.
-     Sunk is under the table (things the app READ: OCR text, inputs). Rail is
-     chrome you never read for meaning. Raised is a grouped block. Paper is
-     the only lit material. */
-  --surface: oklch(0.235 0.011 168);
-  --surface-sunk: oklch(0.196 0.010 168);
-  --surface-rail: oklch(0.272 0.011 168);
-  --surface-raised: oklch(0.306 0.011 168);
+  /* =====================================================================
+     TINTA ARSIP: the planes are told apart by TEMPERATURE, not by lightness.
 
-  /* The rule. Warm against a cool ground (hue 70, not 168) so a rule reads as
-     a line drawn on a form rather than as the border of a UI box. This is the
-     structural workhorse: blocks are separated by rules, not by fills. */
-  --line: oklch(0.405 0.012 70);
-  --line-strong: oklch(0.545 0.014 70);
+     The palette this replaces was four steps of one graphite at chroma 0.011,
+     which is not a colour, it is a shade of nothing, and it is why the client
+     read the app as monotonous. Nothing about the system's argument changes:
+     the ground is still dark because the content is white paper, paper is
+     still the only lit thing, and a finished packet is still a screen with no
+     saturated colour left on it. What changes is how the planes differ.
+
+     The table is a dark verdigris, the colour of a ledger cloth. The recesses,
+     which hold what the MACHINE read (OCR text, inputs, technical detail), go
+     to an ink-well blue-black, because what lies in a well is writing and
+     writing is blue-black. The chrome and the grouped blocks cross to warm
+     kraft. So the table is green, the things resting on it are brown, and what
+     is cut into it is blue. WARMTH RISES TOWARD PAPER: the closer a thing is
+     to being a document, the warmer it is, and the crop is the warmest and
+     only lit thing on screen.
+
+     THE INVARIANT THAT REPLACES "TWO HUES IN THE WHOLE PRODUCT", which was
+     really a rule about saturation that was only cheap to enforce while
+     everything was grey:
+
+         NO NON-STATUS TOKEN MAY EXCEED CHROMA 0.030.
+
+     The highest below is --wash at 0.030 and --line-strong at 0.026, against
+     --mark at 0.155 and --gap at 0.160: a factor of five. That is what lets
+     hue be free for materials while saturation stays rationed for signals, and
+     unlike the old rule it can be checked by reading the file.
+     ================================================================== */
+
+  /* The recess. Wells, inputs, the OCR transcript, technical detail behind a
+     disclosure. The one plane that leaves the table's hue entirely. No paper
+     is ever laid in a well, so the objection that warm white reads cold on a
+     blue-black ground does not reach here. */
+  --surface-sunk: oklch(0.156 0.024 246);
+
+  /* Chrome: the application strip, popovers. Warm kraft, a desk blotter.
+     DARKER THAN THE TABLE, which inverts the app's silhouette on purpose: the
+     system's own rule is that a rail never holds a fact you read for meaning,
+     so it should be the quietest plane on screen rather than the second
+     brightest. If that ever proves wrong, oklch(0.290 0.017 74) puts it back
+     above the table and only the step arithmetic changes. */
+  --surface-rail: oklch(0.216 0.017 74);
+
+  /* The table itself, the largest area on every screen. Dark verdigris at
+     twice the old chroma, which is still about a fifth of what is available at
+     that lightness: a tint on graphite, not a green product. */
+  --surface: oklch(0.252 0.022 174);
+
+  /* A grouped block, the manila docket lying on the table. THE LIGHTEST GROUND
+     ANY INTERFACE TEXT SITS ON, so it alone sets every floor in the system.
+     Held at 0.300 rather than the 0.322 first proposed: raised is the plane
+     that binds --ink-3, --gap and --line-strong at once, and darkening it buys
+     all three headroom for free. */
+  --surface-raised: oklch(0.300 0.021 82);
+
+  /* ---- rules -----------------------------------------------------------
+     Sepia, so a rule reads as printed on a form rather than as the border of a
+     UI box.
+
+     THE SPLIT IS NOT COSMETIC AND FIXES A LIVE FAILURE. `--line` is separation
+     between content and nothing else. `--line-strong` is the boundary of
+     anything you can click, type into or focus, because WCAG 1.4.11 asks 3:1
+     of a control boundary and the old `--line` measured 1.47:1 while being the
+     declared border of `.lt-btn`, `.lt-input` and `.lt-mark-box`. */
+  --line: oklch(0.436 0.024 62);
+  --line-strong: oklch(0.600 0.026 66);
 
   /* ---- ink -------------------------------------------------------------
-     Three values, and `--ink-3` IS THE FLOOR. It measures 5.0:1 on
-     `--surface-raised`, the lightest ground any of this text sits on. It was
-     0.622 and measured 3.7:1, which put the advisories the whole product
-     depends on in the least readable colour in the system.
+     Warm toner on aged stock, not a tint of the ground, which is what stops
+     text reading as a lighter shade of the table. They get WARMER as they get
+     quieter (hue 88, 78, 72), so subordination reads as fading rather than as
+     greying.
 
-     THE RULE THAT FOLLOWS: quietness is bought with SIZE AND POSITION, never
-     with a lower contrast, and safety copy never uses `--ink-3` at all. Every
-     string this product wants to whisper is a sentence like "periksa apakah
-     halamannya benar", and there is no honest way to whisper that. */
-  --ink: oklch(0.966 0.004 168);
-  --ink-2: oklch(0.784 0.011 168);
-  --ink-3: oklch(0.70 0.012 168);
+     `--ink-3` IS THE FLOOR and the rules on it are unchanged: never used for
+     safety copy, and nothing is set below 13px. Quietness is bought with size
+     and position, never with lower contrast. */
+  --ink: oklch(0.970 0.008 88);
+  --ink-2: oklch(0.806 0.016 78);
+  --ink-3: oklch(0.722 0.020 72);
 
-  /* ---- the two hues ----------------------------------------------------
-     `--mark` is amber and means exactly one thing: a decision is owed here.
-     It is not focus, not the active phase, not a hover, not a drag target,
-     not a heading, and not a warning about a measurement. Asking one colour
-     to mean act-on-this and be-suspicious-of-this at once, which is what the
-     old `--lt-mark` did across five unrelated signals, teaches an operator to
-     read neither.
+  /* ---- the two signals -------------------------------------------------
+     `--mark` is amber and means exactly one thing: a decision is owed here. It
+     is not focus, not the active phase, not a hover, not a drag target, not a
+     heading, and not a warning about a measurement. It is BYTE-IDENTICAL to
+     the value it has always had, because it is the product's most valuable
+     pixel and a palette that repaints it is answering a question nobody asked.
 
-     `--gap` is the correction pen. A fault or a refusal: a coretan struck
-     through a row, a search that found nothing, a save that was refused. It
-     is used as rules, strokes and text, NEVER as a fill, so red never becomes
-     a background the eye adapts to and stops reading. A healthy screen has
-     none of it. */
+     `--gap` is the correction pen: a fault or a refusal, used as rules,
+     strokes and text and NEVER as a fill. Two degrees redder and slightly
+     lighter than before, both forced by gamut and AA arithmetic rather than by
+     taste, so it reads as a correction pen rather than as coral. It is the
+     only token anywhere in the 0 to 40 hue range at any chroma, so nothing on
+     screen can be mistaken for it. */
   --mark: oklch(0.845 0.155 92);
-  --gap: oklch(0.72 0.165 27);
+  --gap: oklch(0.720 0.160 24);
+
+  /* The film a hand leaves: hover and pressed states. It exists because the
+     mix it replaces, `color-mix(in oklch, var(--ink), transparent 92%)`, is a
+     COOL white film, and on a warm kraft plane that pulls the surface back
+     toward grey. Miss one and the temperature ladder exists in some states and
+     not others, which is worse than not having it at all.
+
+     ITS CONTRAST RULE, WHICH IS NOT OPTIONAL: `--wash` may only sit under
+     `--ink` or `--ink-2`. Under it on a raised plane, `--ink-3` falls to about
+     4.2:1 and `--gap` to about 4.0:1, both below AA. The mix it replaces has
+     the identical hazard today with nothing written down about it. */
+  --wash: oklch(0.880 0.030 84 / 0.08);
+
+  /* A deliberate absence, on the record. The one thing on screen COLDER and
+     flatter than its surroundings, because "nothing will ever be here" must
+     not look like a material, and warm hatching would sit too close to amber.
+     The moment it appears anywhere except `.lt-hatch`, the signal is diluted. */
+  --hatch: oklch(0.628 0.012 242);
 
   /* ---- paper -----------------------------------------------------------
-     Warm off-white rather than pure white, so a true-white scan laid on a
-     sheet still shows its own edge. The only lit material, and the only
-     shadow in this stylesheet. */
-  --paper: #fcfbf8;
-  --paper-ink: oklch(0.245 0.012 70);
-  --paper-ink-2: oklch(0.455 0.012 70);
-  --paper-edge: oklch(0.58 0.012 70);
+     UNCHANGED as a colour. A crop is a photograph of a document, and tinting
+     the surface a scan sits on is how a crop's own white edge becomes
+     ambiguous, which is the exact boundary the operator is paid to judge.
+
+     `--paper-edge` is the one part that moves, and it moves COOL. The sheet
+     now sits on warm kraft, so a warm hairline was the one place a crop's
+     boundary lost its temperature break, at the boundary the operator is
+     actually paid to judge. It has to clear 3:1 in BOTH directions, because
+     half the time they are judging where the sheet ends and half the time
+     where it begins. */
+  --paper: oklch(0.988 0.004 91);
+  --paper-ink: oklch(0.248 0.018 66);
+  --paper-ink-2: oklch(0.462 0.018 66);
+  --paper-edge: oklch(0.600 0.014 212);
+
+  /* Cast in the recess blue rather than in the table's green, so a sheet reads
+     as lifted off the desk rather than as bruising it. Still the only shadow
+     in this stylesheet, and still only on `.lt-paper`. */
   --lift:
-    0 1px 0 oklch(0.12 0.01 168 / 0.8),
-    0 18px 36px -18px oklch(0.08 0.01 168 / 0.92);
+    0 1px 0 oklch(0.10 0.020 246 / 0.85),
+    0 18px 36px -18px oklch(0.06 0.024 246 / 0.94);
 
   /* ---- shadcn primitives, pointed at the same tokens -------------------
      src/components/ui/* is styled from these names. Mapping them here is what
@@ -255,7 +342,7 @@
   }
 
   ::selection {
-    background: color-mix(in oklch, var(--mark), transparent 74%);
+    background: color-mix(in oklch, var(--ink), transparent 78%);
     color: var(--ink);
   }
 
@@ -369,7 +456,7 @@
      disclosure, the trough a progress strip runs in. */
   .lt-well {
     background: var(--surface-sunk);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 4px;
   }
 
@@ -385,35 +472,42 @@
   /* PAPER. The only lit material and the only shadow in this stylesheet.
      A crop, a rendered page, and the single sheet that carries sign-in, the
      privacy policy, the allowlist register and the failure screens. */
-  .lt-paper {
-    background: var(--paper);
-    border: 1px solid var(--paper-edge);
-    border-radius: 2px;
-    box-shadow: var(--lift);
+  /* EVERY SURFACE THAT IS PAPER REBINDS THE INK TOKENS, and the list is a
+     selector rather than one class because forgetting a member of it is how
+     the hero device broke.
 
-    /* THE INK TOKENS ARE REBOUND INSIDE PAPER, and that is not a convenience.
-       The one global `:focus-visible` rule draws its outline in `var(--ink)`,
-       which is near-white: on a sheet of paper it was an invisible focus ring,
-       on exactly the surfaces a keyboard user meets first (sign in, the
-       allowlist register, the failure screens). `::selection` had the same
-       problem. Rebinding here fixes every descendant at once, including any
-       component that was written for the graphite ground and later placed on
-       a sheet, which is the case that would otherwise keep re-breaking. */
+     The one global `:focus-visible` rule draws its outline in `var(--ink)`,
+     which is near-white: on a sheet that was an invisible focus ring, on
+     exactly the surfaces a keyboard user meets first. Both hues need paper
+     values too, and that is the half that is easy to forget: the table's
+     `--gap` measures about 2.6:1 on this warm white and the table's `--mark`
+     about 1.6:1, so a refusal in red becomes a pale smudge and an amber mark
+     is very nearly not there. The meanings never change, only the values that
+     carry them.
+
+     `.lt-denah` IS IN THIS LIST BECAUSE IT IS A PICTURE OF A PAGE. It paints
+     `--paper` as its ground and then drew its cut rectangle in the TABLE's
+     amber, which measured 1.13:1 against that white: the rectangle survived
+     only on its 1.5px stroke, on the one device in the product whose whole job
+     is answering "is this the right page" with a shape. The old paper `--mark`
+     was also out of the sRGB gamut at oklch(0.52 0.13 75) and was being
+     silently clamped, so it was not a colour anyone had chosen either. */
+  .lt-paper,
+  .lt-denah {
     --ink: var(--paper-ink);
     --ink-2: var(--paper-ink-2);
     --ink-3: var(--paper-ink-2);
     --line: var(--paper-edge);
     --line-strong: var(--paper-ink-2);
+    --gap: oklch(0.455 0.150 25);
+    --mark: oklch(0.505 0.100 75);
+  }
 
-    /* THE TWO HUES NEED PAPER VALUES TOO, and this is the half that is easy to
-       forget. Both were chosen to carry on graphite and neither survives the
-       trip: the table's `--gap` measures about 2.6:1 on this warm white and the
-       table's `--mark` about 1.6:1, so a refusal set in red on a sheet is a
-       pale smudge and an amber mark is very nearly not there. The meanings do
-       not change, only the values that carry them. */
-    --gap: oklch(0.43 0.15 27);
-    --mark: oklch(0.52 0.13 75);
-
+  .lt-paper {
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 2px;
+    box-shadow: var(--lift);
     color: var(--paper-ink);
   }
 
@@ -423,10 +517,10 @@
   .lt-hatch {
     background-image: repeating-linear-gradient(
       -45deg,
-      color-mix(in oklch, var(--ink-3), transparent 84%) 0 6px,
+      color-mix(in oklch, var(--hatch), transparent 82%) 0 6px,
       transparent 6px 14px
     );
-    border: 1px dashed color-mix(in oklch, var(--ink-3), transparent 55%);
+    border: 1px dashed color-mix(in oklch, var(--hatch), transparent 45%);
     border-radius: 2px;
   }
 
@@ -541,7 +635,7 @@
     flex: none;
     width: 1.75rem;
     height: 1.75rem;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 2px;
     color: var(--ink-2);
     background: transparent;
@@ -647,10 +741,63 @@
     fill: color-mix(in oklch, var(--paper-ink), transparent 62%);
   }
   .lt-denah .lt-denah-cut {
-    fill: color-mix(in oklch, var(--mark), transparent 72%);
+    /* 60%, not 72%: with the paper rebind above this is finally a fill the eye
+       resolves rather than a stroke doing all the work. The stroke stays,
+       because at a 34px rail glyph the fill alone is a few pixels of tint. */
+    fill: color-mix(in oklch, var(--mark), transparent 60%);
     stroke: var(--paper-ink);
     stroke-width: 1.5;
     vector-effect: non-scaling-stroke;
+  }
+
+  /* =====================================================================
+     THE QUESTION MARK, and the rule for what may hide behind one.
+
+     A hint holds an EXPLANATION THAT NEVER CHANGES. It never holds an
+     observation about the crop in front of you. The test, applied clause by
+     clause rather than paragraph by paragraph: a line keeps the screen if a
+     different order would print it differently, or if it is the reason a
+     control on screen is refusing to work. Nothing set in `--gap` ever hides.
+
+     The mark is INK, never `--mark`, because amber means a decision is owed
+     and a question mark owes nothing. It is a real button at a real hit size,
+     because a hover-only control does not exist on a touchscreen and cannot be
+     reached from a keyboard.
+     ================================================================== */
+
+  .lt-hint {
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: none;
+    border-radius: 999px;
+    color: var(--ink-3);
+    transition: color 90ms ease, background-color 90ms ease;
+  }
+  .lt-hint:hover,
+  .lt-hint[data-popup-open] {
+    color: var(--ink);
+    background: var(--wash);
+  }
+
+  /* Chrome, and it keeps declaring that it is: the rail tone with a rule round
+     it, never a lit panel. On a surface where the one thing allowed to be
+     light is a document, a pale popup reads as a scrap of paper. */
+  .lt-hint-panel {
+    max-width: 30rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--surface-rail);
+    color: var(--ink-2);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    box-shadow: none;
+  }
+  .lt-hint-panel strong {
+    color: var(--ink);
+    font-weight: 600;
   }
 
   /* =====================================================================
@@ -662,7 +809,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 4px;
     padding: 0.36rem 0.8rem;
     font-size: 0.8125rem;
@@ -676,7 +823,7 @@
       color 90ms ease;
   }
   .lt-btn:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--ink), transparent 92%);
+    background: var(--wash);
     border-color: var(--line-strong);
   }
   .lt-btn:disabled {
@@ -714,12 +861,12 @@
   .lt-btn[data-on="true"] {
     color: var(--ink);
     border-color: var(--line-strong);
-    background: color-mix(in oklch, var(--ink), transparent 88%);
+    background: var(--wash);
   }
 
   .lt-input {
     background: var(--surface-sunk);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line-strong);
     border-radius: 4px;
     padding: 0.42rem 0.6rem;
     color: var(--ink);
@@ -767,8 +914,11 @@
   }
 
   .lt-band {
+    /* Bracketed by rules, ground unchanged. It carried a red tint until now,
+       which contradicted this system's own rule that red is never a fill: a
+       rule that is stated and then broken stops being read. The band already
+       does its work by pushing the page down so it cannot be scrolled past. */
     border-block: 2px solid var(--gap);
-    background: color-mix(in oklch, var(--gap), transparent 94%);
     padding: 0.85rem 0;
   }
 
@@ -786,7 +936,10 @@
     background: var(--surface-sunk);
   }
   .lt-tick[data-done="true"] {
-    background: var(--mark);
+    /* NOT amber. A page arriving from ingest is not a decision owed, and the
+       strip marches across the screen in the same colour as the mark the
+       operator is hunting for. This was the loudest of the amber leaks. */
+    background: var(--ink-2);
     animation: lt-tick-in 200ms ease-out both;
   }
 

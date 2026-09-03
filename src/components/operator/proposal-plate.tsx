@@ -32,12 +32,32 @@
  *      to it, never in a deck aimed at something off screen;
  *   6. the citation register, then the transcript on demand.
  *
- * `SlotDef.catatan` (4) had never been on screen in any version of this app.
- * The specification the operator is asked to apply lived in the repository and
- * not in front of the person applying it, which is the cheapest defect in the
- * whole slice. It is optional in the type and it is read defensively here: a
- * slot without one renders nothing rather than falling back to `SlotDef.hint`,
- * which is English written for the model.
+ * THAT ORDER IS NOW THE SCREEN'S, NOT ONLY THE ARGUMENT'S. The header used to
+ * carry the mark, the field name, the WHOLE of `catatan` (`adalah` plus
+ * `bukan`, three or four lines of prose) and the state word above the picture:
+ * roughly 136px of reading before the first crop, on every plate, on a sheet
+ * that holds twenty-four of them. It is one line now, about 34px, and it holds
+ * only what a different order would print differently: the mark, the field
+ * name, the state word, and the completeness figure.
+ *
+ * `SlotDef.catatan` had never been on screen in any version of this app. The
+ * specification the operator is asked to apply lived in the repository and not
+ * in front of the person applying it, which is the cheapest defect in the whole
+ * slice. It is optional in the type and it is read defensively here: a slot
+ * without one renders nothing, and no empty question mark, rather than falling
+ * back to `SlotDef.hint`, which is English written for the model.
+ *
+ * ITS TWO HALVES MOVED IN DIFFERENT DIRECTIONS, ON PURPOSE. `adalah` restates
+ * what the field name has already said, reads word for word the same on every
+ * order, and nothing on the screen stops working while it is unread, so it
+ * hides behind the hint on the field name. `bukan` names the plausible
+ * look-alike, which is the disambiguation the operator actually applies and the
+ * reason this product exists; it arrived on screen with this redesign, and
+ * hiding it the day it arrived would be the wrong-and-quiet failure delivered
+ * by the very control meant to tidy up. It moves into the right-hand column
+ * instead, under the denah and above the register, where a landscape crop
+ * leaves the column empty anyway. It is drawn once per plate, on the first
+ * capture, because it describes the bagian rather than any one rectangle.
  *
  * `entry.def.key` is NEVER rendered. `kbLanjutan.ttdPejabat` is system
  * vocabulary competing for the exact space the definition should occupy.
@@ -54,6 +74,15 @@
  * register and its advisories all still on screen. Nothing is hidden by
  * collapsing, only made smaller, so the length of the sheet reports how much
  * work is left.
+ *
+ * THE SAME SPLIT RUNS THROUGH THE SENTENCE UNDER THE BUTTONS. Three of the four
+ * things it used to say are the reason a control on this screen is refusing to
+ * work right now (the crop has not been cut yet, its page is no longer in the
+ * pekerjaan, its page will not open however long you wait), so all three stay
+ * as prose. The fourth, that "Bukan ini" throws the usulan away and sends the
+ * bagian to the outstanding list, is identical under every proposal on every
+ * order and describes no fault at all, so it sits behind a hint on the button
+ * it is about.
  */
 
 import { useId, useRef, useState } from "react";
@@ -69,11 +98,21 @@ import {
   Btn,
   Cite,
   CiteAdvisories,
+  Hint,
   Mark,
   STATUS_MEANING,
   StateWord,
 } from "./chrome";
 import { Denah, Missing } from "./denah";
+/**
+ * One icon per control, and each one is the shape of what its verb LEAVES
+ * BEHIND rather than a picture of the verb: Terima leaves a paraf, Bukan ini
+ * leaves a coretan, Kosongkan leaves a double-ruled empty cell, and the three
+ * controls that end in a rectangle carry the rectangle. `Paraf` here is the
+ * standalone icon; `Mark` above draws the same path inside its ruled box, from
+ * the same constant, so the button and the state it produces cannot drift.
+ */
+import { Coretan, Kosongkan, Paraf, Potongan } from "./icons";
 import type { CropThumbs } from "./use-crop-thumbs";
 
 export type PlateActions = {
@@ -107,32 +146,35 @@ export function displayLabel(label: string): string {
 }
 
 /**
- * What the field is, and what it is NOT.
+ * What the field is NOT, in the column beside the picture.
  *
- * `bukan` gets its own line rather than being folded into the sentence above
- * it, because it is the half the operator actually applies: the failure this
+ * This is the half of `catatan` the operator actually applies. The failure this
  * product is organised against is a crop of a plausible LOOK-ALIKE, and the
- * look-alike is what this line names. The leading word is supplied here unless
- * the template already wrote it, so both spellings of the copy read the same.
+ * look-alike is exactly what this line names, so it is read while the picture
+ * is being looked at rather than a paragraph the eye skipped on the way down.
+ * The leading word is supplied here unless the template already wrote it, so
+ * both spellings of the copy read the same.
  */
-function FieldNote({ catatan }: { catatan?: SlotDef["catatan"] }) {
-  if (!catatan?.adalah) return null;
-  const bukan = catatan.bukan?.trim();
-  const alreadyLed = bukan ? /^bukan\b/i.test(bukan) : false;
-
+function Bukan({ text }: { text: string }) {
+  const alreadyLed = /^bukan\b/i.test(text);
   return (
-    <div className="flex max-w-[68ch] flex-col gap-1">
-      <p style={{ color: "var(--ink-2)" }}>{catatan.adalah}</p>
-      {bukan ? (
-        <p style={{ color: "var(--ink-2)" }}>
-          {alreadyLed ? null : (
-            <span style={{ color: "var(--ink)", fontWeight: 600 }}>Bukan </span>
-          )}
-          {bukan}
-        </p>
-      ) : null}
-    </div>
+    <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+      {alreadyLed ? null : (
+        <span style={{ color: "var(--ink)", fontWeight: 600 }}>Bukan </span>
+      )}
+      {text}
+    </p>
   );
+}
+
+/** `catatan`, split the way the density rule splits it. */
+function readCatatan(catatan: SlotDef["catatan"]): {
+  adalah?: string;
+  bukan?: string;
+} {
+  const adalah = catatan?.adalah?.trim();
+  const bukan = catatan?.bukan?.trim();
+  return { adalah: adalah || undefined, bukan: bukan || undefined };
 }
 
 /**
@@ -313,6 +355,7 @@ function CaptureRow({
   saving,
   justDecided,
   forceExpanded,
+  bukan,
 }: {
   run: BrowserRun;
   state: SlotState;
@@ -322,6 +365,12 @@ function CaptureRow({
   /** Set when this capture's PAGE would not render, so no crop is coming. */
   thumbFailure?: string;
   actions: PlateActions;
+  /**
+   * The look-alike this bagian is not, passed to the FIRST capture only: it
+   * describes the bagian rather than any one rectangle, and an identical
+   * paragraph beside every picture in a stacked slot discriminates nothing.
+   */
+  bukan?: string;
   /** Only when the slot holds several captures; otherwise the header says it. */
   showState: boolean;
   /** 1-based position of this capture within its slot, when there are several. */
@@ -395,10 +444,13 @@ function CaptureRow({
     ? `Denah halaman ${cite.page} dari ${cite.pagesInDoc}, dengan area potongan ditandai`
     : "Denah halaman, tidak tersedia";
 
-  // A disabled control never appears without its reason beside it, and the
-  // reason in the common case is that "Bukan ini" throws the model's answer
-  // away with no undo.
-  const reason = waiting
+  // A DISABLED CONTROL NEVER APPEARS WITHOUT ITS REASON BESIDE IT, and all
+  // three of these are exactly that: a measurement of what went wrong with THIS
+  // capture, and the reason Terima is inert under the operator's hand. None of
+  // them may go behind a hover. The fourth sentence that used to live here,
+  // about what "Bukan ini" costs, is not a fault and does not vary, so it moved
+  // onto the button as a hint.
+  const fault = waiting
     ? "Potongannya belum tampil. Tunggu gambarnya muncul sebelum Anda memutuskan."
     : broken
       ? "Halaman potongan ini sudah tidak ada di pekerjaan ini, jadi tidak ada yang bisa Anda nilai. Gambar ulang areanya, atau tandai bukan ini."
@@ -406,13 +458,12 @@ function CaptureRow({
         ? // It says WAITING WILL NOT HELP, which is the whole point of telling
           // the operator apart from the loading state they used to be left in.
           "Halaman ini gagal dibuka, jadi potongannya tidak akan muncul betapa pun lamanya Anda menunggu. Gambar ulang areanya dari halaman lain, atau tandai bukan ini."
-        : state.status === "proposed"
-          ? "Bukan ini membuang usulan ini, dan bagian ini masuk ke daftar yang belum ditemukan."
-          : null;
+        : null;
 
   const expandToggle =
     settled && state.zone && !forceExpanded ? (
       <Btn onClick={() => setOverride(!expanded)}>
+        <Potongan />
         {expanded ? "Perkecil potongan" : "Perbesar potongan"}
       </Btn>
     ) : null;
@@ -479,24 +530,37 @@ function CaptureRow({
                     disabled={waiting || broken || unrenderable}
                     onClick={() => decide(() => actions.onAccept(slotIndex))}
                   >
+                    <Paraf />
                     Terima
                   </Btn>
                   <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
+                    <Potongan />
                     Gambar ulang
                   </Btn>
-                  <Btn
-                    tone="reject"
-                    disabled={waiting}
-                    onClick={() => decide(() => actions.onReject(slotIndex))}
-                  >
-                    Bukan ini
-                  </Btn>
+                  {/* The button and its hint travel together, so a wrapping
+                      row cannot leave the question mark stranded beside a
+                      different control. */}
+                  <span className="flex items-center gap-1">
+                    <Btn
+                      tone="reject"
+                      disabled={waiting}
+                      onClick={() => decide(() => actions.onReject(slotIndex))}
+                    >
+                      <Coretan />
+                      Bukan ini
+                    </Btn>
+                    <Hint label="Penjelasan Bukan ini">
+                      Bukan ini membuang usulan ini, dan bagian ini masuk ke
+                      daftar yang belum ditemukan.
+                    </Hint>
+                  </span>
                 </>
               ) : null}
 
               {state.status === "confirmed" ? (
                 <>
                   <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
+                    <Potongan />
                     Gambar ulang
                   </Btn>
                   <Btn onClick={() => decide(() => actions.onReopen(slotIndex))}>
@@ -508,9 +572,11 @@ function CaptureRow({
               {state.status === "outstanding" || state.status === "pending" ? (
                 <>
                   <Btn onClick={() => decide(() => actions.onRedraw(slotIndex))}>
+                    <Potongan />
                     Gambar sendiri
                   </Btn>
                   <Btn onClick={() => decide(() => actions.onUnfill(slotIndex))}>
+                    <Kosongkan />
                     Kosongkan
                   </Btn>
                 </>
@@ -525,12 +591,12 @@ function CaptureRow({
               {expandToggle}
             </div>
 
-            {reason ? (
+            {fault ? (
               <p
                 className="max-w-[72ch] text-[0.8125rem]"
                 style={{ color: "var(--ink-2)" }}
               >
-                {reason}
+                {fault}
               </p>
             ) : null}
           </div>
@@ -538,25 +604,40 @@ function CaptureRow({
           {state.zone && expanded ? <Transcript text={state.text} /> : null}
         </div>
 
-        {state.zone ? (
+        {state.zone || bukan ? (
           <aside className="flex min-w-0 flex-col gap-4">
-            {/* Kept at both sizes. A wrong page is recognised from the SHAPE of
-                the plan before anything is read, and that is as true of a
+            {/* Kept at both sizes. A wrong page is recognised from the SHAPE
+                of the plan before anything is read, and that is as true of a
                 capture somebody already accepted as of one waiting on them. */}
-            <Denah
-              page={resolved?.page ?? null}
-              cut={state.zone.box}
-              size={expanded ? "md" : "sm"}
-              label={denahLabel}
-            />
-            <Cite cite={cite} />
-            <CiteAdvisories cite={cite} />
-            {state.origin ? (
-              <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
-                {state.origin === "human"
-                  ? "Area ini Anda gambar sendiri."
-                  : "Area ini usulan model, jadi masih perlu Anda periksa."}
-              </p>
+            {state.zone ? (
+              <Denah
+                page={resolved?.page ?? null}
+                cut={state.zone.box}
+                size={expanded ? "md" : "sm"}
+                label={denahLabel}
+              />
+            ) : null}
+
+            {/* Between the plan and the register: the last thing read before
+                the citation, and the one that decides what the picture is
+                being compared against. */}
+            {bukan ? <Bukan text={bukan} /> : null}
+
+            {state.zone ? (
+              <>
+                <Cite cite={cite} />
+                <CiteAdvisories cite={cite} />
+                {state.origin ? (
+                  <p
+                    className="text-[0.8125rem]"
+                    style={{ color: "var(--ink-2)" }}
+                  >
+                    {state.origin === "human"
+                      ? "Area ini Anda gambar sendiri."
+                      : "Area ini usulan model, jadi masih perlu Anda periksa."}
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </aside>
         ) : null}
@@ -577,10 +658,13 @@ function MissingCapture({
   ordinal,
   required,
   onDraw,
+  bukan,
 }: {
   ordinal: number;
   required: number;
   onDraw: () => void;
+  /** Only when this plate has no capture row to carry it. See `CaptureRow`. */
+  bukan?: string;
 }) {
   return (
     <div className="flex flex-wrap items-start gap-4">
@@ -597,7 +681,11 @@ function MissingCapture({
           masih kurang, berkas hasil akan tampak lengkap padahal kehilangan satu
           gambar.
         </p>
-        <Btn onClick={onDraw}>Gambar sendiri</Btn>
+        {bukan ? <Bukan text={bukan} /> : null}
+        <Btn onClick={onDraw}>
+          <Potongan />
+          Gambar sendiri
+        </Btn>
       </div>
     </div>
   );
@@ -664,6 +752,7 @@ export function ProposalPlate({
 
   const waitingSave = entry.states.some((placed) => pending.has(placed.index));
   const justDecided = entry.states.some((placed) => fresh.has(placed.index));
+  const { adalah, bukan } = readCatatan(entry.def.catatan);
 
   // Captures the slot needs that have no state at all. See `MissingCapture`.
   const missing = Math.max(0, entry.required - entry.states.length);
@@ -673,28 +762,36 @@ export function ProposalPlate({
   return (
     <article
       aria-labelledby={headingId}
-      className="flex flex-col gap-5 border-t py-6"
+      className="flex flex-col gap-4 border-t py-6"
       style={{ borderColor: "var(--line)" }}
     >
-      <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="flex min-w-0 items-start gap-3">
+      {/* ONE LINE, and everything on it varies from order to order: which
+          state this bagian is in, and whether it is short a picture. The
+          definition that used to sit here is a hover away on the field name
+          and a column away beside the crop. */}
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <div className="flex min-w-0 items-center gap-3">
           <Mark
             status={entry.status}
             drawing={justDecided}
             saved={!waitingSave}
           />
-          <div className="flex min-w-0 flex-col gap-2">
-            {/* The question being asked, in the packet's own mono voice and at
-                the size of a question. It was 14px, level with the slot key
-                printed beside it. */}
-            <h3 id={headingId} className="lt-figure lt-field-name">
-              {label}
-            </h3>
-            <FieldNote catatan={entry.def.catatan} />
-          </div>
+          {/* The question being asked, in the packet's own mono voice and at
+              the size of a question. It was 14px, level with the slot key
+              printed beside it. */}
+          <h3 id={headingId} className="lt-figure lt-field-name">
+            {label}
+          </h3>
+          {/* The hint sits at the end of the name whose meaning it holds, not
+              inside a sentence, and it holds only `adalah`: a slot the
+              template gave no catatan renders no question mark at all rather
+              than an empty one. */}
+          {adalah ? (
+            <Hint label={`Penjelasan ${label}`}>{adalah}</Hint>
+          ) : null}
         </div>
 
-        <div className="flex flex-col items-end gap-1 text-right">
+        <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-1">
           <StateWord status={entry.status} />
           {/* THE COMPLETENESS CLAIM, and the most consequential figure on the
               sheet: it is the difference between a packet that is finished and
@@ -730,6 +827,7 @@ export function ProposalPlate({
             saving={pending.has(placed.index)}
             justDecided={fresh.has(placed.index)}
             forceExpanded={expanded}
+            bukan={i === 0 ? bukan : undefined}
           />
         ))}
 
@@ -739,6 +837,8 @@ export function ProposalPlate({
             ordinal={entry.states.length + i + 1}
             required={entry.required}
             onDraw={() => actions.onDrawNew(entry.def.key, entry.def.label)}
+            // Only when there is no capture row above to have carried it.
+            bukan={entry.states.length === 0 && i === 0 ? bukan : undefined}
           />
         ))}
       </div>

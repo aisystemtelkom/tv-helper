@@ -13,9 +13,14 @@
  *  - IT SNAPS TO OCR LINE BOUNDARIES. A crop that slices a line of text in
  *    half is never what anyone wants. Holding the modifier key gives free
  *    pixels, which is what a signature or stamp block needs, because it has no
- *    lines to snap to. The modifier is NAMED ON SCREEN, and named per platform
- *    (Alt on Windows, Option on a Mac, which this project has to run on): an
- *    affordance nobody can see is not an affordance.
+ *    lines to snap to. The modifier is NAMED, and named per platform (Alt on
+ *    Windows, Option on a Mac, which this project has to run on): an
+ *    affordance nobody can see is not an affordance. It is named on the mark
+ *    beside the toggle it belongs to rather than as standing prose under the
+ *    bar, which is a place a person can point at rather than a sentence they
+ *    have already stopped reading; a `Hint` is a real button that opens on
+ *    hover, on focus and on tap, so it is still reachable from a keyboard and
+ *    on a touchscreen.
  *  - THE OPERATOR CAN PICK ANY LOADED PAGE. Manual selection is the designed
  *    terminal state for a slot no document could fill, so the editor has to be
  *    reachable with no starting zone and let the operator go and find the
@@ -53,6 +58,23 @@
  *    snapper cites lines overlapping the raw drag by `TOUCH_RATIO`. The
  *    picture therefore claimed lines the citation did not carry, which is this
  *    project's failure class in miniature.
+ *
+ * WHAT THE DENSITY PASS MOVED, AND THE LINE IT WOULD NOT CROSS.
+ *
+ * Three sentences here read word for word the same on every order, on every
+ * slot and on every page: how to drag, what a saved area becomes, that the
+ * preview is enlarged from the screen raster, and how the free-pixel modifier
+ * works. Each is now behind the `Hint` on the heading or the control it
+ * explains, which is a place a person can point at when they want it.
+ *
+ * NOTHING MEASURED OFF THIS RECTANGLE MOVED, and that is the rule rather than
+ * a judgement call. The citation register, every advisory under it (a whole
+ * page, a crop covering most of one, interpolated line boundaries, a missing
+ * line citation, lines visible but uncited), the two page notices, the refused
+ * drag, the move warning naming both pages, and the reason the save is
+ * disabled are all statements about THIS page and THIS drag. Putting any of
+ * them behind a hover would be the wrong-and-quiet failure delivered by the
+ * control brought in to tidy up.
  */
 
 import {
@@ -100,6 +122,7 @@ import {
   Btn,
   Cite,
   CiteAdvisories,
+  Hint,
   Lede,
   Note,
   Notice,
@@ -108,6 +131,7 @@ import {
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
+import { HalamanUtuh, KunciKeBaris, Potongan } from "./icons";
 
 export type EditorTarget = {
   /** Position in `run.slots`, or null for a capture the run does not hold yet. */
@@ -257,12 +281,18 @@ const PageGlyph = memo(function PageGlyph({
     >
       {/* A page whose OCR found nothing draws as a struck sheet rather than as
           a blank one, so the operator can see BEFORE drawing that snapping
-          will have nothing to hold on to here. */}
+          will have nothing to hold on to here.
+
+          DECORATIVE, because the button around it already carries the file,
+          the page and, on an unreadable page, the words "teks tidak terbaca".
+          Announcing the plan as well reads the same page twice to anyone
+          listening to the strip. */}
       <Denah
         page={page}
         cut={cut}
         size="sm"
         label={`denah halaman ${ordinal + 1}`}
+        decorative
       />
       <span
         className="lt-figure text-[0.75rem] leading-none"
@@ -828,8 +858,22 @@ export function ZoneEditor({
         </div>
         {/* The field being filled, in the packet's own voice and at the size of
             the question being asked. The screen's own name used to be the most
-            distinctive string here, above a 16px field label. */}
-        <h2 className="lt-field-name lt-figure">{target.label}</h2>
+            distinctive string here, above a 16px field label.
+
+            THE HOW-TO SITS BEHIND THE MARK, not above the page. "Tarik di
+            halaman untuk menandai areanya" is the same sentence on every order
+            and on every slot, and an operator who has drawn twelve rectangles
+            today reads it as furniture. What replaces it is not nothing: the
+            page itself carries the instruction, in place, for exactly as long
+            as there is no rectangle on it. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <h2 className="lt-field-name lt-figure">{target.label}</h2>
+          <Hint label="Penjelasan cara menandai area">
+            Tarik di halaman untuk menandai areanya. Area yang Anda simpan
+            langsung menjadi bukti yang diterima untuk bagian ini, atas
+            keputusan Anda.
+          </Hint>
+        </div>
 
         {/* WHAT THE FIELD IS SUPPOSED TO BE, which lived in `SlotDef` and had
             never been on screen. The operator is about to author the evidence
@@ -849,12 +893,6 @@ export function ZoneEditor({
             ) : null}
           </div>
         ) : null}
-
-        <Lede>
-          Tarik di halaman untuk menandai areanya. Area yang Anda simpan
-          langsung menjadi bukti yang diterima untuk bagian ini, atas keputusan
-          Anda.
-        </Lede>
 
         {/* One sentence about what this commit does to what is already
             there, and only one: where the evidence stands now, or where it is
@@ -1110,7 +1148,14 @@ export function ZoneEditor({
                 {ZOOM_LABEL[step]}
               </Btn>
             ))}
+            {/* The one control here that is not a view setting, so it is the
+                one that carries a glyph: the filled sheet is the shape of what
+                the click LEAVES, a whole page taken as one capture, and it is
+                the mark the glossary's "tangkapan satu halaman" is drawn from.
+                The three zoom steps beside it get none: an identical glyph on
+                every member of a homogeneous group discriminates nothing. */}
             <Btn onClick={takeWholePage} disabled={!canDraw}>
+              <HalamanUtuh />
               Ambil tangkapan satu halaman
             </Btn>
           </div>
@@ -1118,21 +1163,30 @@ export function ZoneEditor({
 
         <aside className="flex min-w-0 flex-col gap-5">
           <section className="flex flex-col gap-3">
-            <h3 className="lt-title text-base">Yang akan dipotong</h3>
+            {/* The note about resolution stood under every preview and said
+                the same thing under all of them: the picture is enlarged from
+                the screen raster, the deliverable is cut from the full page.
+                It is true on every order, nothing it describes stops working
+                when it is not read, and it sat directly under the picture the
+                operator is trying to look at. It belongs to this heading, so
+                it lives on this heading's mark. What does NOT move is anything
+                measured off this rectangle: the register and every advisory
+                below stay on the sheet. */}
+            <h3 className="lt-title flex items-center gap-1.5 text-base">
+              Yang akan dipotong
+              <Hint label="Penjelasan pratinjau potongan">
+                Pratinjau ini diperbesar dari gambar halaman di layar. Potongan
+                yang masuk ke berkas hasil dipotong dari halaman resolusi
+                penuh.
+              </Hint>
+            </h3>
 
             {draft && shown ? (
-              <>
-                <CropPreview url={shown} page={page} box={draft.box} />
-                <Note>
-                  Pratinjau ini diperbesar dari gambar halaman di layar.
-                  Potongan yang masuk ke berkas hasil dipotong dari halaman
-                  resolusi penuh.
-                </Note>
-              </>
+              <CropPreview url={shown} page={page} box={draft.box} />
             ) : (
               <p className="text-sm" style={{ color: "var(--ink-2)" }}>
-                Belum ada area. Tarik di halaman, lalu potongannya muncul di
-                sini sebelum Anda menyimpannya.
+                Belum ada area. Potongannya muncul di sini begitu Anda
+                menandainya.
               </p>
             )}
 
@@ -1289,82 +1343,63 @@ export function ZoneEditor({
               in words beside it, drawn as a glyph, and carried by the pressed
               styling. A label that is its own state is ambiguous about whether
               it describes what is happening or what clicking will do, and the
-              operator had to test it mid-task to find out. */}
-          <Btn
-            on={snapMode}
-            aria-pressed={snapMode}
-            onClick={() => setSnapMode((on) => !on)}
-          >
-            <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true">
-              {snapMode ? (
-                <>
-                  <line
-                    x1={1}
-                    y1={4}
-                    x2={15}
-                    y2={4}
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  />
-                  <line
-                    x1={1}
-                    y1={12}
-                    x2={15}
-                    y2={12}
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  />
-                  <rect
-                    x={2}
-                    y={4}
-                    width={12}
-                    height={8}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  />
-                </>
-              ) : (
-                <rect
-                  x={2}
-                  y={3}
-                  width={12}
-                  height={10}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  strokeDasharray="2 2"
-                />
-              )}
-            </svg>
-            Kunci ke baris: {snapMode ? "aktif" : "mati"}
-          </Btn>
+              operator had to test it mid-task to find out.
+
+              The glyph is the house one and it takes `locked`, so the two
+              states differ by SHAPE (a bar held between two rules, or a dashed
+              free run) and not by the pressed background alone. It used to be
+              two drawings on a 16 grid inlined here, which were the right
+              drawings on the wrong grid: every other mark in the product is
+              drawn on 20, and a glyph beside a state mark has to be the same
+              hand at the same scale.
+
+              THE FREE-PIXEL MODIFIER MOVED HERE, and it did not disappear. It
+              used to stand as a sentence under this bar, where it read the
+              same on every order and on every page; it is an explanation of
+              this toggle, so it now sits on this toggle's mark, which opens on
+              hover, on focus and on tap. An affordance nobody can see is not
+              an affordance, and this one being invisible was a real defect
+              once already. */}
+          <div className="flex items-center gap-0.5">
+            <Btn
+              on={snapMode}
+              aria-pressed={snapMode}
+              onClick={() => setSnapMode((on) => !on)}
+            >
+              <KunciKeBaris locked={snapMode} />
+              Kunci ke baris: {snapMode ? "aktif" : "mati"}
+            </Btn>
+            <Hint label="Penjelasan kunci ke baris">
+              Saat aktif, tarikan Anda mengikuti baris teks yang utuh, dan
+              menahan {altName} sambil menarik memakai piksel apa adanya untuk
+              tarikan itu saja, misalnya di tanda tangan atau stempel. Saat
+              mati, setiap tarikan memakai piksel apa adanya.
+            </Hint>
+          </div>
 
           <Btn onClick={requestCancel}>Batal</Btn>
+          {/* The save carries the potongan: what the click leaves behind is a
+              region cut out of a page, which is the one thing this screen
+              exists to author. */}
           <Btn tone="primary" onClick={save} disabled={Boolean(blocked)}>
+            <Potongan />
             Pakai area ini
           </Btn>
         </div>
 
-        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          {/* A disabled primary action never appears without its reason beside
-              it, in the same viewport. And it clears AFFIRMATIVELY: an absent
-              warning is not a confirmation, so the ready state is a state
-              rather than the absence of one. Full-strength ink in both cases:
-              quietness here is bought with size and position, never with
-              contrast. */}
-          <span className="text-[0.8125rem]" style={{ color: "var(--ink)" }}>
-            {blocked ?? "Siap disimpan sebagai bukti bagian ini."}
-          </span>
-          <span
-            className="max-w-[68ch] text-[0.8125rem]"
-            style={{ color: "var(--ink-2)" }}
-          >
-            {snapMode
-              ? `Tahan ${altName} sambil menarik untuk sekali ini memakai piksel apa adanya, misalnya di tanda tangan atau stempel.`
-              : "Setiap tarikan memakai piksel apa adanya. Nyalakan kunci ke baris untuk mengikuti baris teks."}
-          </span>
-        </div>
+        {/* A disabled primary action never appears without its reason beside
+            it, in the same viewport, and this line STAYS whatever else moves
+            behind a mark: it is the reason a control on screen is refusing to
+            work. It clears AFFIRMATIVELY too, because an absent warning is not
+            a confirmation, so the ready state is a state rather than the
+            absence of one. Full-strength ink in both cases: quietness here is
+            bought with size and position, never with contrast. */}
+        <p
+          className="max-w-[74ch] text-[0.8125rem]"
+          style={{ color: "var(--ink)" }}
+        >
+          {blocked ?? "Siap disimpan sebagai bukti bagian ini."}
+        </p>
 
         {confirmDiscard ? (
           <div className="flex flex-wrap items-center gap-3">

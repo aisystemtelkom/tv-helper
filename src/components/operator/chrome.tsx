@@ -31,7 +31,11 @@
  * real scan names in this domain differ at the tail.
  */
 
+import { Popover } from "@base-ui/react/popover";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
+
+import { PARAF_D, Tanya } from "./icons";
 
 import type { Citation } from "@/lib/ui/evidence";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
@@ -80,7 +84,7 @@ export function Paraf({
     <path
       className="lt-paraf"
       data-fresh={drawing || undefined}
-      d="M2.5 13.5c2.6 3.2 4.4 2.6 5.8-1.4C9.4 8.6 10 5.5 8.9 4.2 7.9 3 6.6 4.6 7.6 8.2c1 3.5 3.3 6 9.9 5"
+      d={PARAF_D}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.6}
@@ -445,5 +449,91 @@ export function Notice({
     <div className="lt-notice" data-tone={tone} {...rest}>
       {children}
     </div>
+  );
+}
+
+/**
+ * A question mark that answers a question, and the rule for what may go in one.
+ *
+ * THE RULE, AND IT IS LOAD-BEARING: a hint holds an EXPLANATION THAT NEVER
+ * CHANGES. It never holds an observation about the crop in front of you.
+ *
+ * "Setiap potongan di sini adalah satu halaman penuh" reads identically on
+ * every run and an operator has read it four hundred times, so it belongs
+ * behind a mark they can point at when they want it. "Menutupi 87% halaman,
+ * periksa apakah terbawa ke catatan kaki" is about THIS picture and is the
+ * whole reason the screen exists, so hiding it behind a hover would be the
+ * wrong-and-quiet failure delivered by the very control meant to tidy up. If
+ * you are ever unsure which kind a sentence is, ask whether it would still be
+ * true on a different run; if it would, it can hide.
+ *
+ * IT IS NOT HOVER-ONLY, and that is not politeness. A hover-only control does
+ * not exist on a touchscreen and cannot be reached from a keyboard, so it opens
+ * on hover, on focus and on tap: a real button with real state, not a `title`
+ * attribute. Escape and an outside click close it, and it never steals focus
+ * when it opens on hover, so an operator moving the pointer across the screen
+ * does not lose their place.
+ */
+export function Hint({
+  label = "Penjelasan",
+  children,
+}: {
+  /** What the mark is called to a screen reader, when the default is not apt. */
+  label?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const grace = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clear = useCallback(() => {
+    if (grace.current !== null) {
+      clearTimeout(grace.current);
+      grace.current = null;
+    }
+  }, []);
+
+  // A short grace period on leaving, so the pointer can travel from the mark
+  // to the panel without the panel disappearing under it.
+  const leave = useCallback(() => {
+    clear();
+    grace.current = setTimeout(() => setOpen(false), 160);
+  }, [clear]);
+
+  const enter = useCallback(() => {
+    clear();
+    setOpen(true);
+  }, [clear]);
+
+  useEffect(() => clear, [clear]);
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        render={
+          <button
+            type="button"
+            className="lt-hint"
+            aria-label={label}
+            onMouseEnter={enter}
+            onMouseLeave={leave}
+            onFocus={enter}
+            onBlur={leave}
+          />
+        }
+      >
+        <Tanya />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="top" align="start" sideOffset={8}>
+          <Popover.Popup
+            className="lt-hint-panel"
+            onMouseEnter={enter}
+            onMouseLeave={leave}
+          >
+            {children}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

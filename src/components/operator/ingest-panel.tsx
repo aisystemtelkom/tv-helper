@@ -46,9 +46,28 @@
  * point of hand-over in the product carries it and none of them can drift: the
  * PDF itself never leaves the device, the pages are rendered here, and only a
  * rendered page image goes to this application's own server to be read.
+ *
+ * WHAT THIS SCREEN NO LONGER PRINTS, AND WHERE IT WENT. The density rule is
+ * applied CLAUSE BY CLAUSE: a line keeps the screen if a different order would
+ * print it differently, or if it is the reason a control here is refusing to
+ * work. Everything that would read word for word the same on every order sits
+ * behind a `Hint` beside the heading it explains. So the mechanism tails moved
+ * (pages are straightened before they are read, four are read at once and the
+ * tick count is what is SAFELY STORED, the search is one request for the whole
+ * run so there can be no bar, a run you leave stays in the list), and the
+ * counted, conditional and blocking lines all stayed: how many halaman are
+ * short, how many read as blank, which berkas is duplicated, why `Proses` is
+ * disabled, why `Buka lembar periksa` is disabled, and how long a running pass
+ * has been going.
+ *
+ * THE ONE STATIC SENTENCE THAT IS NOT ALLOWED BEHIND A HINT is the consent in
+ * `DocumentDrop`: "Berkas PDF tidak diunggah...". It is identical on every run
+ * and it still stays on screen, because it is made at the moment the documents
+ * are handed over. A consent that has to be hovered for is not one.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import type {
   BrowserRun,
@@ -60,14 +79,15 @@ import type {
 import {
   Advisory,
   Btn,
+  Hint,
   Interruption,
   Lede,
-  Note,
   Notice,
   Title,
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
+import { Berkas, Cari, Muat } from "./icons";
 
 /**
  * What the shell knows about an ingest in flight.
@@ -113,12 +133,23 @@ function isPdf(file: File): boolean {
 export function DocumentDrop({
   label,
   hint,
+  explain,
   disabled,
   onFiles,
   size = "hero",
 }: {
   label: string;
-  hint: string;
+  /**
+   * The half of the invitation that a different situation would print
+   * differently. Optional, and omitted here on purpose: on this screen every
+   * word of it read the same on every order, so all of it is in `explain`.
+   */
+  hint?: string;
+  /**
+   * The half that never changes, behind the question mark on the heading. It
+   * is NOT where the consent sentence goes; that is printed below, always.
+   */
+  explain?: ReactNode;
   disabled?: boolean;
   onFiles: (files: File[]) => void;
   /** `inline` is the same target at a smaller height, for a secondary screen. */
@@ -213,33 +244,29 @@ export function DocumentDrop({
           transition: "border-color 90ms ease, background-color 90ms ease",
         }}
       >
-        <svg
-          width={40}
-          height={40}
-          viewBox="0 0 40 40"
-          aria-hidden="true"
-          fill="none"
-          stroke="var(--ink-3)"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M11 4.5h11l7 7v24h-18z" />
-          <path d="M22 4.5v7h7" />
-          <path d="M20 17.5v11" />
-          <path d="M15.5 24l4.5 4.5 4.5-4.5" />
-        </svg>
+        {/* The set's own drop mark, at the one size the set reserves for an
+            empty state. What stood here was the same drawing on a 40 viewBox
+            with its own stroke widths: a foreign grid beside every other icon
+            in the product. */}
+        <Muat size={40} style={{ color: "var(--ink-3)" }} />
 
-        <h3 id={labelId} className="text-[1.0625rem] font-semibold">
-          {label}
-        </h3>
+        {/* The question mark sits BESIDE the heading, never inside the
+            sentence under it, so the row it belongs to is unambiguous. */}
+        <div className="flex items-center gap-1">
+          <h3 id={labelId} className="text-[1.0625rem] font-semibold">
+            {label}
+          </h3>
+          {explain ? <Hint label={`Penjelasan: ${label}`}>{explain}</Hint> : null}
+        </div>
 
-        <p
-          className="max-w-[52ch] text-[0.9375rem]"
-          style={{ color: "var(--ink-2)" }}
-        >
-          {hint}
-        </p>
+        {hint ? (
+          <p
+            className="max-w-[52ch] text-[0.9375rem]"
+            style={{ color: "var(--ink-2)" }}
+          >
+            {hint}
+          </p>
+        ) : null}
 
         <label htmlFor={inputId} className="sr-only">
           Pilih berkas PDF dari komputer Anda
@@ -331,25 +358,48 @@ function Reading({ progress }: { progress: IngestProgress }) {
       style={{ borderColor: "var(--line)" }}
       aria-labelledby="ingest-reading"
     >
-      {/* Announced once per FILE rather than once per page: a screen reader
-          user waiting several minutes wants to know which document is being
-          read, not to be interrupted twenty-nine times. The page count lives
-          on the progressbar, where it can be asked for. */}
-      <div aria-live="polite">
-        <h3 id="ingest-reading" className="text-[0.9375rem] font-semibold">
-          {named ? (
-            <>
-              Membaca{" "}
-              <span className="lt-figure" title={progress.name}>
-                {shortenFileName(progress.name)}
-              </span>
-            </>
-          ) : (
-            "Membaca dokumen"
-          )}
-        </h3>
+      <div>
+        {/* The live region is the HEADING ITSELF, not a wrapper round it and
+            the question mark. Announced once per FILE rather than once per
+            page: a screen reader user waiting several minutes wants to know
+            which document is being read, not to be interrupted twenty-nine
+            times, and certainly not to have the hint's own name read out with
+            every file. The page count lives on the progressbar, where it can
+            be asked for. */}
+        <div className="flex items-center gap-1">
+          <h3
+            id="ingest-reading"
+            aria-live="polite"
+            className="text-[0.9375rem] font-semibold"
+          >
+            {named ? (
+              <>
+                Membaca{" "}
+                <span className="lt-figure" title={progress.name}>
+                  {shortenFileName(progress.name)}
+                </span>
+              </>
+            ) : (
+              "Membaca dokumen"
+            )}
+          </h3>
+          {/* The mechanism, which reads the same on every run. What stays on
+              screen below is the one line that can cost the operator work. */}
+          <Hint label="Penjelasan pembacaan halaman">
+            Halaman yang terputar diluruskan dulu, lalu dibaca satu per satu
+            dan disimpan di perangkat ini. Empat halaman dibaca sekaligus,
+            tetapi hitungan di bawah hanya menghitung halaman yang sudah
+            benar-benar tersimpan, jadi angkanya memang tertinggal sedikit dari
+            pekerjaannya. Kalau pembacaan berhenti di tengah jalan, halaman
+            yang sudah masuk tidak hilang.
+          </Hint>
+        </div>
         {progress.fileCount && progress.fileCount > 1 ? (
-          <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+          <p
+            aria-live="polite"
+            className="text-[0.8125rem]"
+            style={{ color: "var(--ink-2)" }}
+          >
             Berkas ke-<span className="lt-figure">{progress.fileIndex ?? 1}</span>{" "}
             dari <span className="lt-figure">{progress.fileCount}</span> yang
             Anda berikan.
@@ -371,12 +421,12 @@ function Reading({ progress }: { progress: IngestProgress }) {
         )}
       </p>
 
+      {/* The one clause of the old three-sentence advisory that can still cost
+          the operator minutes of reading if it is missed. The other two said
+          how the storing works, which is the same on every run and is behind
+          the mark on the heading. */}
       <Advisory>
-        <span>
-          Setiap halaman disimpan begitu selesai dibaca. Kalau pembacaan
-          berhenti di tengah jalan, halaman yang sudah masuk tidak hilang.
-          Biarkan tab ini terbuka sampai selesai.
-        </span>
+        <span>Biarkan tab ini terbuka sampai pembacaan selesai.</span>
       </Advisory>
     </section>
   );
@@ -445,8 +495,21 @@ function RunContents({ run }: { run: BrowserRun }) {
             const missing = Math.max(0, length - pages.length);
             return (
               <li key={source.id} className="flex flex-col gap-2">
-                <p className="lt-figure text-[0.9375rem]" title={source.name}>
-                  {shortenFileName(source.name, 44)}
+                {/* THE FOLD IS THE INFORMATION. This row is a berkas the
+                    operator supplied, and directly under it sit the
+                    square-cornered plans of the halaman inside it. The two
+                    kinds of object are mixed in one block, which is the only
+                    place in this screen an icon discriminates anything: on the
+                    runs list below, every row is a pekerjaan and a glyph on
+                    each would say nothing. */}
+                <p
+                  className="flex items-center gap-2 text-[0.9375rem]"
+                  title={source.name}
+                >
+                  <Berkas style={{ color: "var(--ink-3)" }} />
+                  <span className="lt-figure">
+                    {shortenFileName(source.name, 44)}
+                  </span>
                 </p>
 
                 <p
@@ -600,9 +663,18 @@ function Process({
       style={{ borderColor: "var(--line)" }}
       aria-labelledby="ingest-process"
     >
-      <h3 id="ingest-process" className="text-[0.9375rem] font-semibold">
-        Proses halaman menjadi usulan
-      </h3>
+      <div className="flex items-center gap-1">
+        <h3 id="ingest-process" className="text-[0.9375rem] font-semibold">
+          Proses halaman menjadi usulan
+        </h3>
+        <Hint label="Penjelasan proses">
+          Tiap bagian mendapat satu usulan area, atau tercatat tidak ditemukan.
+          Prosesnya satu permintaan untuk seluruh pekerjaan, jadi tidak ada
+          bilah kemajuan yang bisa ditampilkan: yang bisa dihitung hanyalah
+          waktu yang sudah berjalan. Menjalankannya lagi sesudah menambah
+          dokumen hanya mencari bagian yang belum ada buktinya.
+        </Hint>
+      </div>
 
       {/* Mounted before it has anything to say, so the change of state is
           announced when it happens rather than when the region appears. The
@@ -641,12 +713,17 @@ function Process({
         ) : wanted === 0 ? (
           "Setiap bagian sudah punya usulan atau sudah Anda putuskan, jadi tidak ada lagi yang perlu dicari di sini."
         ) : (
+          /* Two counted clauses and one consent clause, which is the whole of
+             what this paragraph is allowed to be. "Teks {pages} halaman ini
+             dikirim ke server aplikasi" is a statement about data leaving the
+             device, made at the moment it leaves, so it stays on screen
+             however often it is read. What tiap bagian then gets back reads
+             the same on every order and is behind the mark above. */
           <>
             <span className="lt-figure">{wanted}</span> bagian belum punya
             usulan. Teks <span className="lt-figure">{pages}</span> halaman ini
-            dikirim ke server aplikasi, lalu tiap bagian dapat satu usulan area
-            atau tercatat tidak ditemukan. Perlu beberapa menit, dan tab ini
-            harus tetap terbuka sampai selesai.
+            dikirim ke server aplikasi. Perlu beberapa menit, dan tab ini harus
+            tetap terbuka sampai selesai.
           </>
         )}
       </p>
@@ -658,6 +735,10 @@ function Process({
           aria-describedby={why}
           onClick={onProcess}
         >
+          {/* The magnifier over ruled lines: what Proses leaves behind is a
+              found place in the text. It must appear on Proses lagi in the
+              outstanding panel too, or on neither. */}
+          <Cari />
           {searching ? "Sedang memproses..." : "Proses"}
         </Btn>
       </div>
@@ -787,14 +868,17 @@ function RunsList({
 
       {onStartNewRun ? (
         <div
-          className="flex flex-col gap-2 border-t pt-3"
+          className="flex items-center gap-1 border-t pt-3"
           style={{ borderColor: "var(--line)" }}
         >
           <Btn onClick={onStartNewRun}>Mulai pekerjaan lain</Btn>
-          <Note>
-            Pekerjaan yang sekarang tetap tersimpan dan bisa dibuka lagi dari
-            daftar di atas.
-          </Note>
+          {/* What happens to the pekerjaan you walk away from: true on every
+              run, and the reassurance is worth having exactly once, at the
+              moment the hand is on this button. */}
+          <Hint label="Penjelasan: Mulai pekerjaan lain">
+            Pekerjaan yang sekarang tetap tersimpan di perangkat ini dan bisa
+            dibuka lagi dari daftar di atas. Tidak ada keputusan yang hilang.
+          </Hint>
         </div>
       ) : null}
     </aside>
@@ -862,12 +946,19 @@ export function IngestPanel({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <Title>Muat dokumen order</Title>
+        <div className="flex items-center gap-1">
+          <Title>Muat dokumen order</Title>
+          {/* The two mechanism sentences that used to follow the instruction.
+              Both read the same on every order, and both describe things that
+              work whether or not anybody reads them. */}
+          <Hint label="Penjelasan langkah Muat">
+            Halaman diluruskan dan dibaca satu per satu, lalu disimpan di
+            perangkat ini. Sesudah semua berkas masuk, Proses di bawah yang
+            mencari bukti untuk tiap bagian.
+          </Hint>
+        </div>
         <Lede>
-          Berikan semua berkas PDF yang datang bersama order ini. Halaman
-          diluruskan dan dibaca satu per satu, lalu disimpan di perangkat ini.
-          Kalau semua berkas sudah masuk, klik Proses untuk mencari bukti tiap
-          bagian.
+          Berikan semua berkas PDF yang datang bersama order ini.
         </Lede>
       </header>
 
@@ -887,15 +978,22 @@ export function IngestPanel({
                refusal-in-silence the file filter used to make. */
             <Reading progress={reading} />
           ) : (
+            /* NEITHER HINT IS PRINTED ANY MORE, and the label carries the one
+               difference between them. "Tambahkan berkas ke pekerjaan ini"
+               against "Taruh berkas order di sini" is the whole of what the
+               operator needed on screen: whether this drop joins the open
+               pekerjaan or starts one. The reassurances behind it (nothing you
+               already accepted changes, rotated scans are straightened) are
+               word for word the same on every order. */
             <DocumentDrop
               label={
                 pages > 0
                   ? "Tambahkan berkas ke pekerjaan ini"
                   : "Taruh berkas order di sini"
               }
-              hint={
+              explain={
                 pages > 0
-                  ? "Berkas baru ditambahkan ke pekerjaan yang sedang terbuka. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
+                  ? "Berkas baru masuk ke pekerjaan yang sedang terbuka, bukan ke pekerjaan baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
                   : "Semua berkas sekaligus juga bisa. Hasil pindaian yang terputar akan diluruskan lebih dulu, jadi halaman yang miring tetap terbaca."
               }
               disabled={busy}
@@ -932,20 +1030,29 @@ export function IngestPanel({
               and re-checks every slot before applying its answer. */}
           {onContinue && pages > 0 && !busy ? (
             <div className="flex flex-col items-start gap-2">
-              <Btn
-                tone="primary"
-                disabled={!searched}
-                aria-describedby={searched ? undefined : "ingest-continue-locked"}
-                onClick={onContinue}
-              >
-                Buka lembar periksa
-              </Btn>
-              {searched ? (
-                <Note>
-                  Berikutnya: memeriksa usulan satu per satu, lalu membuat
-                  berkas hasil.
-                </Note>
-              ) : (
+              <div className="flex items-center gap-1">
+                <Btn
+                  tone="primary"
+                  disabled={!searched}
+                  aria-describedby={
+                    searched ? undefined : "ingest-continue-locked"
+                  }
+                  onClick={onContinue}
+                >
+                  Buka lembar periksa
+                </Btn>
+                {/* Only the OPEN state's next-step line hides. The two locked
+                    states below are the reason a disabled control is refusing
+                    to work, and those never leave the screen. */}
+                {searched ? (
+                  <Hint label="Penjelasan: Buka lembar periksa">
+                    Berikutnya: memeriksa usulan satu per satu, lalu membuat
+                    berkas hasil. Anda bisa kembali ke langkah ini kapan saja
+                    untuk menambah dokumen.
+                  </Hint>
+                ) : null}
+              </div>
+              {searched ? null : (
                 <p
                   id="ingest-continue-locked"
                   className="max-w-[68ch] text-[0.8125rem]"

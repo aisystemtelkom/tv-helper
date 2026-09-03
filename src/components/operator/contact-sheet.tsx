@@ -32,6 +32,23 @@
  * a title. Those are gathered into one block at the end, one line per section,
  * and the reclaimed space goes to the crops.
  *
+ * THE SHEET'S OWN CONTROLS LIVE IN THE RAIL. Expand-all, the count of crops
+ * still being cut and the keyboard legend used to be a ruled row across the top
+ * of the plate column: about 84px of chrome between the operator and the first
+ * picture, on the one screen whose whole argument is that the picture must be
+ * big enough to judge. The rail is a sticky column, so anything put at the top
+ * of it pushes nothing down. The legend went behind a question mark, because it
+ * reads the same words on every order and the app says the same thing out loud,
+ * in a live region, at the moment a decision key is refused. The count of crops
+ * still being cut did NOT: it is a measurement of this run, and a picture that
+ * has not appeared cannot have been reviewed.
+ *
+ * SECTION HEADINGS LOST THEIR LEDE for the same reason and by the same test.
+ * `guidanceFor` rendered under all five headings, once above the first crop,
+ * and said the identical two sentences on every order in this product's life.
+ * The title and the accept-all control now share one row and the guidance sits
+ * behind the title's own mark, which is about 90px per heading down to 46px.
+ *
  * BULK ACCEPT IS TWO STEPS ON PURPOSE. Accepting several crops with one click
  * is the shortest path in the whole product from "nobody looked" to "a crop of
  * the wrong page inside a document a validator signs", so the button reveals a
@@ -67,14 +84,14 @@ import {
 
 import {
   Btn,
-  Lede,
+  Hint,
   Mark,
-  Note,
   Notice,
   STATUS_WORDS,
   TechnicalDetail,
 } from "./chrome";
 import { Denah, Missing } from "./denah";
+import { Paraf } from "./icons";
 import { ProposalPlate, type PlateActions } from "./proposal-plate";
 import { useCropThumbs } from "./use-crop-thumbs";
 
@@ -634,6 +651,9 @@ function Sheet({
           cursorSlotIndex={captures[at]?.slotIndex ?? null}
           pending={pending}
           offset={offset}
+          expandAll={expandAll}
+          onToggleExpandAll={() => setExpandAll((was) => !was)}
+          cutting={cutting}
           onPickCapture={(slotIndex) => {
             const position = captures.findIndex((c) => c.slotIndex === slotIndex);
             if (position >= 0) goTo(position);
@@ -642,30 +662,6 @@ function Sheet({
         />
 
         <div className="flex min-w-0 flex-1 flex-col gap-8">
-          <div
-            className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b pb-3"
-            style={{ borderColor: "var(--line)" }}
-          >
-            <Btn on={expandAll} onClick={() => setExpandAll((was) => !was)}>
-              {expandAll ? "Ringkas yang sudah selesai" : "Buka semua potongan"}
-            </Btn>
-
-            {cutting > 0 ? (
-              <span className="text-[0.8125rem]" style={{ color: "var(--ink)" }}>
-                {cutting} potongan belum selesai digambar.
-              </span>
-            ) : null}
-
-            <div className="ml-auto max-w-[36rem]">
-              <Note>
-                Papan tik: <Key>j</Key> <Key>k</Key> pindah potongan, <Key>1</Key>{" "}
-                terima, <Key>2</Key> gambar ulang, <Key>3</Key> bukan ini. Tombol
-                keputusan tidak bekerja selama potongannya belum terlihat di
-                layar.
-              </Note>
-            </div>
-          </div>
-
           {run.pages.length === 0 ? (
             <Notice tone="stop">
               Pekerjaan ini belum berisi satu halaman pun, jadi tidak ada yang
@@ -682,8 +678,11 @@ function Sheet({
           unsearchedCount === captures.length ? (
             <Notice>
               Belum ada satu pun usulan di lembar ini: {unsearchedCount} potongan
-              masih belum dicari. Jalankan pencarian untuk bagian itu, lalu
-              usulannya muncul di lembar ini.
+              masih belum dicari.{" "}
+              <Hint label="Cara mengisi lembar ini">
+                Jalankan pencarian untuk bagian itu, lalu usulannya muncul di
+                lembar ini.
+              </Hint>
             </Notice>
           ) : null}
 
@@ -698,14 +697,22 @@ function Sheet({
           waitingCount === 0 &&
           unsearchedCount < captures.length ? (
             <Notice tone={gapCount > 0 ? "warn" : "info"}>
+              {/* The affirmative clear stands whole: an absent warning is not a
+                  confirmation, so this sentence is the confirmation. The count
+                  beside it stands too. What went behind the mark is the part
+                  that would read the same on every order. */}
               Tidak ada usulan yang menunggu keputusan Anda.
-              {gapCount > 0
-                ? ` ${gapCount} bagian masih belum ada buktinya, dan bagian itu tidak akan mengisi dirinya sendiri.${
-                    head
-                      ? " Selesaikan di daftar yang belum ada buktinya, di atas lembar ini."
-                      : ""
-                  }`
-                : ""}
+              {gapCount > 0 ? (
+                <>
+                  {` ${gapCount} bagian masih belum ada buktinya. `}
+                  <Hint label="Kenapa itu masih perlu Anda selesaikan">
+                    Bagian itu tidak akan mengisi dirinya sendiri.
+                    {head
+                      ? " Selesaikan di daftar yang belum ada buktinya, di baris paling atas lembar ini."
+                      : ""}
+                  </Hint>
+                </>
+              ) : null}
             </Notice>
           ) : null}
 
@@ -721,16 +728,26 @@ function Sheet({
                 style={{ scrollMarginTop: offset + 16 }}
               >
                 <header
-                  className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b pb-3"
+                  className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b pb-2"
                   style={{ borderColor: "var(--line)" }}
                 >
-                  <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 items-center gap-1">
                     <h2 className="lt-title lt-figure">{section.title}</h2>
-                    <Lede>{guidanceFor(section.layout)}</Lede>
+                    {/* Five copies of one paragraph, said in the same words on
+                        every order, one of them directly above the first crop.
+                        What varies is which KIND of section this is, and the
+                        title already says that. */}
+                    <Hint label={`Yang perlu diperiksa di ${section.title}`}>
+                      {guidanceFor(section.layout)}
+                    </Hint>
                   </div>
 
                   {waiting.length > 0 && confirming !== section.title ? (
                     <Btn onClick={() => setConfirming(section.title)}>
+                      {/* Terima leaves a paraf in the mark box, so the button
+                          that accepts several at once draws the several parafs
+                          it is about to leave. */}
+                      <Paraf />
                       Terima semua {waiting.length} di {section.title}
                     </Btn>
                   ) : null}
@@ -801,13 +818,17 @@ function Sheet({
               className="flex flex-col gap-3"
               style={{ scrollMarginTop: offset + 16 }}
             >
-              <h2 className="lt-title">Bagian yang diisi manual</h2>
-              <Lede>
-                Bagian berikut tetap ada di DOKUMEN VALIDASI, lengkap dengan judul
-                dan kotaknya, tapi dikirim kosong. Tidak ada dokumen order yang
-                bisa mendukungnya, jadi Anda yang mengisinya setelah berkas hasil
-                dibuat.
-              </Lede>
+              <div className="flex items-center gap-1">
+                <h2 className="lt-title">Bagian yang diisi manual</h2>
+                {/* The list below changes with the template; this explanation of
+                    it does not, so it goes behind the mark and the names stay. */}
+                <Hint label="Kenapa bagian ini dikirim kosong">
+                  Bagian berikut tetap ada di DOKUMEN VALIDASI, lengkap dengan
+                  judul dan kotaknya, tapi dikirim kosong. Tidak ada dokumen
+                  order yang bisa mendukungnya, jadi Anda yang mengisinya setelah
+                  berkas hasil dibuat.
+                </Hint>
+              </div>
               <ManualLines
                 rows={manualSections.map((section) => ({
                   title: section.title,
@@ -849,6 +870,9 @@ function IndexRail({
   cursorSlotIndex,
   pending,
   offset,
+  expandAll,
+  onToggleExpandAll,
+  cutting,
   onPickCapture,
   onPickAnchor,
 }: {
@@ -859,6 +883,10 @@ function IndexRail({
   cursorSlotIndex: number | null;
   pending?: ReadonlySet<number>;
   offset: number;
+  expandAll: boolean;
+  onToggleExpandAll: () => void;
+  /** Captures whose zone is placed and whose picture has not been cut yet. */
+  cutting: number;
   onPickCapture: (slotIndex: number) => void;
   onPickAnchor: (id: string) => void;
 }) {
@@ -868,6 +896,51 @@ function IndexRail({
       className="w-full shrink-0 lg:sticky lg:max-h-[calc(100vh-8rem)] lg:w-[13rem] lg:overflow-y-auto"
       style={{ top: offset + 16 }}
     >
+      {/* THE SHEET'S CONTROLS, AT THE TOP OF A STICKY COLUMN. They were a ruled
+          row across the plate column, about 84px the operator scrolled past to
+          reach the first picture on every visit. Here they cost the crops
+          nothing: the rail is beside the sheet, not above it. */}
+      <div
+        className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b pb-2"
+        style={{ borderColor: "var(--line)" }}
+      >
+        <Btn on={expandAll} onClick={onToggleExpandAll}>
+          {expandAll ? "Ringkas yang sudah selesai" : "Buka semua potongan"}
+        </Btn>
+
+        {/* The legend reads the same words on every order, and pressing a
+            decision key on a capture that is not on screen already says so out
+            loud in the sheet's own live region. So it hides, and it hides
+            behind a real button rather than a hover: this is the one control on
+            the screen a keyboard operator most needs to be able to reach. */}
+        <Hint label="Pintasan papan tik">
+          <span className="flex flex-col gap-1.5">
+            <span>
+              <Key>j</Key> <Key>k</Key> pindah potongan, <Key>1</Key> terima,{" "}
+              <Key>2</Key> gambar ulang, <Key>3</Key> bukan ini.
+            </span>
+            <span>
+              Tombol keputusan tidak bekerja selama potongannya belum terlihat di
+              layar.
+            </span>
+          </span>
+        </Hint>
+
+        {/* A MEASUREMENT OF THIS RUN, so it never hides. A picture that has
+            not appeared cannot have been looked at, which is also why each
+            section's bulk accept refuses while any of its own crops is still
+            being cut, and why a decision key over an undrawn capture scrolls
+            instead of deciding. */}
+        {cutting > 0 ? (
+          <span
+            className="w-full text-[0.8125rem]"
+            style={{ color: "var(--ink)" }}
+          >
+            {cutting} potongan belum selesai digambar.
+          </span>
+        ) : null}
+      </div>
+
       {/* Below 1024px there is no room for a column beside the sheet, so the
           rail lies down into a strip above it and drops the labels: the denah
           and the mark are what carry the pattern, and both survive at 34px. */}
@@ -1178,10 +1251,16 @@ function Orphans({
       <h2 className="lt-title">Potongan yang tidak akan masuk ke dokumen</h2>
 
       <Notice tone="stop">
+        {/* The count and the reason stay: both are what this run actually did.
+            Only the sentence explaining why the list exists at all, which is
+            true of every run this product will ever have, is behind the mark. */}
         {states.length} potongan di pekerjaan ini tidak akan muncul di DOKUMEN
         VALIDASI. Bagiannya sudah tidak ada di templat, jadi tidak ada tempat
-        untuk memasangnya. Daftar ini ada supaya tidak ada keputusan Anda yang
-        hilang tanpa Anda tahu.
+        untuk memasangnya.{" "}
+        <Hint label="Kenapa daftar ini ada">
+          Daftar ini ada supaya tidak ada keputusan Anda yang hilang tanpa Anda
+          tahu.
+        </Hint>
       </Notice>
 
       <ul className="flex flex-col">

@@ -34,6 +34,22 @@
  * existed the product's central promise, that a decision survives a reload,
  * had no signal at all: its only evidence was the absence of an error
  * paragraph somewhere else on the page.
+ *
+ * ONE ROW OF CHROME STICKS, NOT TWO, AND WHICH ONE IS LOAD-BEARING TWICE OVER.
+ * The application strip scrolls away: the wordmark, the bundle line, the
+ * account and the three links are read on arrival and never consulted while
+ * judging a crop, and two 56px sticky rows spent 114px of a 768px panel on
+ * them permanently. The PHASE ROW is what stays, and it carries the
+ * persistence signal that used to live in the strip, because "Tersimpan di
+ * perangkat ini" is the one line from up there that answers a question an
+ * operator asks in the middle of a metre-long contact sheet.
+ *
+ * The second reason is mechanical. `useStickyOffset` in `contact-sheet.tsx`
+ * measures THE FIRST `<header>` IN THE DOCUMENT WHOSE COMPUTED POSITION IS
+ * STICKY, and every anchor in that screen's index rail is scrolled to
+ * `offset + 16`. Whatever stays sticky here has to keep being a sticky
+ * `<header>` element, or every anchor lands at the very top of the page with
+ * the chrome sitting on top of the section it just jumped to.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -255,6 +271,9 @@ function saveFault(problem: unknown): Fault {
  * first thing on the page. It used to be rendered by `src/app/page.tsx` above
  * the whole app, which pushed the wordmark, the open run and the phase nav
  * down on every screen and made a deployment warning the product's masthead.
+ * Since the strip stopped sticking, this band is the TOP of the sticky stack,
+ * which is the right place for it: a condition the whole session runs under
+ * outranks the phase you happen to be on.
  */
 export function OperatorApp({
   account,
@@ -773,20 +792,38 @@ function Workspace({
       />
     ) : null;
 
+  // The one line from the strip that a reviewer must be able to see while
+  // judging a crop, so it travels with the phase row rather than with the
+  // identity block. See `persistenceSignal`.
+  const signal = persistenceSignal({
+    busy,
+    progress,
+    searching,
+    saving: pending.size > 0,
+    savedAt,
+  });
+
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="sticky top-0 z-20 flex flex-col">
-        <Strip
-          run={run}
-          account={account}
-          busy={busy}
-          progress={progress}
-          searching={searching}
-          saving={pending.size > 0}
-          savedAt={savedAt}
-          onFault={setFault}
-        />
+      {/* THE APPLICATION STRIP SCROLLS AWAY, AND THAT IS THE POINT.
+          Two sticky rows cost 114px of a 768px panel permanently, and nothing
+          in this one is consulted while judging a crop: the wordmark, the
+          bundle line, the account and the three links are all read once, on
+          arrival. Unsticking it hands 56px of viewport back to the evidence on
+          every screen, which is a whole extra line of a scanned contract.
 
+          The one thing in here that a reviewer genuinely needs mid-sheet is
+          the persistence signal, and it has moved down into the phase row,
+          beside the owed count. */}
+      <Strip run={run} account={account} onFault={setFault} />
+
+      {/* THE STICKY ELEMENT IS THIS `<header>`, AND IT MUST STAY BOTH.
+          `useStickyOffset` in contact-sheet.tsx finds the first `<header>` in
+          the document whose computed position is `sticky` and measures it: that
+          measurement is what puts a section anchor under the chrome instead of
+          behind it. Change the tag or the position here and every anchor in the
+          index rail lands at the very top of the page. */}
+      <header className="sticky top-0 z-20 flex flex-col">
         {/* BELOW THE STRIP, not above the whole application. A standing
             deployment warning still cannot be dismissed or scrolled past, but
             it is no longer the first thing on the page: the operator's own
@@ -811,6 +848,7 @@ function Workspace({
           pages={run?.pages.length ?? 0}
           lockReason={lockReason}
           isLocked={isLocked}
+          signal={signal}
           onGo={(next) => {
             setSearchNote(null);
             setPhase(next);
@@ -823,7 +861,10 @@ function Workspace({
             decision after it is being thrown away. It sits BELOW the nav, so
             raising it never moves the three phase buttons. */}
         {showInterruption && fault ? (
-          <div className="border-b" style={{ borderColor: "var(--line)" }}>
+          // `lt-rail` for the ground. This is the bottom edge of the sticky
+          // stack now that the application strip scrolls, and a band with no
+          // ground would have the contact sheet running under its own text.
+          <div className="lt-rail border-b">
             <div className="mx-auto w-full max-w-[92rem] px-5">
               <Interruption detail={fault.detail}>
                 {fault.sentence}{" "}
@@ -927,54 +968,76 @@ function Workspace({
 }
 
 /**
- * THE APPLICATION STRIP. One rail, ONE CONSTANT HEIGHT in every state.
+ * IS ANYTHING HAPPENING, AND HAS IT REACHED DISK?
  *
- * It used to grow by five tally blocks the moment a run opened, which at 1366
- * pushed the phase nav onto a second row: sticky chrome that changes height
- * makes the four buttons an operator hits all day a moving target. The height
- * is fixed here, and the live line is a fixed slot that is simply empty when
- * nothing is happening rather than a block that appears.
+ * Kept short on purpose: it renders into a FIXED WIDTH slot, so filling it
+ * moves nothing else in the row. The file being read is named on the ingest
+ * screen; what this line owes an operator on another phase is only that
+ * something is moving, and that their last decision landed.
  *
- * It also carries the three destinations NOTHING IN THE PRODUCT LINKED TO. An
- * admin typed /admin from memory, the consent given at sign-in pointed at a
+ * It is computed in the shell rather than in the row that prints it, because
+ * the row it belongs in has changed once already: the design's third standing
+ * obligation is that a decision is not made until it is on disk, and the
+ * operator gets ONE signal for both. That obligation is the reason this line
+ * travelled down into the phase row when the application strip stopped
+ * sticking, and it is the reason it may not travel back up.
+ */
+function persistenceSignal({
+  busy,
+  progress,
+  searching,
+  saving,
+  savedAt,
+}: {
+  busy: boolean;
+  progress: IngestProgress | null;
+  searching: boolean;
+  saving: boolean;
+  savedAt: number | null;
+}): string {
+  if (busy) {
+    return progress && progress.total > 0
+      ? `Membaca halaman ${progress.done} dari ${progress.total}`
+      : "Menyiapkan berkas";
+  }
+  if (searching) return "Sedang memproses halaman";
+  if (saving) return "Menyimpan keputusan Anda";
+  if (savedAt !== null) return "Tersimpan di perangkat ini";
+  return "";
+}
+
+/**
+ * THE APPLICATION STRIP. One rail, ONE CONSTANT HEIGHT in every state, AND IT
+ * IS NO LONGER STICKY.
+ *
+ * Everything in it is read on arrival and never again: the wordmark, the
+ * bundle line, who is signed in, and the three destinations nothing else in
+ * the product linked to. None of it is consulted while judging a crop, and two
+ * sticky rows took 114px of a 768px panel away from the evidence permanently.
+ * So it scrolls, and the phase row below it is what stays.
+ *
+ * The persistence signal used to live here and does not any more; it is in the
+ * phase row, which is the part that survives a scroll. Putting a live signal
+ * back into a block that scrolls away is the one change this component must
+ * not take.
+ *
+ * The height is still fixed. It used to grow by five tally blocks the moment a
+ * run opened, which at 1366 pushed the phase nav onto a second row.
+ *
+ * The three destinations here are the ones NOTHING IN THE PRODUCT LINKED TO.
+ * An admin typed /admin from memory, the consent given at sign-in pointed at a
  * privacy policy that could not be opened from the app, and a twelve-hour
  * session on a shared office machine had no way out of it.
  */
 function Strip({
   run,
   account,
-  busy,
-  progress,
-  searching,
-  saving,
-  savedAt,
   onFault,
 }: {
   run: BrowserRun | null;
   account: Account | null;
-  busy: boolean;
-  progress: IngestProgress | null;
-  searching: boolean;
-  saving: boolean;
-  savedAt: number | null;
   onFault: (fault: Fault) => void;
 }) {
-  // Kept short on purpose: this slot has a FIXED WIDTH as well as a fixed
-  // height, so filling it moves nothing else in the strip. The file being read
-  // is named on the ingest screen and in the identity line below; what this
-  // line owes an operator on another phase is only that something is moving.
-  const signal = busy
-    ? progress && progress.total > 0
-      ? `Membaca halaman ${progress.done} dari ${progress.total}`
-      : "Menyiapkan berkas"
-    : searching
-      ? "Sedang memproses halaman"
-      : saving
-        ? "Menyimpan keputusan Anda"
-        : savedAt !== null
-          ? "Tersimpan di perangkat ini"
-          : "";
-
   return (
     <div className="lt-rail border-b">
       <div className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-5 px-5">
@@ -1006,18 +1069,6 @@ function Strip({
             )}
           </p>
         </div>
-
-        {/* The persistence signal, and the only place ingest progress can be
-            seen from another phase. A fixed slot: empty rather than absent, so
-            nothing moves when it fills. */}
-        <p
-          aria-live="polite"
-          title={signal || undefined}
-          className="ml-auto hidden w-[15rem] shrink-0 truncate text-right text-[0.8125rem] lg:block"
-          style={{ color: "var(--ink-2)" }}
-        >
-          {signal}
-        </p>
 
         <AccountControls account={account} onFault={onFault} />
       </div>
@@ -1070,7 +1121,7 @@ function AccountControls({
   const email = session?.email ?? "";
 
   return (
-    <div className="flex shrink-0 items-center gap-4">
+    <div className="ml-auto flex shrink-0 items-center gap-4">
       {email ? (
         <div className="flex items-center gap-2">
           <span
@@ -1154,6 +1205,16 @@ function AccountControls({
  * count is an instruction, so only it is set at display size; everything else
  * is a fact and reads one tier down. When nothing is owed the block says so
  * affirmatively, because an absent warning is not a confirmation.
+ *
+ * THIS IS THE ONLY ROW THAT STICKS, so it also carries the persistence signal
+ * that used to sit in the application strip. That signal is the one line of
+ * the strip an operator needs while they are half way down a metre-long
+ * contact sheet: "Menyimpan keputusan Anda" and "Tersimpan di perangkat ini"
+ * are the product's answer to "did that decision land?", and an answer that
+ * scrolls out of the viewport is not one. It renders in its own slot at the
+ * far right, and NOT inside the lock-reason branch, because an ingest running
+ * on a run that has never been processed is exactly the moment both are true
+ * at once.
  */
 function PhaseNav({
   phase,
@@ -1161,6 +1222,7 @@ function PhaseNav({
   pages,
   lockReason,
   isLocked,
+  signal,
   onGo,
 }: {
   phase: Phase;
@@ -1168,6 +1230,8 @@ function PhaseNav({
   pages: number;
   lockReason: string | null;
   isLocked: (id: Phase) => boolean;
+  /** Empty when nothing is in flight and nothing has been written yet. */
+  signal: string;
   onGo: (phase: Phase) => void;
 }) {
   const lockId = "lt-phase-lock";
@@ -1235,14 +1299,29 @@ function PhaseNav({
           // the old nav's answer, at a contrast that also put them under AA.
           <p
             id={lockId}
-            className="max-w-[38rem] text-[0.8125rem]"
+            className="min-w-0 max-w-[38rem] text-[0.8125rem]"
             style={{ color: "var(--ink-2)" }}
           >
             {lockReason}
           </p>
-        ) : counts ? (
-          <CountBlock counts={counts} pages={pages} />
         ) : null}
+
+        <div className="ml-auto flex shrink-0 items-center gap-5">
+          {!lockReason && counts ? (
+            <CountBlock counts={counts} pages={pages} />
+          ) : null}
+
+          {/* The persistence signal. A FIXED SLOT: empty rather than absent,
+              so the owed count beside it never shifts when a save starts. */}
+          <p
+            aria-live="polite"
+            title={signal || undefined}
+            className="hidden w-[9rem] shrink-0 truncate text-right text-[0.8125rem] md:block lg:w-[14rem]"
+            style={{ color: "var(--ink-2)" }}
+          >
+            {signal}
+          </p>
+        </div>
       </nav>
     </div>
   );
@@ -1280,7 +1359,7 @@ function CountBlock({
           : settled;
 
   return (
-    <div className="ml-auto flex items-center gap-3" aria-live="polite">
+    <div className="flex items-center gap-3" aria-live="polite">
       <OwedCount value={owed} />
       <div className="flex flex-col">
         <span
