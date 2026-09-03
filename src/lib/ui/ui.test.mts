@@ -26,6 +26,7 @@ import {
 } from "./evidence.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
 import {
+  captureLabel,
   aggregateStatus,
   describeOutstanding,
   hasUnreviewedProposals,
@@ -723,4 +724,28 @@ test("describeOutstanding names the section a missing slot belongs to", () => {
   // Operator-visible, so Bahasa like every other string that reaches a screen.
   assert.equal(ghost.sectionTitle, "Tidak ada di template ini");
   assert.equal(ghost.def, undefined);
+});
+
+test("a second capture is named a continuation, never a second field", () => {
+  // THE BUG THIS PINS. The sample's ToP slot holds two pictures because ONE
+  // clause runs past the bottom of its page: capture 1 is `Pasal 6 PEMBAYARAN
+  // PEKERJAAN` items 1-3, capture 2 is items 4-5 of that same Pasal on the
+  // next page. Labelling them "ToP 1" and "ToP 2" told an operator the
+  // document holds two Terms of Payment and one was missing, and sent them
+  // looking for a second clause that does not exist.
+  assert.equal(captureLabel("ToP", 1, 2), "ToP");
+  assert.equal(captureLabel("ToP", 2, 2), "ToP (lanjutan)");
+
+  // A single-capture slot is never decorated, whichever way it is asked.
+  assert.equal(captureLabel("Nomor", 1, 1), "Nomor");
+  assert.equal(captureLabel("Nomor", 2, 1), "Nomor");
+
+  // Three or more: the first is not a continuation of anything, so the
+  // numbering starts at the second and counts continuations, not captures.
+  assert.equal(captureLabel("Detail", 1, 3), "Detail");
+  // Numbered from 1 once there is more than one continuation, because
+  // "(lanjutan)" then "(lanjutan 2)" reads as if the first were unnumbered
+  // rather than first.
+  assert.equal(captureLabel("Detail", 2, 3), "Detail (lanjutan 1)");
+  assert.equal(captureLabel("Detail", 3, 3), "Detail (lanjutan 2)");
 });

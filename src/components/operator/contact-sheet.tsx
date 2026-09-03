@@ -63,6 +63,7 @@ import {
   unmatchedStates,
   type SheetSection,
   type SlotAggregate,
+  captureLabel,
 } from "@/lib/ui/slots";
 
 import {
@@ -125,7 +126,7 @@ function captionFor(
   total: number,
 ): string {
   const label = displayLabel(entry.def.label);
-  return total > 1 ? `${label} (potongan ${ordinal} dari ${total})` : label;
+  return captureLabel(label, ordinal, total);
 }
 
 /**
