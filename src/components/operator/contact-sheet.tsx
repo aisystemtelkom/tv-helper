@@ -862,7 +862,7 @@ function Sheet({
 
       {run.pages.length === 0 ? (
         <Notice tone="stop">
-          Belum ada halaman di pekerjaan ini. Muat berkas PDF dulu.
+          Belum ada halaman di order ini. Muat berkas PDF dulu.
         </Notice>
       ) : null}
 

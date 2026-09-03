@@ -727,7 +727,7 @@ export function ZoneEditor({
     return (
       <Slab name="Tandai area bukti" owes="fault">
         <Notice tone="stop">
-          Belum ada halaman di pekerjaan ini. Muat berkas PDF dulu.
+          Belum ada halaman di order ini. Muat berkas PDF dulu.
         </Notice>
         <div>
           <Btn onClick={onCancel}>Batal</Btn>
@@ -1045,7 +1045,7 @@ export function ZoneEditor({
             reassurance the density pass exists to cut. */}
         {originLost ? (
           <Notice tone="stop">
-            Halaman area lama sudah tidak ada di pekerjaan ini. Pilih halamannya
+            Halaman area lama sudah tidak ada di order ini. Pilih halamannya
             lalu tandai ulang.
           </Notice>
         ) : movedFrom ? (

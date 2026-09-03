@@ -863,10 +863,10 @@ function fakeIngestSource(pages: number) {
 const pdf = (name: string) =>
   new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
 
-test("two documents ingested into one run make ONE pekerjaan, not two", async () => {
+test("two documents ingested into one run make ONE order, not two", async () => {
   /*
    * THE OPERATOR REPORT THIS PINS: dropping several PDFs at once appeared to
-   * create one pekerjaan per document.
+   * create one order per document.
    *
    * A run holds a BUNDLE. An order arrives as a merged contract scan plus a
    * SPLITBA plus whatever dokumen tambahan turn up later, and every one of
@@ -896,13 +896,13 @@ test("two documents ingested into one run make ONE pekerjaan, not two", async ()
   );
   assert.equal(second.pages.length, 5, "pages of both documents, in one list");
 
-  // And the stored list agrees: one pekerjaan, not two. This is the half the
+  // And the stored list agrees: one order, not two. This is the half the
   // operator actually sees.
   const listed = await listRuns();
   assert.equal(
     listed.filter((r) => r.id === runId).length,
     1,
-    "the saved list shows one pekerjaan for the bundle",
+    "the saved list shows one order for the bundle",
   );
 });
 
@@ -928,7 +928,7 @@ test("a page's run-global position is what a zone means, across two documents", 
 });
 
 // ---------------------------------------------------------------------------
-// Taking one document back out of an open pekerjaan
+// Taking one document back out of an open order
 // ---------------------------------------------------------------------------
 //
 // THE OPERATION THIS FILE'S SECOND NET WAS WRITTEN TO FORBID, now that

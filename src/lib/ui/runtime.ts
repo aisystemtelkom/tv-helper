@@ -131,7 +131,7 @@ export type Runtime = {
     onProgress?: (done: number, total: number) => void,
   ): Promise<BrowserRun>;
   /**
-   * Takes one source document back out of an open pekerjaan, and it is not the
+   * Takes one source document back out of an open order, and it is not the
    * inverse of `ingestDocument` however much it looks like one.
    *
    * `Zone.pageIndex` is a POSITION IN `run.pages`, so removing a document's

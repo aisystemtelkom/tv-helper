@@ -1,5 +1,5 @@
 /**
- * Taking one source document back out of an open pekerjaan.
+ * Taking one source document back out of an open order.
  *
  * ITS OWN MODULE, PURE, for the reason `captures.ts` and `slot-key.ts` are:
  * the interesting part is arithmetic over a run, it has to be testable where

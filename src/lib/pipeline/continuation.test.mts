@@ -97,7 +97,7 @@ test("furnitureTokens masks digits and collapses runs of them", () => {
 test("runningFurniture finds the strip that repeats and leaves the body alone", () => {
   const pages = [
     withFooter(0, ["PERJANJIAN KERJASAMA", "Pasal 1 DEFINISI", "1. Para Pihak sepakat"]),
-    withFooter(1, ["2. Ruang lingkup pekerjaan", "3. Harga borongan", "4. Jangka waktu"]),
+    withFooter(1, ["2. Ruang lingkup order", "3. Harga borongan", "4. Jangka waktu"]),
     withFooter(2, ["Pasal 6 PEMBAYARAN PEKERJAAN", "1. Pembayaran dilakukan", "2. Tagihan"]),
     withFooter(3, ["3. Denda keterlambatan", "4. Rekening tujuan", "5. Pajak"]),
   ];

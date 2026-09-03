@@ -287,7 +287,7 @@ export function Cite({ cite }: { cite: Citation | null }) {
   if (!cite) {
     return (
       <p className="text-[0.8125rem]" style={{ color: "var(--gap)" }}>
-        Area ini menunjuk ke halaman yang sudah tidak ada di pekerjaan ini.
+        Area ini menunjuk ke halaman yang sudah tidak ada di order ini.
       </p>
     );
   }

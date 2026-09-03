@@ -162,7 +162,7 @@ export type BrowserRun = {
    * rounds for exactly this reason.
    *
    * THE ONE THING THAT MAY SHORTEN IT is removing a whole source document from
-   * an open pekerjaan, and it is allowed only because it does the other half:
+   * an open order, and it is allowed only because it does the other half:
    * `removeSource` in `src/lib/browser/sources.ts` renumbers every surviving
    * zone through the same map it renumbers the pages with, drops the evidence
    * that lived inside the removed document rather than repointing it, and

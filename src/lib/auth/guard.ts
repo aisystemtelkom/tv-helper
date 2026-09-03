@@ -112,7 +112,7 @@ const DENIAL_TEXT: Record<DenialReason, DenialText> = {
     message:
       "Halaman ini hanya untuk administrator. Minta bantuan administrator " +
       "untuk perubahan ini, lalu kembali ke halaman utama untuk melanjutkan " +
-      "pekerjaan Anda.",
+      "order Anda.",
   },
 };
 

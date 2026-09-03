@@ -38,7 +38,7 @@ improvise a synonym.
 
 | Concept | Bahasa | Notes |
 | --- | --- | --- |
-| a run (one order being worked) | **pekerjaan** | "Belum ada pekerjaan yang dibuka" |
+| a run (one order being worked) | **order** | "Belum ada order yang dibuka". It WAS `pekerjaan`, and the operator's objection was that the word "sounds soo awkward" next to how they actually think: one session is one order. The collision is real and deliberate: the packet's header table has a row transcribed as `Order` and another as `Jenis Order`, so the word now names both the session and a field on it. Context separates them, because the field only ever appears inside a quoted table set in the mono voice, and the session only ever appears in the app's own voice. If that stops being true, the field keeps the name and the session gives it up |
 | a slot (one cell needing evidence) | **bagian** | |
 | a zone (the rectangle) | **area** | |
 | a crop (the cut picture) | **potongan** | |
@@ -101,7 +101,7 @@ The state name and the verb that produced it must match.
 | Build the two files | **Buat kedua berkas** |
 | Save `<name>` | **Simpan `<name>`** |
 | Back to the review sheet | **Kembali ke lembar periksa** |
-| Start a different run | **Mulai pekerjaan lain** |
+| Start a different run | **Mulai order lain** |
 | Sign in with Google | **Masuk dengan Google** |
 | Sign out | **Keluar** |
 
@@ -124,5 +124,5 @@ than improvised per screen.
   **"Tidak ada yang tersisa. Setiap bagian yang bisa didukung dokumen sudah
   terisi atau sudah Anda putuskan."**
 - The save failed:
-  **"Pekerjaan gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab
+  **"Order gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab
   ini: {sebab}"**

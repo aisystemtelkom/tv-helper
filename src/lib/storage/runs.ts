@@ -96,7 +96,7 @@ export class StaleRunWriteError extends Error {
  * is perfectly current.
  *
  * ONE WRITE IS ALLOWED TO SHED PAGES, and it has to say which. Removing a
- * source document from an open pekerjaan is a real operation now (see
+ * source document from an open order is a real operation now (see
  * `PutRunOptions.removingPages`), so the rule is no longer "pages never leave"
  * but "pages never leave SILENTLY". A write naming ids sheds exactly those and
  * is still refused on any page it did not name.
@@ -465,7 +465,7 @@ export type PutRunOptions = {
    * `BrowserRun.pages` is append-only and `PageLossError` above says there is
    * no legitimate single-page removal, only `deleteRun`. That was true only
    * while nothing had asked for one: the operator can now take a single source
-   * document back out of an open pekerjaan (`removeSource` in
+   * document back out of an open order (`removeSource` in
    * `src/lib/browser/sources.ts`), which is a real thing to want -- realising
    * halfway through that a scan is the wrong document does not become less
    * true because two crops were accepted from it first.

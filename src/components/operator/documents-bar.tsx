@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * THE DOCUMENT MANAGER: which berkas this pekerjaan is built from.
+ * THE DOCUMENT MANAGER: which berkas this order is built from.
  *
  * WHY IT IS IN THE CHROME AND NOT ON THE MUAT SCREEN. An operator asked for it
- * after reporting that uploading several documents "just creates one pekerjaan
+ * after reporting that uploading several documents "just creates one order
  * per document". It does not, and never did: the ingest loop threads one run
  * id through the whole file list and a test pins it. But the product gave them
  * no way to see that, because the only screen that ever mentioned their
@@ -15,8 +15,8 @@
  * them anything.
  *
  * IT IS A SEPARATE THING FROM THE RIWAYAT, which is the other half of the same
- * request. This bar is THIS pekerjaan's documents and it follows the operator
- * through every phase. `Riwayat` is the pekerjaan saved on this device, it
+ * request. This bar is THIS order's documents and it follows the operator
+ * through every phase. `Riwayat` is the order saved on this device, it
  * lives at the bottom of Muat, and it appears nowhere else, so looking for an
  * old job cannot compete for attention with the job in hand.
  *
@@ -132,13 +132,13 @@ export function DocumentsBar({
 
                   {/* THE ONLY DOCUMENT CANNOT BE REMOVED, and the reason is
                       said rather than left to be guessed at. Removing it would
-                      leave a pekerjaan with no pages, which is not a state
-                      worth building screens for: "Mulai pekerjaan lain" on
+                      leave a order with no pages, which is not a state
+                      worth building screens for: "Mulai order lain" on
                       Muat is that, and it also frees the disk. */}
                   {documents === 1 && !busy ? (
                     <p className="lt-note">
                       Dokumen terakhir tidak bisa dihapus. Pakai{" "}
-                      <b>Mulai pekerjaan lain</b> di langkah Muat.
+                      <b>Mulai order lain</b> di langkah Muat.
                     </p>
                   ) : null}
 

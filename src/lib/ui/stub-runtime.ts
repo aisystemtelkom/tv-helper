@@ -54,7 +54,7 @@ const SAMPLE_TEXT = [
   "   BANK CONTOH NUSANTARA, berkedudukan di Jakarta.",
   "Pasal 1",
   "RUANG LINGKUP DAN HARGA PEKERJAAN",
-  "Ruang lingkup pekerjaan meliputi penyediaan layanan VPN IP pada",
+  "Ruang lingkup order meliputi penyediaan layanan VPN IP pada",
   "lokasi KCP Contoh dengan bandwidth sesuai lampiran.",
   "Pasal 2",
   "JANGKA WAKTU PERJANJIAN",

@@ -283,7 +283,7 @@ function standingSentence(capture: PlannedCapture): string {
     case "lost":
       return capture.lostPageIndex === null
         ? "Anda terima, tetapi tidak ada area yang tersimpan, jadi tidak ada yang bisa dicetak."
-        : "Bukti yang Anda terima menunjuk halaman yang sudah tidak ada di pekerjaan ini.";
+        : "Bukti yang Anda terima menunjuk halaman yang sudah tidak ada di order ini.";
   }
 }
 
@@ -898,7 +898,7 @@ function CapturePlate({
             </p>
             {capture.strandedZone ? (
               <p className="text-[0.8125rem] text-ink-2">
-                Areanya tetap tersimpan di pekerjaan, tetapi tidak ikut dicetak.
+                Areanya tetap tersimpan di order, tetapi tidak ikut dicetak.
               </p>
             ) : null}
           </div>
@@ -1442,7 +1442,7 @@ export function ExportPanel({
 
           {namesAreFallback(header) ? (
             <Notice tone="warn">
-              ID EPIC dan Quote kosong, jadi nama berkas memakai nomor pekerjaan
+              ID EPIC dan Quote kosong, jadi nama berkas memakai nomor order
               ini. Isi ID EPIC agar berkasnya bisa diarsipkan.
             </Notice>
           ) : null}
@@ -1578,11 +1578,11 @@ export function ExportPanel({
                 Kolom E kosong di seluruh baris.
               </span>
               <Hint label="Kenapa kolom E kosong">
-                Isinya sama pada setiap pekerjaan:{" "}
+                Isinya sama pada setiap order:{" "}
                 <span className="lt-figure">
                   {AO_TEMPLATE.xlsxRows.length}
                 </span>{" "}
-                baris. Pekerjaan di peramban ini menyimpan halaman dan area,
+                baris. Order di peramban ini menyimpan halaman dan area,
                 bukan nilai teks, jadi tidak ada nilai yang bisa diisikan. Sel
                 kosong adalah keluaran yang jujur; nilai tebakan adalah
                 kegagalan yang dicegah alat ini.

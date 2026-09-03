@@ -129,7 +129,7 @@
  * THE SAME SPLIT RUNS THROUGH THE SENTENCE UNDER THE BUTTONS. Three of the four
  * things it used to say are the reason a control on this screen is refusing to
  * work right now (the crop has not been cut yet, its page is no longer in the
- * pekerjaan, its page will not open however long you wait), so all three stay
+ * order, its page will not open however long you wait), so all three stay
  * on screen. The fourth, that "Bukan ini" throws the usulan away and sends the
  * bagian to the outstanding list, is identical under every proposal on every
  * order and describes no fault at all, so it sits behind a hint on the button
@@ -650,7 +650,7 @@ function CaptureRow({
   const fault = waiting
     ? "Tunggu potongannya tampil sebelum memutuskan."
     : broken
-      ? "Halamannya sudah tidak ada di pekerjaan ini. Gambar ulang, atau Bukan ini."
+      ? "Halamannya sudah tidak ada di order ini. Gambar ulang, atau Bukan ini."
       : unrenderable
         ? "Halaman gagal dibuka, jadi potongannya tidak akan muncul. Gambar ulang dari halaman lain, atau Bukan ini."
         : null;
@@ -866,7 +866,7 @@ function MissingCapture({ onDraw }: { onDraw: () => void }) {
       <Missing height={104} label="Potongan ini belum ada" />
       <div className="flex max-w-[46ch] flex-col items-start gap-2">
         <p>
-          Belum pernah dicari di pekerjaan ini. Jalankan Proses lagi, atau
+          Belum pernah dicari di order ini. Jalankan Proses lagi, atau
           gambar sendiri areanya.
         </p>
         <Btn onClick={onDraw}>

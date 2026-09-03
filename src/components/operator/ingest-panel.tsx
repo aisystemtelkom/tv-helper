@@ -7,7 +7,7 @@
  * rather than a form. The drop target is the screen's subject and gets the
  * space to say so; everything else here is either the promise made at the
  * moment of hand-over, the count of what is safely stored, or a plain account
- * of what this pekerjaan now holds.
+ * of what this order now holds.
  *
  * THE SCREEN IS TWO MOVES, AND THEY ARE DELIBERATELY NOT ONE. Move one hands
  * the documents over and reads their pages. Move two, `Process` below, is the
@@ -422,7 +422,7 @@ function Reading({ progress }: { progress: IngestProgress }) {
             dan disimpan di perangkat ini. Empat halaman dibaca sekaligus,
             tetapi hitungan di bawah hanya menghitung halaman yang sudah
             benar-benar tersimpan, jadi angkanya memang tertinggal sedikit dari
-            pekerjaannya. Kalau pembacaan berhenti di tengah jalan, halaman
+            ordernya. Kalau pembacaan berhenti di tengah jalan, halaman
             yang sudah masuk tidak hilang.
           </Hint>
         </div>
@@ -476,7 +476,7 @@ function tally(run: BrowserRun): SourceTally[] {
 }
 
 /**
- * What this pekerjaan now holds, and where it is short.
+ * What this order now holds, and where it is short.
  *
  * THE RECONCILIATION IS THE POINT. An interrupted ingest records the
  * document's own length on the source and stores only the pages that actually
@@ -508,12 +508,12 @@ function RunContents({ run }: { run: BrowserRun }) {
       aria-labelledby="ingest-contents"
     >
       <h3 id="ingest-contents" className="text-[0.9375rem] font-semibold">
-        Isi pekerjaan ini
+        Isi order ini
       </h3>
 
       {run.sources.length === 0 ? (
         <p className="text-ink-2">
-          Pekerjaan ini belum berisi berkas apa pun. Taruh berkas PDF di kotak
+          Order ini belum berisi berkas apa pun. Taruh berkas PDF di kotak
           di atas untuk mulai.
         </p>
       ) : (
@@ -527,7 +527,7 @@ function RunContents({ run }: { run: BrowserRun }) {
                     square-cornered plans of the halaman inside it. The two
                     kinds of object are mixed in one block, which is the only
                     place in this screen an icon discriminates anything: on the
-                    runs list below, every row is a pekerjaan and a glyph on
+                    runs list below, every row is a order and a glyph on
                     each would say nothing. */}
                 <p
                   className="flex items-center gap-2 text-[0.9375rem]"
@@ -585,7 +585,7 @@ function RunContents({ run }: { run: BrowserRun }) {
         </p>
       ) : (
         <p className="text-ink">
-          Belum ada satu halaman pun yang tersimpan di pekerjaan ini. Muat ulang
+          Belum ada satu halaman pun yang tersimpan di order ini. Muat ulang
           berkasnya untuk mencoba lagi.
         </p>
       )}
@@ -614,7 +614,7 @@ function RunContents({ run }: { run: BrowserRun }) {
       {duplicated ? (
         <Advisory>
           <span>
-            Ada dua berkas dengan nama yang sama di pekerjaan ini. Periksa
+            Ada dua berkas dengan nama yang sama di order ini. Periksa
             apakah salah satunya termuat dua kali.
           </span>
         </Advisory>
@@ -692,7 +692,7 @@ function Process({
         </h3>
         <Hint label="Penjelasan proses">
           Tiap bagian mendapat satu usulan area, atau tercatat tidak ditemukan.
-          Prosesnya satu permintaan untuk seluruh pekerjaan, jadi tidak ada
+          Prosesnya satu permintaan untuk seluruh order, jadi tidak ada
           bilah kemajuan yang bisa ditampilkan: yang bisa dihitung hanyalah
           waktu yang sudah berjalan. Menjalankannya lagi sesudah menambah
           dokumen hanya mencari bagian yang belum ada buktinya.
@@ -795,10 +795,10 @@ function shortenRunName(label: string): string {
 }
 
 /**
- * RIWAYAT: the pekerjaan already saved on this device.
+ * RIWAYAT: the order already saved on this device.
  *
  * IT IS THE SESSION MANAGER, and calling it that out loud is most of the fix.
- * It was headed "Pekerjaan tersimpan" in a 19rem rail beside the drop target,
+ * It was headed "Order tersimpan" in a 19rem rail beside the drop target,
  * and an operator asked whether it was meant to be the session history, which
  * is the question you ask about something that has not said what it is. So it
  * says: one word, one icon, its own kop, at the bottom of the screen where
@@ -808,7 +808,7 @@ function shortenRunName(label: string): string {
  * weight with "start today's order" for the whole of every session, and those
  * two are not equal: one of them is what the operator came here to do. On any
  * later phase it would be worse still, an invitation to abandon the work in
- * hand. The documents of the OPEN pekerjaan are the thing that follows the
+ * hand. The documents of the OPEN order are the thing that follows the
  * operator everywhere, and that is `DocumentsBar`, which is a different object
  * with a different job.
  *
@@ -852,7 +852,7 @@ function Riwayat({
     <section className="lt-slab" aria-labelledby="ingest-runs">
       <div className="lt-kop">
         <Arsip size={16} />
-        <h3 id="ingest-runs">Riwayat pekerjaan</h3>
+        <h3 id="ingest-runs">Riwayat order</h3>
         <span className="lt-kop-right lt-figure">
           {loading ? "" : `${ordered.length}`}
         </span>
@@ -862,7 +862,7 @@ function Riwayat({
         {searchable ? (
           <div className="flex items-center gap-2">
             <label htmlFor={fieldId} className="sr-only">
-              Cari pekerjaan menurut nama berkas atau tanggal
+              Cari order menurut nama berkas atau tanggal
             </label>
             <Cari size={16} />
             <input
@@ -878,13 +878,13 @@ function Riwayat({
 
         <div aria-live="polite">
           {loading ? (
-            /* Not "belum ada pekerjaan" while the list is still being read. A
+            /* Not "belum ada order" while the list is still being read. A
                returning operator used to be told, briefly but every single
                time, that they had no saved work. */
             <p className="lt-note">Memuat riwayat.</p>
           ) : ordered.length === 0 ? (
             <p className="lt-note">
-              Belum ada pekerjaan tersimpan. Menaruh berkas PDF akan memulai
+              Belum ada order tersimpan. Menaruh berkas PDF akan memulai
               satu.
             </p>
           ) : shown.length === 0 ? (
@@ -929,12 +929,12 @@ function Riwayat({
 
         {onStartNewRun ? (
           <div className="flex items-center gap-2">
-            <Btn onClick={onStartNewRun}>Mulai pekerjaan lain</Btn>
-            {/* What happens to the pekerjaan you walk away from: true on every
+            <Btn onClick={onStartNewRun}>Mulai order lain</Btn>
+            {/* What happens to the order you walk away from: true on every
                 run, and the reassurance is worth having exactly once, at the
                 moment the hand is on this button. */}
-            <Hint label="Penjelasan: Mulai pekerjaan lain">
-              Pekerjaan yang sekarang tetap tersimpan di perangkat ini dan bisa
+            <Hint label="Penjelasan: Mulai order lain">
+              Order yang sekarang tetap tersimpan di perangkat ini dan bisa
               dibuka lagi dari riwayat. Tidak ada keputusan yang hilang.
             </Hint>
           </div>
@@ -1004,8 +1004,8 @@ export function IngestPanel({
       {error ? (
         <Interruption detail={error}>
           {pages > 0
-            ? "Pembacaan berhenti sebelum semua halaman selesai. Halaman yang sudah terbaca tetap tersimpan, dan pekerjaan ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
-            : "Pembacaan berhenti sebelum satu halaman pun tersimpan. Pekerjaan yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
+            ? "Pembacaan berhenti sebelum semua halaman selesai. Halaman yang sudah terbaca tetap tersimpan, dan order ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
+            : "Pembacaan berhenti sebelum satu halaman pun tersimpan. Order yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
         </Interruption>
       ) : null}
 
@@ -1039,21 +1039,21 @@ export function IngestPanel({
             <Reading progress={reading} />
           ) : (
             /* NEITHER HINT IS PRINTED ANY MORE, and the label carries the one
-               difference between them. "Tambahkan berkas ke pekerjaan ini"
+               difference between them. "Tambahkan berkas ke order ini"
                against "Taruh berkas order di sini" is the whole of what the
                operator needed on screen: whether this drop joins the open
-               pekerjaan or starts one. The reassurances behind it (nothing you
+               order or starts one. The reassurances behind it (nothing you
                already accepted changes, rotated scans are straightened) are
                word for word the same on every order. */
             <DocumentDrop
               label={
                 pages > 0
-                  ? "Tambahkan berkas ke pekerjaan ini"
+                  ? "Tambahkan berkas ke order ini"
                   : "Taruh berkas order di sini"
               }
               explain={
                 pages > 0
-                  ? "Berkas baru masuk ke pekerjaan yang sedang terbuka, bukan ke pekerjaan baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
+                  ? "Berkas baru masuk ke order yang sedang terbuka, bukan ke order baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
                   : "Semua berkas sekaligus juga bisa. Hasil pindaian yang terputar akan diluruskan lebih dulu, jadi halaman yang miring tetap terbaca."
               }
               disabled={busy}

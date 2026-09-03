@@ -161,7 +161,7 @@ function rememberRun(id: string | null): void {
  */
 function runTitle(run: BrowserRun): string {
   const first = run.sources[0];
-  if (!first) return "Pekerjaan baru, belum ada dokumen";
+  if (!first) return "Order baru, belum ada dokumen";
   return shortenFileName(first.name, 44);
 }
 
@@ -264,9 +264,9 @@ function saveFault(problem: unknown): Fault {
 
   const because =
     name === "StaleRunWriteError"
-      ? "pekerjaan ini sudah berubah di tempat lain, biasanya karena ada tab lain yang terbuka atau pemuatan dokumen yang masih berjalan. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda."
+      ? "order ini sudah berubah di tempat lain, biasanya karena ada tab lain yang terbuka atau pemuatan dokumen yang masih berjalan. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda."
       : name === "PageLossError"
-        ? "penyimpanan menolak tulisan yang tidak membawa seluruh halaman pekerjaan ini. Muat ulang halaman ini supaya pekerjaan terbaca utuh lagi."
+        ? "penyimpanan menolak tulisan yang tidak membawa seluruh halaman order ini. Muat ulang halaman ini supaya order terbaca utuh lagi."
         : // The third net gets its own sentence for the same reason the first
           // two do: a lanjutan lives nowhere but the stored daftar potongan, so
           // this refusal is the app stopping a potongan yang sudah diterima
@@ -275,12 +275,12 @@ function saveFault(problem: unknown): Fault {
           name === "CaptureLossError"
           ? "penyimpanan menolak tulisan yang akan menghapus potongan yang sudah membawa bukti. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda; potongan yang tersimpan tetap utuh."
           : name === "QuotaExceededError"
-            ? "penyimpanan peramban ini penuh. Kosongkan pekerjaan lama, lalu ulangi keputusan terakhir Anda."
+            ? "penyimpanan peramban ini penuh. Kosongkan order lama, lalu ulangi keputusan terakhir Anda."
             : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
 
   return {
     origin: "save",
-    sentence: `Pekerjaan gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab ini: ${because}`,
+    sentence: `Order gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab ini: ${because}`,
     detail: messageOf(problem),
     remedy: "reload",
   };
@@ -322,7 +322,7 @@ function Workspace({
 
   const [runs, setRuns] = useState<RunSummary[]>([]);
   // Distinct from `runs.length === 0`. A returning operator was told "belum ada
-  // pekerjaan", briefly but every single time, while the list was still being
+  // order", briefly but every single time, while the list was still being
   // read, which on a slow device is the first thing they get to read.
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [run, setRun] = useState<BrowserRun | null>(null);
@@ -371,7 +371,7 @@ function Workspace({
           setFault({
             origin: "load",
             sentence:
-              "Pekerjaan yang ditunjuk alamat halaman ini sudah tidak ada di penyimpanan peramban ini. Alamatnya sudah dibersihkan, jadi Anda bisa membuka pekerjaan lain atau memuat dokumen baru.",
+              "Order yang ditunjuk alamat halaman ini sudah tidak ada di penyimpanan peramban ini. Alamatnya sudah dibersihkan, jadi Anda bisa membuka order lain atau memuat dokumen baru.",
             detail: `run id: ${wanted}`,
           });
           return;
@@ -387,7 +387,7 @@ function Workspace({
         setFault({
           origin: "boot",
           sentence:
-            "Daftar pekerjaan di perangkat ini tidak bisa dibaca, jadi pekerjaan lama tidak muncul di bawah. Memuat dokumen baru tetap bisa dilakukan.",
+            "Daftar order di perangkat ini tidak bisa dibaca, jadi order lama tidak muncul di bawah. Memuat dokumen baru tetap bisa dilakukan.",
           detail: messageOf(problem),
         });
       }
@@ -498,7 +498,7 @@ function Workspace({
       setFault({
         origin: "load",
         sentence:
-          "Pekerjaan itu sudah tidak ada di penyimpanan peramban ini, mungkin dihapus dari tab lain. Daftar di bawah akan benar lagi setelah halaman ini dimuat ulang.",
+          "Order itu sudah tidak ada di penyimpanan peramban ini, mungkin dihapus dari tab lain. Daftar di bawah akan benar lagi setelah halaman ini dimuat ulang.",
         detail: `run id: ${id}`,
       });
       return;
@@ -529,7 +529,7 @@ function Workspace({
   };
 
   /**
-   * Takes one document back out of the open pekerjaan.
+   * Takes one document back out of the open order.
    *
    * THE INDEX SETS ARE CLEARED, and that is not tidying. `pending` and `fresh`
    * are sets of POSITIONS IN `run.slots`, and a removal can drop rows: a
@@ -557,12 +557,12 @@ function Workspace({
       // A TOAST, because it passes the test in toast.tsx: it is true, it is
       // over, and an operator who looked away while it happened is no worse
       // off -- the documents bar they are looking at already shows one fewer.
-      say(`${shortenFileName(name, 28)} dihapus dari pekerjaan ini.`);
+      say(`${shortenFileName(name, 28)} dihapus dari order ini.`);
     } catch (problem) {
       setFault({
         origin: "remove",
         sentence:
-          "Dokumen tidak jadi dihapus, jadi pekerjaan ini masih utuh seperti sebelumnya.",
+          "Dokumen tidak jadi dihapus, jadi order ini masih utuh seperti sebelumnya.",
         detail: messageOf(problem),
       });
     } finally {
@@ -632,7 +632,7 @@ function Workspace({
       setFault({
         origin: "ingest",
         sentence:
-          "Pembacaan dokumen berhenti sebelum selesai. Halaman yang sudah terbaca tetap tersimpan, jadi Anda bisa mengulang dengan berkas yang sama tanpa kehilangan pekerjaan.",
+          "Pembacaan dokumen berhenti sebelum selesai. Halaman yang sudah terbaca tetap tersimpan, jadi Anda bisa mengulang dengan berkas yang sama tanpa kehilangan order.",
         detail: messageOf(problem),
       });
     } finally {
@@ -707,7 +707,7 @@ function Workspace({
       setFault({
         origin: "search",
         sentence:
-          "Proses gagal, dan tidak ada yang berubah di pekerjaan ini. Halaman yang sudah terbaca dan keputusan yang sudah Anda simpan tetap utuh, jadi Anda bisa menekan Proses lagi.",
+          "Proses gagal, dan tidak ada yang berubah di order ini. Halaman yang sudah terbaca dan keputusan yang sudah Anda simpan tetap utuh, jadi Anda bisa menekan Proses lagi.",
         detail: messageOf(problem),
       });
     } finally {
@@ -874,7 +874,7 @@ function Workspace({
   // operator commits to minutes of model calls.
   const wanted = run ? wantedKeys(run).length : 0;
 
-  // Whether a pass has already run over this pekerjaan. Derived from the run,
+  // Whether a pass has already run over this order. Derived from the run,
   // never from a boolean this component keeps, so a reload does not re-lock a
   // run that was searched yesterday. See `hasBeenSearched`.
   const searched = !!run && run.pages.length > 0 && hasBeenSearched(run);
@@ -904,7 +904,7 @@ function Workspace({
   const lockReason = editing
     ? "Selesaikan atau batalkan penggambaran area dulu, supaya gambar Anda tidak hilang."
     : !run
-      ? "Muat dokumen order dulu. Dua langkah berikutnya terbuka setelah ada pekerjaan yang dibuka."
+      ? "Muat dokumen order dulu. Dua langkah berikutnya terbuka setelah ada order yang dibuka."
       : !searched
         ? searching
           ? "Proses sedang berjalan. Lembar periksa dan berkas hasil terbuka begitu prosesnya selesai."
@@ -1028,7 +1028,7 @@ function Workspace({
         />
 
         {/* THE DOCUMENT MANAGER, ON EVERY PHASE. The operator reported that
-            uploading several documents "just creates one pekerjaan per
+            uploading several documents "just creates one order per
             document". It does not: the ingest loop below threads one run id
             through the whole list and `persistence.test.mts` pins it. What was
             true is that nothing on screen ever said so, because the only place
@@ -1121,7 +1121,7 @@ function Workspace({
         ) : !run ? (
           <div className="flex flex-col items-start gap-3">
             <Notice>
-              Belum ada pekerjaan yang dibuka, jadi tidak ada yang bisa
+              Belum ada order yang dibuka, jadi tidak ada yang bisa
               diperiksa di sini.
             </Notice>
             <Btn tone="primary" onClick={() => setPhase("ingest")}>
@@ -1278,7 +1278,7 @@ function Strip({
             {run ? (
               <span className="lt-figure">{runTitle(run)}</span>
             ) : (
-              "Belum ada pekerjaan yang dibuka"
+              "Belum ada order yang dibuka"
             )}
           </h1>
           {run ? null : (
@@ -1531,7 +1531,7 @@ function PhaseNav({
   return (
     <div className="lt-rail border-b">
       <nav
-        aria-label="Tahapan pekerjaan"
+        aria-label="Tahapan order"
         className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-5 px-5"
       >
         <ul className="flex h-full items-stretch gap-1">

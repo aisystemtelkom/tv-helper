@@ -298,7 +298,7 @@ export async function listRuns(): Promise<
 }
 
 /**
- * Takes one source document back out of an open pekerjaan.
+ * Takes one source document back out of an open order.
  *
  * THE INVERSE OF `ingestDocument`, and it is not symmetrical with it, because
  * ingesting appends to the end of a list other things index into and removing
@@ -329,7 +329,7 @@ export async function removeDocument(
     const stored = await getRun(runId);
     if (!stored) {
       throw new Error(
-        `Pekerjaan ${runId} tidak ada lagi, jadi dokumennya tidak bisa dihapus.`,
+        `Order ${runId} tidak ada lagi, jadi dokumennya tidak bisa dihapus.`,
       );
     }
 

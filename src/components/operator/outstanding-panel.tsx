@@ -29,7 +29,7 @@
  * lagi and Tambah dokumen, stand outside the disclosure at all times.
  *
  * THE LIST IS CLOSED ON ARRIVAL. It used to open on the first visit to a
- * pekerjaan, on the argument that a briefing is read once. The density pass
+ * order, on the argument that a briefing is read once. The density pass
  * retires that: a briefing that costs most of the viewport is furniture on the
  * first visit too, and the kop now states the same fact in one bar. What
  * survives of the old rule is the half that was about REACHABILITY rather than
@@ -350,7 +350,7 @@ type PanelProps = {
 };
 
 /**
- * A different pekerjaan is a different question, and every piece of state in
+ * A different order is a different question, and every piece of state in
  * here is about one: whether the list is open, whether the operator answered
  * the tambahan question, whether a write-off is half-confirmed. Keying on the
  * run id says so in React's own terms and resets all of it at once.
@@ -374,7 +374,7 @@ function Panel({
   searching = false,
 }: PanelProps) {
   /**
-   * IS A ROUND OWED? A document has been read into this pekerjaan and nothing
+   * IS A ROUND OWED? A document has been read into this order and nothing
    * has searched it yet. Computed before any state because the list's opening
    * position depends on it: see `expanded` below.
    */
@@ -494,7 +494,7 @@ function Panel({
    * NOTHING IS OUTSTANDING: one slab that says so, or nothing at all.
    *
    * This block is read on arrival at Periksa, every visit, for the whole life
-   * of a pekerjaan. Once the work is done it must not go on occupying the top
+   * of a order. Once the work is done it must not go on occupying the top
    * of the screen with a congratulation, so it collapses to a kop and one line,
    * and to nothing when there is not even that much to report.
    *
@@ -571,7 +571,7 @@ function Panel({
               Keputusan ditahan sampai pembacaan selesai.
               <Hint label="Kenapa keputusan ditahan">
                 Menyimpan di tengah pembacaan akan ditolak oleh penyimpanan,
-                karena pekerjaannya sudah berubah, dan keputusan Anda bisa
+                karena ordernya sudah berubah, dan keputusan Anda bisa
                 hilang.
               </Hint>
             </span>
@@ -663,7 +663,7 @@ function Panel({
  * The four kinds of blank, counted apart.
  *
  * SPLIT CLAUSE BY CLAUSE, which is the whole density argument in one component.
- * The COUNTS change with the pekerjaan and decide what the operator does next,
+ * The COUNTS change with the order and decide what the operator does next,
  * so they stand. The four SENTENCES that gloss them read the same words on
  * every order, and an operator has read them four hundred times, so they sit
  * behind the question mark where they can be pointed at. What used to be a
@@ -792,14 +792,14 @@ function BlankRow({
         </span>
       ) : blank.zone ? (
         <span className="text-gap text-[0.8125rem]">
-          Halamannya sudah tidak ada di pekerjaan ini.
+          Halamannya sudah tidak ada di order ini.
         </span>
       ) : null}
 
       {index === null ? (
         /* The reason this row carries no control, and it never hides. */
         <span className="text-gap text-[0.8125rem]">
-          Belum ada di pekerjaan ini. Mulai pekerjaan lain supaya ikut
+          Belum ada di order ini. Mulai order lain supaya ikut
           disiapkan.
         </span>
       ) : (
@@ -879,7 +879,7 @@ function SearchLine({
           words on every order, so it moves behind the mark. */}
       <Hint label="Yang terjadi kalau diproses lagi">
         Bukti yang sudah Anda terima tidak ikut dicari ulang, jadi memproses
-        lagi tidak mengulang pekerjaan yang sudah selesai. Tab ini boleh
+        lagi tidak mengulang order yang sudah selesai. Tab ini boleh
         dibiarkan terbuka selama prosesnya berjalan.
       </Hint>
 
@@ -948,7 +948,7 @@ function Fork({
         </span>
 
         {/* The klip, because what the operator is about to hand over is another
-            document clipped to the same pekerjaan. */}
+            document clipped to the same order. */}
         <Btn
           disabled={busy}
           aria-describedby="tambahan-question"
@@ -970,7 +970,7 @@ function Fork({
         <Hint label="Tentang jawaban ini">
           Bagian yang belum ada buktinya mungkin ada di berkas lain, dan bukti
           yang sudah Anda terima tetap disimpan. Jawaban ini hanya berlaku
-          selama tab ini terbuka dan tidak ikut tersimpan di pekerjaan.
+          selama tab ini terbuka dan tidak ikut tersimpan di order.
         </Hint>
       </div>
 
@@ -1116,7 +1116,7 @@ function BulkConfirm({
  * IT CANNOT BE DISMISSED WHILE A DOCUMENT IS BEING READ. Reading a bundle takes
  * minutes, the pages land one at a time, and a modal that vanishes on Escape
  * mid-read leaves the operator with no picture of a job that is still running
- * and still writing to their pekerjaan. Outside presses, Escape and the close
+ * and still writing to their order. Outside presses, Escape and the close
  * button are all refused for exactly as long as `busy` is true, and the block
  * says so rather than simply not reacting.
  *
@@ -1166,7 +1166,7 @@ function TambahanDialog({
               Hanya bagian yang belum ada buktinya yang dicari lagi.
               <Hint label="Yang terjadi dengan bukti yang sudah diterima">
                 Setiap area yang sudah Anda terima tetap tersimpan, jadi
-                menambahkan berkas keempat tidak mengulang pekerjaan yang sudah
+                menambahkan berkas keempat tidak mengulang order yang sudah
                 selesai.
               </Hint>
             </span>

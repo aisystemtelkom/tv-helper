@@ -5,7 +5,7 @@
  *
  * WHAT A TOAST IS FOR HERE: a fact that was true a moment ago, that the
  * operator does not have to act on, and that stops being interesting almost at
- * once. "Dokumen dihapus." "Pekerjaan tersimpan." Those were printed into the
+ * once. "Dokumen dihapus." "Order tersimpan." Those were printed into the
  * layout, which meant the screen grew a line every time something went right
  * and the work moved down.
  *

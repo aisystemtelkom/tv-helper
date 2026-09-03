@@ -273,7 +273,7 @@ export function Cari(props: IconProps) {
 }
 
 /**
- * Riwayat: the pekerjaan already saved on this device.
+ * Riwayat: the order already saved on this device.
  *
  * NOT A CLOCK, and not an arrow curling backwards. Both are pictures of TIME,
  * and time is not what an operator is looking for here: they are looking for a
@@ -283,7 +283,7 @@ export function Cari(props: IconProps) {
  *
  * The corners are square, which under this file's second rule means "a page
  * inside the run" rather than a file somebody supplied. That is right: a
- * pekerjaan is not one of the operator's files, it is the work built out of
+ * order is not one of the operator's files, it is the work built out of
  * them.
  */
 export function Arsip(props: IconProps) {

@@ -398,7 +398,7 @@ export function AllowlistEditor({
             <p className="lt-note">
               Pemilik dan Administrator boleh menambah dan menghapus akses di
               halaman ini. Operator hanya membuka aplikasi dan mengerjakan
-              pekerjaan.
+              order.
             </p>
 
             {rows.length > 8 ? (
