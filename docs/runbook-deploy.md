@@ -232,12 +232,66 @@ credential itself.
 
 ## Step 1: build the image
 
+**`docker build` READS THE WORKING TREE, not the branch, not `HEAD`, and not
+what you just committed.** The tag says `$(git rev-parse --short HEAD)` and the
+CONTENTS are whatever is on disk, so any uncommitted change in the checkout
+ships inside an image labelled with a commit that does not contain it. The
+image then matches no commit that exists anywhere.
+
+This is not hypothetical and it is not a solo-developer problem. It happened
+here on 2026-09-03: three sessions were sharing this one working directory, a
+build ran while another session had nine uncommitted files in it, and Cloud Run
+revisions 00004 and 00005 shipped that in-progress work to production. It was
+inert only because the change was a new model binding that defaults off and
+Cloud Run sets no env var for it. That is luck, not a safeguard.
+
+It compounds with two other things already in this runbook. Cloud Build is
+unusable from at least one Windows machine here, so the documented path is a
+LOCAL build, which is what makes the working tree reachable at all. And a
+number measured on a polluted tree is wrong in a way that reads as fine: the
+same session reported "502 tests passing" from a checkout whose real figure on
+`main` was 487, because the extra tests belonged to somebody's uncommitted
+work.
+
+**So build from a checkout that is clean by construction rather than one you
+have inspected.** A throwaway worktree at the exact commit you intend to ship
+cannot contain anybody's work in progress:
+
+```bash
+COMMIT=$(git rev-parse --short HEAD)     # or the tag/sha you mean to ship
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${COMMIT}"
+gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+
+git worktree add /tmp/ship "$COMMIT"
+docker build --platform linux/amd64 -t "$IMAGE" /tmp/ship
+docker push "$IMAGE"
+git worktree remove /tmp/ship
+```
+
+That removes the class rather than the instance. If you build in place anyway,
+refuse to build on a dirty tree instead of eyeballing it:
+
+```bash
+test -z "$(git status --porcelain)"   || { echo "Working tree is dirty; the image would not match $COMMIT." >&2; exit 1; }
+```
+
+The in-place command, for reference, and note that it inherits the hazard above:
+
 ```bash
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:$(git rev-parse --short HEAD)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev"
 
 docker build -t "$IMAGE" .
 docker push "$IMAGE"
+```
+
+**AND CHECK THE COMMIT IS PUSHED BEFORE YOU BUILD IT.** Green, merged and
+deployed all feel like done and none of them is `pushed`. Work verified and
+shipped from a laptop, existing in exactly one place, happened five times in
+one collaboration here:
+
+```bash
+git log --oneline origin/main -1   # compare against what you are shipping
 ```
 
 **On a Mac (darwin-arm64), that command builds an arm64 image and Cloud Run

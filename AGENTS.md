@@ -891,6 +891,21 @@ Recorded so nobody reads a design statement as a description of the code.
   real runtime. As of the UI rehaul the panel is no longer a phase of its own:
   it is rendered as the `head` of the review sheet, and answering "yes" opens
   the ingest drop in a dialog.
+- **`docker build` READS THE WORKING TREE, so a shared checkout can ship work
+  that is on no branch.** The tag comes from `git rev-parse HEAD` and the
+  CONTENTS come from disk, so any uncommitted change rides along inside an
+  image labelled with a commit that does not contain it. On 2026-09-03 three
+  sessions shared this working directory and two Cloud Run revisions shipped a
+  third session's in-progress work; it was inert only because the change
+  defaulted off. Build from a throwaway `git worktree` at the commit you mean
+  to ship, which is clean by construction. `docs/runbook-deploy.md` step 1
+  carries the recipe and the refuse-if-dirty guard.
+
+  The same class of error produces wrong NUMBERS, not just wrong images: a test
+  count, a gate result or a contrast measurement taken against a state nobody
+  named is wrong in a way that reads as fine. "502 tests" on that polluted tree
+  was 487 on `main`.
+
 - **Deployment is built, and its own doc is `docs/runbook-deploy.md`.**
   `Dockerfile`, `output: "standalone"` in `next.config.ts`, `src/proxy.ts`,
   Auth.js under `src/lib/auth/`, and the Firestore allowlist all exist. This
