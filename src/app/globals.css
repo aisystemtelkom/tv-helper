@@ -2676,16 +2676,34 @@
     box-shadow: inset 0 0 0 2px var(--petrol);
   }
 
-  /* The rail between two nodes, and the only thing here carrying progress. */
+  /* The rail between two nodes, and the only thing here carrying progress.
+
+     THE DIFFERENCE IS THICKNESS AS WELL AS HUE, and that is measured rather
+     than decorative. Petrol sits at 6.52:1 against the rail's ground and
+     `--line-strong` at 5.16:1, which makes them 1.26:1 FROM EACH OTHER: two
+     mid-toned lines, telling apart only by hue. The one fact this whole device
+     exists to show is how far along you are, and carrying it on hue alone
+     hands it to nobody with a red-green or blue-yellow deficiency and to
+     nobody in bright sun.
+
+     Dimming the unfilled rail to open a luminance gap was the obvious fix and
+     it is worse: at a 3:1 separation from petrol the unfilled rail falls to
+     1.9:1 against its own ground, so the route stops being visible at all
+     ahead of you. Both rails stay well clear of their ground, and the
+     comparison between them is a doubling in weight, which survives any colour
+     vision and any screen. */
   .lt-timeline-link {
     flex: 1 1 1.5rem;
     min-width: 1rem;
     height: 2px;
     border-radius: 999px;
     background: var(--line-strong);
-    transition: background-color 200ms var(--ease);
+    transition:
+      background-color 200ms var(--ease),
+      height 200ms var(--ease);
   }
   .lt-timeline-link[data-done="true"] {
+    height: 4px;
     background: var(--petrol);
   }
 
