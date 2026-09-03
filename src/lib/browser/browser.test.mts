@@ -46,15 +46,21 @@ import {
 import type { CanvasFactory } from "../pipeline/render.ts";
 import { ingestPdf, type IngestedPage, type PdfDocumentLike } from "./ingest.ts";
 import {
+  captureOrdinalOf,
+  nextCaptureOrdinal,
   outstandingSlots,
   seedSlots,
   slotKeyOf,
   withAppendedPage,
+  withDiscoveredCaptures,
+  withoutCapture,
+  withoutCapturesAfter,
   type BrowserRun,
   type SlotState,
   type StoredPage,
 } from "./runtime.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
+import { continuationChecked, zoneFingerprint } from "./captures.ts";
 
 const nodeContext: CanvasFactory = (w, h) => createCanvas(w, h).getContext("2d");
 
@@ -509,32 +515,328 @@ test("seedSlots covers every fillable slot and no unfillable one", () => {
   assert.ok(slots.every((s) => s.zone === undefined));
 });
 
-test("a slot that holds two captures is seeded twice, under distinct keys", () => {
-  // The sample's `KB (lanjutan)` ToP row stacks two pictures cut from two
-  // different pages. `SlotState.zone` holds one zone, so one state per slot
-  // would ship a document that looks complete and is missing a capture.
-  const multi = AO_TEMPLATE.sections
-    .flatMap((section) => section.slots)
-    .filter((slot) => slot.fillable && (slot.crops ?? 1) > 1);
-
-  assert.ok(multi.length > 0, "the fixture assumes a multi-capture slot exists");
-
+test("seedSlots seeds ONE capture per bagian, and nothing declares a second", () => {
+  // THE OPERATOR REPORT THIS FEATURE COMES FROM. `SlotDef.crops` used to say
+  // the `KB (lanjutan)` ToP row holds two pictures, so this function made two
+  // states up front and the sheet showed "ToP 1" and "ToP 2" with the second
+  // permanently missing -- on a contract holding ONE ToP. The sample's two
+  // pictures are one payment clause split by a page break, which is a fact
+  // about that contract's page breaks and not about the form.
   const slots = seedSlots();
-  for (const slot of multi) {
-    const states = slots.filter((s) => slotKeyOf(s.key) === slot.key);
-    assert.equal(states.length, slot.crops);
-    assert.equal(new Set(states.map((s) => s.key)).size, states.length);
-    // The label carries the ordinal, so an operator sees which capture it is.
-    assert.deepEqual(
-      states.map((s) => s.label),
-      Array.from({ length: slot.crops! }, (_, n) => `${slot.label} (${n + 1})`),
-    );
+  const keys = slots.map((s) => s.key);
+
+  assert.equal(new Set(keys).size, keys.length, "keys must be unique");
+  // Every key is a template key VERBATIM. A `#n` here would mean something
+  // seeded a capture nobody has looked for.
+  for (const key of keys) {
+    assert.equal(slotKeyOf(key), key, `${key} carries a capture ordinal`);
+    assert.equal(captureOrdinalOf(key), 1);
   }
+
+  const fillable = AO_TEMPLATE.sections
+    .flatMap((section) => section.slots)
+    .filter((slot) => slot.fillable);
+  assert.equal(slots.length, fillable.length);
+  assert.deepEqual(
+    slots.map((s) => s.label),
+    fillable.map((slot) => slot.label),
+    "the label is the template's own, undecorated: captureLabel adds " +
+      "(lanjutan) from the ordinal at render time",
+  );
+});
+
+test("a discovered lanjutan is APPENDED, proposed, under a fresh ordinal", () => {
+  const zone = {
+    pageIndex: 3,
+    box: { x: 0, y: 0, w: 10, h: 10 },
+    lineRange: [0, 4] as [number, number],
+  };
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [
+      { key: "kb.top", label: "ToP", status: "confirmed", zone },
+      { key: "kb.nomor", label: "Nomor", status: "confirmed", zone },
+    ],
+  };
+
+  const next = withDiscoveredCaptures(
+    base,
+    [{ after: "kb.top", zone: { ...zone, pageIndex: 4 }, text: "sambungan" }],
+    ["kb.nomor"],
+  );
+
+  assert.equal(next.slots.length, 3);
+  const added = next.slots[2];
+  assert.equal(added.key, "kb.top#2");
+  // Proposed, never confirmed. The confirming call was measured right three
+  // times of four on bundle one, and the wrong one is a legible crop of the
+  // NEXT clause under this bagian's label.
+  assert.equal(added.status, "proposed");
+  assert.equal(added.origin, "llm");
+  // The template's own label, undecorated.
+  assert.equal(added.label, "ToP");
+  // The capture that was walked and found to end where it ends is stamped, so
+  // the sheet can tell it from one nothing has looked past.
+  assert.equal(continuationChecked(next.slots[1]), true);
+  assert.equal(continuationChecked(next.slots[0]), false);
+});
+
+test("an answer whose parent lost its zone while the search ran is dropped", () => {
+  // A pass is minutes of model calls. If the operator rejected the capture the
+  // walk started from, its lanjutan is the continuation of nothing.
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [{ key: "kb.top", label: "ToP", status: "outstanding" }],
+  };
+  const next = withDiscoveredCaptures(base, [
+    {
+      after: "kb.top",
+      zone: { pageIndex: 4, box: { x: 0, y: 0, w: 1, h: 1 }, lineRange: [0, 1] },
+      text: "sambungan",
+    },
+  ]);
+  assert.equal(next.slots.length, 1);
+});
+
+test("an ordinal is never re-used after a lanjutan is removed", () => {
+  // THE LABEL AND THE EXPORT'S PICTURE ORDER BOTH READ THE ORDINAL. Allocating
+  // from the array length instead of from the high-water mark would hand a new
+  // discovery an ordinal that is already spoken for, and rename a picture the
+  // operator has already accepted.
+  const keys = ["kb.top", "kb.top#2", "kb.top#3"];
+  assert.equal(nextCaptureOrdinal(keys, "kb.top"), 4);
+  assert.equal(nextCaptureOrdinal(["kb.top", "kb.top#3"], "kb.top"), 4);
+  // A bagian with nothing at all still starts at 2: capture 1 is what
+  // seedSlots makes, and a DISCOVERED capture is a continuation of one.
+  assert.equal(nextCaptureOrdinal([], "kb.top"), 2);
+});
+
+test("rejecting a lanjutan removes it AND the tail found by walking past it", () => {
+  // `#3` was discovered by asking what follows `#2`. If `#2` is not a lanjutan
+  // of this bagian, `#3` is the continuation of something that was never here.
+  const zone = {
+    pageIndex: 1,
+    box: { x: 0, y: 0, w: 1, h: 1 },
+    lineRange: [0, 1] as [number, number],
+  };
+  const run: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [
+      { key: "kb.top", label: "ToP", status: "confirmed", zone },
+      { key: "kb.top#2", label: "ToP", status: "proposed", zone },
+      { key: "kb.top#3", label: "ToP", status: "proposed", zone },
+      { key: "kb.nomor", label: "Nomor", status: "confirmed", zone },
+    ],
+  };
+
+  const { run: next, removed } = withoutCapture(run, 1);
+  assert.deepEqual(
+    next.slots.map((s) => s.key),
+    ["kb.top", "kb.nomor"],
+  );
+  // Handed back so `saveRun` can name them: a write that drops a zone-carrying
+  // capture without saying so is refused.
+  assert.deepEqual(removed.sort(), ["kb.top#2", "kb.top#3"]);
+
+  // Capture 1 is never removed -- the template still asks for the bagian --
+  // but its whole chain goes with it.
+  const { run: cleared, removed: alsoRemoved } = withoutCapture(run, 0);
+  assert.deepEqual(
+    cleared.slots.map((s) => s.key),
+    ["kb.top", "kb.nomor"],
+  );
+  assert.deepEqual(alsoRemoved.sort(), ["kb.top#2", "kb.top#3"]);
+});
+
+test("the same block is never appended twice, whatever asks for it", () => {
+  // Every append takes a FRESH ordinal, so a repeated answer becomes a second
+  // row holding the same picture: "(lanjutan 2)" beside an identical
+  // "(lanjutan)", arriving `proposed` so it re-opens a bagian the operator had
+  // settled, and stacked twice in one docx cell if accepted. Nothing else in
+  // the tree dedupes, so the guard is here and it is on the ZONE.
+  const zone = {
+    pageIndex: 3,
+    box: { x: 0, y: 0, w: 10, h: 10 },
+    lineRange: [0, 4] as [number, number],
+  };
+  const next = { ...zone, pageIndex: 4 };
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [{ key: "kb.top", label: "ToP", status: "confirmed", zone }],
+  };
+
+  const once = withDiscoveredCaptures(base, [
+    { after: "kb.top", zone: next, text: "sambungan" },
+  ]);
+  assert.equal(once.slots.length, 2);
+
+  // The same answer again -- a re-walk of a chain whose links were not all
+  // stamped, or a run restored from an older store.
+  const twice = withDiscoveredCaptures(once, [
+    { after: "kb.top", zone: { ...next, box: { x: 1, y: 1, w: 9, h: 9 } }, text: "sambungan" },
+  ]);
+  assert.deepEqual(
+    twice.slots.map((s) => s.key),
+    ["kb.top", "kb.top#2"],
+    "the box is re-derived from the lines, so page and lineRange decide",
+  );
+
+  // A DIFFERENT block still lands: this is a dedupe, not a cap.
+  const third = withDiscoveredCaptures(twice, [
+    { after: "kb.top", zone: { ...next, pageIndex: 5 }, text: "lanjutan lagi" },
+  ]);
+  assert.deepEqual(
+    third.slots.map((s) => s.key),
+    ["kb.top", "kb.top#2", "kb.top#3"],
+  );
+});
+
+test("a lanjutan the walk already looked past arrives stamped", () => {
+  // Link n's own continuation is link n+1, appended in the same call, so it
+  // has been looked past. Leaving the middle of a chain unstamped is what made
+  // the next Proses re-walk it and append the same evidence again.
+  const zone = {
+    pageIndex: 1,
+    box: { x: 0, y: 0, w: 10, h: 10 },
+    lineRange: [0, 4] as [number, number],
+  };
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [{ key: "kb.top", label: "ToP", status: "confirmed", zone }],
+  };
+
+  const grown = withDiscoveredCaptures(base, [
+    {
+      after: "kb.top",
+      zone: { ...zone, pageIndex: 2 },
+      text: "tengah",
+      continuationChecked: true,
+    },
+    { after: "kb.top", zone: { ...zone, pageIndex: 3 }, text: "ujung" },
+  ]);
+
+  assert.deepEqual(
+    grown.slots.map((s) => [s.key, continuationChecked(s)]),
+    // `continuationChecked` is a predicate now, so an unstamped capture reads
+    // false rather than undefined -- the point being that it answers the
+    // question ("has anything looked past THIS rectangle") rather than
+    // reporting whether a field happens to be set.
+    [
+      ["kb.top", false],
+      ["kb.top#2", true],
+      ["kb.top#3", false],
+    ],
+  );
+});
+
+test("a capture reopened while the search ran is not stamped as checked", () => {
+  // The flag is a fact about ONE rectangle. A run re-read from storage may
+  // have had that capture rejected or redrawn while the round was in flight,
+  // and stamping it then records "we looked past this" about whatever fills it
+  // next -- which no future Proses would ever look at, because the flag is
+  // what `capturesToWalk` filters on.
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [{ key: "kb.top", label: "ToP", status: "outstanding" }],
+  };
+  const next = withDiscoveredCaptures(base, [], ["kb.top"]);
+  assert.equal(continuationChecked(next.slots[0]), false);
+});
+
+test("an answer does not re-open a bagian the operator emptied while it ran", () => {
+  // `unfilled` is a decision made ON THE RECORD, and it keeps its zone, so the
+  // parent-lost-its-zone check above does not see it. An appended `proposed`
+  // lanjutan would drop the slot out of `decided` and block the export on a
+  // question that was settled. `applyProposals` is documented and tested
+  // against exactly this race on the other half of the answer.
+  const zone = {
+    pageIndex: 1,
+    box: { x: 0, y: 0, w: 10, h: 10 },
+    lineRange: [0, 4] as [number, number],
+  };
+  const base: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [{ key: "kb.top", label: "ToP", status: "unfilled", zone }],
+  };
+  const next = withDiscoveredCaptures(base, [
+    { after: "kb.top", zone: { ...zone, pageIndex: 2 }, text: "sambungan" },
+  ]);
+  assert.equal(next.slots.length, 1);
+});
+
+test("redrawing a lanjutan takes its tail but keeps the capture itself", () => {
+  // "Gambar ulang" on `#2`: the operator says the lanjutan is here but not
+  // shaped like that. `#3` was found by walking forward from the OLD `#2`, so
+  // it is the continuation of a rectangle that no longer exists -- but `#2`
+  // itself is evidence a human has just drawn, and rejecting it is a different
+  // decision with a different button.
+  const zone = {
+    pageIndex: 1,
+    box: { x: 0, y: 0, w: 1, h: 1 },
+    lineRange: [0, 1] as [number, number],
+  };
+  const run: BrowserRun = {
+    id: "run",
+    createdAt: 0,
+    sources: [],
+    pages: [],
+    slots: [
+      { key: "kb.top", label: "ToP", status: "confirmed", zone },
+      { key: "kb.top#2", label: "ToP", status: "confirmed", zone },
+      { key: "kb.top#3", label: "ToP", status: "proposed", zone },
+    ],
+  };
+
+  const { run: next, removed } = withoutCapturesAfter(run, 1);
+  assert.deepEqual(
+    next.slots.map((s) => s.key),
+    ["kb.top", "kb.top#2"],
+  );
+  assert.deepEqual(removed, ["kb.top#3"]);
+
+  // From capture 1 it means the whole chain, which is why `saveZone` calls it
+  // ONLY for a redrawn lanjutan: redrawing the head is an extent correction,
+  // not a reason to delete crops the operator has already accepted, and the
+  // cleared `continuationChecked` sends the next Proses over it again anyway.
+  const { removed: wholeChain } = withoutCapturesAfter(run, 0);
+  assert.deepEqual(wholeChain.sort(), ["kb.top#2", "kb.top#3"]);
 });
 
 test("slotKeyOf leaves an ordinary key alone", () => {
   assert.equal(slotKeyOf("kb.nomor"), "kb.nomor");
   assert.equal(slotKeyOf("kbLanjutan.top#2"), "kbLanjutan.top");
+});
+
+test("captureOrdinalOf reads a bare key as capture 1", () => {
+  assert.equal(captureOrdinalOf("kb.nomor"), 1);
+  assert.equal(captureOrdinalOf("kbLanjutan.top#2"), 2);
+  assert.equal(captureOrdinalOf("kbLanjutan.top#10"), 10);
+  // A run stored under the old declared-count design keys its first capture
+  // `#1`, which must still read as capture 1 rather than as a lanjutan.
+  assert.equal(captureOrdinalOf("kbLanjutan.top#1"), 1);
+  // A suffix that is not a number is not an ordinal.
+  assert.equal(captureOrdinalOf("weird#key"), 1);
 });
 
 test("outstandingSlots reports only what was searched and not found", () => {
@@ -659,4 +961,53 @@ test("appending never renumbers the pages a zone already points at", () => {
       ["src-b", 1],
     ],
   );
+});
+
+test("replacing a zone drops the continuation verdict, whoever writes it", () => {
+  // THE INVARIANT THAT USED TO NEED REMEMBERING. Three places replace a
+  // capture's zone -- a hand redraw, "Bukan ini", and a fresh proposal landing
+  // through the ordinary tambahan loop -- and all three were found carrying a
+  // verdict about a rectangle that no longer existed. The third needs no
+  // unusual operator action at all, which is what made it the dangerous one.
+  //
+  // The fix is not three patches. The verdict NAMES the zone it was made
+  // about, so a slot holding a different zone reads as unchecked without the
+  // writer doing anything, and a fourth writer inherits the property for free.
+  // This test is that fourth writer: a bare spread, no clearing, no knowledge
+  // of the rule.
+  const walked = { pageIndex: 1, box: { x: 0, y: 0, w: 9, h: 9 }, lineRange: [0, 4] as [number, number] };
+  const checked = {
+    key: "kb.top",
+    label: "ToP",
+    status: "confirmed" as const,
+    zone: walked,
+    continuationCheckedFor: zoneFingerprint(walked),
+  };
+  assert.equal(continuationChecked(checked), true);
+
+  // A DIFFERENT RECTANGLE ON THE SAME PAGE. Written the naive way, which is
+  // exactly how all three real writers do it.
+  const redrawn = {
+    ...checked,
+    zone: { ...walked, lineRange: [0, 9] as [number, number] },
+  };
+  assert.equal(
+    continuationChecked(redrawn),
+    false,
+    "a zone enlarged to the page bottom must not inherit `already looked past`",
+  );
+
+  // A different PAGE, which is what applyProposals can deliver on a later round.
+  assert.equal(
+    continuationChecked({ ...checked, zone: { ...walked, pageIndex: 7 } }),
+    false,
+  );
+
+  // The zone cleared entirely, which is what "Bukan ini" does. There is no
+  // rectangle left for a verdict to be about.
+  assert.equal(continuationChecked({ ...checked, zone: undefined }), false);
+
+  // And the identical rectangle still counts, or every re-render would re-walk
+  // the whole run.
+  assert.equal(continuationChecked({ ...checked, zone: { ...walked } }), true);
 });

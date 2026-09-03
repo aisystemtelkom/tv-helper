@@ -227,7 +227,11 @@ function collectBlanks(
     if (!slot.fillable) continue;
 
     const group = captures.get(slot.key) ?? [];
-    const required = slot.crops ?? 1;
+    // The captures the run HOLDS, never a count the template declares. Nothing
+    // declares one any more: a lanjutan is discovered, and the row that used
+    // to read "0 dari 2 potongan" over a bagian nobody had searched for a
+    // second picture of is the operator report this feature comes from.
+    const required = group.length;
     const found = group.filter((c) => c.state.zone).length;
     // Only ever read when this capture has no zone of its own, so what it
     // finds is always a DIFFERENT capture of the same bagian.
@@ -243,7 +247,7 @@ function collectBlanks(
         label: slot.label,
         sectionTitle: section.title,
         reason: "unsearched",
-        required,
+        required: 1,
         found: 0,
         zone: null,
         zoneIsSibling: false,
@@ -776,9 +780,11 @@ function BlankRow({
       </StateWord>
 
       {/* The half-filled bagian, said out loud. Kosongkan on this row settles
-          ONE potongan, and the sample's KB (lanjutan) ToP row stacks two: an
-          operator who reads it as "kosongkan seluruh baris ToP" has just written
-          off a picture that is already accepted. */}
+          ONE potongan, and a bagian whose block ran past a page bottom holds
+          several: an operator who reads it as "kosongkan seluruh baris ToP"
+          has just written off a picture that is already accepted. The figure
+          counts what the run holds, so it can only ever appear once a lanjutan
+          has actually been found. */}
       {blank.required > 1 ? (
         <span
           className="text-[0.8125rem]"

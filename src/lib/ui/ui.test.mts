@@ -25,6 +25,7 @@ import {
   zonePageRef,
 } from "./evidence.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
+import { zoneFingerprint } from "../browser/captures.ts";
 import {
   captureLabel,
   aggregateStatus,
@@ -433,7 +434,6 @@ const TEMPLATE: Template = {
         docType: null,
         hint: "h",
         fillable: true,
-        crops: 2,
       },
       {
         key: "manual",
@@ -464,39 +464,72 @@ function placed(...states: SlotState[]): PlacedSlot[] {
   return states.map((s, index) => ({ state: s, index }));
 }
 
-test("a two-capture slot holding one capture is partial, not confirmed", () => {
+test("a bagian holding one confirmed capture and one open one is partial", () => {
+  // NOTE WHAT CHANGED AND WHAT DID NOT. It used to take a declared `required`
+  // of 2, so ONE confirmed state read `partial` because the template asserted
+  // a second picture nobody had looked for. Nothing declares one now, so the
+  // second state has to actually EXIST -- which, for a lanjutan, means
+  // something found it. The word still means "something is still open".
   assert.equal(
-    aggregateStatus(placed(state("two", "confirmed", true)), 1, 2),
+    aggregateStatus(
+      placed(state("two", "confirmed", true), state("two", "outstanding")),
+    ),
     "partial",
   );
   assert.equal(
     aggregateStatus(
       placed(state("two", "confirmed", true), state("two", "confirmed", true)),
-      2,
-      2,
     ),
     "confirmed",
   );
+  // One confirmed capture and nothing else is finished, not half done: no
+  // second picture is owed until one is found.
+  assert.equal(
+    aggregateStatus(placed(state("two", "confirmed", true))),
+    "confirmed",
+  );
+});
+
+test("a DISCOVERED lanjutan re-opens a bagian that had gone quiet", () => {
+  /*
+   * THE OPERATOR'S REQUIREMENT, IN ONE ASSERTION. A lanjutan is an optional
+   * row that appears when one is found, so a bagian the operator had finished
+   * with must NOT stay quiet when a second picture turns up under it. It
+   * arrives `proposed` and the first branch carries it, which is what puts it
+   * back in front of a person, drops it out of `decided`, and blocks the
+   * export until they rule on it.
+   *
+   * The alternative -- appending it silently -- is a picture in the signed
+   * packet that nobody looked at, which is what the export gate exists for.
+   */
+  const settled = placed(state("two", "confirmed", true));
+  assert.equal(aggregateStatus(settled), "confirmed");
+
+  const withLanjutan = placed(
+    state("two", "confirmed", true),
+    state("two", "proposed", true),
+  );
+  assert.equal(aggregateStatus(withLanjutan), "proposed");
 });
 
 test("a proposal outranks everything: it is the thing waiting on a person", () => {
   assert.equal(
     aggregateStatus(
       placed(state("two", "confirmed", true), state("two", "proposed", true)),
-      2,
-      2,
     ),
     "proposed",
   );
 });
 
 test("an operator's decision to ship empty beats the search result behind it", () => {
-  assert.equal(aggregateStatus(placed(state("one", "unfilled")), 0, 1), "unfilled");
+  assert.equal(aggregateStatus(placed(state("one", "unfilled"))), "unfilled");
   assert.equal(
-    aggregateStatus(placed(state("one", "outstanding")), 0, 1),
+    aggregateStatus(placed(state("one", "outstanding"))),
     "outstanding",
   );
-  assert.equal(aggregateStatus([], 0, 1), "pending");
+  // A bagian the run holds NO state for: the template declares it and nobody
+  // has looked, which owes a search rather than reading as a settled blank.
+  assert.equal(aggregateStatus([]), "pending");
 });
 
 test("a settled slot that ships one crop and one blank is confirmed, not empty", () => {
@@ -518,12 +551,12 @@ test("a settled slot that ships one crop and one blank is confirmed, not empty",
     state("two", "confirmed", true),
     state("two", "unfilled"),
   );
-  assert.equal(aggregateStatus(settled, 1, 2), "confirmed");
-  assert.notEqual(aggregateStatus(settled, 1, 2), "partial");
+  assert.equal(aggregateStatus(settled), "confirmed");
+  assert.notEqual(aggregateStatus(settled), "partial");
 
   // Both blank on purpose is the one case that really is `unfilled`.
   assert.equal(
-    aggregateStatus(placed(state("two", "unfilled"), state("two", "unfilled")), 0, 2),
+    aggregateStatus(placed(state("two", "unfilled"), state("two", "unfilled"))),
     "unfilled",
   );
 });
@@ -534,21 +567,13 @@ test("partial means something is still open, never merely part-empty", () => {
   assert.equal(
     aggregateStatus(
       placed(state("two", "confirmed", true), state("two", "outstanding")),
-      1,
-      2,
     ),
-    "partial",
-  );
-  // Confirmed beside a capture the run has no state for at all. `found` alone
-  // cannot see this: the second picture is absent, not merely unfilled.
-  assert.equal(
-    aggregateStatus(placed(state("two", "confirmed", true)), 1, 2),
     "partial",
   );
   // Nothing confirmed and something still open is named by what is open,
   // rather than borrowing `partial`.
   assert.equal(
-    aggregateStatus(placed(state("two", "outstanding"), state("two", "unfilled")), 0, 2),
+    aggregateStatus(placed(state("two", "outstanding"), state("two", "unfilled"))),
     "outstanding",
   );
 });
@@ -703,6 +728,47 @@ test("progress counts fillable slots only, so hand-pasted cells never read as mi
   assert.equal(progress.decided, 1);
 });
 
+test("a capture nobody has looked PAST is counted, and never reads as finished", () => {
+  // The honest half of dropping the declared capture count. The old form
+  // asserted a lanjutan existed and reported "1 dari 2" for ever; a discovered
+  // one can do the opposite and silently MISS one that is really there. On the
+  // second sample bundle that would be 33 chances to ship a truncated clause,
+  // so "the search happened" has to be recorded, not assumed.
+  const unlooked: BrowserRun = {
+    ...RUN,
+    slots: [
+      state("one", "confirmed", true),
+      // Stamped with the fingerprint of the zone `state` builds, which is what
+      // makes it a verdict ABOUT THAT RECTANGLE rather than about the slot.
+      {
+        ...state("two", "confirmed", true),
+        continuationCheckedFor: zoneFingerprint(
+          state("two", "confirmed", true).zone!,
+        ),
+      },
+    ],
+  };
+
+  const [evidence] = sheetSections(unlooked, TEMPLATE);
+  assert.equal(evidence.entries[0].unchecked, 1, "`one` was never checked");
+  assert.equal(evidence.entries[1].unchecked, 0, "`two` was");
+
+  const progress = progressOf(unlooked, TEMPLATE);
+  assert.equal(progress.uncheckedForContinuation, 1);
+  // COUNTED, NOT BLOCKED, and the pair of assertions is the point: both
+  // captures were accepted by a person, so the export is not held up. A block
+  // that fires whenever somebody drew an area by hand without re-running
+  // Proses teaches operators that the block means nothing.
+  assert.equal(progress.decided, 2);
+  assert.equal(hasUnreviewedProposals(unlooked, TEMPLATE), false);
+
+  // A capture with no evidence is not "unchecked" -- there is nothing to look
+  // past. Counting it would put the warning on every bagian of a fresh run,
+  // where it says nothing at all.
+  const fresh: BrowserRun = { ...RUN, slots: [state("one", "pending")] };
+  assert.equal(progressOf(fresh, TEMPLATE).uncheckedForContinuation, 0);
+});
+
 test("export is blocked by an unreviewed proposal, not by an accepted gap", () => {
   const reviewed: BrowserRun = {
     ...RUN,
@@ -720,7 +786,7 @@ test("describeOutstanding names the section a missing slot belongs to", () => {
     TEMPLATE,
   );
   assert.equal(first.sectionTitle, "Evidence");
-  assert.equal(first.def?.crops, 2);
+  assert.equal(first.def?.key, "two");
   // Operator-visible, so Bahasa like every other string that reaches a screen.
   assert.equal(ghost.sectionTitle, "Tidak ada di template ini");
   assert.equal(ghost.def, undefined);
@@ -733,19 +799,28 @@ test("a second capture is named a continuation, never a second field", () => {
   // next page. Labelling them "ToP 1" and "ToP 2" told an operator the
   // document holds two Terms of Payment and one was missing, and sent them
   // looking for a second clause that does not exist.
-  assert.equal(captureLabel("ToP", 1, 2), "ToP");
-  assert.equal(captureLabel("ToP", 2, 2), "ToP (lanjutan)");
+  assert.equal(captureLabel("ToP", 1), "ToP");
+  assert.equal(captureLabel("ToP", 2), "ToP (lanjutan)");
 
-  // A single-capture slot is never decorated, whichever way it is asked.
-  assert.equal(captureLabel("Nomor", 1, 1), "Nomor");
-  assert.equal(captureLabel("Nomor", 2, 1), "Nomor");
+  // A single-capture slot is never decorated.
+  assert.equal(captureLabel("Nomor", 1), "Nomor");
 
   // Three or more: the first is not a continuation of anything, so the
   // numbering starts at the second and counts continuations, not captures.
-  assert.equal(captureLabel("Detail", 1, 3), "Detail");
-  // Numbered from 1 once there is more than one continuation, because
-  // "(lanjutan)" then "(lanjutan 2)" reads as if the first were unnumbered
-  // rather than first.
-  assert.equal(captureLabel("Detail", 2, 3), "Detail (lanjutan 1)");
-  assert.equal(captureLabel("Detail", 3, 3), "Detail (lanjutan 2)");
+  assert.equal(captureLabel("Detail", 1), "Detail");
+  assert.equal(captureLabel("Detail", 2), "Detail (lanjutan)");
+  assert.equal(captureLabel("Detail", 3), "Detail (lanjutan 2)");
+});
+
+test("a capture's name does not change when a LATER one is discovered", () => {
+  // THE INSTABILITY THIS PINS. The label used to take the slot's capture count
+  // as well, reading "(lanjutan)" at two captures and "(lanjutan 1)" at three.
+  // The count came from `SlotDef.crops` then and could not move; it is read off
+  // the run now and grows, so finding a third capture renamed a picture the
+  // operator had already accepted. Every ordinal keeps the name it had.
+  const two = [1, 2].map((ordinal) => captureLabel("ToP", ordinal));
+  const three = [1, 2, 3].map((ordinal) => captureLabel("ToP", ordinal));
+  assert.deepEqual(two, ["ToP", "ToP (lanjutan)"]);
+  assert.deepEqual(three, ["ToP", "ToP (lanjutan)", "ToP (lanjutan 2)"]);
+  assert.deepEqual(three.slice(0, 2), two);
 });

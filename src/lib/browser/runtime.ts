@@ -9,7 +9,7 @@
  * than this file is an implementation detail, and `src/lib/storage/runs.ts`
  * is the IndexedDB layer under it.
  *
- * Three invariants hold this together. Each of them exists because breaking
+ * Four invariants hold this together. Each of them exists because breaking
  * it produces a run that still opens, still looks complete, and carries the
  * wrong evidence:
  *
@@ -24,6 +24,12 @@
  *     deleted every page that ingest had written and resolved successfully.
  *     Callers must keep what `saveRun` returns -- the object they passed in
  *     is one revision behind as soon as it resolves.
+ *  1c. `slots` IS NOT DERIVABLE FROM THE TEMPLATE ANY MORE. A lanjutan is
+ *     discovered, not declared, so a discovered capture exists only in the
+ *     stored list. A write that drops one carrying a zone without naming it is
+ *     refused with `CaptureLossError` -- otherwise a routine
+ *     rebuild-from-template save deletes a crop the operator accepted, at the
+ *     correct revision, with every page present, and reports success.
  *  2. INGESTING IS ADDITIVE. A later document can only add pages and fill
  *     slots; it never touches a zone an operator already confirmed. That is
  *     the foundation of the dokumen tambahan loop (2026-08-31 corrections,
@@ -48,9 +54,9 @@ import {
   putRun,
   putSource,
   deleteRun as deleteRunRecords,
+  type PutRunOptions,
   type RunMeta,
 } from "../storage/runs.ts";
-import { CAPTURE_SEPARATOR } from "./slot-key.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
   BrowserRun,
@@ -68,29 +74,68 @@ export type {
 } from "./types.ts";
 
 /**
- * Moved to a pure leaf module so `/api/propose` can apply the SAME rule
- * server-side: this file carries `"use client"`, and a server route importing
- * from it would receive a client reference instead of a function. Re-exported
- * here so browser callers keep importing it from the runtime.
- */
-/**
- * The two ways a write is refused, re-exported because they are part of this
+ * The three ways a write is refused, re-exported because they are part of this
  * surface: a UI that treats them as generic failures tells the operator
  * nothing useful, and the one useful thing to say ("this run changed
  * underneath you, reload") is only sayable if the type is reachable.
  */
-export { PageLossError, StaleRunWriteError } from "../storage/runs.ts";
+export {
+  CaptureLossError,
+  PageLossError,
+  StaleRunWriteError,
+} from "../storage/runs.ts";
+export type { PutRunOptions } from "../storage/runs.ts";
 
 /**
- * Separates a multi-capture slot's ordinal from its template key. See
- * `SlotState.key`: the sample's ToP row holds two pictures cut from two
- * different pages, and one `SlotState` per slot would silently ship one of
- * them.
+ * How a capture's ordinal is separated from its template key, and how the two
+ * are read back apart. See `SlotState.key`.
+ *
+ * These live in a pure leaf module so `/api/propose` can apply the SAME rule
+ * server-side: this file carries `"use client"`, and a server route importing
+ * from it would receive a client reference instead of a function. Re-exported
+ * here so browser callers keep importing them from the runtime.
  */
-export { CAPTURE_SEPARATOR, slotKeyOf } from "./slot-key.ts";
+export {
+  CAPTURE_SEPARATOR,
+  captureKeyFor,
+  captureOrdinalOf,
+  nextCaptureOrdinal,
+  slotKeyOf,
+} from "./slot-key.ts";
 
 /**
- * One `SlotState` per capture the template asks for, all `"pending"`.
+ * Appending a discovered lanjutan, and removing one the operator rejected.
+ *
+ * In their own pure module for the same reason `slot-key.ts` is: they are
+ * needed where IndexedDB is not. `src/lib/ui/propose.ts` folds a route's
+ * answer into a run and is driven by `node --test`, and this file carries
+ * `"use client"` and pulls in the storage layer and the worker client.
+ */
+export {
+  withDiscoveredCaptures,
+  withoutCapture,
+  withoutCapturesAfter,
+  type DiscoveredCapture,
+} from "./captures.ts";
+
+/**
+ * EXACTLY ONE `SlotState` PER FILLABLE SLOT, all `"pending"`.
+ *
+ * ONE, NOT A DECLARED COUNT, and the change is the whole point of this
+ * feature. `SlotDef.crops` used to say that the `KB (lanjutan)` ToP row holds
+ * two pictures, and this function seeded two states up front. An operator
+ * testing the tool found what that produces: the sheet showed "ToP 1" and "ToP
+ * 2" with the second permanently missing, and they said -- correctly -- that
+ * the document holds only ONE ToP. The sample's two pictures are one payment
+ * clause split by a page break, which is a fact about that contract's page
+ * breaks and not about the form. The sheet was asserting a capture existed
+ * before anyone had looked for it, and nothing ever searched for it, so it
+ * reported "1 of 2" for ever by construction.
+ *
+ * A continuation is now APPENDED when one is found (`withDiscoveredCaptures`),
+ * for any slot, with nothing declared anywhere. That is what makes "there can
+ * be more than 1 lanjutan" and "any section could be more than a page" the
+ * same code path.
  *
  * Non-fillable slots are left out. The sample ships MOM, BASO, BA Splitting,
  * SBR Pricing and BA Penjelasan Order as deliberately empty sections that the
@@ -104,18 +149,9 @@ export function seedSlots(template: Template = AO_TEMPLATE): SlotState[] {
   for (const section of template.sections) {
     for (const slot of section.slots) {
       if (!slot.fillable) continue;
-      const captures = slot.crops ?? 1;
-      if (captures === 1) {
-        slots.push({ key: slot.key, label: slot.label, status: "pending" });
-        continue;
-      }
-      for (let n = 1; n <= captures; n++) {
-        slots.push({
-          key: `${slot.key}${CAPTURE_SEPARATOR}${n}`,
-          label: `${slot.label} (${n})`,
-          status: "pending",
-        });
-      }
+      // The template key VERBATIM: capture 1 wears no ordinal, so a run that
+      // never grows a lanjutan carries exactly the keys it always did.
+      slots.push({ key: slot.key, label: slot.label, status: "pending" });
     }
   }
 
@@ -265,6 +301,12 @@ export async function loadRun(id: string): Promise<BrowserRun | null> {
  *
  *     setRun(await saveRun({ ...run, slots: next }));
  *
+ * REFUSES A WRITE THAT SILENTLY DROPS A CAPTURE, too. `run.slots` stopped
+ * being derivable from the template the day a lanjutan became something
+ * discovered, so a shorter array is now a real loss rather than a no-op.
+ * Removing one is a stated intention: pass its key in `options.removing`,
+ * which `withoutCapture` hands back for exactly this call.
+ *
  * REFUSES A STALE WRITE rather than performing it. If anything else wrote to
  * this run since `run` was read -- an `ingestDocument` that finished
  * underneath the screen, or another tab -- this throws
@@ -275,8 +317,11 @@ export async function loadRun(id: string): Promise<BrowserRun | null> {
  * with the same object cannot work, because the object is missing whatever
  * the other writer added.
  */
-export async function saveRun(run: BrowserRun): Promise<BrowserRun> {
-  return withRunLock(run.id, () => putRun(run));
+export async function saveRun(
+  run: BrowserRun,
+  options: PutRunOptions = {},
+): Promise<BrowserRun> {
+  return withRunLock(run.id, () => putRun(run, options));
 }
 
 /** An empty run, persisted, with every fillable slot seeded `"pending"`. */

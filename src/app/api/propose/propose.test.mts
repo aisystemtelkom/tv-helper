@@ -21,7 +21,14 @@ import {
   type SessionLike,
 } from "../../../lib/auth/guard.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
+import {
+  applyResponse,
+  buildProposeRequest,
+  capturesToWalk,
+} from "../../../lib/ui/propose.ts";
+import type { BrowserRun } from "../../../lib/browser/types.ts";
 import type { SectionDef, Template } from "../../../lib/forms/template.ts";
+import { continuationChecked } from "../../../lib/browser/captures.ts";
 import {
   assertRunGlobalIndexes,
   createProposeHandler,
@@ -74,6 +81,13 @@ function wirePage(index: number, sourceId: string, text: string): WirePage {
   };
 }
 
+/** A capture's zone, as the browser sends one it already holds evidence for. */
+const ZONE_ON_PAGE_0 = {
+  pageIndex: 0,
+  box: { x: 100, y: 200, w: 900, h: 100 },
+  lineRange: [0, 1] as [number, number],
+};
+
 function proposeRequest(body: unknown): Request {
   return new Request("http://localhost/api/propose", {
     method: "POST",
@@ -91,7 +105,7 @@ test("an unauthenticated POST to /api/propose is refused, and the model is never
     gate: () => guard.apiUser(),
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [] };
+      return { proposals: [], outstanding: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -126,7 +140,7 @@ test("an admitted caller sending within-source page numbers gets a 400, not a se
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [] };
+      return { proposals: [], outstanding: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -162,7 +176,7 @@ test("a malformed line is refused before the credential is spent", async () => {
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [] };
+      return { proposals: [], outstanding: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -241,6 +255,53 @@ test("run-global numbering is accepted", () => {
   assert.equal(parseProposeBody({ runId: "r", pages: global, wanted: [] }).pages.length, 4);
 });
 
+test("a malformed captures list is a 400, not a 503 blamed on the model", () => {
+  // The lanjutan half of the request. Absent is legitimate -- a client that
+  // only wants the search sends nothing -- but a malformed one must stop here.
+  // `body.captures ?? []` accepts a string, `for..of` walks its characters,
+  // and the first `capture.key` read throws a TypeError that the handler
+  // catches on its PROVIDER-FAILURE path: the operator is told the model could
+  // not be reached, and presses Proses again for as long as they can stand it.
+  const pages = [wirePage(0, "a", "KB page one")];
+  const base = { runId: "r", pages, wanted: [] };
+
+  assert.doesNotThrow(() => parseProposeBody(base), "absent is fine");
+  assert.doesNotThrow(() =>
+    parseProposeBody({
+      ...base,
+      captures: [
+        { key: "kbLanjutan.top", zone: ZONE_ON_PAGE_0 },
+      ],
+    }),
+  );
+
+  assert.throws(() => parseProposeBody({ ...base, captures: "kb" }), /array/);
+  assert.throws(
+    () => parseProposeBody({ ...base, captures: [{ zone: ZONE_ON_PAGE_0 }] }),
+    /key/,
+  );
+  assert.throws(
+    () => parseProposeBody({ ...base, captures: [{ key: "a" }] }),
+    /zone/,
+  );
+  assert.throws(
+    () =>
+      parseProposeBody({
+        ...base,
+        captures: [{ key: "a", zone: { ...ZONE_ON_PAGE_0, pageIndex: -1 } }],
+      }),
+    /pageIndex/,
+  );
+  assert.throws(
+    () =>
+      parseProposeBody({
+        ...base,
+        captures: [{ key: "a", zone: { ...ZONE_ON_PAGE_0, lineRange: [0] } }],
+      }),
+    /lineRange/,
+  );
+});
+
 /* ------------------------------------------------------------ the pool rule */
 
 test("ranking is a preference, never a filter: every page stays in the pool", () => {
@@ -269,6 +330,14 @@ test("ranking is a preference, never a filter: every page stays in the pool", ()
 
 /* ------------------------------------------------------- the multi-capture rule */
 
+/**
+ * ONE SLOT, NO DECLARED CAPTURE COUNT.
+ *
+ * `crops: 2` used to sit on this fixture, mirroring the real template. Both
+ * are gone: a lanjutan is discovered per document now, so the only way a
+ * second capture of this bagian exists is that something walked the first one
+ * forward and found it.
+ */
 const twoCaptureSection: SectionDef = {
   title: "KB (lanjutan)",
   layout: "table",
@@ -279,7 +348,6 @@ const twoCaptureSection: SectionDef = {
       docType: null,
       hint: "the payment clause",
       fillable: true,
-      crops: 2,
     },
   ],
 };
@@ -320,27 +388,30 @@ test("a zone's pageIndex is the run-global page, not the page's own number", asy
   assert.ok(zone.pageIndex < pages.length);
 });
 
-test("a two-capture slot answers ONE capture and reports the other outstanding", async () => {
+test("a leftover lanjutan key is reported, never answered by the wide search", async () => {
+  // A run stored under the old declared-count design still carries
+  // `kbLanjutan.top#2`. The search cannot answer it: a lanjutan is defined by
+  // the capture it follows, and asking `locateSlot` for one is exactly the
+  // question that produced the gate's long-standing ToP miss (the wide call
+  // answered lines 5-16 against the human's 0-15). So it is reported and left
+  // to the walk, rather than silently filled with a second wide answer.
   const pages = [wirePage(0, "a", "alpha"), wirePage(1, "a", "beta")];
 
   const result = await proposeZones(
-    { runId: "r", pages, wanted: ["kbLanjutan.top#1", "kbLanjutan.top#2"] },
+    { runId: "r", pages, wanted: ["kbLanjutan.top", "kbLanjutan.top#2"] },
     answersSecondPage,
     TEMPLATE,
   );
 
-  // One call per slot, so exactly one capture can be filled. The other must
-  // be reported, not left pending: a slot silently short one picture is a
-  // document that looks complete and is missing evidence.
   assert.deepEqual(
     result.proposals.map((p) => p.key),
-    ["kbLanjutan.top#1"],
+    ["kbLanjutan.top"],
   );
   assert.deepEqual(
     result.outstanding.map((o) => o.key),
     ["kbLanjutan.top#2"],
   );
-  assert.match(result.outstanding[0].reason, /more than one capture/);
+  assert.match(result.outstanding[0].reason, /working forward/);
 });
 
 test("a slot the search cannot find is reported outstanding, not dropped", async () => {
@@ -350,7 +421,7 @@ test("a slot the search cannot find is reported outstanding, not dropped", async
       : '{"pageIndex":null,"from":null,"to":null,"confidence":"low"}';
 
   const result = await proposeZones(
-    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top#1"] },
+    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
     notFound,
     TEMPLATE,
   );
@@ -358,7 +429,7 @@ test("a slot the search cannot find is reported outstanding, not dropped", async
   assert.deepEqual(result.proposals, []);
   assert.deepEqual(
     result.outstanding.map((o) => o.key),
-    ["kbLanjutan.top#1"],
+    ["kbLanjutan.top"],
   );
 });
 
@@ -369,7 +440,7 @@ test("one slot's failure costs that slot, not the run", async () => {
       : "not json at all";
 
   const result = await proposeZones(
-    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top#1"] },
+    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
     garbage,
     TEMPLATE,
   );
@@ -391,7 +462,7 @@ test("a model that cannot be reached is a 503, NOT a run full of 'not found'", a
   await assert.rejects(
     () =>
       proposeZones(
-        { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top#1"] },
+        { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
         noCredential,
         TEMPLATE,
       ),
@@ -412,7 +483,7 @@ test("a model that cannot be reached is a 503, NOT a run full of 'not found'", a
   const response = await handler(
     proposeRequest({
       runId: "r",
-      wanted: ["kbLanjutan.top#1"],
+      wanted: ["kbLanjutan.top"],
       pages: [wirePage(0, "a", "alpha")],
     }),
   );
@@ -435,7 +506,7 @@ test("a classify failure does not cost the run its search", async () => {
       : '{"pageIndex":0,"from":0,"to":1,"confidence":"high"}';
 
   const result = await proposeZones(
-    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top#1"] },
+    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
     classifyBroken,
     TEMPLATE,
   );
@@ -582,4 +653,185 @@ test("re-searching only the second SP slot does not hand it the first one's page
   assert.equal(result.proposals.length, 1);
   assert.equal(result.proposals[0].key, "sp.2");
   assert.equal(result.proposals[0].zone.pageIndex, 2);
+});
+
+/* ------------------------------------------------------ the lanjutan chain */
+
+/**
+ * A model that walks a clause across every page it is given.
+ *
+ * Three prompts reach it and they are told apart by their own wording:
+ * `classifyPages` says "segmenting", `buildContinuationPrompt` ends with the
+ * next page's listing under `--- next page ---`, and anything else is
+ * `locateSlot`.
+ */
+const walksTheWholeDocument = async (prompt: string): Promise<string> => {
+  if (prompt.includes("segmenting")) {
+    return '{"spans":[{"docType":"KB","fromPage":0,"toPage":2}]}';
+  }
+  if (prompt.includes("--- next page ---")) {
+    return '{"continues":true,"from":0,"to":1,"confidence":"high"}';
+  }
+  return '{"pageIndex":0,"from":0,"to":1,"confidence":"high"}';
+};
+
+/**
+ * The three pages, as the browser stores them and as the wire carries them.
+ *
+ * Deliberately share no wording. `runningFurniture` calls two bottom lines the
+ * same running line at 0.60 token overlap, and three pages whose lines all
+ * read "... pasal 6 ..." are every line furniture, `lastContentLine` null, and
+ * stage 1 declining every capture with "no-content-line" -- which would make
+ * this test pass for the wrong reason.
+ */
+const CHAIN_WIRE_PAGES = [
+  wirePage(0, "a", "Pembayaran dilakukan bertahap"),
+  wirePage(1, "a", "Rekening tujuan transfer"),
+  wirePage(2, "a", "Sanksi keterlambatan denda"),
+];
+
+function chainRun(): BrowserRun {
+  return {
+    id: "r",
+    createdAt: 0,
+    sources: [{ id: "a", name: "LOP999001_merged.pdf", pageCount: 3 }],
+    pages: CHAIN_WIRE_PAGES.map((page) => ({
+      id: `p${page.index}`,
+      sourceId: page.sourceId,
+      index: page.index,
+      widthPx: page.width,
+      heightPx: page.height,
+      lines: page.lines,
+    })),
+    slots: [{ key: "kbLanjutan.top", label: "ToP", status: "pending" }],
+  };
+}
+
+test("a second Proses over a walked chain adds nothing: no duplicate captures, no extra calls", async () => {
+  // THE DEFECT THIS PINS, and it is the operator's original complaint rebuilt
+  // in a new place. Only the capture the walk STARTED from used to be stamped
+  // `continuationChecked`, so every link the chain appended came back
+  // unstamped -- and a non-terminal link ends at its page's last content line
+  // BY CONSTRUCTION, which is why the next link exists. The next Proses
+  // therefore re-walked all of them, was asked the identical question, and
+  // appended the identical answer under a fresh ordinal: a "ToP (lanjutan 2)"
+  // row holding the same picture as "ToP (lanjutan)", arriving `proposed` so
+  // it re-opened a settled bagian and blocked the export. Quadratically, too:
+  // an n-link chain spawns (n-1)+(n-2)+... duplicates on one press.
+  //
+  // A second Proses is the designed path, not an edge case: it is the dokumen
+  // tambahan loop, and the export screen tells the operator to press it.
+  let calls = 0;
+  const counted = async (prompt: string): Promise<string> => {
+    calls += 1;
+    return walksTheWholeDocument(prompt);
+  };
+
+  const run = chainRun();
+  const first = await proposeZones(
+    buildProposeRequest(run),
+    counted,
+    TEMPLATE,
+  );
+  const afterFirst = applyResponse(run, first);
+
+  assert.deepEqual(
+    afterFirst.slots.map((slot) => slot.key),
+    ["kbLanjutan.top", "kbLanjutan.top#2", "kbLanjutan.top#3"],
+  );
+  // Page 2 is the last page of the document, so the walk ended on a definitive
+  // no and EVERY link is checked: the middle ones because the run already
+  // holds their own lanjutan, the last because nothing follows it.
+  assert.deepEqual(
+    afterFirst.slots.map((slot) => continuationChecked(slot)),
+    [true, true, true],
+  );
+  assert.deepEqual(capturesToWalk(afterFirst), []);
+
+  const callsAfterFirst = calls;
+  const second = await proposeZones(
+    buildProposeRequest(afterFirst),
+    counted,
+    TEMPLATE,
+  );
+  const afterSecond = applyResponse(afterFirst, second);
+
+  assert.deepEqual(
+    afterSecond.slots.map((slot) => slot.key),
+    afterFirst.slots.map((slot) => slot.key),
+    "a second round must not append a capture the run already holds",
+  );
+  assert.equal(calls, callsAfterFirst, "and must not pay for the same question");
+});
+
+test("a chain re-walked from an unstamped link does not append the block twice", async () => {
+  // The second net, and it is not hypothetical: a run stored before the stamp
+  // was written to every link carries exactly this shape, and so does a
+  // capture whose flag was cleared. Nothing dedupes on ordinal -- every append
+  // takes a fresh one -- so the guard has to be on the zone itself.
+  const run = chainRun();
+  const first = await proposeZones(
+    buildProposeRequest(run),
+    walksTheWholeDocument,
+    TEMPLATE,
+  );
+  const walked = applyResponse(run, first);
+
+  const unstamped: BrowserRun = {
+    ...walked,
+    slots: walked.slots.map((slot) =>
+      slot.key === "kbLanjutan.top#2"
+        ? { ...slot, continuationCheckedFor: undefined }
+        : slot,
+    ),
+  };
+  assert.deepEqual(
+    capturesToWalk(unstamped).map((capture) => capture.key),
+    ["kbLanjutan.top#2"],
+  );
+
+  const again = await proposeZones(
+    buildProposeRequest(unstamped),
+    walksTheWholeDocument,
+    TEMPLATE,
+  );
+  // The walk answers page 2 lines 0-1 again, which is byte-for-byte the zone
+  // `#3` already holds.
+  assert.equal(again.continuations.length, 1);
+  assert.equal(again.continuations[0].zones.length, 1);
+
+  const after = applyResponse(unstamped, again);
+  assert.deepEqual(
+    after.slots.map((slot) => slot.key),
+    ["kbLanjutan.top", "kbLanjutan.top#2", "kbLanjutan.top#3"],
+  );
+});
+
+test("a whole-page capture is NOT recorded as checked, because nothing looked", async () => {
+  // `checked` used to be read off the step OUTCOME, and stage 1 "declines" a
+  // whole-page capture precisely because the geometric test carries no
+  // information about it: such a capture ends at its page's last content line
+  // by construction. So all four of the production template's `layout:
+  // "images"` captures were stamped "diperiksa, tidak ada lanjutan" although
+  // nothing had looked past them, which is the wrong-and-quiet shape the flag
+  // exists to prevent. Bundle two's whole-page sections account for 16 of its
+  // 33 continuations, so this is where the misses would be.
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: [
+        wirePage(0, "a", "KB page"),
+        wirePage(1, "a", "SP page one"),
+        wirePage(2, "a", "SP page two"),
+      ],
+      wanted: ["sp.1"],
+    },
+    classifiesSpOnly,
+    IMAGE_TEMPLATE,
+  );
+
+  assert.equal(result.continuations.length, 1);
+  assert.equal(result.continuations[0].key, "sp.1");
+  assert.equal(result.continuations[0].checked, false);
+  assert.match(result.continuations[0].reason, /says nothing about it/);
 });

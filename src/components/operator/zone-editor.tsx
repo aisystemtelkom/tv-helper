@@ -102,9 +102,9 @@ import {
   zonePageRef,
 } from "@/lib/ui/evidence";
 import type { BrowserRun, StoredPage, Zone } from "@/lib/ui/runtime";
-import { slotKeyOf } from "@/lib/ui/runtime";
+import { captureOrdinalOf, slotKeyOf } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
-import { requiredCrops, templateSlots } from "@/lib/ui/slots";
+import { templateSlots } from "@/lib/ui/slots";
 import {
   drawZone,
   isMeaningfulDrag,
@@ -593,12 +593,22 @@ export function ZoneEditor({
     return templateSlots(AO_TEMPLATE).find((entry) => entry.slot.key === key);
   }, [target.slotKey]);
 
-  // "#2" of a two-capture slot, read off the runtime key. The key itself never
-  // reaches the screen: it is system vocabulary an operator has no use for.
-  const hash = target.slotKey.indexOf("#");
-  const parsedOrdinal = hash < 0 ? NaN : Number(target.slotKey.slice(hash + 1));
-  const captureOrdinal = Number.isFinite(parsedOrdinal) ? parsedOrdinal : null;
-  const captureCount = slotDef ? requiredCrops(slotDef.slot) : 1;
+  // WHICH capture of its bagian is being drawn, read through the shared rule
+  // rather than by splitting the key here. The key itself never reaches the
+  // screen: it is system vocabulary an operator has no use for.
+  //
+  // Both numbers come from the RUN, never from the template. Nothing declares
+  // how many pictures a bagian holds -- a lanjutan is discovered -- so
+  // `captureCount` is the highest ordinal this run actually carries, and an
+  // ordinary single-capture bagian prints nothing at all.
+  const captureOrdinal = captureOrdinalOf(target.slotKey);
+  const captureCount = run.slots.reduce(
+    (high, slot) =>
+      slotKeyOf(slot.key) === slotKeyOf(target.slotKey)
+        ? Math.max(high, captureOrdinalOf(slot.key))
+        : high,
+    1,
+  );
 
   if (!page) {
     return (
@@ -850,7 +860,7 @@ export function ZoneEditor({
           {slotDef ? (
             <span className="lt-figure lt-label">{slotDef.section.title}</span>
           ) : null}
-          {captureOrdinal ? (
+          {captureCount > 1 ? (
             <span className="lt-label">
               potongan ke-{captureOrdinal} dari {captureCount}
             </span>

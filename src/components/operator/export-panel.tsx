@@ -115,7 +115,7 @@ import {
 import type { BrowserRun } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
-import { captureLabel } from "@/lib/ui/slots";
+import { captureLabel, progressOf } from "@/lib/ui/slots";
 
 import {
   Btn,
@@ -650,7 +650,6 @@ function CapturePlate({
               alt={`Potongan untuk ${captureLabel(
                 slot.label,
                 capture.ordinal,
-                slot.required,
               )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
             />
           </figure>
@@ -696,11 +695,15 @@ function CapturePlate({
       </div>
 
       <div className="flex flex-col gap-3">
-        {slot.required > 1 ? (
+        {/* Numbered only when this bagian actually holds more than one
+            picture. Nothing declares a capture count any more, so there is no
+            such thing as "1 dari 2" over a lanjutan nobody has found: the
+            figure counts what the run HAS. */}
+        {slot.maxOrdinal > 1 ? (
           <p className="lt-label">
             potongan{" "}
             <span className="lt-figure" style={{ color: "var(--ink)" }}>
-              {capture.ordinal} dari {slot.required}
+              {capture.ordinal} dari {slot.maxOrdinal}
             </span>
           </p>
         ) : null}
@@ -743,8 +746,14 @@ function SlotBlock({
   // The slot's own reading, from its captures. `partial` can never borrow
   // `proposed`'s treatment: a slot shipping one of two pictures looks complete
   // in the deliverable, which is the failure this whole screen is against.
+  //
+  // "Complete" is every capture the run HOLDS shipping, not every capture a
+  // template declared: the count is discovered now, so a bagian with one crop
+  // and no lanjutan found is complete as far as anything knows. How much of
+  // that "as far as anything knows" was ever tested is the separate figure
+  // this screen prints from `Progress.uncheckedForContinuation`.
   const status: SlotAggregateStatus =
-    slot.ships >= slot.required
+    slot.ships > 0 && slot.ships === slot.captures.length
       ? "confirmed"
       : slot.ships > 0
         ? "partial"
@@ -761,9 +770,9 @@ function SlotBlock({
         <Mark status={status} title={`${label}: ${STATUS_WORDS[status]}`} />
         <span className="lt-figure text-[1.0625rem] font-bold">{label}</span>
         <StateWord status={status} />
-        {slot.required > 1 ? (
+        {slot.captures.length > 1 ? (
           <span className="lt-figure ml-auto text-[0.8125rem]">
-            {slot.ships} dari {slot.required} potongan
+            {slot.ships} dari {slot.captures.length} potongan
           </span>
         ) : null}
       </div>
@@ -886,6 +895,20 @@ export function ExportPanel({
 
   const [barRef, barHeight] = useBarHeight();
   const plan = useMemo(() => planExport(run, AO_TEMPLATE), [run]);
+  /**
+   * How much of "lengkap" was ever tested.
+   *
+   * THE HONEST HALF OF DROPPING THE DECLARED CAPTURE COUNT. The old form
+   * asserted a second potongan existed and reported "1 dari 2" for ever; a
+   * discovered one can do the opposite and silently MISS a lanjutan that is
+   * really there, and this screen is the last place anybody looks before a
+   * validator signs. So a bagian nobody has looked PAST is counted here and
+   * said out loud. It does not block -- see `hasUnreviewedProposals` -- because
+   * the crops in the packet are ones this operator personally accepted, and a
+   * block that fires every time somebody drew an area by hand teaches people
+   * that the block means nothing.
+   */
+  const progress = useMemo(() => progressOf(run, AO_TEMPLATE), [run]);
   const thumbs = useExportThumbs(run.id, plan.crops);
   const names = deliverableNames(header, run.id);
   const { tally } = plan;
@@ -959,15 +982,11 @@ export function ExportPanel({
   // Named the way the packet names them, never by key: `kbLanjutan.top` is
   // system vocabulary and an operator cannot map it back to a row.
   const itemName = (item: (typeof blocking)[number]) =>
-    `${item.sectionTitle} / ${captureLabel(item.label, item.ordinal, item.required)}`;
+    `${item.sectionTitle} / ${captureLabel(item.label, item.ordinal)}`;
 
   const blockedNames = [
     ...blocking.map(itemName),
-    // `required` is not carried on a fault, and an ordinal above one is only
-    // ever a continuation, so 2 stands in for "at least two" here.
-    ...faults.map((crop) =>
-      captureLabel(crop.label, crop.ordinal, Math.max(2, crop.ordinal)),
-    ),
+    ...faults.map((crop) => captureLabel(crop.label, crop.ordinal)),
   ];
 
   return (
@@ -1041,7 +1060,7 @@ export function ExportPanel({
             </p>
             <p>
               <span className="lt-figure">{tally.capturesShipping}</span> dari{" "}
-              <span className="lt-figure">{tally.capturesRequired}</span>{" "}
+              <span className="lt-figure">{tally.capturesHeld}</span>{" "}
               potongan akan dicetak di dokumen validasi.
             </p>
             {tally.capturesExtra > 0 ? (
@@ -1049,6 +1068,19 @@ export function ExportPanel({
                 <span className="lt-figure">{tally.capturesExtra}</span>{" "}
                 potongan lagi berada di bagian yang biasanya Anda isi sendiri
                 dari EPIC, dan ikut dicetak.
+              </p>
+            ) : null}
+            {progress.uncheckedForContinuation > 0 ? (
+              <p style={{ color: "var(--ink-2)" }}>
+                <span className="lt-figure">
+                  {progress.uncheckedForContinuation}
+                </span>{" "}
+                bagian belum diperiksa lanjutannya: potongannya sudah Anda
+                terima, tapi belum ada yang menengok apakah bloknya terpotong di
+                bawah halaman dan bersambung ke halaman berikutnya. Jalankan
+                Proses sekali lagi untuk memeriksanya. Bagian yang diambil satu
+                halaman penuh tidak bisa diperiksa begitu, jadi bukalah halaman
+                berikutnya sendiri.
               </p>
             ) : null}
           </div>

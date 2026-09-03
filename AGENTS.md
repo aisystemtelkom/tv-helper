@@ -322,6 +322,20 @@ and looks for the same slots in any document.*
   `Zone.pageIndex` is a position in it, so there is no legitimate single-page
   removal -- only `deleteRun`, which takes the whole run, its pages and its
   PDFs.
+- **`CaptureLossError` is the third net, and it guards `slots` for the reason
+  `PageLossError` guards `pages`.** `run.slots` STOPPED BEING DERIVABLE FROM
+  THE TEMPLATE the day a lanjutan became something discovered rather than
+  declared: `seedSlots` seeds one capture per fillable slot and a continuation
+  is APPENDED when one is found, so a discovered capture exists only in the
+  stored array. Any write rebuilt from `AO_TEMPLATE.sections` -- a migration, a
+  "reset this run", a helper that maps over the sections -- therefore arrives
+  at the correct revision, carrying every page, and simply short, and `putRun`
+  would perform it and report success. Pages intact, revision current, a crop
+  a human accepted gone. So a write that drops a stored slot state CARRYING A
+  ZONE is refused unless it names the key in `putRun`'s `removing` option,
+  which is what "Bukan ini" on a lanjutan passes (`withoutCapture` in
+  `src/lib/browser/captures.ts` hands the keys back for exactly that call).
+  Not an append-only rule: removal is legitimate, it just has to say so.
 - **The tests use `fake-indexeddb`** (devDependency, test-only, never in the
   browser bundle): `node --test` has no IndexedDB, and a hand-rolled Map models
   neither the transaction nor the auto-commit that make the revision check
@@ -390,10 +404,21 @@ and looks for the same slots in any document.*
   own `<w:sectPr>` and scales both dimensions together. Four of the fillable
   slots are whole-page captures, so an uncapped width is most of the document's
   visual content, not an edge case.
-- **A slot can hold more than one crop.** `SlotDef.crops` exists because the
-  sample's `KB (lanjutan)` ToP row stacks two pictures in one cell. A
-  `Map<string, FilledSlot>` keeps only the last and silently drops the other,
-  shipping a document that looks complete and is missing evidence.
+- **A slot can hold more than one crop, and NOTHING DECLARES HOW MANY.** The
+  sample's `KB (lanjutan)` ToP row stacks two pictures in one cell, and
+  `SlotDef.crops` used to say so. An operator found what that produces: the
+  sheet showed "ToP 1" and "ToP 2" with the second permanently missing, and
+  there is only one ToP -- the two pictures are one payment clause split by a
+  page break. A continuation is now DISCOVERED per document by
+  `src/lib/pipeline/continuation.ts` (filter on geometry, confirm with one
+  next-page call, loop for "more than 1 lanjutan"), and `SlotDef.crops` is
+  dead. The exporter hazard is unchanged and is now the only reason the
+  multiplicity survives at all: a `Map<string, FilledSlot>` keeps only the last
+  crop and silently drops the other, shipping a document that looks complete
+  and is missing evidence. `pnpm generate` runs the free detection half only
+  and reports what it finds in `OUTSTANDING`; it never crops a continuation,
+  because the extent call's measured error is a legible crop of the NEXT
+  clause and a headless run has no operator to reject one.
 - **An empty section still emits its heading, and an unfilled table row still
   emits its row.** The sample ships MOM, BASO, BA Splitting, SBR Pricing, and
   BA Penjelasan Order empty, and the operator fills them by hand. A deliberately

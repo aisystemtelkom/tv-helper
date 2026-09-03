@@ -81,6 +81,7 @@ import {
   type SheetSection,
   type SlotAggregate,
   captureLabel,
+  ordinalOf,
 } from "@/lib/ui/slots";
 
 import {
@@ -137,40 +138,46 @@ function displayLabel(label: string): string {
   return /^\{\{.+\}\}$/.test(label) ? "(nomor quote)" : label;
 }
 
-function captionFor(
-  entry: SlotAggregate,
-  ordinal: number,
-  total: number,
-): string {
+function captionFor(entry: SlotAggregate, ordinal: number): string {
   const label = displayLabel(entry.def.label);
-  return captureLabel(label, ordinal, total);
+  return captureLabel(label, ordinal);
 }
 
 /**
- * Every capture of one slot, INCLUDING the ones the run holds no state for.
+ * Every capture of one slot, ONE ROW PER CAPTURE THE RUN ACTUALLY HOLDS.
  *
- * A two-capture slot that only ever received one state is half a field, and
- * dropping the missing half from the map would be the wrong-and-quiet failure
- * in miniature: a rail that accounts for eleven captures of a twelve-capture
- * packet and looks complete.
+ * IT USED TO INVENT ROWS. `Math.max(entry.required, entry.states.length)` drew
+ * a row for every capture `SlotDef.crops` declared, so the ToP bagian showed a
+ * second, permanently empty row on a contract holding one ToP -- the operator
+ * report this whole feature comes from. A lanjutan is discovered now, so a row
+ * appears when a picture does.
+ *
+ * The one row with no capture behind it is still real: a slot the template
+ * declares that the run has never seen, which happens when a stored run
+ * outlives the slot list that made it. It says so rather than being dropped.
+ *
+ * `ordinal` is the capture's own number, not its position: after a rejected
+ * lanjutan is removed, ordinals legitimately have a gap and renumbering them
+ * would relabel a picture the operator already accepted.
  */
 function rowsFor(entry: SlotAggregate, sectionTitle: string): RailRow[] {
-  const total = Math.max(entry.required, entry.states.length);
-  return Array.from({ length: total }, (_, i) => {
-    const placed = entry.states[i];
+  const total = entry.maxOrdinal;
+  if (entry.states.length === 0) {
+    return [{ ordinal: 1, total, capture: null }];
+  }
+  return entry.states.map((placed) => {
+    const ordinal = ordinalOf(placed);
     return {
-      ordinal: i + 1,
+      ordinal,
       total,
-      capture: placed
-        ? {
-            slotIndex: placed.index,
-            plateKey: entry.def.key,
-            sectionTitle,
-            fieldLabel: displayLabel(entry.def.label),
-            caption: captionFor(entry, i + 1, total),
-            state: placed.state,
-          }
-        : null,
+      capture: {
+        slotIndex: placed.index,
+        plateKey: entry.def.key,
+        sectionTitle,
+        fieldLabel: displayLabel(entry.def.label),
+        caption: captionFor(entry, ordinal),
+        state: placed.state,
+      },
     };
   });
 }
@@ -1133,9 +1140,8 @@ function BulkConfirm({
   // two proposals in a section holding three.
   const names = new Map<number, string>();
   for (const entry of section.entries) {
-    const total = Math.max(entry.required, entry.states.length);
-    entry.states.forEach((placed, i) => {
-      names.set(placed.index, captionFor(entry, i + 1, total));
+    entry.states.forEach((placed) => {
+      names.set(placed.index, captionFor(entry, ordinalOf(placed)));
     });
   }
 

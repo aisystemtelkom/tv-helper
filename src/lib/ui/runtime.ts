@@ -35,12 +35,15 @@ export type { Line, Zone };
  *    page. Resolve one to the other with `resolvePage` in `./evidence.ts`;
  *    never index `run.pages` with a `StoredPage.index`.
  *
- *  - `SlotState.key` is NOT always a `SlotDef.key`. A slot whose
- *    `SlotDef.crops` is greater than one is seeded as SEVERAL states keyed
- *    `<slotKey>#1`, `<slotKey>#2`, because `SlotState.zone` holds one zone
- *    and one state per slot would silently drop the second capture. Recover
- *    the template key with `slotKeyOf`, re-exported below -- never by
- *    splitting the string by hand.
+ *  - `SlotState.key` is NOT always a `SlotDef.key`. Capture 1 is the template
+ *    key verbatim; a LANJUTAN -- the rest of one field's evidence, carried
+ *    onto the next page by a page break -- is keyed `<slotKey>#2`,
+ *    `<slotKey>#3`, because `SlotState.zone` holds one zone and one state per
+ *    slot would silently drop the continuation. NOTHING DECLARES HOW MANY
+ *    THERE ARE: a run grows them as they are found, so a screen must read the
+ *    count off `run.slots` and never off the template. Recover the template
+ *    key with `slotKeyOf` and the capture number with `captureOrdinalOf`, both
+ *    re-exported below -- never by splitting the string by hand.
  */
 export type {
   SlotStatus,
@@ -62,9 +65,31 @@ export type {
  * the pure logic modules (`./slots.ts`, `./export.ts`) do not drag IndexedDB
  * and the Web Worker client into a plain `node --test` process.
  */
-export { slotKeyOf } from "../browser/slot-key.ts";
+export {
+  captureKeyFor,
+  captureOrdinalOf,
+  nextCaptureOrdinal,
+  slotKeyOf,
+} from "../browser/slot-key.ts";
+
+/**
+ * Appending a discovered lanjutan, and removing a rejected one.
+ *
+ * From `../browser/captures.ts` rather than from `../browser/runtime.ts` for
+ * the same reason as above: `./propose.ts` folds a route's answer into a run
+ * and is driven by `node --test`, which has no IndexedDB and no Web Worker.
+ */
+export {
+  withDiscoveredCaptures,
+  withoutCapture,
+  withoutCapturesAfter,
+  type DiscoveredCapture,
+} from "../browser/captures.ts";
 
 import type { BrowserRun, SlotState } from "../browser/runtime.ts";
+import type { PutRunOptions } from "../storage/runs.ts";
+
+export type { PutRunOptions };
 
 export type RunSummary = { id: string; createdAt: number; label: string };
 
@@ -89,8 +114,13 @@ export type Runtime = {
    * behind and is refused. That refusal is deliberate -- `saveRun` replaces a
    * run wholesale, so a stale write silently deletes every page an in-flight
    * ingest added.
+   *
+   * `options.removing` names slot-state keys this write deliberately drops. A
+   * write that loses a zone-carrying capture without naming it is refused
+   * (`CaptureLossError`), because a discovered lanjutan lives nowhere but the
+   * stored slot list.
    */
-  saveRun(run: BrowserRun): Promise<BrowserRun>;
+  saveRun(run: BrowserRun, options?: PutRunOptions): Promise<BrowserRun>;
   /**
    * Renders + OCRs every page of `file` in a Web Worker and appends them to
    * the run. `onProgress` reports page-level progress so the UI can show a bar.

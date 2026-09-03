@@ -34,6 +34,11 @@ import {
   type Template,
 } from "../../../lib/forms/template.ts";
 import type { Ask, DocType } from "../../../lib/pipeline/classify.ts";
+import {
+  endedOnDefinitiveNo,
+  findContinuations,
+  runningFurniture,
+} from "../../../lib/pipeline/continuation.ts";
 import { locateSlot, type OcrPage, type Zone } from "../../../lib/pipeline/locate.ts";
 // The wire contract, the provider-failure tag and the classify pass are
 // SHARED WITH `/api/extract` and live in one copy under `src/lib/api/`. They
@@ -54,8 +59,14 @@ export type { WirePage };
 export type ProposeBody = {
   runId: string;
   pages: WirePage[];
-  /** `SlotState.key`s still wanting a zone, e.g. `kbLanjutan.top#1`. */
+  /** `SlotState.key`s still wanting a zone. Capture 1 is the bare slot key. */
   wanted: string[];
+  /**
+   * Captures that already hold evidence and have not been checked for a
+   * lanjutan. Optional so an older client, or a test that only cares about the
+   * search, needs no continuation phase at all.
+   */
+  captures?: { key: string; zone: Zone }[];
 };
 
 export type Proposal = {
@@ -66,10 +77,20 @@ export type Proposal = {
   confidence: "high" | "low";
 };
 
+/** One capture's lanjutan chain. See `walkContinuations`. */
+export type ContinuationAnswer = {
+  key: string;
+  zones: { zone: Zone; text: string; confidence: "high" | "low" }[];
+  checked: boolean;
+  reason: string;
+};
+
 export type ProposeResult = {
   proposals: Proposal[];
   /** Searched and not found, with why. Drives the dokumen tambahan loop. */
   outstanding: { key: string; reason: string }[];
+  /** One entry per capture walked forward, found or not. */
+  continuations: ContinuationAnswer[];
 };
 
 /**
@@ -214,30 +235,189 @@ function wholePageProposals(
       // about -- only the identification, which the operator still reviews.
       confidence: "high",
     });
+    // `seedSlots` seeds one capture per slot, so `rest` is normally empty. It
+    // is not dead: a run stored under the old declared-count design still
+    // carries `<key>#2` states, and a whole-page section supplies one page per
+    // slot. Reported rather than left `pending` for ever, which is what the
+    // operator's complaint was about.
     for (const key of rest) {
       outstanding.push({
         key,
         reason:
-          "this slot holds more than one capture and a whole-page section " +
-          "supplies one page per slot; add it by hand or supply a dokumen " +
-          "tambahan",
+          "a whole-page section supplies one page per bagian, so this extra " +
+          "capture has no page of its own; draw it by hand or supply a " +
+          "dokumen tambahan",
       });
     }
   }
 }
 
 /**
+ * Does each of these captures run on to the next page, and how far?
+ *
+ * ## Why this is a separate phase rather than more of the search
+ *
+ * They are two different questions and the difference is measurable. The
+ * search asks "where in these 29 pages is the payment clause", a ~20k-token
+ * listing that can land on the wrong page. This asks "does that block
+ * continue onto page 20", ~760 tokens, 3.8% as much, and the page is GIVEN so
+ * it CANNOT land on the wrong one. Asked the wide way, the sample's ToP
+ * continuation answers lines 5-16 and fails containment against the human's
+ * 0-15 -- the gate's long-standing `KB / ToP (2)` miss. Asked here, given the
+ * page, it answers 0-15 exactly. The narrow question is not merely cheaper, it
+ * is the one the model gets right.
+ *
+ * ## Scoped to ONE SOURCE DOCUMENT, which is what `sourceId` is for
+ *
+ * A chain may not walk out of the file it started in: the last page of a
+ * merged contract scan is not continued by the first page of a separate
+ * SPLITBA scan, however adjacent their run-global numbers are. Pages are
+ * grouped by `sourceId` here and the running-furniture pool is per document
+ * too -- pooling the 27-page contract separately from the 2-page SPLITBA is
+ * what correctly gives the SPLITBA pages no footer lines at all.
+ *
+ * ## A provider failure is NOT a chain that ended
+ *
+ * `findContinuations` turns any error from its confirming call into a
+ * "model-error" step and stops the chain, which is right for a malformed reply
+ * and catastrophic for a 503: the capture would be recorded as CHECKED, and
+ * "we looked and there is no lanjutan" is the one thing this feature must
+ * never say falsely. So the `Ask` is watched, and an `AskFailed` is re-thrown
+ * to fail the whole request the way a failed locate does.
+ */
+async function walkContinuations(
+  captures: readonly { key: string; zone: Zone }[],
+  pages: WirePage[],
+  ask: Ask,
+  defs: Map<string, { section: SectionDef; slot: SlotDef }>,
+): Promise<ContinuationAnswer[]> {
+  if (captures.length === 0) return [];
+
+  // Pages of one source document, in run order. `assertRunGlobalIndexes` has
+  // already established that `index` is the position in the run, so "in order"
+  // is the order they arrive in.
+  const bySource = new Map<string, OcrPage[]>();
+  for (const page of pages) {
+    const list = bySource.get(page.sourceId) ?? [];
+    list.push({
+      index: page.index,
+      width: page.width,
+      height: page.height,
+      lines: page.lines,
+    });
+    bySource.set(page.sourceId, list);
+  }
+  const sourceOfPage = new Map(pages.map((page) => [page.index, page.sourceId]));
+  const furnitureBySource = new Map<string, Map<number, Set<number>>>();
+
+  let providerFailure: unknown;
+  const watchedAsk: Ask = async (prompt) => {
+    try {
+      return await ask(prompt);
+    } catch (error) {
+      if (error instanceof AskFailed) providerFailure ??= error;
+      throw error;
+    }
+  };
+
+  const answers: ContinuationAnswer[] = [];
+
+  for (const capture of captures) {
+    const entry = defs.get(slotKeyOf(capture.key));
+    if (!entry) {
+      answers.push({
+        key: capture.key,
+        zones: [],
+        checked: false,
+        reason: "no slot with this key in the template",
+      });
+      continue;
+    }
+
+    const sourceId = sourceOfPage.get(capture.zone.pageIndex);
+    const documentPages = sourceId ? bySource.get(sourceId) : undefined;
+    if (!sourceId || !documentPages) {
+      // The zone names a page this run no longer holds. Recorded, not thrown:
+      // the capture is broken for other reasons the operator will see anyway,
+      // and `checked: false` keeps it honestly unexamined.
+      answers.push({
+        key: capture.key,
+        zones: [],
+        checked: false,
+        reason:
+          `page ${capture.zone.pageIndex} is not among the ${pages.length} ` +
+          "pages supplied, so there is no next page to look at",
+      });
+      continue;
+    }
+
+    let furniture = furnitureBySource.get(sourceId);
+    if (!furniture) {
+      furniture = runningFurniture(documentPages);
+      furnitureBySource.set(sourceId, furniture);
+    }
+
+    const walk = await findContinuations({
+      slotLabel: entry.slot.label,
+      hint: entry.slot.hint,
+      zone: capture.zone,
+      documentPages,
+      furniture,
+      // A whole-page capture ends at its page's last content line BY
+      // CONSTRUCTION, so the geometric filter says nothing about it and three
+      // of bundle one's six false positives were exactly that.
+      wholePageCapture: entry.section.layout === "images",
+      ask: watchedAsk,
+    });
+    if (providerFailure) throw providerFailure;
+
+    const last = walk.steps[walk.steps.length - 1];
+    answers.push({
+      key: capture.key,
+      // Read off the STEPS rather than off `walk.zones`, so the text and the
+      // confidence that reach the operator are the ones recorded beside the
+      // rectangle they describe. The two lists are parallel by construction,
+      // and pairing them by index would go quietly wrong the day they are not.
+      zones: walk.steps.flatMap((step) =>
+        step.outcome === "found" && step.zone
+          ? [
+              {
+                zone: step.zone,
+                text: step.text ?? "",
+                confidence: step.confidence ?? "low",
+              },
+            ]
+          : [],
+      ),
+      // Only a definitive no counts as checked, READ OFF THE VERDICT. This was
+      // `outcome === "declined" || "model-declined"`, and "declined" covers
+      // stage 1's non-answers too: a whole-page capture is declined precisely
+      // because the geometric test says nothing about it, so all four of this
+      // template's `layout: "images"` captures were being recorded as
+      // "diperiksa, tidak ada lanjutan" although nothing had looked. `cap` and
+      // `model-error` are non-answers of the same kind, one page later.
+      checked: endedOnDefinitiveNo(last),
+      reason: last?.reason ?? "nothing to check",
+    });
+  }
+
+  return answers;
+}
+
+/**
  * The search itself.
  *
  * ONE MODEL CALL PER TEMPLATE SLOT, not per capture, and NONE AT ALL for a
- * `layout: "images"` section -- see `wholePageProposals`. A slot whose
- * `SlotDef.crops` is 2 is wanted as two `SlotState`s (`#1`, `#2`) but its
- * `hint` describes only the first of them -- deliberately, and measured:
- * naming both captures in one hint made the call land on the second and drop
- * the first. So the answer fills the lowest-numbered wanted capture and the
- * rest are returned OUTSTANDING, which is what hands them to the dokumen
- * tambahan loop and to manual selection instead of quietly leaving them
- * `pending` forever.
+ * `layout: "images"` section -- see `wholePageProposals`.
+ *
+ * A LANJUTAN IS NOT SEARCHED FOR HERE. Every slot is wanted as exactly one
+ * capture now (`seedSlots` seeds one, `SlotDef.crops` is dead), and the rest of
+ * a block that ran past a page bottom is found afterwards by
+ * `walkContinuations`, working forward from the capture this search produced.
+ * The `kbLanjutan.top` hint still describes only the FIRST capture, which is
+ * still deliberate and still measured: naming the remittance block that the
+ * sample's second picture holds made this one call land on the account page
+ * and drop the clause. One call, one thing.
  */
 export async function proposeZones(
   body: ProposeBody,
@@ -253,8 +433,29 @@ export async function proposeZones(
   const proposals: Proposal[] = [];
   const outstanding: { key: string; reason: string }[] = [];
 
-  if (body.pages.length === 0 || body.wanted.length === 0) {
-    return { proposals, outstanding };
+  const defs = new Map(
+    template.sections.flatMap((section) =>
+      section.slots.map((slot) => [slot.key, { section, slot }] as const),
+    ),
+  );
+
+  // Nothing to search does not mean nothing to do: a run whose slots are all
+  // confirmed can still have captures nobody has looked past, which is the
+  // whole point of a second Proses after the operator drew a zone by hand.
+  if (body.pages.length === 0) {
+    return { proposals, outstanding, continuations: [] };
+  }
+  if (body.wanted.length === 0) {
+    return {
+      proposals,
+      outstanding,
+      continuations: await walkContinuations(
+        body.captures ?? [],
+        body.pages,
+        ask,
+        defs,
+      ),
+    };
   }
 
   // Wanted capture keys, grouped under the template key they belong to and
@@ -266,12 +467,6 @@ export async function proposeZones(
     if (list) list.push(key);
     else wantedBySlot.set(slotKey, [key]);
   }
-
-  const defs = new Map(
-    template.sections.flatMap((section) =>
-      section.slots.map((slot) => [slot.key, { section, slot }] as const),
-    ),
-  );
 
   const byType = await classifyByDocType(body.pages, ask);
 
@@ -348,17 +543,39 @@ export async function proposeZones(
       text: found.text,
       confidence: found.confidence,
     });
+    // As above: normally empty. A leftover `<key>#2` from an older run is not
+    // something a whole-bundle search can answer -- a lanjutan is defined by
+    // the capture it follows -- so it is reported and then walked forward
+    // from below like any other capture.
     for (const key of rest) {
       outstanding.push({
         key,
         reason:
-          "this slot holds more than one capture and the search answers one " +
-          "of them; add it by hand or supply a dokumen tambahan",
+          "a lanjutan is found by working forward from the capture before it, " +
+          "not by searching the bundle; it is checked once the first capture " +
+          "is in place",
       });
     }
   }
 
-  return { proposals, outstanding };
+  // LAST, AND OVER THIS ROUND'S OWN PROPOSALS TOO. A capture the browser has
+  // never seen cannot be in `body.captures`, so a first Proses would otherwise
+  // find every bagian and check none of them for a lanjutan, and the operator
+  // would have to press the button twice to get the second half of a clause.
+  const continuations = await walkContinuations(
+    [
+      ...(body.captures ?? []),
+      ...proposals.map((proposal) => ({
+        key: proposal.key,
+        zone: proposal.zone,
+      })),
+    ],
+    body.pages,
+    ask,
+    defs,
+  );
+
+  return { proposals, outstanding, continuations };
 }
 
 export type ProposeDeps = {
@@ -403,7 +620,58 @@ export function parseProposeBody(value: unknown): ProposeBody {
   // returns a plausible citation of the wrong text. Checked HERE, before the
   // gate lets anything spend the credential on it.
   assertWirePages(body.pages as WirePage[]);
+  assertCaptures(body.captures);
   return body as ProposeBody;
+}
+
+/**
+ * The lanjutan half of the request, shape-checked like the pages are.
+ *
+ * ABSENT IS FINE, MALFORMED IS NOT. `captures` is optional so a client that
+ * only wants the search sends nothing, and the walk over an empty list costs
+ * nothing. What must not happen is a malformed one reaching
+ * `walkContinuations`: `body.captures ?? []` accepts a string, `for..of` walks
+ * its characters, and the first `capture.key` read throws a TypeError that
+ * `createProposeHandler` catches on its provider-failure path. The operator
+ * would be told the model could not be reached, and would press Proses again
+ * for as long as they had patience. A caller's mistake has to answer 400.
+ *
+ * The zone is checked as far as this route relies on it -- a page number and a
+ * line range, both used to pick the page to look at and to renumber lines
+ * against it. `boxForLineRange` re-derives the rectangle downstream, so the
+ * box is carried but never trusted here.
+ */
+function assertCaptures(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) throw new Error("captures must be an array");
+
+  value.forEach((capture, at) => {
+    const where = `captures[${at}]`;
+    if (!capture || typeof capture !== "object") {
+      throw new Error(`${where} is not an object`);
+    }
+    const { key, zone } = capture as { key?: unknown; zone?: unknown };
+    if (typeof key !== "string" || key === "") {
+      throw new Error(`${where}.key must be a slot state key`);
+    }
+    if (!zone || typeof zone !== "object") {
+      throw new Error(`${where}.zone is required`);
+    }
+    const { pageIndex, lineRange } = zone as {
+      pageIndex?: unknown;
+      lineRange?: unknown;
+    };
+    if (!Number.isInteger(pageIndex) || (pageIndex as number) < 0) {
+      throw new Error(`${where}.zone.pageIndex must be a page number`);
+    }
+    if (
+      !Array.isArray(lineRange) ||
+      lineRange.length !== 2 ||
+      !lineRange.every((n) => Number.isInteger(n) && n >= 0)
+    ) {
+      throw new Error(`${where}.zone.lineRange must be two line numbers`);
+    }
+  });
 }
 
 /**

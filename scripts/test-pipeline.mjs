@@ -752,39 +752,49 @@ test("EPIC-only xlsx rows carry no fieldKey, so nothing can fill them", () => {
   }
 });
 
-// Task 8 fix round 1: the sample's KB (lanjutan) "ToP" row stacks two images
-// (rId17 -> image9.png, rId18 -> image10.png) in a single table cell. A
-// SlotDef with no crop count can only ever back one PNG per slot, so the
-// exporter would silently drop the second capture. `crops` makes that
-// multiplicity explicit and defaults to 1 so every other slot's meaning is
-// unchanged.
+// The `crops: 2` that used to sit on kbLanjutan.top is GONE, and these two
+// tests are the fence around it.
+//
+// It declared that the ToP row holds two pictures, because the sample's KB
+// (lanjutan) ToP cell stacks two. An operator testing the tool found what that
+// produces: the sheet showed "ToP 1" and "ToP 2" with the second permanently
+// missing, and they said -- correctly -- that there is only ONE ToP. The
+// sample's two pictures are one payment clause split by a page break: capture 1
+// is the clause's items 1 to 3, capture 2 is items 4 and 5 of that same clause
+// under the next page's header. Nothing about that is a property of the FORM.
+//
+// A continuation is discovered per document now (src/lib/pipeline/
+// continuation.ts). The exporter must still stack a LIST of crops per key --
+// see "buildDocx stacks both of a slot's crops in that one cell" below -- but
+// how long that list is comes from what was found, never from the template.
 
 const findSlot = (key) =>
   AO_TEMPLATE.sections.flatMap((s) => s.slots).find((s) => s.key === key);
 
-test("kbLanjutan.top reports 2 crops, matching the sample's stacked images", () => {
-  assert.equal(findSlot("kbLanjutan.top").crops, 2);
-});
+test("no slot declares a crop count any more", () => {
+  // The one the operator hit, named rather than only covered by the sweep.
+  assert.equal(findSlot("kbLanjutan.top").crops, undefined);
 
-test("every other fillable slot reports 1 crop", () => {
-  // crops is optional and defaults to 1 when absent -- reading through that
-  // default (crops ?? 1) is the contract, not a literal field on every slot.
-  const others = AO_TEMPLATE.sections
-    .flatMap((s) => s.slots)
-    .filter((s) => s.fillable && s.key !== "kbLanjutan.top");
-  assert.ok(others.length > 0);
-  for (const slot of others) {
-    assert.equal(slot.crops ?? 1, 1, `${slot.key} should report 1 crop`);
+  for (const slot of AO_TEMPLATE.sections.flatMap((s) => s.slots)) {
+    assert.equal(
+      slot.crops,
+      undefined,
+      `${slot.key} declares crops: ${slot.crops}. A capture count cannot be a ` +
+        "property of the form -- the same clause fits one page on one contract " +
+        "and three on the next. Let continuation.ts discover it.",
+    );
   }
 });
 
-test("fillable slots total 12 crops across 11 slots", () => {
+test("every fillable slot is one capture until something finds another", () => {
   const fillable = AO_TEMPLATE.sections.flatMap((s) =>
     s.slots.filter((x) => x.fillable),
   );
   assert.equal(fillable.length, 11);
+  // Eleven slots, eleven seeded captures. The sample's twelfth picture is
+  // ToP's continuation, which is now found rather than asserted.
   const totalCrops = fillable.reduce((sum, s) => sum + (s.crops ?? 1), 0);
-  assert.equal(totalCrops, 12);
+  assert.equal(totalCrops, 11);
 });
 
 import JSZip from "jszip";
@@ -1109,10 +1119,15 @@ test("buildDocx shrinks a crop wider than the usable column instead of letting W
 });
 
 test("buildDocx stacks both of a slot's crops in that one cell", async () => {
-  // kbLanjutan.top declares crops: 2 because the sample's ToP row stacks two
-  // pictures in a single cell. Keying filled slots by name alone keeps only
+  // The sample's ToP row stacks two pictures in a single cell -- one payment
+  // clause split by a page break. Keying filled slots by name alone keeps only
   // one of them, which ships a document that looks complete and is missing
   // evidence.
+  //
+  // NOTHING DECLARES THAT COUNT ANY MORE (`SlotDef.crops` is dead), which
+  // makes this test MORE load-bearing rather than less: the exporter's
+  // contract is a LIST per key of whatever length was discovered, so the
+  // second capture arrives here with no template entry saying to expect it.
   const solid = async (w, h) => {
     const canvas = createCanvas(w, h);
     const ctx = canvas.getContext("2d");
@@ -1552,17 +1567,19 @@ import "./test-pipeline-types.ts";
 
 import {
   NEVER_EXTRACTED,
+  continuationAnswered,
+  continuationChecks,
   extractTextFields,
   extractableFieldKeys,
   inTemplateOrder,
   mergeZones,
+  outstandingContinuations,
   outstandingFields,
   outstandingSlots,
   parseArgs,
   rankedPoolForDocTypes,
   satisfiedSlotKeys,
   searchRound,
-  slotCropCount,
   templateSlots,
   withFieldHints,
 } from "./generate.mjs";
@@ -1600,8 +1617,7 @@ const TINY_TEMPLATE = {
       layout: "table",
       slots: [
         { key: "field.one", label: "One", docType: "KB", hint: "a", fillable: true },
-        { key: "field.two", label: "Two", docType: "KB", hint: "b", fillable: true,
-          crops: 2 },
+        { key: "field.two", label: "Two", docType: "KB", hint: "b", fillable: true },
         { key: "field.manual", label: "Manual", docType: null, hint: "c",
           fillable: false },
       ],
@@ -1705,9 +1721,11 @@ test("searchRound reports outstanding slots as structured data, with reasons", a
     assert.equal(item.kind, "slot");
     assert.equal(typeof item.label, "string");
     assert.equal(typeof item.section, "string");
-    assert.equal(item.found, 0);
-    assert.ok(item.required >= 1);
     assert.ok(item.reason.length > 0);
+    // `found` and `required` are gone with `SlotDef.crops`: they only ever
+    // said "1 of 2 captures found", about a count the form declared and
+    // nothing ever searched for. An entry here has no capture at all.
+    assert.equal("required" in item, false);
   }
 
   const byKey = new Map(outstanding.map((o) => [o.key, o]));
@@ -1766,88 +1784,211 @@ test("mergeZones is additive: a later round never discards an earlier zone", () 
     { key: "whole.2", pageIndex: 12, box: {}, lineRange: [0, 4] },
   ];
 
-  const merged = mergeZones(round1, round2, TINY_TEMPLATE);
+  const merged = mergeZones(round1, round2);
 
   // Every round-1 zone survives untouched...
   for (const zone of round1) assert.ok(merged.includes(zone));
-  // ...the round-2 replacement for an already-filled single-crop slot is
-  // dropped rather than overwriting it...
+  // ...the round-2 replacement for an already-filled slot is dropped rather
+  // than overwriting it...
   assert.equal(merged.filter((z) => z.key === "field.one").length, 1);
   assert.equal(merged.find((z) => z.key === "field.one").pageIndex, 3);
   // ...and the new slot is added.
   assert.equal(merged.find((z) => z.key === "whole.2").pageIndex, 12);
 });
 
-test("mergeZones lets a later round supply the second crop of a two-crop slot", () => {
+test("mergeZones gives a slot one capture, whatever a later round proposes", () => {
+  // This used to be "a later round supplies the second crop of a two-crop
+  // slot", which was the `crops: 2` design: the sheet asserted a second ToP
+  // capture existed and the dokumen tambahan round was meant to find it. It
+  // never could -- the second picture is the SAME clause continuing onto the
+  // next page of the SAME document, not evidence in a further file -- so the
+  // slot reported "1 of 2" forever. A round fills empty slots; a continuation
+  // is found by walking forward from the capture (continuation.ts).
   const round1 = [{ key: "field.two", pageIndex: 1, box: {}, lineRange: [0, 1] }];
   const round2 = [{ key: "field.two", pageIndex: 5, box: {}, lineRange: [2, 3] }];
-  const round3 = [{ key: "field.two", pageIndex: 9, box: {}, lineRange: [4, 5] }];
 
-  const afterTwo = mergeZones(round1, round2, TINY_TEMPLATE);
-  assert.deepEqual(afterTwo.map((z) => z.pageIndex), [1, 5]);
-
-  // `crops: 2` is the cap, so a third round adds nothing more.
-  const afterThree = mergeZones(afterTwo, round3, TINY_TEMPLATE);
-  assert.deepEqual(afterThree.map((z) => z.pageIndex), [1, 5]);
+  const afterTwo = mergeZones(round1, round2);
+  assert.deepEqual(afterTwo.map((z) => z.pageIndex), [1]);
 });
 
-test("satisfiedSlotKeys counts against crops, not against 'has any zone'", () => {
-  const one = [{ key: "field.two", pageIndex: 1 }];
-  assert.equal(satisfiedSlotKeys(TINY_TEMPLATE, one).has("field.two"), false);
-
-  const two = [...one, { key: "field.two", pageIndex: 2 }];
-  assert.equal(satisfiedSlotKeys(TINY_TEMPLATE, two).has("field.two"), true);
-
-  // A single-crop slot is satisfied by one zone.
+test("satisfiedSlotKeys asks whether a slot has a capture, and nothing else", () => {
   assert.equal(
-    satisfiedSlotKeys(TINY_TEMPLATE, [{ key: "field.one", pageIndex: 0 }]).has(
-      "field.one",
+    satisfiedSlotKeys(TINY_TEMPLATE, [{ key: "field.two", pageIndex: 1 }]).has(
+      "field.two",
     ),
     true,
   );
+  assert.equal(satisfiedSlotKeys(TINY_TEMPLATE, []).has("field.two"), false);
+
+  // A slot nothing backs is never "satisfied" and never outstanding either.
+  assert.equal(
+    satisfiedSlotKeys(TINY_TEMPLATE, [
+      { key: "field.manual", pageIndex: 0 },
+    ]).has("field.manual"),
+    false,
+  );
 });
 
-test("outstandingSlots names a half-filled two-crop slot instead of calling it done", () => {
+test("outstandingSlots names only slots with no capture at all", () => {
   const zones = [
     { key: "field.one", pageIndex: 0 },
     { key: "field.two", pageIndex: 1 },
     { key: "whole.1", pageIndex: 2 },
-    { key: "whole.2", pageIndex: 3 },
   ];
 
   const outstanding = outstandingSlots(TINY_TEMPLATE, zones);
 
-  assert.deepEqual(outstanding.map((o) => o.key), ["field.two"]);
-  assert.equal(outstanding[0].found, 1);
-  assert.equal(outstanding[0].required, 2);
-  assert.match(outstanding[0].reason, /1 of 2/);
+  // field.two has its one capture and is done. Whether it continues onto the
+  // next page is a separate question with a separate answer -- see
+  // continuationChecks -- and is never reported as a missing slot, because
+  // "1 of 2 captures found" was a claim about a count the form invented.
+  assert.deepEqual(outstanding.map((o) => o.key), ["whole.2"]);
 });
 
-test("a partly-filled slot's reason leads with its count, not the last round's message", () => {
-  // Measured on the real two-round run: kbLanjutan.top held one of its two
-  // captures from round 1, round 2 searched the tambahan for the second and
-  // found none, and the reason read "the model found no match" -- which says
-  // the slot is empty, next to a found:1 that says it is not.
-  const zones = [
-    { key: "field.one", pageIndex: 0 },
-    { key: "field.two", pageIndex: 1 },
-    { key: "whole.1", pageIndex: 2 },
-    { key: "whole.2", pageIndex: 3 },
-  ];
+test("an outstanding slot carries the round's own reason", () => {
   const reasons = new Map([["field.two", "the model found no match"]]);
-
-  const [item] = outstandingSlots(TINY_TEMPLATE, zones, reasons);
-
-  assert.equal(item.found, 1);
-  assert.match(item.reason, /^1 of 2 captures found/);
-  // The round's own message is kept, but as the tail rather than the claim.
-  assert.match(item.reason, /the model found no match/);
-
-  // A slot with nothing at all still leads with what went wrong.
   const empty = outstandingSlots(TINY_TEMPLATE, [], reasons).find(
     (o) => o.key === "field.two",
   );
   assert.equal(empty.reason, "the model found no match");
+
+  // And a slot no round recorded anything about still says something.
+  const silent = outstandingSlots(TINY_TEMPLATE, []).find(
+    (o) => o.key === "field.two",
+  );
+  assert.equal(silent.reason, "searched, not found");
+});
+
+test("continuationChecks stamps EVERY capture, including the ones that do not continue", () => {
+  // The whole point of recording a decline. Dropping the declared count trades
+  // "asserts a capture that may not exist" for "may silently miss one that
+  // does", and the only thing that closes that trade is a record that the
+  // search happened. A capture nobody checked must not read like a capture
+  // that was checked and is complete.
+  const zones = [
+    { key: "field.one", pageIndex: 0, box: {}, lineRange: [0, 3] },
+    { key: "field.two", pageIndex: 1, box: {}, lineRange: [0, 9] },
+  ];
+  // Page 2 is the first page of a SECOND file, so the entry has to name that
+  // file and page 0 of it, not "one after page 1 of bundle.pdf".
+  const pages = [fakePage(0), fakePage(1), fakePage(0, "tambahan.pdf")];
+  pages[2].index = 2;
+
+  const seen = [];
+  const checks = continuationChecks(TINY_TEMPLATE, zones, pages, (zone, section) => {
+    seen.push([zone.key, section.title]);
+    return zone.key === "field.two"
+      ? {
+          looksLikeContinuation: true,
+          verdict: "at-page-bottom",
+          reason: "its last line (9) is page 1's last content line (9)",
+          nextPage: { index: 2 },
+        }
+      : {
+          looksLikeContinuation: false,
+          verdict: "above-last-content",
+          reason: "its last line (3) sits 6 line(s) above page 0's last content line (9)",
+          nextPage: { index: 1 },
+        };
+  });
+
+  // The section is handed to the check, because whether a capture is a
+  // whole-page one is a fact about the SECTION and is what fences the rule.
+  assert.deepEqual(seen, [
+    ["field.one", "Fields"],
+    ["field.two", "Fields"],
+  ]);
+
+  assert.equal(checks.length, 2);
+  assert.deepEqual(
+    checks.map((c) => [c.key, c.looksLikeContinuation, c.verdict]),
+    [
+      ["field.one", false, "above-last-content"],
+      ["field.two", true, "at-page-bottom"],
+    ],
+  );
+  // Each entry names the source and the page a human would open, not only the
+  // run's global page number -- and the NEXT page is resolved out of the run's
+  // page list rather than derived from the current page's own number, which is
+  // the off-by-one an xlsx cell note already cost this project once.
+  assert.equal(checks[1].sourceName, "bundle.pdf");
+  assert.equal(checks[1].pageInDoc, 1);
+  assert.equal(checks[1].nextPageIndex, 2);
+  assert.equal(checks[1].nextSourceName, "tambahan.pdf");
+  assert.equal(checks[1].nextPageInDoc, 0);
+});
+
+test("a whole-page capture is reported as NOT answered, not as 'no lanjutan'", () => {
+  // "It ran" and "it answered" are different things. Stage 1 declines a
+  // whole-page capture with verdict `whole-page-capture` precisely because
+  // such a capture ends at its page's last content line BY CONSTRUCTION, so
+  // running off the bottom says nothing about it -- and `no-content-line` is
+  // the same kind of non-answer. Four of AO_TEMPLATE's twelve captures are
+  // whole-page, so printing those as "checked, no lanjutan" would put the
+  // affirmative over a third of the packet's evidence with nothing having
+  // looked. The run log and the OUTSTANDING json both read this.
+  const entry = (verdict, looksLikeContinuation = false) => ({
+    key: "k",
+    label: "L",
+    section: "S",
+    looksLikeContinuation,
+    verdict,
+    reason: "r",
+  });
+
+  assert.equal(continuationAnswered(entry("above-last-content")), true);
+  assert.equal(continuationAnswered(entry("no-next-page")), true);
+  assert.equal(continuationAnswered(entry("at-page-bottom", true)), true);
+  assert.equal(continuationAnswered(entry("past-last-content", true)), true);
+
+  assert.equal(continuationAnswered(entry("whole-page-capture")), false);
+  assert.equal(continuationAnswered(entry("no-content-line")), false);
+});
+
+test("outstandingContinuations reports the cut-off captures and names where to look", () => {
+  const checks = [
+    {
+      key: "field.one",
+      label: "One",
+      section: "Fields",
+      pageIndex: 0,
+      sourceName: "bundle.pdf",
+      pageInDoc: 0,
+      looksLikeContinuation: false,
+      verdict: "above-last-content",
+      reason: "it stops well above the page bottom",
+      nextPageIndex: 1,
+      nextSourceName: "bundle.pdf",
+      nextPageInDoc: 1,
+    },
+    {
+      key: "field.two",
+      label: "Two",
+      section: "Fields",
+      pageIndex: 1,
+      sourceName: "bundle.pdf",
+      pageInDoc: 1,
+      looksLikeContinuation: true,
+      verdict: "at-page-bottom",
+      reason: "its last line (9) is page 1's last content line (9)",
+      nextPageIndex: 2,
+      nextSourceName: "tambahan.pdf",
+      nextPageInDoc: 0,
+    },
+  ];
+
+  const outstanding = outstandingContinuations(checks);
+
+  assert.deepEqual(outstanding.map((o) => o.key), ["field.two"]);
+  assert.equal(outstanding[0].kind, "continuation");
+  // It says WHERE, in the source document's own page numbering, because that
+  // is the page the operator opens. `pageInDoc` is 0-based and a PDF reader
+  // is not.
+  assert.match(outstanding[0].reason, /run page 2 is where to look/);
+  assert.match(outstanding[0].reason, /tambahan\.pdf, page 1 of that file/);
+  // And it says plainly that nothing was cropped, so a reader does not go
+  // looking in the docx for a picture that is not there.
+  assert.match(outstanding[0].reason, /does not crop a lanjutan/);
 });
 
 test("outstandingFields names every backed xlsx row that came back blank", () => {
@@ -1908,7 +2049,7 @@ test("two rounds are additive end to end: round 2 fills only what round 1 missed
     },
   });
   for (const [key, reason] of r1.reasons) reasons.set(key, reason);
-  zones = mergeZones(zones, r1.zones, template);
+  zones = mergeZones(zones, r1.zones);
 
   assert.deepEqual(asked, ["r1:field.one", "r1:field.two"]);
   assert.deepEqual(
@@ -1932,7 +2073,7 @@ test("two rounds are additive end to end: round 2 fills only what round 1 missed
     },
   });
   for (const [key, reason] of r2.reasons) reasons.set(key, reason);
-  zones = mergeZones(zones, r2.zones, template);
+  zones = mergeZones(zones, r2.zones);
 
   // field.one was already satisfied, so round 2 never re-asked for it.
   assert.deepEqual(asked, ["r1:field.one", "r1:field.two", "r2:field.two"]);
@@ -1943,11 +2084,11 @@ test("two rounds are additive end to end: round 2 fills only what round 1 missed
   assert.equal(byKey.get("whole.1").pageIndex, 0);
   assert.equal(byKey.get("whole.2").pageIndex, 2);
 
-  // field.two still needs its second crop, and says so.
-  assert.deepEqual(
-    outstandingSlots(template, zones, reasons).map((o) => o.key),
-    ["field.two"],
-  );
+  // Nothing is left: round 2 answered both of the slots round 1 missed.
+  // Under the old `crops: 2` design field.two stayed outstanding here
+  // forever, reported as "1 of 2 captures found" -- a second capture the
+  // form asserted and no round could ever supply.
+  assert.deepEqual(outstandingSlots(template, zones, reasons), []);
 });
 
 test("withFieldHints puts each key's definition in front of the prompt", async () => {
@@ -2252,10 +2393,20 @@ test("AO_TEMPLATE.fieldHints tell cc apart from an email header, and namaProyek 
   }
 });
 
-test("every fillable AO slot declares a crop count a round can report against", () => {
-  for (const { slot } of templateSlots(AO_TEMPLATE)) {
-    assert.ok(slotCropCount(slot) >= 1, `${slot.key} has a crop count below 1`);
-  }
+test("every fillable AO slot is one capture a round can report against", () => {
+  // `slotCropCount` is gone with `SlotDef.crops`. What a round reports against
+  // is the presence of a capture, so the invariant worth pinning is that
+  // seeding one zone per fillable slot satisfies every one of them.
+  const zones = templateSlots(AO_TEMPLATE)
+    .filter(({ slot }) => slot.fillable)
+    .map(({ slot }) => ({ key: slot.key, pageIndex: 0 }));
+
+  assert.equal(
+    satisfiedSlotKeys(AO_TEMPLATE, zones).size,
+    zones.length,
+    "one capture per fillable slot should satisfy the whole form",
+  );
+  assert.deepEqual(outstandingSlots(AO_TEMPLATE, zones), []);
 });
 
 // ---------------------------------------------------------------------------

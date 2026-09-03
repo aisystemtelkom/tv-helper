@@ -59,7 +59,12 @@ import { getSession, signOut } from "next-auth/react";
 
 import { AO_TEMPLATE } from "@/lib/forms/template";
 import { liveRuntime } from "@/lib/ui/live-runtime";
-import { applyProposals, requestProposals, wantedKeys } from "@/lib/ui/propose";
+import { applyResponse, requestProposals, wantedKeys } from "@/lib/ui/propose";
+import {
+  captureOrdinalOf,
+  withoutCapture,
+  withoutCapturesAfter,
+} from "@/lib/ui/runtime";
 import type { BrowserRun, RunSummary, SlotState } from "@/lib/ui/runtime";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
@@ -251,9 +256,16 @@ function saveFault(problem: unknown): Fault {
       ? "pekerjaan ini sudah berubah di tempat lain, biasanya karena ada tab lain yang terbuka atau pemuatan dokumen yang masih berjalan. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda."
       : name === "PageLossError"
         ? "penyimpanan menolak tulisan yang tidak membawa seluruh halaman pekerjaan ini. Muat ulang halaman ini supaya pekerjaan terbaca utuh lagi."
-        : name === "QuotaExceededError"
-          ? "penyimpanan peramban ini penuh. Kosongkan pekerjaan lama, lalu ulangi keputusan terakhir Anda."
-          : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
+        : // The third net gets its own sentence for the same reason the first
+          // two do: a lanjutan lives nowhere but the stored daftar potongan, so
+          // this refusal is the app stopping a potongan yang sudah diterima
+          // from being deleted, not a disk problem. "Muat ulang, lalu ulangi"
+          // is also the wrong remedy for it.
+          name === "CaptureLossError"
+          ? "penyimpanan menolak tulisan yang akan menghapus potongan yang sudah membawa bukti. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda; potongan yang tersimpan tetap utuh."
+          : name === "QuotaExceededError"
+            ? "penyimpanan peramban ini penuh. Kosongkan pekerjaan lama, lalu ulangi keputusan terakhir Anda."
+            : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
 
   return {
     origin: "save",
@@ -385,7 +397,7 @@ function Workspace({
    * answer in) changes the run without any mark being owed to anybody.
    */
   const commit = useCallback(
-    (next: BrowserRun, touched: number[] = []) => {
+    (next: BrowserRun, touched: number[] = [], removing: string[] = []) => {
       const previous = run;
       setRun(next);
       setSearchNote(null);
@@ -419,7 +431,12 @@ function Workspace({
         });
 
       void runtime
-        .saveRun(next)
+        // `removing` names the captures this write deliberately drops. A save
+        // that loses a zone-carrying capture without naming one is refused
+        // (`CaptureLossError`), because a discovered lanjutan lives nowhere
+        // but the stored slot list and a shorter array is otherwise
+        // indistinguishable from a rebuild that forgot it.
+        .saveRun(next, { removing })
         .then((stored) => {
           setRun(stored);
           setSavedAt(Date.now());
@@ -599,18 +616,31 @@ function Workspace({
       const response = await requestProposals(run);
       const found = response.proposals.length;
       const missed = response.outstanding.length;
+      // Lanjutan usulan, counted separately because they are a different kind
+      // of answer: not "here is the bagian" but "that block runs on to the next
+      // page". Folding them into `found` would let a round that located
+      // nothing still report a number.
+      const lanjutan = (response.continuations ?? []).reduce(
+        (sum, answer) => sum + answer.zones.length,
+        0,
+      );
       const stored = (await runtime.loadRun(run.id)) ?? run;
-      commit(applyProposals(stored, response));
+      commit(applyResponse(stored, response));
       // A multi-minute pass has to end in a sentence, and that sentence starts
       // with the name of the button that started it. It used to say "Pencarian
       // selesai", which left the operator to work out that the thing they
       // clicked and the thing that finished were one event.
+      const lanjutanNote =
+        lanjutan === 0
+          ? ""
+          : ` ${lanjutan} potongan lanjutan juga ditemukan: blok yang terpotong di bawah halaman dan bersambung ke halaman berikutnya, dan itu pun menunggu keputusan Anda.`;
       setSearchNote(
-        found === 0
+        (found === 0
           ? `Proses selesai. Tidak ada bagian yang bisa ditemukan di ${run.pages.length} halaman yang ada. Buka lembar periksa untuk memutuskan tiap bagian, atau tambahkan dokumen lain lalu proses lagi.`
           : missed === 0
             ? `Proses selesai. ${found} usulan menunggu keputusan Anda di lembar periksa.`
-            : `Proses selesai. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`,
+            : `Proses selesai. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
+          lanjutanNote,
       );
     } catch (problem) {
       setFault({
@@ -627,15 +657,7 @@ function Workspace({
 
   const actions: PlateActions = {
     onAccept: (index) => patchSlot(index, { status: "confirmed" }),
-    // "Bukan ini" means the search answered wrongly, which is the same
-    // standing as never having found it: the slot drops into the tambahan
-    // loop, where it becomes a decision rather than a silent blank.
-    onReject: (index) =>
-      patchSlot(index, {
-        status: "outstanding",
-        zone: undefined,
-        text: undefined,
-      }),
+    onReject: (index) => rejectCapture(index),
     onRedraw: (index) => {
       const slot = run?.slots[index];
       if (!slot) return;
@@ -655,6 +677,88 @@ function Workspace({
       setEditing({ slotIndex: null, slotKey, label }),
   };
 
+  /**
+   * "Bukan ini", which now has TWO shapes because a capture can be discovered.
+   *
+   * On capture 1 it means what it always meant: the search answered wrongly,
+   * which is the same standing as never having found it, so the bagian drops
+   * into the tambahan loop as a decision rather than a silent blank. The row
+   * stays: the template still asks for this bagian.
+   *
+   * On a LANJUTAN it means "there is no lanjutan here", and the row must GO.
+   * Leaving it behind as `outstanding` would put a permanently empty
+   * "(lanjutan)" row on the sheet for a bagian that has none -- which is the
+   * operator's original complaint, rebuilt in a new place.
+   *
+   * Either way the whole tail goes with it. Continuations are found by walking
+   * FORWARD, so `#3` was discovered by asking what follows `#2`: if `#2` is not
+   * a lanjutan of this bagian, `#3` is the continuation of something that was
+   * never here. `withoutCapture` does both halves and hands back the keys,
+   * which `commit` must pass to `saveRun`.
+   */
+  const rejectCapture = (index: number) => {
+    if (!run) return;
+    const target = run.slots[index];
+    if (!target) return;
+
+    const cleared: BrowserRun =
+      captureOrdinalOf(target.key) === 1
+        ? {
+            ...run,
+            slots: run.slots.map((slot, i) =>
+              i === index
+                ? {
+                    ...slot,
+                    status: "outstanding" as const,
+                    zone: undefined,
+                    text: undefined,
+                    // The bagian is open again, so what was known about its
+                    // page bottom no longer applies to whatever fills it next.
+                                }
+                : slot,
+            ),
+          }
+        : run;
+
+    const { run: next, removed } = withoutCapture(cleared, index);
+    // CAPTURE 1 IS NAMED TOO, although its row survives. `removing` is about
+    // the EVIDENCE a write discards, and clearing a zone discards it exactly as
+    // dropping the row does -- `putRun` compares zones, not keys, so an
+    // unnamed reopen is refused as a capture loss.
+    const discarded =
+      captureOrdinalOf(target.key) === 1 && target.zone
+        ? [target.key, ...removed]
+        : removed;
+    // The rejected capture keeps its position only when it survives; a removed
+    // one has no index left to draw a paraf on.
+    commit(
+      next,
+      next.slots.length === run.slots.length ? [index] : [],
+      discarded,
+    );
+  };
+
+  /**
+   * "Gambar ulang", and a redraw is a NEW RECTANGLE, not an annotation on the
+   * old one.
+   *
+   * `continuationChecked` is therefore cleared, always. It used to survive the
+   * spread, and the sequence that produces is ordinary: Proses proposes a ToP
+   * area that stops a few lines above the page bottom, the walk declines and
+   * stamps the capture checked, and the operator then draws the larger area
+   * that DOES run to the bottom. `capturesToWalk` filters on
+   * `!continuationChecked`, so no later Proses would ever look past the
+   * rectangle that actually needs looking past, while the sheet and the export
+   * screen both printed "diperiksa, tidak ada lanjutan" about an area nothing
+   * had examined. `rejectCapture` has always cleared it for the same reason.
+   *
+   * AND REDRAWING A LANJUTAN TAKES ITS TAIL, exactly as rejecting one does.
+   * `#3` was found by asking what follows `#2`; once `#2` is a different
+   * rectangle, `#3` is the continuation of something that is no longer there.
+   * Capture 1 keeps its tail: a redraw there is an extent correction on the
+   * head of the chain, and silently deleting crops the operator has already
+   * accepted is a bigger loss than a chain whose first link moved.
+   */
   const saveZone: React.ComponentProps<typeof ZoneEditor>["onSave"] = (
     target,
     zone,
@@ -674,18 +778,25 @@ function Workspace({
     // show its paraf finishing when the write does, exactly as an accepted
     // proposal does.
     const index = target.slotIndex ?? run.slots.length;
-    commit(
-      {
-        ...run,
-        slots:
-          target.slotIndex === null
-            ? [...run.slots, patched]
-            : run.slots.map((slot, i) =>
-                i === target.slotIndex ? { ...slot, ...patched } : slot,
-              ),
-      },
-      [index],
-    );
+
+    if (target.slotIndex === null) {
+      commit({ ...run, slots: [...run.slots, patched] }, [index]);
+      setEditing(null);
+      return;
+    }
+
+    const redrawn: BrowserRun = {
+      ...run,
+      slots: run.slots.map((slot, i) =>
+        i === target.slotIndex ? { ...slot, ...patched } : slot,
+      ),
+    };
+    const { run: next, removed } =
+      captureOrdinalOf(target.slotKey) > 1
+        ? withoutCapturesAfter(redrawn, target.slotIndex)
+        : { run: redrawn, removed: [] as string[] };
+
+    commit(next, [index], removed);
     setEditing(null);
   };
 

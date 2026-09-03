@@ -92,7 +92,7 @@ import type { Box } from "@/lib/pipeline/render";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
 import type { SlotAggregate } from "@/lib/ui/slots";
-import { captureLabel } from "@/lib/ui/slots";
+import { captureLabel, ordinalOf } from "@/lib/ui/slots";
 
 import {
   Advisory,
@@ -352,7 +352,7 @@ function CaptureRow({
   actions,
   showState,
   ordinal,
-  required,
+  maxOrdinal,
   saving,
   justDecided,
   forceExpanded,
@@ -374,9 +374,10 @@ function CaptureRow({
   bukan?: string;
   /** Only when the slot holds several captures; otherwise the header says it. */
   showState: boolean;
-  /** 1-based position of this capture within its slot, when there are several. */
+  /** This capture's own number within its slot, when there are several. */
   ordinal: number | null;
-  required: number;
+  /** The slot's highest capture ordinal, for `captureLabel`'s `total`. */
+  maxOrdinal: number;
   saving: boolean;
   justDecided: boolean;
   forceExpanded: boolean;
@@ -474,7 +475,7 @@ function CaptureRow({
       ref={rowRef}
       tabIndex={-1}
       aria-label={
-        ordinal ? captureLabel(fieldLabel, ordinal, required) : fieldLabel
+        ordinal ? captureLabel(fieldLabel, ordinal) : fieldLabel
       }
       className="flex flex-col gap-3"
     >
@@ -487,7 +488,7 @@ function CaptureRow({
               className="lt-figure text-[0.8125rem]"
               style={{ color: "var(--ink-2)" }}
             >
-              potongan {ordinal} dari {required}
+              potongan {ordinal} dari {maxOrdinal}
             </span>
           ) : null}
         </div>
@@ -646,21 +647,25 @@ function CaptureRow({
 }
 
 /**
- * A capture the slot needs and the run has no state for at all.
+ * A fillable bagian the run holds NO state for at all.
  *
- * The runtime seeds one state per capture, so in a normal run this renders
- * nothing. It is not dead code: a run stored before a template changed its
- * `crops` count, and a slot the run has never seen at all, both land here, and
- * the alternative is a fillable plate with no content and no action.
+ * WHAT USED TO LAND HERE AND NO LONGER CAN. This rendered once per capture
+ * `SlotDef.crops` declared and the run had not filled -- which, on the ToP
+ * row, meant a permanent "Bagian ini butuh 2 potongan dan yang ini belum ada"
+ * over a contract holding one ToP. That is the operator report this feature
+ * comes from, and the declaration behind it is gone: a lanjutan is discovered,
+ * so there is no such thing as a capture that is owed before anything has
+ * looked.
+ *
+ * The case that remains is real and different: a stored run that outlived the
+ * slot list which made it, so the template declares a bagian this run has
+ * never seen. It has no position in `run.slots` to act on, so the only honest
+ * offer is to draw it.
  */
 function MissingCapture({
-  ordinal,
-  required,
   onDraw,
   bukan,
 }: {
-  ordinal: number;
-  required: number;
   onDraw: () => void;
   /** Only when this plate has no capture row to carry it. See `CaptureRow`. */
   bukan?: string;
@@ -669,16 +674,9 @@ function MissingCapture({
     <div className="flex flex-wrap items-start gap-4">
       <Missing height={104} label="Potongan ini belum ada" />
       <div className="flex max-w-[52ch] flex-col items-start gap-2">
-        <span
-          className="lt-figure text-[0.8125rem]"
-          style={{ color: "var(--ink-2)" }}
-        >
-          potongan {ordinal} dari {required}
-        </span>
         <p style={{ color: "var(--ink)" }}>
-          Bagian ini butuh {required} potongan dan yang ini belum ada. Selama
-          masih kurang, berkas hasil akan tampak lengkap padahal kehilangan satu
-          gambar.
+          Bagian ini ada di template tetapi belum pernah dicari di pekerjaan
+          ini. Jalankan Proses lagi, atau gambar sendiri areanya.
         </p>
         {bukan ? <Bukan text={bukan} /> : null}
         <Btn onClick={onDraw}>
@@ -753,10 +751,11 @@ export function ProposalPlate({
   const justDecided = entry.states.some((placed) => fresh.has(placed.index));
   const { adalah, bukan } = readCatatan(entry.def.catatan);
 
-  // Captures the slot needs that have no state at all. See `MissingCapture`.
-  const missing = Math.max(0, entry.required - entry.states.length);
-  const rows = entry.states.length + missing;
-  const multi = entry.required > 1 || rows > 1;
+  // A bagian the run holds nothing for at all. See `MissingCapture`: this is
+  // now only a stored run that outlived its template, never a capture the form
+  // declared and nobody searched for.
+  const missing = entry.states.length === 0;
+  const multi = entry.states.length > 1;
 
   return (
     <article
@@ -801,9 +800,25 @@ export function ProposalPlate({
               className="lt-figure text-[0.8125rem]"
               style={{ color: "var(--ink-2)" }}
             >
-              {entry.found <= entry.required
-                ? `${entry.found} dari ${entry.required} potongan`
-                : `${entry.found} potongan untuk bagian yang butuh ${entry.required}`}
+              {entry.found} dari {entry.states.length} potongan
+            </span>
+          ) : null}
+          {/* THE HONEST HALF OF DROPPING THE DECLARED COUNT. Nothing asserts a
+              lanjutan exists any more, so the risk moved from "asserts one
+              that may not exist" to "may miss one that does". This is what
+              closes it: a bagian nothing has looked past reads differently
+              from one that has been checked and found to end where it ends. */}
+          {entry.unchecked > 0 ? (
+            <span
+              className="text-[0.8125rem]"
+              style={{ color: "var(--ink-3)" }}
+              title="Proses belum memeriksa apakah blok ini bersambung ke halaman berikutnya."
+            >
+              belum diperiksa lanjutannya
+            </span>
+          ) : entry.found > 0 ? (
+            <span className="text-[0.8125rem]" style={{ color: "var(--ink-3)" }}>
+              diperiksa, tidak ada lanjutan
             </span>
           ) : null}
         </div>
@@ -821,8 +836,8 @@ export function ProposalPlate({
             thumbFailure={thumbs.failed[String(placed.index)]}
             actions={actions}
             showState={multi}
-            ordinal={multi ? i + 1 : null}
-            required={entry.required}
+            ordinal={multi ? ordinalOf(placed) : null}
+            maxOrdinal={entry.maxOrdinal}
             saving={pending.has(placed.index)}
             justDecided={fresh.has(placed.index)}
             forceExpanded={expanded}
@@ -830,16 +845,14 @@ export function ProposalPlate({
           />
         ))}
 
-        {Array.from({ length: missing }, (_, i) => (
+        {missing ? (
           <MissingCapture
-            key={`${entry.def.key}-missing-${i}`}
-            ordinal={entry.states.length + i + 1}
-            required={entry.required}
             onDraw={() => actions.onDrawNew(entry.def.key, entry.def.label)}
-            // Only when there is no capture row above to have carried it.
-            bukan={entry.states.length === 0 && i === 0 ? bukan : undefined}
+            // `missing` is already "no capture rows exist", so this branch is
+            // always the first thing on the plate and always carries it.
+            bukan={bukan}
           />
-        ))}
+        ) : null}
       </div>
     </article>
   );
