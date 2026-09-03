@@ -29,23 +29,27 @@
  * ## Keep it TRUE
  *
  * Everything below is a claim about what the code does, and a privacy policy
- * that drifts from the code is worse than none. The load-bearing sentences are
- * now narrower than they were, and the narrowing is the point:
+ * that drifts from the code is worse than none. Three load-bearing sentences:
  *
- *   - The PDF still never leaves the device. pdf.js renders it in the tab, the
- *     run lives in IndexedDB, and every evidence crop is cut from the device's
- *     own pixels.
+ *   - The PDF never leaves the device. pdf.js renders it in the tab, the run
+ *     lives in IndexedDB, and every evidence crop is cut from the device's own
+ *     pixels.
  *   - ONE RENDERED PAGE IMAGE PER PAGE DOES LEAVE, to this app's own
  *     `/api/ocr`, which forwards it to the Gemini API for text recognition.
- *     That is new as of 2026-09-02 and it replaced on-device OCR.
- *   - Finding a field inside those pages is still text only: numbered OCR
- *     lines go up, a line range comes back.
+ *   - Finding a field inside those pages is text only: numbered OCR lines go
+ *     up, a line range comes back.
  *
- * This page was rewritten in the same commit as `src/app/api/ocr/route.ts`,
- * deliberately. Shipping that route without this edit would have published a
- * dated, false statement about where customer scans go, in two languages, to
- * an OAuth reviewer and to the client's own staff. If the boundary moves
- * again, this page moves with it in the same commit.
+ * IT DESCRIBES THE APP, NOT ITS HISTORY. This page carried a dated sentence
+ * about text recognition having moved out of the browser, which is a changelog
+ * entry rather than a policy: the product has not launched, so nobody reading
+ * it ever used the version being contrasted against, and a reader learning
+ * that something USED to be different reasonably wonders which parts of what
+ * they are reading are also about to change. A policy states what happens now.
+ * When the boundary moves, this page moves with it -- in the same commit,
+ * because shipping a route without the edit publishes a false statement about
+ * where customer scans go, in two languages, to an OAuth reviewer and to the
+ * client's own staff. It says what is true after the move, not that a move
+ * happened.
  *
  * ## How it is set
  *
@@ -79,13 +83,12 @@
  *     a local `style` on the article, with a note saying it probably belonged
  *     on `.lt-paper`; it now does, on a selector shared with `.lt-denah`, so
  *     the local override is gone rather than silently duplicated.
- *   - THE DATE IS TWO CONSTANTS, NOT THREE LITERALS. It used to be written out
- *     in `UPDATED`, again in the Indonesian body and again in the English
- *     summary, so the next boundary change had to find all three, and a policy
- *     that contradicts itself about a date is worse than one carrying no date.
- *     Two constants and not one, because they are two different facts that
- *     merely coincide today: when this policy was last revised, and when OCR
- *     moved off the device.
+ *   - THE DATE IS ONE CONSTANT AND MEANS ONE THING: when this policy was last
+ *     revised. It was two for a while -- the revision date and the date text
+ *     recognition moved off the device -- and the second is gone with the
+ *     sentence that needed it. A policy carries the date of its own revision so
+ *     a reader can tell whether they have read this version; it does not carry
+ *     the dates of the changes that produced it.
  *   - SECTION NUMBERS COME FROM ONE ARRAY, which the contents list and the
  *     headings both read. Numbering a long document by hand in two places is
  *     the same defect as the date, one release later.
@@ -113,15 +116,6 @@ export const metadata = {
 
 /** When this policy was last revised. */
 const UPDATED = "2 September 2026";
-
-/**
- * When text recognition stopped running in the browser.
- *
- * The same day as `UPDATED` today, and deliberately a separate constant: a
- * later revision moves one of these and not the other, and the body says
- * "sejak <this date>" about a boundary change, never about an edit.
- */
-const OCR_MOVED = "2 September 2026";
 
 const CONTACT = "aisystemtelkom@gmail.com";
 
@@ -400,14 +394,12 @@ export default function PrivacyPage() {
                 aplikasi ini maupun di layanan penyimpanan awan.
               </p>
               <p>
-                <strong>Yang dikirim keluar adalah gambar halaman.</strong> Sejak{" "}
-                {OCR_MOVED} pengenalan teks (OCR) tidak lagi berjalan di peramban.
-                Untuk setiap halaman, aplikasi mengirimkan satu gambar halaman
-                hasil render ke server aplikasi ini, dan server meneruskannya ke
+                <strong>Yang dikirim keluar adalah gambar halaman.</strong> Untuk
+                setiap halaman, aplikasi mengirimkan satu gambar halaman hasil
+                render ke server aplikasi ini, dan server meneruskannya ke
                 Google Gemini API untuk dibaca teksnya. Yang kembali adalah
-                baris-baris teks beserta koordinatnya. Perubahan ini dilakukan
-                atas keputusan pemilik proses, setelah penilaian mereka sendiri
-                terhadap Google sebagai pemroses.
+                baris-baris teks beserta koordinatnya. Google bertindak sebagai
+                pemroses untuk keperluan ini, atas keputusan pemilik proses.
               </p>
               <p>
                 Menghapus data situs pada peramban akan menghapus dokumen dan
@@ -533,8 +525,7 @@ export default function PrivacyPage() {
               >
                 <p>
                   What does leave your device, one page at a time, is a{" "}
-                  <em>rendered page image</em>. Text recognition no longer runs in
-                  the browser: since {OCR_MOVED} each page image is sent to this
+                  <em>rendered page image</em>. Each page image is sent to this
                   application&apos;s own server, which forwards it to the Google
                   Gemini API and returns the recognised text with its
                   coordinates. The later step that locates a field sends OCR{" "}
