@@ -67,10 +67,16 @@
  * still being cut did NOT hide: it is a measurement of this run, and a picture
  * that has not appeared cannot have been reviewed.
  *
- * SECTION GUIDANCE IS BEHIND THE KOP'S OWN MARK, by the same test.
- * `guidanceFor` rendered under all five headings, once above the first crop,
- * and said the identical two sentences on every order in this product's life.
- * What varies is which KIND of section this is, and the title already says that.
+ * SECTION GUIDANCE IS GONE, AND IT WENT IN TWO STEPS. `guidanceFor` rendered
+ * under all five headings, once above the first crop, saying the identical two
+ * sentences on every order in this product's life. It moved behind the kop's
+ * own question mark; an operator's verdict on the pass after that was that the
+ * question marks themselves were the noise. It could go rather than move again
+ * because it was never the only statement of itself: a whole-page capture
+ * already carries "Satu halaman penuh, memang begitu bentuk bagian ini.
+ * Periksa apakah halamannya sudah benar." as an advisory BESIDE THE PICTURE it
+ * is about, at full strength, which is where that check is actually made. Five
+ * kops repeating it is the same furniture with a smaller footprint.
  *
  * BULK ACCEPT IS TWO STEPS ON PURPOSE, AND IT SITS BELOW THE ROWS. Accepting
  * several crops with one click is the shortest path in the whole product from
@@ -229,13 +235,6 @@ function rowsFor(entry: SlotAggregate, sectionTitle: string): SheetRow[] {
 function topIsVisible(element: Element, offset: number): boolean {
   const rect = element.getBoundingClientRect();
   return rect.top >= offset - 24 && rect.top <= window.innerHeight - 120;
-}
-
-/** What the operator has to check in this kind of section, not what it is. */
-function guidanceFor(layout: SheetSection["layout"]): string {
-  return layout === "images"
-    ? "Potongan di sini satu halaman penuh, memang begitu bentuknya. Periksa satu hal: halamannya benar atau tidak."
-    : "Potongan di sini area di dalam halaman. Periksa halamannya, lalu apakah areanya memuat seluruh keterangan.";
 }
 
 /**
@@ -866,17 +865,18 @@ function Sheet({
         </Notice>
       ) : null}
 
-      {/* It does not name where the button is. The search moved to the Muat
-          screen and a tambahan round starts from the head of this one, so a
-          sentence pointing at one fixed place would be wrong half the time. */}
+      {/* It names the CONTROL and never where it is. The reading moved to the
+          Muat screen and a tambahan round starts from the head of this one, so
+          a sentence pointing at one fixed place would be wrong half the time.
+          The control's own name is what makes it findable in either, which is
+          also why this quotes it exactly: it said "Jalankan Proses" while no
+          key anywhere in the product carried that word any more. */}
       {run.pages.length > 0 &&
       captures.length > 0 &&
       unsearchedCount === captures.length ? (
         <Notice>
-          {unsearchedCount} potongan belum dicari.{" "}
-          <Hint label="Cara mengisi lembar ini">
-            Jalankan Proses untuk bagian itu, lalu usulannya muncul di sini.
-          </Hint>
+          {unsearchedCount} potongan belum dicari. Jalankan Baca dengan AI,
+          lalu usulannya muncul di sini.
         </Notice>
       ) : null}
 
@@ -885,24 +885,23 @@ function Sheet({
           operator scanning a sheet with no amber left on it would otherwise
           conclude they were finished while two bagian with no evidence at all
           sat below. Not shown on a run nothing has searched yet, where "nothing
-          is waiting on you" would be true and useless. */}
+          is waiting on you" would be true and useless.
+
+          THE POINTER TO THE HEAD LIST IS INLINE, not behind a mark. It is one
+          clause, it only appears while there is something to point at, and a
+          question mark that has to be opened to learn where the remaining work
+          lives is a question mark standing in front of the work. */}
       {run.pages.length > 0 &&
       captures.length > 0 &&
       waitingCount === 0 &&
       unsearchedCount < captures.length ? (
         <Notice tone={gapCount > 0 ? "warn" : "info"}>
           Tidak ada usulan yang menunggu.
-          {gapCount > 0 ? (
-            <>
-              {` ${gapCount} bagian belum ada buktinya. `}
-              <Hint label="Kenapa itu masih perlu Anda selesaikan">
-                Bagian itu tidak akan mengisi dirinya sendiri.
-                {head
-                  ? " Selesaikan di daftar yang belum ada buktinya, di baris paling atas lembar ini."
-                  : ""}
-              </Hint>
-            </>
-          ) : null}
+          {gapCount > 0
+            ? ` ${gapCount} bagian belum ada buktinya${
+                head ? ", ada di daftar paling atas lembar ini" : ""
+              }.`
+            : null}
         </Notice>
       ) : null}
 
@@ -984,11 +983,6 @@ function Sheet({
                   : undefined
             }
             style={{ scrollMarginTop: offset + 16 }}
-            hint={
-              <Hint label={`Yang perlu diperiksa di ${section.title}`}>
-                {guidanceFor(section.layout)}
-              </Hint>
-            }
             meta={
               faults > 0 ? (
                 <>
@@ -1141,11 +1135,15 @@ function Sheet({
             </>
           }
           hint={
-            /* The list below changes with the template; this explanation of it
-               does not, so it goes behind the mark and the names stay. */
+            /* KEPT, where the section guidance was not: this one hands the
+               operator work they would not otherwise know they had. The rows
+               say "diisi manual" and nothing on the screen says by whom or
+               when, and a bagian nobody fills is an empty cell in a signed
+               packet. The list below changes with the template; this does
+               not, so it sits behind the mark and the names stay. */
             <Hint label="Kenapa bagian ini dikirim kosong">
-              Bagian ini tetap ada di DOKUMEN VALIDASI, lengkap dengan judul dan
-              kotaknya, tapi dikirim kosong. Tidak ada dokumen order yang bisa
+              Bagian ini tetap muncul di DOKUMEN VALIDASI, lengkap dengan judul
+              dan kotaknya, tapi kosong. Tidak ada dokumen order yang bisa
               mendukungnya, jadi Anda yang mengisinya setelah berkas hasil
               dibuat.
             </Hint>
@@ -1410,16 +1408,20 @@ function BulkConfirm({
       </div>
 
       <div className="lt-slab-body flex flex-col gap-4">
-        {/* THE CONSEQUENCE STAYS ON SCREEN. What went behind the mark is the
-            argument for why this control asks twice, which reads word for word
-            the same on every order; what a click does here does not. */}
+        {/* THE CONSEQUENCE STAYS ON SCREEN, AND IT IS NOW THE ONLY THING HERE.
+            "Potongan yang belum Anda lihat ikut diterima" is what a click does
+            to THIS section, so it is read at full ink and it never hides.
+
+            The question mark that followed it answered "kenapa ini ditanya dua
+            kali" with the argument behind the step, an unreviewed crop inside a
+            document somebody signs. That is our reasoning about our own
+            ceremony rather than anything an operator decides differently for
+            having read it, and it restated the sentence it hung off: the risk
+            IS "potongan yang belum Anda lihat ikut diterima", one clause
+            earlier and at full strength. Nothing measured off this run moved. */}
         <p className="max-w-[74ch] text-[0.875rem] text-ink">
           Menerima {indexes.length} usulan di {section.title} sekaligus.
-          Potongan yang belum Anda lihat ikut diterima.{" "}
-          <Hint label="Kenapa ini ditanya dua kali">
-            Potongan yang belum diperiksa di dalam dokumen yang ditandatangani
-            adalah persis kegagalan yang dicegah langkah ini.
-          </Hint>
+          Potongan yang belum Anda lihat ikut diterima.
         </p>
 
         {/* ONE RULED BOX PER NAME, which is what the rest of the product does
@@ -1438,18 +1440,20 @@ function BulkConfirm({
           ))}
         </ul>
 
-        {undrawn > 0 ? (
-          <Notice tone="stop">
-            {undrawn} dari {indexes.length} potongan belum tampil, jadi belum
-            bisa diterima sekaligus. Tunggu, atau putuskan satu per satu.
-          </Notice>
-        ) : null}
-
         <div className="flex flex-wrap gap-2">
+          {/* THE REFUSAL RIDES ON THE KEY. It was a red stop notice above these
+              buttons, which is wrong twice over: a crop still being cut is a
+              wait rather than a fault, and the correction pen spent on a wait
+              is the pen not meaning anything when a page is genuinely gone.
+              The sheet's own "{n} potongan belum tampil" is still on screen at
+              full ink, so the measurement never hid; what moved onto the
+              control is the sentence saying why THIS control will not answer,
+              which is the routine case `reason` exists for. */}
           <Btn
             tone="primary"
             data-confirm=""
             disabled={undrawn > 0}
+            reason={`${undrawn} dari ${indexes.length} potongan belum tampil. Tunggu, atau putuskan satu per satu.`}
             onClick={onCommit}
           >
             Ya, terima {indexes.length}
@@ -1535,15 +1539,14 @@ function Orphans({
     >
       <div className="flex flex-col gap-4">
         {/* The count and the reason stay: both are what this run actually did.
-            Only the sentence explaining why the list exists at all, which is
-            true of every run this product will ever have, is behind the mark. */}
+            The sentence that used to sit behind a mark here ("this list exists
+            so no decision of yours disappears without your knowing") explained
+            our own bookkeeping and changed nothing the operator would do; the
+            two sentences that remain say what happened and why, which is all a
+            person can act on. */}
         <p className="max-w-[74ch] text-[0.875rem] text-ink">
           {states.length} potongan tidak akan masuk ke DOKUMEN VALIDASI.
-          Bagiannya sudah tidak ada di templat.{" "}
-          <Hint label="Kenapa daftar ini ada">
-            Daftar ini ada supaya tidak ada keputusan Anda yang hilang tanpa
-            Anda tahu.
-          </Hint>
+          Bagiannya sudah tidak ada di templat.
         </p>
 
         <ul className="flex flex-col gap-2">

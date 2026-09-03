@@ -51,6 +51,7 @@ import { redirect } from "next/navigation";
 
 import { OperatorApp } from "@/components/operator/operator-app";
 import { Interruption, TechnicalDetail } from "@/components/operator/chrome";
+import { Otak } from "@/components/operator/icons";
 import { authorize, type DenialReason } from "@/lib/auth/require-user";
 import { auth } from "@/lib/auth";
 
@@ -58,16 +59,6 @@ import { auth } from "@/lib/auth";
 // Without this it builds as a static route (`○ /` in the build output), and a
 // static shell is a page whose HTML was produced before anyone signed in.
 export const dynamic = "force-dynamic";
-
-/** A control printed on paper: dark ink on the sheet, not a lit key on the table. */
-const ACTION_CLASS =
-  "inline-flex items-center justify-center self-start rounded-[4px] border " +
-  "px-4 py-2 text-[0.9375rem] font-semibold transition-opacity hover:opacity-90";
-const ACTION_STYLE = {
-  background: "var(--paper-ink)",
-  color: "var(--paper)",
-  borderColor: "var(--paper-ink)",
-};
 
 type Refusal = {
   /** Short, and complementary to the guard's sentence rather than a repeat. */
@@ -162,9 +153,19 @@ export default async function Home() {
               className={`lt-title${refusal.fault ? " border-s-2 ps-3" : ""}`}
               style={{
                 color: "var(--paper-ink)",
-                // The correction pen is a rule on paper, never a fill and
-                // never a text colour: `--gap` measures 2.6:1 here, right for
-                // a stroke and well under AA for words.
+                // THE CORRECTION PEN IS A RULE, NEVER THE HEADING'S OWN
+                // COLOUR. The heading is the sentence the operator has to
+                // read, and marking a sentence is not the same thing as
+                // recolouring it.
+                //
+                // THE RATIO THIS USED TO QUOTE IS GONE BECAUSE IT WAS THE
+                // WRONG HUE'S. It read "`--gap` measures 2.6:1 here, well
+                // under AA for words", which was the BENCH's red seen on
+                // paper, from before the sheet rebound the signal. It does not
+                // describe what paints: `globals.css` gives `.lt-paper` its
+                // own `--gap`, measured there at 7.60:1. So the stroke is
+                // legible either way and the reason it stays a stroke is the
+                // grammar above, not a contrast floor.
                 borderInlineStartColor: refusal.fault
                   ? "var(--gap)"
                   : undefined,
@@ -209,23 +210,44 @@ export default async function Home() {
                 three destinations need a full document load to mean anything:
                 "Coba lagi" after an unreadable allowlist has to reach the
                 server again, and a client navigation from `/` to `/` may not.
-                */}
+
+                THE SYSTEM'S KEY, THOUGH, NOT A CONTROL THIS FILE DRAWS. It was
+                a hand-rolled anchor at a 4px radius with a flat fill, from
+                before the product had one shape for a control, so an operator
+                meeting a refusal met the one button in the app that looks like
+                nothing else in it. `.lt-btn[data-tone="primary"]` is what
+                `signin/page.tsx` and `admin/page.tsx` already put on a link
+                inside a sheet: `.lt-paper` rebinds the plate and the lip to
+                the paper's own ink, which is what a key printed on a form
+                looks like. */}
             <a
               href={refusal.action.href}
-              className={ACTION_CLASS}
-              style={ACTION_STYLE}
+              className="lt-btn self-start"
+              data-tone="primary"
             >
               {refusal.action.label}
             </a>
 
+            {/* The colophon: whose form this is, at the foot of it. The rule
+                is on the paragraph so it runs the width of the sheet, and the
+                lockup is the span inside, so making it a flex row cannot pull
+                the rule in with it.
+
+                THE MARK IS 16 HERE AND 24 EVERYWHERE ELSE, which is the icon
+                set's own rule rather than an exception to this one: 16 is the
+                size beside a 13px label, and this is a 13px signature line at
+                the bottom of a refusal, not the masthead of a sheet. */}
             <p
-              className="lt-wordmark border-t pt-4 text-[0.8125rem]"
-              style={{
-                borderColor: "var(--paper-edge)",
-                color: "var(--paper-ink-2)",
-              }}
+              className="border-t pt-4"
+              style={{ borderColor: "var(--paper-edge)" }}
             >
-              tv-validator
+              <span
+                className="lt-wordmark inline-flex items-center gap-2 text-[0.8125rem]"
+                style={{ color: "var(--paper-ink-2)" }}
+              >
+                <Otak size={16} />
+                TV VALIDATOR
+              </span>
             </p>
           </div>
 

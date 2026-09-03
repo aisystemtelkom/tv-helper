@@ -25,8 +25,8 @@
  * a few centimetres below, carrying the same two terminal choices, Gambar
  * sendiri and Kosongkan, from `ProposalPlate`'s outstanding branch. The count
  * and the kop's own amber never collapse, so nothing unreviewed can hide behind
- * the fold, and the two controls that exist nowhere else on this screen, Proses
- * lagi and Tambah dokumen, stand outside the disclosure at all times.
+ * the fold, and the two controls that exist nowhere else on this screen, Baca
+ * dengan AI and Tambah dokumen, stand outside the disclosure at all times.
  *
  * THE LIST IS CLOSED ON ARRIVAL. It used to open on the first visit to a
  * order, on the argument that a briefing is read once. The density pass
@@ -166,6 +166,23 @@ const REASON_SENTENCE: Record<Reason, string> = {
 
 /** The order the counts state them in: the three that owe a decision first. */
 const REASON_ORDER: Reason[] = ["notfound", "rejected", "unsearched", "emptied"];
+
+/**
+ * Why every decision on this block is refused while a document is being loaded.
+ *
+ * ONE SENTENCE, DECLARED ONCE, because it rides on each of the five controls
+ * the load disables instead of standing in a notice above them. Five
+ * hand-typed copies is how two of them end up describing one state in two
+ * different ways.
+ *
+ * IT SAYS PEMUATAN, NOT PEMBACAAN, and that is the same split ingest-panel
+ * made upstream: move one is MUAT, the pages coming in, and move two is the AI
+ * reading them. This block carries both, a few centimetres apart, so a hold
+ * that said "pembacaan" while the key below it says "Baca dengan AI" named the
+ * wrong move at the one moment the operator is asking which one they are
+ * waiting for.
+ */
+const LOADING_HOLD = "Tunggu pemuatan dokumen selesai.";
 
 function reasonOf(state: SlotState): Reason {
   if (state.status === "unfilled") return "emptied";
@@ -388,7 +405,8 @@ function Panel({
   const [confirming, setConfirming] = useState(false);
   /**
    * Is the list of blanks open under its disclosure? Closed, unless a round is
-   * owed: Proses lagi outranks the rows the moment a document has been read.
+   * owed: Baca dengan AI outranks the rows the moment a document has been
+   * read.
    */
   const [expanded, setExpanded] = useState(owesRound);
   const confirmRef = useRef<HTMLDivElement>(null);
@@ -470,7 +488,7 @@ function Panel({
   // once: one failure stated twice on one screen reads as two failures.
   const errorNotice = error ? (
     <Notice tone="stop">
-      {error} Halaman yang sudah dibaca tetap tersimpan.
+      {error} Halaman yang sudah dimuat tetap tersimpan.
     </Notice>
   ) : null;
   const errorHere = dropOpen ? null : errorNotice;
@@ -561,23 +579,17 @@ function Panel({
 
         {errorHere}
 
-        {/* A disabled control never appears without its reason, and the control
-            this one disables is Tambah dokumen, one line below. So it stands
-            outside the fold: a reason that can be collapsed away from the
-            button it explains is not a reason. */}
-        {busy ? (
-          <Notice tone="warn">
-            <span className="flex flex-wrap items-center gap-2">
-              Keputusan ditahan sampai pembacaan selesai.
-              <Hint label="Kenapa keputusan ditahan">
-                Menyimpan di tengah pembacaan akan ditolak oleh penyimpanan,
-                karena ordernya sudah berubah, dan keputusan Anda bisa
-                hilang.
-              </Hint>
-            </span>
-          </Notice>
-        ) : null}
-
+        {/* THE HOLD DURING A READ TRAVELS ON THE CONTROLS IT HOLDS. It was a
+            standing amber notice here saying "Keputusan ditahan sampai
+            pembacaan selesai", with a question mark explaining that a write
+            landing mid-read would be refused by storage. Both halves were
+            wrong for this screen: amber means A DECISION IS OWED and a
+            temporary hold owes nothing, and how our storage refuses a stale
+            write is our engineering rather than anything the operator can act
+            on. Every control the hold disables now carries the reason itself,
+            reachable by pointer, by keyboard and by screen reader, which is
+            also the one thing a collapsible notice could never promise: a
+            reason that cannot be folded away from the button it explains. */}
         <ReasonCounts counts={counts} />
 
         {/* ABOVE THE QUESTION, because when a round is owed it outranks it:
@@ -810,11 +822,19 @@ function BlankRow({
               two identical glyphs on every one of twelve rows discriminate
               nothing, and the icon belongs on the choice the design calls the
               equal terminal state rather than on the one that ships a blank. */}
-          <Btn disabled={busy} onClick={() => onDraw(index)}>
+          <Btn
+            disabled={busy}
+            reason={LOADING_HOLD}
+            onClick={() => onDraw(index)}
+          >
             <Potongan />
             Gambar sendiri
           </Btn>
-          <Btn disabled={busy} onClick={() => onUnfill(index)}>
+          <Btn
+            disabled={busy}
+            reason={LOADING_HOLD}
+            onClick={() => onUnfill(index)}
+          >
             Kosongkan
           </Btn>
         </span>
@@ -831,6 +851,13 @@ function BlankRow({
  * rectangle with and inventing one would be a claim this app cannot make. What
  * it can say is how many bagian go up and how many pages of text they are
  * searched against, both of which are facts it holds.
+ *
+ * NO BAR IS NOT THE SAME AS NOTHING MOVING, which is the correction an
+ * operator made: a block that sits perfectly still for several minutes is
+ * indistinguishable from one that has hung, and somebody who is not watching
+ * the word change never learns they are meant to wait. `.lt-spinner` claims no
+ * progress and no proportion; it says only that this is running, which is the
+ * one thing this screen genuinely knows.
  *
  * The two wordings are not decoration. "Nothing has been searched yet" and "you
  * added a document and the search has not run over it" send the operator to
@@ -856,47 +883,73 @@ function SearchLine({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <p aria-live="polite" className="flex-1 text-sm">
+      <p
+        aria-live="polite"
+        className="flex flex-1 flex-wrap items-center gap-2 text-sm"
+      >
         {searching ? (
           <>
-            Mencari <span className="lt-figure">{searchable}</span> bagian.
+            {/* THE WAIT HAS TO MOVE. A round is a single POST over the whole
+                order and it runs for minutes, and this line stood perfectly
+                still for all of them: an operator who was not watching the
+                word change could not tell it from a screen that had hung.
+                `aria-hidden`, because the sentence beside it says the same
+                thing to a screen reader and this region is already live. */}
+            <span className="lt-spinner" aria-hidden="true" />
+            <span>
+              Mencari <span className="lt-figure">{searchable}</span> bagian.
+            </span>
           </>
         ) : afterDocument ? (
-          <>
+          <span>
             Halaman baru belum dicari:{" "}
             <span className="lt-figure">{searchable}</span> bagian menunggu.
-          </>
+          </span>
         ) : (
-          <>
-            <span className="lt-figure">{searchable}</span> bagian bisa dicari
-            di <span className="lt-figure">{pages}</span> halaman.
-          </>
+          <span>
+            <span className="lt-figure">{searchable}</span> bagian bisa dicari di{" "}
+            <span className="lt-figure">{pages}</span> halaman.
+          </span>
         )}
       </p>
 
       {/* WHICH SENTENCE STAYS AND WHICH GOES, clause by clause. The counts are
-          about THIS run and stand. The reassurance underneath reads the same
-          words on every order, so it moves behind the mark. */}
-      <Hint label="Yang terjadi kalau diproses lagi">
-        Bukti yang sudah Anda terima tidak ikut dicari ulang, jadi memproses
-        lagi tidak mengulang order yang sudah selesai. Tab ini boleh
-        dibiarkan terbuka selama prosesnya berjalan.
+          about THIS run and stand. What is left behind the mark answers the
+          one hesitation this control meets ("does running it again undo what I
+          already accepted?"), which decides whether the operator presses it.
+          The clause about leaving the tab open went with the rest of the
+          mechanism copy: it described how the app works, not what pressing
+          this does. */}
+      <Hint label="Yang terjadi kalau dibaca lagi">
+        Bukti yang sudah Anda terima tidak ikut dicari ulang, jadi membacanya
+        lagi tidak mengulang order yang sudah selesai.
       </Hint>
 
       {onSearch ? (
         <Btn
           tone={afterDocument ? "primary" : "default"}
           disabled={searching || busy}
+          /* THE FIFTH CONTROL THE LOAD HOLDS, and the one that was left
+             without its reason when the standing notice above went. Only for
+             the load: while the round itself is running, the spinner and the
+             sentence to the left say so on screen at full ink, and a hover
+             repeating that would be the restatement this pass removes. */
+          reason={busy && !searching ? LOADING_HOLD : undefined}
           aria-busy={searching || undefined}
           onClick={onSearch}
         >
-          {/* `Proses`, the same word the Muat screen uses, because it is the
-              same action: it is what turns halaman into usulan. Calling it
-              "Cari bagian ini" here and "Proses" there would make one action
-              wear two names across the flow, which is the thing the glossary
-              in docs/ui-bahasa.md exists to stop. */}
+          {/* THE SAME NAME THE MUAT SCREEN'S KEY WEARS, because it is the same
+              action: an AI reads the pages and marks where each bagian is.
+              This said "Proses lagi" against a Muat screen that says "Baca
+              dengan AI", so one action wore two names across the flow, and one
+              of them was the word the operator killed for meaning nothing.
+              The "lagi" went with it rather than moving into the label: the
+              line beside this key already says whether new halaman are waiting
+              or nothing has been read yet, and a second name for a re-run is
+              how two names start again. The magnifier is shared with that key
+              on purpose; ingest-panel says it must be on both or on neither. */}
           <Cari />
-          {searching ? "Memproses..." : "Proses lagi"}
+          {searching ? "Sedang membaca..." : "Baca dengan AI"}
         </Btn>
       ) : null}
     </div>
@@ -912,10 +965,14 @@ function SearchLine({
  * answers are on it: yes opens the dokumen tambahan dialog, no reveals the bulk
  * write-off, which is the only other way a blank can leave this list.
  *
- * The answer is remembered for the session only, and the question mark says
- * exactly that, because it is not written into the run: presenting a session
- * variable as a record would be the second-worst thing this block could do
- * after losing a decision outright.
+ * The answer is remembered for the session only, and NOTHING HERE CLAIMS
+ * OTHERWISE, which is what that has always needed. It used to be said in a
+ * question mark ("this answer only lasts while the tab is open and is not
+ * saved to the order"), and that panel was two thirds a restatement of the
+ * question above it and one third a description of where the app keeps a
+ * variable. What matters is that no wording on this block presents the answer
+ * as a record: "Tidak, hanya ini" is a pressed toggle that reveals a control,
+ * and it never reports itself as saved.
  */
 function Fork({
   noMore,
@@ -951,6 +1008,7 @@ function Fork({
             document clipped to the same order. */}
         <Btn
           disabled={busy}
+          reason={LOADING_HOLD}
           aria-describedby="tambahan-question"
           onClick={onAddDocument}
         >
@@ -966,12 +1024,6 @@ function Fork({
         >
           Tidak, hanya ini
         </Btn>
-
-        <Hint label="Tentang jawaban ini">
-          Bagian yang belum ada buktinya mungkin ada di berkas lain, dan bukti
-          yang sudah Anda terima tetap disimpan. Jawaban ini hanya berlaku
-          selama tab ini terbuka dan tidak ikut tersimpan di order.
-        </Hint>
       </div>
 
       {noMore ? (
@@ -999,6 +1051,11 @@ function Fork({
             <Btn
               tone="reject"
               disabled={busy || actionable.length === 0}
+              reason={
+                busy
+                  ? LOADING_HOLD
+                  : "Tidak ada bagian yang bisa dikosongkan sekaligus."
+              }
               onClick={() => setConfirming(true)}
             >
               {/* The double rule a clerk leaves in a cell that stays blank:
@@ -1090,15 +1147,23 @@ function BulkConfirm({
           </Notice>
         ) : null}
 
+        {/* Two question marks in one confirmation box is one too many, and the
+            one that went explained how to undo this afterwards. Every bagian
+            written off here is a plate in the sheet below carrying its own
+            "Buka lagi", so the route back is on the screen rather than in a
+            panel; what stays behind a mark is the difference between writing
+            off a bagian that was searched and one that never was, which is the
+            thing that should change the answer to this question. */}
         <div className="flex flex-wrap items-center gap-4">
-          <Btn tone="reject" disabled={busy} onClick={onConfirm}>
+          <Btn
+            tone="reject"
+            disabled={busy}
+            reason={LOADING_HOLD}
+            onClick={onConfirm}
+          >
             Ya, kosongkan {rows.length} bagian
           </Btn>
           <Btn onClick={onCancel}>Batal</Btn>
-          <Hint label="Kalau berubah pikiran">
-            Untuk membatalkannya nanti, buka lagi bagiannya satu per satu di
-            lembar periksa di bawah.
-          </Hint>
         </div>
       </div>
     </div>
@@ -1161,15 +1226,13 @@ function TambahanDialog({
             <Klip size={20} />
             Dokumen tambahan
           </DialogTitle>
+          {/* One line, and the mark that used to follow it is gone: it said
+              that accepted evidence is kept and adding a document does not
+              redo finished work, which is the same sentence the search line on
+              the block behind this dialog already carries. One fact, one
+              place. */}
           <DialogDescription>
-            <span className="flex flex-wrap items-center gap-2">
-              Hanya bagian yang belum ada buktinya yang dicari lagi.
-              <Hint label="Yang terjadi dengan bukti yang sudah diterima">
-                Setiap area yang sudah Anda terima tetap tersimpan, jadi
-                menambahkan berkas keempat tidak mengulang order yang sudah
-                selesai.
-              </Hint>
-            </span>
+            Hanya bagian yang belum ada buktinya yang dicari lagi.
           </DialogDescription>
         </DialogHeader>
 
@@ -1178,7 +1241,7 @@ function TambahanDialog({
         ) : (
           <DocumentDrop
             label="Dokumen tambahan"
-            hint="Sesudah dibaca, pencarian masih harus dijalankan."
+            hint="Sesudah dimuat, AI masih harus membacanya."
             size="inline"
             onFiles={onFiles}
           />
@@ -1201,7 +1264,25 @@ function TambahanDialog({
  * THREE OR FOUR WORDS A LINE, on purpose. "Membuka berkas dan menghitung
  * halamannya" is the exact line the client named as unreasonably long, and
  * nothing is lost by cutting it: what the operator needs is that the document
- * is being read, and how much of it has landed.
+ * is on its way in, and how much of it has landed.
+ *
+ * AND IT DOES NOT SAY IT IS COUNTING PAGES. The first version of that cut kept
+ * the verb and said "Menghitung halaman", which was the half the client's
+ * objection was actually about: counting sounds like something that takes an
+ * instant, it takes a while on a scanned bundle, and an app that claims to be
+ * doing a trivial thing slowly reads as a slow app.
+ *
+ * IT SAYS MEMUAT, NOT MEMBACA, for the reason ingest-panel's own `Reading`
+ * gives: move one is MUAT, the pages coming in, and move two is the AI reading
+ * them. This block is inches from a key labelled "Baca dengan AI", so it was
+ * the one place in the product where both moves were on screen at once wearing
+ * one verb between them.
+ *
+ * THE SPINNER IS ONLY HERE, AND ONLY WHILE THE TOTAL IS UNKNOWN, which is the
+ * same rule and the same reason as upstream: once "3/29 halaman tersimpan"
+ * starts ticking, the figure is the motion, and two drawings of one fact is
+ * one too many. Before it, this dialog held the operator in front of a block
+ * that did not move for minutes.
  */
 function Reading({ progress }: { progress: IngestProgress | null }) {
   const named = Boolean(progress?.name);
@@ -1210,7 +1291,7 @@ function Reading({ progress }: { progress: IngestProgress | null }) {
   return (
     <div className="flex flex-col gap-4" aria-live="polite">
       <p className="flex flex-wrap items-center gap-2 text-sm">
-        Membaca
+        Memuat
         {named ? (
           <span className="lt-kotak" title={progress?.name}>
             {shortenFileName(progress?.name ?? "", 30)}
@@ -1222,7 +1303,10 @@ function Reading({ progress }: { progress: IngestProgress | null }) {
 
       <p className="flex flex-wrap items-center gap-2 text-sm">
         {counting ? (
-          "Menghitung halaman."
+          <>
+            <span className="lt-spinner" aria-hidden="true" />
+            <span>Dokumen sedang dimuat.</span>
+          </>
         ) : (
           <>
             <span className="lt-kotak">
@@ -1233,18 +1317,15 @@ function Reading({ progress }: { progress: IngestProgress | null }) {
         )}
       </p>
 
-      {/* The reason the close control is missing, which never hides. The
-          promise that the box lets go by itself is fixed wording and reads the
-          same on every read, so it sits behind the mark with the rest of the
-          explanation rather than doubling the line on screen. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Note>Tidak bisa ditutup sampai pembacaan selesai.</Note>
-        <Hint label="Kenapa tidak bisa ditutup">
-          Setiap halaman disimpan begitu selesai dibaca. Kotak ini bertahan
-          supaya tidak ada pembacaan yang berjalan tanpa terlihat, dan menutup
-          sendiri begitu selesai.
-        </Hint>
-      </div>
+      {/* THE WHOLE OF WHAT THE OPERATOR NEEDS, IN ONE LINE. The reason the
+          close control is missing never hides, and the half of the old
+          question mark that was worth keeping is the half that tells them to
+          do nothing: the box lets go by itself. What went with the mark was
+          the sentence about pages being written to storage one at a time,
+          which is our machinery and not their business. */}
+      <Note>
+        Tidak bisa ditutup sampai pemuatan selesai, lalu menutup sendiri.
+      </Note>
     </div>
   );
 }
@@ -1263,7 +1344,7 @@ function SessionHistory({ rounds }: { rounds: RoundLog[] }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="lt-label">Dibaca di sesi ini</span>
+      <span className="lt-label">Dimuat di sesi ini</span>
       {rounds.map((round, i) => (
         <span
           key={`${round.round}-${round.document}-${i}`}

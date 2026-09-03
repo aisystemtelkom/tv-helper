@@ -294,13 +294,20 @@ function Sebab({ reason, children }: { reason: string; children: ReactNode }) {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
+        /* NOT A NATIVE BUTTON, AND IT CANNOT BE ONE. Base UI assumes a trigger
+           is a `<button>` and warns when it is not, which is the right default
+           and the wrong one here: this trigger WRAPS a disabled button, and a
+           button inside a button is invalid HTML that browsers recover from
+           unpredictably. Saying so explicitly is what turns a warning into a
+           decision. */
+        nativeButton={false}
         render={
           <span
-            // Focusable, because the thing it wraps is not. Without this the
-            // reason would be pointer-only, which is the one failure this
-            // whole arrangement has to avoid.
+            // Focusable, because the thing it wraps is not: a disabled button
+            // is skipped by the tab order and receives no pointer events, so
+            // without this the reason would be mouse-only. That is the single
+            // failure this whole arrangement exists to avoid.
             tabIndex={0}
-            role="group"
             aria-describedby={open ? id : undefined}
             className="inline-flex"
             onMouseEnter={enter}

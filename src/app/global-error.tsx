@@ -18,9 +18,12 @@
  *     the font variables. A system stack is the honest answer; loading a
  *     webfont from anywhere would break this project's standing proof that
  *     `performance.getEntriesByType("resource")` shows no host but this one.
- *   - It must not import `chrome.tsx`. A shared component is one more thing
- *     that can be the reason this screen fails to render, on the screen whose
- *     whole job is to render when something else did not.
+ *   - It must not import `chrome.tsx`, and it must not import `icons.tsx`
+ *     either. A shared component is one more thing that can be the reason this
+ *     screen fails to render, on the screen whose whole job is to render when
+ *     something else did not. So the brain beside the wordmark is transcribed
+ *     inline, exactly as the colours below are, and it moves when `Otak` in
+ *     `src/components/operator/icons.tsx` moves.
  *
  * THE HEXADECIMALS ARE THE MEJA KACA TOKENS, CONVERTED. `globals.css` states
  * them in oklch; a custom property cannot reach a document that has no
@@ -282,7 +285,7 @@ export default function GlobalError({
           backgroundAttachment: "fixed",
         }}
       >
-        <title>Aplikasi berhenti - tv-validator</title>
+        <title>Aplikasi berhenti - TV Validator</title>
         <style>{SHEET_CSS}</style>
 
         {/* Lifted off the geometric centre by one step of the space scale, and
@@ -337,15 +340,52 @@ export default function GlobalError({
                   it quotes a name. The state word beside it is a label, and
                   this product never shouts a label to give it rank, so the
                   transform sits on the span and not on the bar, which is where
-                  it was turning "gagal" into "GAGAL". */}
+                  it was turning "gagal" into "GAGAL".
+
+                  THE NAME IS "TV VALIDATOR", WITH NO DASH. The dash was a
+                  package name wearing a product's clothes. */}
               <span
                 style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
                   font: `700 15px/1.4 ${MONO}`,
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
                 }}
               >
-                tv-validator
+                {/* THE BRAIN, TRANSCRIBED, FOR THE SAME REASON THE COLOURS ARE.
+                    This screen replaces the layout, so it may not import
+                    `icons.tsx` any more than it may import `chrome.tsx` or
+                    reach `globals.css`: a shared module is one more thing that
+                    can be the reason the screen whose whole job is to render
+                    when something else did not fails to render. So `Otak`'s
+                    five paths are copied out of
+                    `src/components/operator/icons.tsx` exactly as the tokens
+                    above are copied out of the stylesheet, on the same 20
+                    grid, at the same 1.5 stroke, painting `currentColor` so
+                    the masthead's own ink carries it. If the mark is redrawn
+                    there, it is redrawn here, or this screen goes back to
+                    looking like a different product. */}
+                <svg
+                  width={24}
+                  height={24}
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  aria-hidden="true"
+                >
+                  <path d="M10 4.4c-1.0-1.3-3.3-1.1-3.9.4-1.7 0-2.8 1.7-2.0 3.1-1.2 1.0-1.1 2.9.2 3.7-.1 1.6 1.5 2.8 3.0 2.3.5 1.1 1.9 1.5 2.7.7" />
+                  <path d="M10 4.4c1.0-1.3 3.3-1.1 3.9.4 1.7 0 2.8 1.7 2.0 3.1 1.2 1.0 1.1 2.9-.2 3.7.1 1.6-1.5 2.8-3.0 2.3-.5 1.1-1.9 1.5-2.7.7" />
+                  <path d="M10 4.4v10.2" />
+                  <path d="M6.2 8.0c1.8 0 2.8 1.0 2.8 2.4" />
+                  <path d="M13.8 8.0c-1.8 0-2.8 1.0-2.8 2.4" />
+                </svg>
+                TV VALIDATOR
               </span>
               {/* `.lt-kop-right`: the same end of every kop in the product. */}
               <span style={{ marginInlineStart: "auto", fontWeight: 600 }}>

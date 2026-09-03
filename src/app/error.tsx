@@ -29,7 +29,8 @@
  *
  * The sheet is the same one `signin/page.tsx` documents. Neither of the two
  * classes that file names needs what it used to: `.lt-kotak` takes the recess
- * from the token rebind, and `.lt-kop` is down to a single declaration, which
+ * from the token rebind, and `.lt-kop` takes its whole legend from
+ * `globals.css`, so this screen spells out no colour of its own at all.
  *
  * `retry()` rather than `reset()`. Next passes both, and both are real, but
  * they answer different questions: `reset()` re-renders the boundary's
@@ -41,30 +42,9 @@
  * `reset` and `retry` side by side.
  */
 
-
 import { Btn, TechnicalDetail } from "@/components/operator/chrome";
+import { Otak } from "@/components/operator/icons";
 
-/**
- * What a kop costs on paper, in one place, and it is now ONE declaration
- * rather than two.
- *
- * The `color: var(--paper)` that used to sit beside this is gone:
- * `globals.css` gives `.lt-paper .lt-kop` a legend of its own and states in
- * its own comment that the inline copy is what that rule makes redundant. An
- * inline style restating a class is a second place to keep a colour in step.
- *
- * WHAT THE STYLESHEET DOES NOT DO IS REBIND `--ink` ON THE BAR. `.lt-paper`
- * rebinds it to `--paper-ink`, which is also the masthead's own ground, so
- * `.lt-wordmark` -- which paints `color: var(--ink)` -- is ink on ink at 1:1
- * without this line. The bench rule `.lt-kop[data-owes] > *` happens to hand
- * the same value to the children of a bar that REPORTS something, so on
- * `error.tsx` this restates it; a bar that reports nothing has no rule to
- * match it at all, and that is `not-found.tsx` and `loading.tsx`. It is
- * written identically in all three so that a screen gaining or losing
- * `data-owes` cannot make the wordmark disappear. `signin/page.tsx` carries
- * the same constant. If `globals.css` ever adds `--ink: var(--paper)` to
- * `.lt-paper .lt-kop`, all four go.
- */
 /**
  * Next's own source carries "Docs say this is an Error object, but we don't
  * guarantee that": whatever was thrown arrives here unchanged, so a thrown
@@ -86,6 +66,27 @@ function describe(error: unknown): string {
   return parts.join("\n");
 }
 
+/**
+ * THE WORDMARK IS "TV VALIDATOR", WITH NO DASH AND WITH THE BRAIN BESIDE IT,
+ * and it is the same lockup EVERY paper sheet in `src/app/` opens with. The
+ * count that used to stand here ("all five") went stale the moment a sixth
+ * sheet grew a kop, so the set is named rather than counted. The dash was a
+ * package name wearing a product's clothes. `.lt-wordmark` already sets the
+ * caps and the tracking, so the string is written out in full only so a reader
+ * of this file sees the name the operator sees.
+ *
+ * NOTHING HERE SPELLS OUT AN INK, AND A CONSTANT THAT USED TO IS GONE.
+ * `.lt-paper` rebinds `--ink` to `--paper-ink`, which is also the masthead's
+ * own ground, so `.lt-wordmark` -- which paints `color: var(--ink)` -- was ink
+ * on ink at 1:1, and four screens each carried their own copy of the fix.
+ * `globals.css` gives `.lt-paper .lt-kop` a legend of its own now
+ * (`--ink: var(--paper)`, measured at 15.65:1 on the bar) and the copies went
+ * with it. `Otak` paints `currentColor`, so the same rule carries the mark.
+ *
+ * (This block sat above `describe()` for a while, which is a helper that
+ * touches neither a wordmark nor an ink. Kept, moved onto the component it
+ * actually describes.)
+ */
 export default function AppError({
   error,
   retry,
@@ -103,7 +104,10 @@ export default function AppError({
               rebinds the ink ladder so the wordmark is legible on it. Nothing
               is spelled out here any more. */}
           <div className="lt-kop" data-owes="fault">
-            <span className="lt-wordmark">tv-validator</span>
+            <span className="lt-wordmark inline-flex items-center gap-2">
+              <Otak size={24} />
+              TV VALIDATOR
+            </span>
             <span className="lt-kop-right">gagal</span>
           </div>
 

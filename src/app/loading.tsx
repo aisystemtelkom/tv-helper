@@ -16,38 +16,41 @@
  * promises only what is already known, which is the product's name and the
  * fact that it is coming.
  *
- * NOTHING HERE MOVES AND THERE IS NO SPINNER. A spinner claims progress it
- * cannot measure. The one orchestrated motion in this product answers an
- * operator's own click (the paraf being drawn), and the only other motion is
- * countable (one tick per stored page); a placeholder that pulses is neither,
- * so it would be the first thing in the product that moves to no purpose.
+ * NOTHING HERE MOVES, AND THE PRODUCT'S SPINNER DELIBERATELY DOES NOT COME
+ * HERE. `.lt-spinner` exists now and is right where an operator kicked
+ * something off and might look away while it runs, which is why the ingest and
+ * export panels carry it. Two reasons it is wrong on this sheet. It is drawn
+ * in `--petrol`, which `.lt-paper` does NOT rebind, so a petrol ring on warm
+ * white is a pale smudge well under the 3:1 a non-text graphic owes. And there
+ * is nothing here to keep watching: nobody pressed anything, the sheet is
+ * already the whole answer, and the heading below says so in words.
  *
- * The cold-start sentence stays on screen rather than going behind a question
- * mark: it is the reason this screen is still here, which is the one class of
- * explanation that never hides.
+ * THE WAIT IS SAID IN THE OPERATOR'S TERMS, NOT IN OURS. The sentence read
+ * "Bisa beberapa detik saat server baru dinyalakan", which teaches a person
+ * about our hosting while they are waiting to open an order. Whether a machine
+ * somewhere is warming up is the deployer's fact; how long this might take is
+ * theirs. It stays on screen rather than going behind a question mark, because
+ * the reason this screen exists at all is to say the wait is normal.
  */
 
+import { Otak } from "@/components/operator/icons";
 
 /**
- * What a kop costs on paper, in one place, and it is now ONE declaration
- * rather than two.
+ * THE WORDMARK IS "TV VALIDATOR", WITH NO DASH AND WITH THE BRAIN BESIDE IT,
+ * and it is the same lockup EVERY paper sheet in `src/app/` opens with. The
+ * count that used to stand here ("all five") went stale the moment a sixth
+ * sheet grew a kop, so the set is named rather than counted. The dash was a
+ * package name wearing a product's clothes. `.lt-wordmark` already sets the
+ * caps and the tracking, so the string is written out in full only so a reader
+ * of this file sees the name the operator sees.
  *
- * The `color: var(--paper)` that used to sit beside this is gone:
- * `globals.css` gives `.lt-paper .lt-kop` a legend of its own and states in
- * its own comment that the inline copy is what that rule makes redundant. An
- * inline style restating a class is a second place to keep a colour in step.
- *
- * WHAT THE STYLESHEET DOES NOT DO IS REBIND `--ink` ON THE BAR. `.lt-paper`
- * rebinds it to `--paper-ink`, which is also the masthead's own ground, so
- * `.lt-wordmark` -- which paints `color: var(--ink)` -- is ink on ink at 1:1
- * without this line. The bench rule `.lt-kop[data-owes] > *` happens to hand
- * the same value to the children of a bar that REPORTS something, so on
- * `error.tsx` this restates it; a bar that reports nothing has no rule to
- * match it at all, and that is `not-found.tsx` and `loading.tsx`. It is
- * written identically in all three so that a screen gaining or losing
- * `data-owes` cannot make the wordmark disappear. `signin/page.tsx` carries
- * the same constant. If `globals.css` ever adds `--ink: var(--paper)` to
- * `.lt-paper .lt-kop`, all four go.
+ * NOTHING HERE SPELLS OUT AN INK, AND A CONSTANT THAT USED TO IS GONE.
+ * `.lt-paper` rebinds `--ink` to `--paper-ink`, which is also the masthead's
+ * own ground, so `.lt-wordmark` -- which paints `color: var(--ink)` -- was ink
+ * on ink at 1:1, and four screens each carried their own copy of the fix.
+ * `globals.css` gives `.lt-paper .lt-kop` a legend of its own now
+ * (`--ink: var(--paper)`, measured at 15.65:1 on the bar) and the copies went
+ * with it. `Otak` paints `currentColor`, so the same rule carries the mark.
  */
 export default function Loading() {
   return (
@@ -58,7 +61,10 @@ export default function Loading() {
       <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
         <div className="lt-paper overflow-hidden">
           <div className="lt-kop">
-            <span className="lt-wordmark">tv-validator</span>
+            <span className="lt-wordmark inline-flex items-center gap-2">
+              <Otak size={24} />
+              TV VALIDATOR
+            </span>
             <span className="lt-kop-right">memuat</span>
           </div>
 
@@ -74,7 +80,7 @@ export default function Loading() {
                 and `Title` renders an h2. */}
             <h1 className="lt-title">Memuat aplikasi.</h1>
             <p className="lt-note">
-              Bisa beberapa detik saat server baru dinyalakan.
+              Biasanya cepat, tapi bisa memakan waktu beberapa detik.
             </p>
           </div>
         </div>

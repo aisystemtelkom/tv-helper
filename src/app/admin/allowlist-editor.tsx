@@ -436,7 +436,7 @@ export function AllowlistEditor({
                 single address. */}
             <table className="w-full border-collapse text-left">
               <caption className="sr-only">
-                Daftar alamat email yang boleh masuk ke tv-validator, dengan
+                Daftar alamat email yang boleh masuk ke TV Validator, dengan
                 perannya, catatan siapa yang menambahkannya, dan tombol untuk
                 menghapus aksesnya.
               </caption>

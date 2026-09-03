@@ -865,8 +865,12 @@ function MissingCapture({ onDraw }: { onDraw: () => void }) {
     <div className="lt-stage flex flex-wrap items-center gap-4">
       <Missing height={104} label="Potongan ini belum ada" />
       <div className="flex max-w-[46ch] flex-col items-start gap-2">
+        {/* The control is quoted by the name it actually wears. "Jalankan
+            Proses lagi" pointed at a key the operator killed by name: it
+            names no object, no agent and no result, and nothing in the
+            product is labelled with it any more. */}
         <p>
-          Belum pernah dicari di order ini. Jalankan Proses lagi, atau
+          Belum pernah dicari di order ini. Jalankan Baca dengan AI lagi, atau
           gambar sendiri areanya.
         </p>
         <Btn onClick={onDraw}>
@@ -1051,7 +1055,7 @@ export function ProposalPlate({
           <p className="lt-note flex items-center gap-2">
             belum diperiksa lanjutannya
             <Hint label="Arti belum diperiksa lanjutannya">
-              Proses belum memeriksa apakah blok ini bersambung ke halaman
+              AI belum memeriksa apakah blok ini bersambung ke halaman
               berikutnya.
             </Hint>
           </p>

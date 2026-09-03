@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Screen 1: MUAT DOKUMEN ORDER. Take the PDFs, read them, then process them.
+ * Screen 1: MUAT DOKUMEN ORDER. Take the PDFs, load their pages, then have
+ * the AI read them.
  *
  * This is the empty state of the whole product, so it is an invitation to act
  * rather than a form. The drop target is the screen's subject and gets the
@@ -10,8 +11,10 @@
  * of what this order now holds.
  *
  * THE SCREEN IS TWO MOVES, AND THEY ARE DELIBERATELY NOT ONE. Move one hands
- * the documents over and reads their pages. Move two, `Process` below, is the
- * search that turns those pages into usulan, and it is an explicit click
+ * the documents over and loads their pages (`Memuat`). Move two, `Process`
+ * below, is the AI reading those pages into usulan (`Baca dengan AI`) -- two
+ * verbs, because they used to share one and the screen said "membaca" twice
+ * for two different operations. Move two is an explicit click
  * because it costs minutes of model calls over every page of the bundle: an
  * operator who has just noticed a missing document must be able to add it
  * BEFORE paying for that pass, which is impossible if handing a file over
@@ -22,15 +25,19 @@
  * strip below is honest because the app genuinely learns about whole pages,
  * one at a time. The search is ONE request for the whole run (`requestProposals`
  * in `src/lib/ui/propose.ts`), so there is no per-bagian progress to read and
- * no way to invent one that is not fiction. What it can say instead is
- * countable and true: how many bagian are being searched, how many halaman of
- * text went up, and how long it has been running.
+ * no way to invent one that is not fiction. What stands in its place is a
+ * SPINNER and the elapsed time. The spinner is not decoration: an operator
+ * told us they could not tell a running pass from a hung one because nothing
+ * on the block moved, and a multi-minute wait with a still screen is a wait
+ * people walk away from. The seconds are the only number here that is true.
  *
  * THE FILM STRIP IS COUNTABLE, NEVER SMOOTH, and that is load-bearing rather
- * than stylistic. Reading a bundle of around thirty scanned pages takes
- * minutes. A spinner for minutes is indistinguishable from a hang, and a
- * percentage would be a claim this app cannot make: it only ever learns about
- * WHOLE PAGES.
+ * than stylistic. Loading a bundle of around thirty scanned pages takes
+ * minutes, and a percentage would be a claim this app cannot make: it only
+ * ever learns about WHOLE PAGES. A spinner is not a substitute for it either,
+ * because a spinner cannot say how much is done. Where a spinner DOES belong
+ * is the two moments this app has nothing countable to show, and there are
+ * exactly two: before the first page total is known, and during move two.
  *
  * THE TICKS LAG THE WORK ON PURPOSE. Four pages are read at once, but
  * `ingestDocument` releases them strictly in page order, because the order
@@ -38,32 +45,32 @@
  * a position in that list. So the count is what is SAFELY STORED, not what has
  * finished, which is the number an operator who closes the tab needs.
  *
- * WHAT THE PROMISE ON THIS SCREEN IS ALLOWED TO SAY. The screen used to carry
- * two contradictory sentences forty lines apart: "read in this browser and
- * never uploaded" beside "the rendered pages are read by this app's own
- * server". Since the Gemini OCR migration the second one is the true one. The
- * accurate sentence is now stated once, inside `DocumentDrop`, so that every
- * point of hand-over in the product carries it and none of them can drift: the
- * PDF itself never leaves the device, the pages are rendered here, and only a
- * rendered page image goes to this application's own server to be read.
+ * WHAT THE PROMISE ON THIS SCREEN IS ALLOWED TO SAY, AND IT IS NOW ONE CLAUSE.
+ * The screen used to carry the full architecture: the PDF is not uploaded, the
+ * pages are rendered in this browser, and only a rendered page image goes to
+ * this application's own server to be read. Every word of that is true and
+ * none of it is the operator's business. Their own objection, and it settles
+ * the whole class: "User don't need to learn that we're compliant when they're
+ * trying to use each functionality of the app. Just put disclaimers in privacy
+ * policy, and let the user know that the pdf isn't uploaded yet and that's
+ * it." So what stays at the hand-over is the half they asked for and can act
+ * on -- "Berkas PDF tidak diunggah." -- and the mechanism behind it now lives
+ * only in `src/app/privacy/page.tsx`, which is where a compliance claim is
+ * findable when somebody actually wants it.
  *
- * WHAT THIS SCREEN NO LONGER PRINTS, AND WHERE IT WENT. The density rule is
- * applied CLAUSE BY CLAUSE: a line keeps the screen if a different order would
- * print it differently, or if it is the reason a control here is refusing to
- * work. Everything that would read word for word the same on every order sits
- * behind a `Hint` beside the heading it explains. So the mechanism tails moved
- * (pages are straightened before they are read, four are read at once and the
- * tick count is what is SAFELY STORED, the search is one request for the whole
- * run so there can be no bar, a run you leave stays in the list), and the
- * counted, conditional and blocking lines all stayed: how many halaman are
- * short, how many read as blank, which berkas is duplicated, why `Proses` is
- * disabled, why `Buka lembar periksa` is disabled, and how long a running pass
- * has been going.
+ * THAT IS A DELETION OF EXPLANATION, NEVER OF A REFUSAL. Every fault and every
+ * interruption on this screen still states itself in prose and does not go
+ * away until it is dealt with, and the counted, conditional lines all stayed:
+ * how many halaman are short, how many read as blank, which berkas is
+ * duplicated. What went is the text that would read word for word the same on
+ * every order.
  *
- * THE ONE STATIC SENTENCE THAT IS NOT ALLOWED BEHIND A HINT is the consent in
- * `DocumentDrop`: "Berkas PDF tidak diunggah...". It is identical on every run
- * and it still stays on screen, because it is made at the moment the documents
- * are handed over. A consent that has to be hovered for is not one.
+ * WHY A DISABLED CONTROL NO LONGER PRINTS ITS REASON BESIDE ITSELF. Same
+ * operator, same complaint: the key is down, that already reads as
+ * unavailable, and a paragraph restating it is furniture on every screen
+ * forever. `Btn`'s `reason` carries it to a pointer, to a keyboard and to a
+ * screen reader instead, and the paragraph beside the button is now only ever
+ * something the operator does not already know.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -135,6 +142,7 @@ export function DocumentDrop({
   disabled,
   onFiles,
   size = "hero",
+  tone = "primary",
 }: {
   label: string;
   /**
@@ -152,6 +160,15 @@ export function DocumentDrop({
   onFiles: (files: File[]) => void;
   /** `inline` is the same target at a smaller height, for a secondary screen. */
   size?: "hero" | "inline";
+  /**
+   * WHETHER THIS IS THE SCREEN'S ONE MOVE. `primary` by default, because on
+   * the empty state and inside the dokumen tambahan dialog it is: there is
+   * nothing else to press. On an order that already holds pages it is not,
+   * and the caller says so: the move there is `Baca dengan AI` further down,
+   * and two primary keys in one column make the operator work out which one
+   * the screen is asking for, which is the same as having none.
+   */
+  tone?: "primary" | "default";
 }) {
   const input = useRef<HTMLInputElement>(null);
   // A drag over a CHILD element fires dragleave on the parent, so a boolean
@@ -221,7 +238,7 @@ export function DocumentDrop({
             // The card used to light amber on drag over while disabled and
             // then discard the file without a word. Saying no is the point.
             setRefusal(
-              "Sedang membaca dokumen. Tunggu sampai pembacaan selesai, lalu tambahkan berkasnya.",
+              "Dokumen sedang dimuat. Tunggu sampai pemuatan selesai, lalu tambahkan berkasnya.",
             );
             return;
           }
@@ -320,20 +337,36 @@ export function DocumentDrop({
             event.target.value = "";
           }}
         />
+        {/* THE KEY CARRIES ITS OWN REFUSAL. The drop half of this card
+            already says no out loud when a file is dropped on it mid-ingest;
+            the key beside it went down silently. `reason` is the same
+            sentence, reached by pointer, keyboard and screen reader, so
+            neither half of one target can refuse without saying why. */}
         <Btn
-          tone="primary"
+          tone={tone}
           disabled={disabled}
+          reason={
+            disabled
+              ? "Dokumen sedang dimuat. Tunggu sampai pemuatan selesai, lalu tambahkan berkasnya."
+              : undefined
+          }
           onClick={() => input.current?.click()}
         >
           Pilih berkas PDF
         </Btn>
 
-        {/* Safety copy, so it never uses `--ink-3`. This sentence is the one
-            the client's whole constraint story rests on, and it was previously
-            set in the least readable colour in the system at 12px. */}
+        {/* THE FACT, WITHOUT THE ARCHITECTURE. This used to run on: "Halaman
+            dirender di peramban ini, dan hanya gambar halaman yang dikirim ke
+            server aplikasi untuk dibaca teksnya." All true, and all of it is
+            us explaining our own build to somebody trying to finish an order.
+            What the operator asked to keep is the part that is about their
+            document: the PDF has not gone anywhere. The rest is in the privacy
+            policy, which is where a claim like it can be read in full.
+
+            Safety copy, so it never uses `--ink-3`; it was once set in the
+            least readable colour in the system at 12px. */}
         <p className="text-ink-2 max-w-[62ch] text-[0.8125rem]">
-          Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya
-          gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.
+          Berkas PDF tidak diunggah.
         </p>
       </div>
 
@@ -380,7 +413,16 @@ function FilmStrip({ done, total }: { done: number; total: number }) {
   );
 }
 
-/** The block the operator watches for minutes. */
+/**
+ * The block the operator watches for minutes.
+ *
+ * IT SAYS MEMUAT, NOT MEMBACA, AND THE TWO WORDS NOW MEAN DIFFERENT MOVES.
+ * Both halves of this screen used to be "membaca": the pages were read here
+ * and then `Proses` searched them, and an operator reading the screen top to
+ * bottom met the same verb twice for two different operations minutes apart.
+ * Move one is MUAT, which is what the phase is already called, and move two is
+ * the AI reading the document. One word each, and the flow names itself.
+ */
 function Reading({ progress }: { progress: IngestProgress }) {
   const named = progress.name.length > 0;
   const counting = progress.total <= 0;
@@ -406,24 +448,26 @@ function Reading({ progress }: { progress: IngestProgress }) {
           >
             {named ? (
               <>
-                Membaca{" "}
+                Memuat{" "}
                 <span className="lt-figure" title={progress.name}>
                   {shortenFileName(progress.name)}
                 </span>
               </>
             ) : (
-              "Membaca dokumen"
+              "Memuat dokumen"
             )}
           </h3>
-          {/* The mechanism, which reads the same on every run. What stays on
-              screen below is the one line that can cost the operator work. */}
-          <Hint label="Penjelasan pembacaan halaman">
-            Halaman yang terputar diluruskan dulu, lalu dibaca satu per satu
-            dan disimpan di perangkat ini. Empat halaman dibaca sekaligus,
-            tetapi hitungan di bawah hanya menghitung halaman yang sudah
-            benar-benar tersimpan, jadi angkanya memang tertinggal sedikit dari
-            ordernya. Kalau pembacaan berhenti di tengah jalan, halaman
-            yang sudah masuk tidak hilang.
+          {/* WHAT IS LEFT IN HERE IS A CONSEQUENCE, NOT A MECHANISM. This hint
+              used to explain the machine: rotated pages are straightened
+              first, four pages are read at once, and the tick count therefore
+              lags the work. Every clause was true and none of it changes
+              anything the operator does, which is the test. What survives is
+              the one thing that changes what they do if the loading stops:
+              nothing already stored is lost, so the answer is to load the
+              file again rather than to start the order over. */}
+          <Hint label="Penjelasan pemuatan halaman">
+            Kalau pemuatan berhenti di tengah jalan, halaman yang sudah masuk
+            tidak hilang. Muat berkas yang sama lagi untuk melanjutkan.
           </Hint>
         </div>
         {progress.fileCount && progress.fileCount > 1 ? (
@@ -437,24 +481,39 @@ function Reading({ progress }: { progress: IngestProgress }) {
 
       <FilmStrip done={progress.done} total={progress.total} />
 
-      <p className="text-ink text-[0.9375rem]">
+      {/* THE SPINNER IS ONLY HERE, AND ONLY WHILE THE TROUGH IS EMPTY. Before
+          the first page lands the runtime has not said how many there are, so
+          the film strip above is a blank recess and this was the one moment in
+          a multi-minute wait with nothing moving on the screen at all. Once
+          ticks start arriving they are the motion, and a second indicator
+          beside them would be two drawings of one fact. */}
+      <p className="text-ink flex items-center gap-3 text-[0.9375rem]">
         {counting ? (
-          "Membuka berkas dan menghitung halamannya."
-        ) : (
           <>
+            <span className="lt-spinner" aria-hidden="true" />
+            {/* NOT "Membuka berkas dan menghitung halamannya." Counting pages
+                sounds like something that finishes instantly, and it takes a
+                while, so the sentence made the app look slow at the exact
+                moment it was working. What the operator needs is that their
+                document is on its way in. */}
+            <span>Dokumen sedang dimuat.</span>
+          </>
+        ) : (
+          <span>
             <span className="lt-figure">{progress.done}</span> dari{" "}
             <span className="lt-figure">{progress.total}</span> halaman sudah
             tersimpan.
-          </>
+          </span>
         )}
       </p>
 
       {/* The one clause of the old three-sentence advisory that can still cost
-          the operator minutes of reading if it is missed. The other two said
-          how the storing works, which is the same on every run and is behind
-          the mark on the heading. */}
+          the operator minutes of work if it is missed: close the tab and the
+          pages that have not landed yet are not loaded. The other two said how
+          the storing works, which is the same on every run and now says
+          nothing to anybody. */}
       <Advisory>
-        <span>Biarkan tab ini terbuka sampai pembacaan selesai.</span>
+        <span>Biarkan tab ini terbuka sampai pemuatan selesai.</span>
       </Advisory>
     </section>
   );
@@ -480,7 +539,7 @@ function tally(run: BrowserRun): SourceTally[] {
  *
  * THE RECONCILIATION IS THE POINT. An interrupted ingest records the
  * document's own length on the source and stores only the pages that actually
- * landed, so "29 halaman" and "19 halaman terbaca" are both true, and they
+ * landed, so "29 halaman" and "19 halaman termuat" are both true, and they
  * used to sit two lines apart as equals. A run that is genuinely incomplete
  * looked complete, and every bagian living on the ten unread pages comes back
  * `tidak ditemukan` for a reason the operator reads as "the document does not
@@ -636,29 +695,52 @@ function Elapsed({ since }: { since: number }) {
   const minutes = Math.floor(seconds / 60);
   const rest = String(seconds % 60).padStart(2, "0");
 
+  // The mono is the DOCUMENT's voice and carries the FIGURE alone. Setting
+  // the whole sentence in it put "Sudah" and "berjalan" in the typeface this
+  // product reserves for page numbers and identifiers, which is the habit of
+  // using mono to make a small line look technical.
   return (
-    <span className="lt-figure text-ink">
-      Sudah {minutes}:{rest} berjalan.
+    <span className="text-ink">
+      Sudah{" "}
+      <span className="lt-figure">
+        {minutes}:{rest}
+      </span>{" "}
+      berjalan.
     </span>
   );
 }
 
 /**
- * MOVE TWO: the search, on the screen that produced the pages.
+ * MOVE TWO: the AI reads the document, on the screen that produced the pages.
  *
- * It is a multi-minute wait with one honest thing to show for it, and a
- * spinner and a hang are the same picture. What this block prints is what the
- * app actually knows: the number of bagian in the request, the number of
- * halaman of text it carries, and the seconds since it started. There is
- * deliberately NO filling rectangle. `requestProposals` is a single POST for
- * the whole run, so a bar here would be a drawing of a number nobody has.
+ * IT IS NO LONGER CALLED "PROSES", AND THE OPERATOR IS THE ONE WHO KILLED THE
+ * WORD: "it can mean a lot of thing". They are right. `Proses` names no
+ * object, no agent and no result, so a key labelled with it is a key you press
+ * to find out what it does, which on a control that costs minutes of model
+ * calls is the wrong way round. The block now says the thing that is actually
+ * happening in the operator's own terms: an AI reads this document and marks
+ * where each bagian is. The stem still runs through every state word here, it
+ * is just a stem that means something.
  *
- * The button is `Proses`, and every state word this block produces uses that
- * same stem, because an action that changes its name half way through the
- * flow is an action the operator cannot follow.
+ * THE OTHER HALF OF THE RENAME IS UPSTREAM. Move one used to be "membaca"
+ * too, so the screen said read twice for two different operations; it is
+ * `Memuat` now, which is what the phase itself is called. See `Reading`.
+ *
+ * WHAT THIS BLOCK IS ALLOWED TO PRINT. It is a multi-minute wait, and the
+ * three sentences it used to spend on itself are gone: how many halaman of
+ * text the request carries, that the text goes to this application's server,
+ * and that it takes a few minutes. None of the three changes anything the
+ * operator does. The one that does is that closing the tab throws the pass
+ * away, so that stays, and it is the only thing left beside the button.
+ *
+ * THERE IS STILL NO BAR, and now there is a SPINNER instead of a still screen.
+ * `requestProposals` is a single POST for the whole run, so a filling
+ * rectangle would be a drawing of a number nobody has. But a still block for
+ * several minutes is indistinguishable from a hung one, which is exactly what
+ * an operator reported, so the wait moves: `.lt-spinner` beside the sentence,
+ * and the elapsed seconds under it, which is the only true number here.
  */
 function Process({
-  pages,
   wanted,
   searching,
   startedAt,
@@ -666,7 +748,6 @@ function Process({
   busy,
   onProcess,
 }: {
-  pages: number;
   wanted: number;
   searching: boolean;
   startedAt: number | null;
@@ -674,12 +755,48 @@ function Process({
   busy: boolean;
   onProcess: () => void;
 }) {
-  // ONE PARAGRAPH, WHATEVER THE STATE, and the button is described by it in
-  // every state. A greyed control with nothing beside it is this product's own
-  // failure moved into the interaction layer; two paragraphs saying the same
-  // thing in different words is the other half of the same mistake.
   const blocked = busy || wanted === 0;
   const why = "ingest-process-why";
+
+  // WHY THE KEY WILL NOT ANSWER, ON THE KEY. The rule that a disabled control
+  // never appears without its reason has not moved; where the reason is
+  // printed has. These two used to be paragraphs in the layout, and the
+  // operator's objection to that shape was that they "are redundant too. The
+  // user know they can't proceed since the button is already disabled".
+  // `Btn`'s `reason` reaches a pointer, a keyboard and a screen reader, so no
+  // modality loses it, and the screen stops carrying a sentence about a
+  // control nobody is touching.
+  //
+  // THE RUNNING STATE IS NOT ONE OF THEM, and leaving it out is the point of
+  // the rule rather than an exception to it. The key is disabled while the
+  // pass runs, but it says "Sedang membaca..." on its own face and the live
+  // region directly above it says the same thing at length. A hover reason
+  // there would be a third copy of a fact already stated twice.
+  const reason = busy
+    ? "Halaman masih dimuat. Menjalankannya sekarang akan melewatkan halaman yang belum masuk."
+    : wanted === 0
+      ? "Setiap bagian sudah punya usulan atau sudah Anda putuskan."
+      : undefined;
+
+  // ONE PARAGRAPH, AND ONLY WHEN IT SAYS SOMETHING THE OPERATOR DOES NOT
+  // ALREADY KNOW. The two blocked states say it on the key above instead, so
+  // in those the paragraph is absent rather than restating the refusal, and
+  // `aria-describedby` has to come off with it or it would point at nothing.
+  const detail = searching ? (
+    <>
+      {startedAt !== null ? (
+        <>
+          <Elapsed since={startedAt} />{" "}
+        </>
+      ) : null}
+      Biarkan tab ini terbuka sampai selesai.
+    </>
+  ) : blocked ? null : (
+    <>
+      <span className="lt-figure">{wanted}</span> bagian belum punya usulan.
+      Biarkan tab ini terbuka sampai pembacaan selesai.
+    </>
+  );
 
   return (
     <section
@@ -688,27 +805,28 @@ function Process({
     >
       <div className="flex items-center gap-1">
         <h3 id="ingest-process" className="text-[0.9375rem] font-semibold">
-          Proses halaman menjadi usulan
+          Baca dokumen dengan AI
         </h3>
-        <Hint label="Penjelasan proses">
+        <Hint label="Penjelasan pembacaan dengan AI">
           Tiap bagian mendapat satu usulan area, atau tercatat tidak ditemukan.
-          Prosesnya satu permintaan untuk seluruh order, jadi tidak ada
-          bilah kemajuan yang bisa ditampilkan: yang bisa dihitung hanyalah
-          waktu yang sudah berjalan. Menjalankannya lagi sesudah menambah
-          dokumen hanya mencari bagian yang belum ada buktinya.
+          Menjalankannya lagi sesudah menambah dokumen hanya mencari bagian yang
+          belum ada buktinya.
         </Hint>
       </div>
 
       {/* Mounted before it has anything to say, so the change of state is
           announced when it happens rather than when the region appears. The
           ticking figure is kept OUT of it on purpose: a seconds counter inside
-          a live region is read aloud once per second. */}
+          a live region is read aloud once per second. The spinner is
+          `aria-hidden`, for the same reason. */}
       <div role="status" aria-live="polite">
         {searching ? (
-          <p className="text-ink">
-            Mencari bukti untuk <span className="lt-figure">{wanted}</span>{" "}
-            bagian, dari teks <span className="lt-figure">{pages}</span> halaman
-            yang sudah dibaca.
+          <p className="text-ink flex items-center gap-3">
+            <span className="lt-spinner" data-size="lg" aria-hidden="true" />
+            <span>
+              AI sedang membaca dokumen ini dan mencari bukti untuk{" "}
+              <span className="lt-figure">{wanted}</span> bagian.
+            </span>
           </p>
         ) : note ? (
           <Notice>{note}</Notice>
@@ -717,48 +835,25 @@ function Process({
 
       {/* Safety copy, so never `--ink-3`, and never further from the button
           than this. */}
-      <p id={why} className="text-ink-2 max-w-[68ch] text-[0.9375rem]">
-        {searching ? (
-          <>
-            {startedAt !== null ? (
-              <>
-                <Elapsed since={startedAt} />{" "}
-              </>
-            ) : null}
-            Perlu beberapa menit. Biarkan tab ini terbuka sampai selesai.
-          </>
-        ) : busy ? (
-          "Pembacaan halaman belum selesai. Memproses sekarang akan melewatkan halaman yang belum masuk, jadi tunggu sampai pembacaan berhenti."
-        ) : wanted === 0 ? (
-          "Setiap bagian sudah punya usulan atau sudah Anda putuskan, jadi tidak ada lagi yang perlu dicari di sini."
-        ) : (
-          /* Two counted clauses and one consent clause, which is the whole of
-             what this paragraph is allowed to be. "Teks {pages} halaman ini
-             dikirim ke server aplikasi" is a statement about data leaving the
-             device, made at the moment it leaves, so it stays on screen
-             however often it is read. What tiap bagian then gets back reads
-             the same on every order and is behind the mark above. */
-          <>
-            <span className="lt-figure">{wanted}</span> bagian belum punya
-            usulan. Teks <span className="lt-figure">{pages}</span> halaman ini
-            dikirim ke server aplikasi. Perlu beberapa menit, dan tab ini harus
-            tetap terbuka sampai selesai.
-          </>
-        )}
-      </p>
+      {detail ? (
+        <p id={why} className="text-ink-2 max-w-[68ch] text-[0.9375rem]">
+          {detail}
+        </p>
+      ) : null}
 
       <div>
         <Btn
           tone="primary"
           disabled={searching || blocked}
-          aria-describedby={why}
+          reason={reason}
+          aria-describedby={detail ? why : undefined}
           onClick={onProcess}
         >
-          {/* The magnifier over ruled lines: what Proses leaves behind is a
-              found place in the text. It must appear on Proses lagi in the
-              outstanding panel too, or on neither. */}
+          {/* The magnifier over ruled lines: what this leaves behind is a
+              found place in the text. It must appear on the outstanding
+              panel's re-run button too, or on neither. */}
           <Cari />
-          {searching ? "Sedang memproses..." : "Proses"}
+          {searching ? "Sedang membaca..." : "Baca dengan AI"}
         </Btn>
       </div>
     </section>
@@ -812,11 +907,27 @@ function shortenRunName(label: string): string {
  * operator everywhere, and that is `DocumentsBar`, which is a different object
  * with a different job.
  *
- * SEARCHABLE ONCE THERE IS ENOUGH TO SEARCH. The field appears at seven rows,
- * because a filter over four items is furniture: it costs a control, a label
- * and a line of vertical space to save an operator from reading four lines
- * they can already see. It matches the document names and the date as printed,
- * which are the only two things a row shows.
+ * SEARCHABLE AT EVERY ROW COUNT, INCLUDING NONE. The field used to appear
+ * only at seven rows, and the argument for that threshold was a real one: a
+ * filter over four items is furniture, costing a control, a label and a line
+ * of vertical space to save an operator from reading four lines they can
+ * already see. The operator has since asked for the field directly, and they
+ * are the one who opens this list every day against a device that accumulates
+ * orders for as long as nobody clears it.
+ *
+ * THE ARGUMENT AGAINST ANY THRESHOLD, INCLUDING A THRESHOLD OF ONE, is that
+ * the control MOVES. A field that is absent through the first week of use and
+ * appears one day is a worse thing to hand somebody than a field they do not
+ * need yet, and the count it is gated on is not stable even within one visit:
+ * `runs` is empty while storage is still being read, so a gate on "is there a
+ * list at all" made the field pop in a beat after the screen drew, taking the
+ * rows down with it. It is here whenever the riwayat is, and the empty state
+ * below it still says in a sentence that there is nothing saved.
+ *
+ * THE PLACEHOLDER NAMES WHAT IT ACTUALLY MATCHES, which is the document names
+ * and the date AS PRINTED, the only two things a row shows. A field that
+ * silently fails on anything else is this project's own failure class in a
+ * text input.
  */
 function Riwayat({
   runs,
@@ -837,10 +948,9 @@ function Riwayat({
   // Newest first: these are day-to-day work items, and recency is how people
   // actually find them.
   const ordered = [...runs].sort((a, b) => b.createdAt - a.createdAt);
-  const searchable = ordered.length >= 7;
   const needle = query.trim().toLowerCase();
   const shown =
-    searchable && needle
+    needle
       ? ordered.filter((summary) =>
           `${runName(summary.label)} ${WAKTU.format(summary.createdAt)}`
             .toLowerCase()
@@ -853,28 +963,34 @@ function Riwayat({
       <div className="lt-kop">
         <Arsip size={16} />
         <h3 id="ingest-runs">Riwayat order</h3>
+        {/* THE COUNT FOLLOWS THE FILTER. A kop reading 14 over two visible
+            rows is a small wrong-and-quiet of its own: it reads as a list that
+            failed to draw the other twelve rather than as a filter doing its
+            job. */}
         <span className="lt-kop-right lt-figure">
-          {loading ? "" : `${ordered.length}`}
+          {loading
+            ? ""
+            : needle
+              ? `${shown.length} dari ${ordered.length}`
+              : `${ordered.length}`}
         </span>
       </div>
 
       <div className="lt-slab-body flex flex-col gap-4">
-        {searchable ? (
-          <div className="flex items-center gap-2">
-            <label htmlFor={fieldId} className="sr-only">
-              Cari order menurut nama berkas atau tanggal
-            </label>
-            <Cari size={16} />
-            <input
-              id={fieldId}
-              type="search"
-              className="lt-input w-full max-w-[28rem]"
-              placeholder="Cari nama berkas atau tanggal"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <label htmlFor={fieldId} className="sr-only">
+            Cari order menurut nama berkas atau tanggal
+          </label>
+          <Cari size={16} />
+          <input
+            id={fieldId}
+            type="search"
+            className="lt-input w-full max-w-[28rem]"
+            placeholder="Cari nama berkas atau tanggal"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
 
         <div aria-live="polite">
           {loading ? (
@@ -975,7 +1091,6 @@ export function IngestPanel({
   runsLoading?: boolean;
   onOpenRun?: (id: string) => void;
   onStartNewRun?: () => void;
-  /** The stated next move, once the search has run. */
   /** MOVE TWO. Omitted, the block is not offered at all. */
   onProcess?: () => void;
   searching?: boolean;
@@ -1004,8 +1119,8 @@ export function IngestPanel({
       {error ? (
         <Interruption detail={error}>
           {pages > 0
-            ? "Pembacaan berhenti sebelum semua halaman selesai. Halaman yang sudah terbaca tetap tersimpan, dan order ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
-            : "Pembacaan berhenti sebelum satu halaman pun tersimpan. Order yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
+            ? "Pemuatan berhenti sebelum semua halaman selesai. Halaman yang sudah masuk tetap tersimpan, dan order ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
+            : "Pemuatan berhenti sebelum satu halaman pun tersimpan. Order yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
         </Interruption>
       ) : null}
 
@@ -1019,13 +1134,13 @@ export function IngestPanel({
         <div className="lt-kop">
           <Muat size={16} />
           <h2>Muat dokumen order</h2>
-          {/* The two mechanism sentences that used to be printed under the
-              heading. Both read the same on every order, and both describe
-              things that work whether or not anybody reads them. */}
+          {/* WHAT THE NEXT MOVE IS, WHICH IS THE ONLY PART OF THIS AN
+              OPERATOR CAN ACT ON. The straightening and the one-page-at-a-time
+              storing used to be printed here; both work whether or not anybody
+              reads them, so both are gone rather than tucked away. */}
           <Hint label="Penjelasan langkah Muat">
-            Halaman diluruskan dan dibaca satu per satu, lalu disimpan di
-            perangkat ini. Sesudah semua berkas masuk, Proses di bawah yang
-            mencari bukti untuk tiap bagian.
+            Sesudah semua berkas masuk, tombol di bawah menyuruh AI membaca
+            dokumen dan mencari bukti untuk tiap bagian.
           </Hint>
           <span className="lt-kop-right lt-figure">
             {pages > 0 ? `${pages} halaman` : ""}
@@ -1054,8 +1169,18 @@ export function IngestPanel({
               explain={
                 pages > 0
                   ? "Berkas baru masuk ke order yang sedang terbuka, bukan ke order baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
-                  : "Semua berkas sekaligus juga bisa. Hasil pindaian yang terputar akan diluruskan lebih dulu, jadi halaman yang miring tetap terbaca."
+                  : /* THE OUTCOME, NOT THE MECHANISM. This used to say the
+                       rotated scans "akan diluruskan lebih dulu", which is us
+                       narrating our own render step. What the operator wants
+                       to know before they walk back to the scanner is whether
+                       a sideways page is a problem. It is not. */
+                    "Semua berkas sekaligus juga bisa. Halaman yang miring atau terputar tetap terbaca."
               }
+              /* ONE PRIMARY KEY PER SCREEN. Empty, this target is the only
+                 move there is. Once the order holds halaman the move is
+                 `Baca dengan AI` in the block below, and this becomes the
+                 secondary path for somebody who noticed a missing berkas. */
+              tone={pages > 0 ? "default" : "primary"}
               disabled={busy}
               onFiles={onFiles}
             />
@@ -1067,7 +1192,6 @@ export function IngestPanel({
               empty state the screen stays one invitation with one target. */}
           {onProcess && pages > 0 ? (
             <Process
-              pages={pages}
               wanted={wanted}
               searching={searching}
               startedAt={searchStartedAt}
@@ -1077,27 +1201,24 @@ export function IngestPanel({
             />
           ) : null}
 
-          {/* THE GATE. It is on the search having RUN, not on it having found
-              everything: a pass that left bagian tidak ditemukan has finished,
-              and the top of the lembar periksa is where that is settled. Until
-              then the control is disabled AND SAYS WHY, in the same viewport,
-              because a sheet reached before any search is an empty screen the
-              operator has to explain to themselves.
+          {/* THE WAY FORWARD IS NOT BUILT HERE, and the gate it carries is
+              worth recording where somebody looks for it.
 
-              A LATER round does not close it again. Once a pass has landed
-              there are usulan to review, and the search deliberately survives
-              the operator working during it: it re-reads the run from storage
-              and re-checks every slot before applying its answer. */}
-          {/* THE WAY FORWARD IS THE STEP NAV AT THE FOOT OF THE SCREEN, so
-              this screen no longer builds its own.
+              A "Buka lembar periksa" button on this block and a "Lanjut:
+              Periksa" at the foot of the same screen are one control drawn
+              twice, and the operator has to work out whether they do the same
+              thing. The timeline and the step nav in `operator-app.tsx` are
+              the one mechanism, on every phase, in the same place.
 
-              A "Buka lembar periksa" button here and a "Lanjut: Periksa" at
-              the bottom of the same screen are one control drawn twice, and
-              the operator has to work out whether they do the same thing.
-              `StepNav` in operator-app.tsx is the one mechanism, on every
-              phase, in the same place, and it carries the locked reason beside
-              the disabled button exactly as this block did. Nothing is lost
-              except the second copy. */}
+              THE GATE THEY APPLY is on the search having RUN, not on it having
+              found everything: a pass that left bagian tidak ditemukan has
+              finished, and the top of the lembar periksa is where that is
+              settled. A LATER round does not close it again, and the search
+              deliberately survives the operator working during it, because it
+              re-reads the order from storage and re-checks every slot before
+              applying its answer. Nothing was lost in moving the control out
+              except the second copy: the locked reason rides on the key
+              itself now, through `Btn`'s `reason`. */}
         </div>
       </section>
 

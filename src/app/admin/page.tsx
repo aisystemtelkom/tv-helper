@@ -29,6 +29,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Interruption, TechnicalDetail } from "@/components/operator/chrome";
+import { Otak } from "@/components/operator/icons";
 import type { Role } from "@/lib/auth/allowlist";
 import { allowlist } from "@/lib/auth/instance";
 import { authorize, type AuthorizedUser } from "@/lib/auth/require-user";
@@ -41,7 +42,7 @@ import { AllowlistEditor } from "./allowlist-editor";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Daftar Izin Akses - tv-validator",
+  title: "Daftar Izin Akses - TV Validator",
 };
 
 /**
@@ -94,8 +95,13 @@ function Shell({
     <>
       <header className="lt-rail border-b">
         <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-3">
-          <Link href="/" className="lt-wordmark">
-            tv-validator
+          {/* "TV VALIDATOR", no dash, with the brain beside it: the same
+              lockup the five paper sheets carry. `.lt-wordmark` sets the caps
+              and the tracking, and `Otak` paints `currentColor`, so the link
+              takes the rail's ink for both halves. */}
+          <Link href="/" className="lt-wordmark inline-flex items-center gap-2">
+            <Otak size={24} />
+            TV VALIDATOR
           </Link>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {account}
@@ -287,18 +293,26 @@ export default async function AdminPage() {
           (error instanceof Error ? error.message : String(error)) +
           "\n\nFirestore: pembacaan koleksi allowlist gagal. Periksa binding " +
           "Firestore dan akses service account ke koleksi itu. Lihat " +
-          "docs/runbook-deploy.md."
+          "docs/runbook-deploy.md.\n\n" +
+          // WHY THIS ADMIN CAN STILL SEE THE PAGE, and it is written for
+          // whoever deployed the app rather than for them. It used to be the
+          // last clause of the sentence below, which put "diloloskan lewat
+          // kode" and the server's own cache in front of a person whose whole
+          // question is whether access is broken and whether it is their
+          // fault. Mechanism belongs on this side of the disclosure. The fault
+          // and the reassurance stay in prose, where a fault always does.
+          (result.user.via === "bootstrap"
+            ? "Akun ini masih bisa membuka halaman: pemilik bawaan diloloskan " +
+              "lewat kode, supaya daftar yang kosong atau tidak terbaca tidak " +
+              "pernah mengunci pemilik di luar."
+            : "Akun ini masih bisa membuka halaman karena jawaban daftar izin " +
+              "untuknya masih tersimpan di ingatan sementara server.")
         }
         incident
       >
         Isinya tidak bisa ditampilkan, jadi tidak ada yang bisa ditambah atau
         dihapus dari sini sampai penyimpanannya bisa dibaca lagi. Ini masalah
-        server, bukan masalah izin Anda. Halaman ini masih terbuka untuk Anda
-        karena{" "}
-        {result.user.via === "bootstrap"
-          ? "Anda pemilik bawaan, yang memang diloloskan lewat kode supaya daftar yang kosong atau tidak terbaca tidak pernah mengunci pemilik di luar"
-          : "jawaban daftar izin untuk akun Anda masih tersimpan di ingatan sementara server"}
-        .
+        server, bukan masalah izin Anda.
       </Refusal>
     );
   }
@@ -328,7 +342,7 @@ export default async function AdminPage() {
       <div className="flex flex-col gap-1">
         <h1 className="lt-title">Daftar Izin Akses</h1>
         <p className="lt-lede">
-          Siapa saja yang boleh masuk ke tv-validator. Setiap perubahan di
+          Siapa saja yang boleh masuk ke TV Validator. Setiap perubahan di
           halaman ini adalah perubahan hak akses, dan tercatat atas nama akun
           yang sedang masuk.
         </p>

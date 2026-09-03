@@ -261,7 +261,16 @@ export function KunciKeBaris({ locked = true, ...props }: IconProps & { locked?:
   );
 }
 
-/** Proses, and Proses lagi. It must appear on both or on neither. */
+/**
+ * The key that starts the AI reading a document, on Muat and again on the
+ * review sheet. It must appear on both or on neither.
+ *
+ * The label it sits beside used to be `Proses`, one word for one action. The
+ * operator retired it: "Proses mean nothing since it can mean a lot of thing."
+ * The glyph outlived the word, which is fine, because a magnifier over ruled
+ * lines is a picture of looking through a document rather than a picture of
+ * that label.
+ */
 export function Cari(props: IconProps) {
   return (
     <Icon {...props}>

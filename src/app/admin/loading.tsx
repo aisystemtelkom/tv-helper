@@ -9,9 +9,13 @@
  *
  * It draws the strip, the heading and an empty register at the same measure as
  * the real page, so the content arrives into the shape that is already there
- * rather than pushing it around. NOTHING HERE ANIMATES: motion in this product
- * answers an action, and waiting for a database is not one. The sentence in
- * the live region is what says work is happening.
+ * rather than pushing it around. NOTHING HERE ANIMATES, AND THE PRODUCT'S
+ * SPINNER DELIBERATELY DOES NOT COME HERE. `.lt-spinner` exists now, for the
+ * case an operator started something and might look away while it runs; nobody
+ * started this, and the ring is drawn in `--petrol`, which `.lt-paper` does not
+ * rebind, so on the sheet below it would be a pale smudge under the 3:1 a
+ * non-text graphic owes. The sentence in the live region is what says work is
+ * happening.
  *
  * IT IS THE SAME OBJECT AS THE REAL PAGE, NOT A ROUGH DRAWING OF ONE. That is
  * the whole reason it earns its place: a glass strip, a page header, then a
@@ -43,6 +47,8 @@
 
 import Link from "next/link";
 
+import { Otak } from "@/components/operator/icons";
+
 /** The four ruled lines the real rows land on. */
 const LINES = [0, 1, 2, 3];
 
@@ -51,8 +57,11 @@ export default function Loading() {
     <>
       <header className="lt-rail border-b">
         <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-3">
-          <Link href="/" className="lt-wordmark">
-            tv-validator
+          {/* The same lockup as the real page's strip and the five paper
+              sheets: "TV VALIDATOR", no dash, the brain beside it. */}
+          <Link href="/" className="lt-wordmark inline-flex items-center gap-2">
+            <Otak size={24} />
+            TV VALIDATOR
           </Link>
           <Link href="/" className="lt-btn">
             Kembali ke aplikasi
@@ -66,9 +75,21 @@ export default function Loading() {
             being a block on it. */}
         <div className="flex flex-col gap-1">
           <h1 className="lt-title">Daftar Izin Akses</h1>
+          {/* WHAT IS HAPPENING, IN THE ADMIN'S TERMS, AND NOT WHERE IT IS
+              HAPPENING. It read "Membaca daftar izin akses dari server", and
+              an operator's objection to that whole family of sentences is that
+              they teach the reader about our architecture while the reader is
+              trying to finish something. Where the list is read from is the
+              deployer's fact, and the wait is the admin's.
+
+              THE SECOND CLAUSE WAS THE SAME MISTAKE AND SURVIVED THE FIRST
+              EDIT: "saat server baru dinyalakan" put our hosting back into a
+              sentence the comment above had just cleared it out of. How long
+              this might take is the admin's fact; why is not. Worded to match
+              the root loading sheet, because they are the same wait. */}
           <p className="lt-lede" role="status">
-            Membaca daftar izin akses dari server. Ini bisa memakan beberapa
-            detik kalau aplikasinya baru dinyalakan.
+            Memuat daftar izin akses. Biasanya cepat, tapi bisa memakan waktu
+            beberapa detik.
           </p>
         </div>
 

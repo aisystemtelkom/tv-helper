@@ -9,7 +9,9 @@
  * every other block on the screen is quieter than they are. The screen used to
  * distribute emphasis evenly over a manifest, a workbook section, a header
  * table and an action bar, which is what makes a screen read as a form rather
- * than as a thing that makes something.
+ * than as a thing that makes something. Simpan is the primary key for the same
+ * reason: it is the last thing this product does, and it was reported as
+ * looking unavailable while it was live.
  *
  * THE MANIFEST IS AN INVENTORY, NOT AN EXCEPTION REPORT. This screen used to
  * summarise the entire visual content of the packet as one integer ("12
@@ -78,10 +80,25 @@
  * WHAT WENT BEHIND A QUESTION MARK, AND THE LINE THAT DECIDED IT. A clause
  * that would read word for word the same on every order, and that is not the
  * reason a control on screen is refusing to work, is an explanation rather
- * than a fact about this run, so it belongs in a `Hint`. That took the screen
- * lede, the manifest's preamble, the header table's fifty-six word lede, the
- * three fields' recorded-failure paragraphs, the workbook's row count and the
- * workbook's argument for the empty column.
+ * than a fact about this run, so it belongs in a `Hint`. Three things are
+ * behind one: the screen lede, the workbook's row count and the workbook's
+ * argument for the empty column. That is the whole list, and the count is
+ * worth keeping right, because this paragraph used to name five and sent a
+ * reader hunting for two marks that are not on the screen. The manifest's
+ * preamble never hid: it sits inside the `Rincian setiap bagian` disclosure
+ * with the inventory it introduces. The header table's fifty-six word lede
+ * was deleted rather than moved, because once every field says where its own
+ * value came from there is nothing left for a lede to introduce.
+ *
+ * A QUESTION MARK IS NOT A BIN, WHICH IS THE CORRECTION THIS PASS MADE. The
+ * three header fields' recorded-failure paragraphs went behind marks and an
+ * operator found them there and asked for them gone: what a hint holds still
+ * has to be worth an operator's time when they open it, and "an automatic
+ * reading of this field once answered with the master agreement's title" is
+ * our engineering history rather than anything they can act on. Hiding a
+ * sentence nobody needs leaves it on the screen forever at a smaller size. So
+ * those three are deleted, not moved, and each field keeps the one line that
+ * says what its blank MEANS: this one is yours to fill.
  *
  * IT DID NOT TAKE THE BLOCK, and that is the half worth defending. The
  * paragraph explaining why nothing is built before every area is checked never
@@ -105,8 +122,11 @@
  * unread promise is worth nothing. What the cost of a line here (every line in
  * the sticky bar is subtracted from the page's viewport twice, once as the bar
  * and once as the space `useBarHeight` reserves for it) buys is a SHORTER
- * sentence, which is what it now is: one line, beside the button it belongs
- * to.
+ * sentence, which is what it now is: four words, beside the button they belong
+ * to. The clause that used to follow them, saying where the two files are
+ * made, is gone with the rest of the mechanism copy. The fact is the operator's
+ * ("your PDF was not uploaded"); how the app is built is the privacy page's,
+ * where it is stated in full.
  */
 
 import type { ReactNode } from "react";
@@ -118,7 +138,6 @@ import { AO_TEMPLATE } from "@/lib/forms/template";
 import { deriveIdsFromFilenames } from "@/lib/pipeline/fields";
 import {
   resolveJenisOrder,
-  type JenisOrder,
   type JenisOrderOrigin,
   type JenisOrderPage,
 } from "@/lib/pipeline/jenis-order";
@@ -153,7 +172,6 @@ import {
   Notice,
   STATUS_WORDS,
   StateWord,
-  TechnicalDetail,
   Title,
   shortenFileName,
 } from "./chrome";
@@ -458,8 +476,23 @@ function useBarHeight(): [RefObject<HTMLDivElement | null>, number] {
  * `downloadBytes` cannot report failure, so `done` records what is actually
  * true, that the file was handed to the browser.
  *
- * THE REASON THE BUTTON IS DISABLED IS ON SCREEN, never in a tooltip: `reason`
- * is rendered under the control it refers to, in full, at every width.
+ * SIMPAN IS THE LAST ACTION THIS PRODUCT HAS, SO IT WEARS THE PRIMARY FACE.
+ * Both keys were neutral, and an operator reported them as looking disabled
+ * while they were live: on the screen that makes the two files, nothing was
+ * drawn as the thing to press. Petrol is identity rather than status, so a
+ * primary key here cannot be read as a decision owed. A disabled Simpan still
+ * reads as disabled with that face on, because `.lt-btn:disabled` is declared
+ * after the tone rule in globals.css at equal specificity and takes back both
+ * the face and the ink.
+ *
+ * THE REASON IT WILL NOT FIRE RIDES ON THE KEY, rather than sitting beside it.
+ * It used to be a paragraph under the control; the objection was that such a
+ * paragraph is redundant, because the key is already down and that reads as
+ * unavailable on its own. `Btn`'s `reason` keeps the sentence reachable by
+ * pointer, by keyboard and by screen reader without printing it on a screen
+ * that is otherwise finished. It carries only the two ROUTINE reasons, not
+ * built yet and rebuild first; a refusal or a fault still lands on the page in
+ * prose, which is why the export block is nowhere near this.
  */
 function FileSlab({
   id,
@@ -522,8 +555,10 @@ function FileSlab({
               both called "Simpan" would have nothing to tell them apart, so
               the full label survives in `aria-label`. */}
           <Btn
+            tone="primary"
             onClick={onSave}
             disabled={disabled}
+            reason={reason ?? undefined}
             aria-label={`Simpan ${name}`}
             title={`Simpan ${name}`}
           >
@@ -531,10 +566,6 @@ function FileSlab({
           </Btn>
           {size ? <span className="lt-kotak">{size}</span> : null}
         </div>
-
-        {reason ? (
-          <p className="text-[0.8125rem] text-ink-2">{reason}</p>
-        ) : null}
       </div>
     </Slab>
   );
@@ -584,12 +615,16 @@ function deriveWithSources(names: string[]): DerivedIds {
  * printed on the form, so an operator catches a wrong one in a way they cannot
  * catch a wrong project name.
  *
- * THE RESOLVER'S OWN `detail` IS NOT SHOWN AS PROSE. It is written for a
- * developer reading a CLI log, in English, and it ends in advice an operator
- * cannot act on ("pass --jenis-order to set it"). It still carries the file,
- * page and line, which is the useful half, so it goes behind `Detail teknis`
- * like every other deployer-facing string in this app. The sentence beside the
- * field is ours and is in Bahasa Indonesia.
+ * THE RESOLVER'S OWN `detail` IS NOT SHOWN AT ALL, and it used to sit behind a
+ * `Detail teknis` disclosure right here. It is written for a developer reading
+ * a CLI log, in English, and it ends in advice an operator cannot act on
+ * ("pass --jenis-order to set it"). An operator asked for it to go, and they
+ * are right: they are not the audience for a CLI flag, and a disclosure that
+ * teaches nothing the first time it is opened is worse than no disclosure,
+ * because it is still on screen forever. The useful half of it, where a value
+ * was read, is what the sentences below say in the operator's own language.
+ * `Detail teknis` is untouched everywhere it carries a real exception; this
+ * was the one place in the product where it carried an explanation instead.
  *
  * The four non-answering origins all ship "" and say why. None of them may
  * borrow the wording of another: `conflict` means two documents disagree and
@@ -621,40 +656,6 @@ const JENIS_MARKER: Record<JenisOrderOrigin, string> = {
 };
 
 /**
- * The sentence beside Jenis Order, and the resolver's own words behind a
- * disclosure.
- *
- * Two audiences, never one paragraph. `JENIS_SENTENCE` is what the operator
- * acts on; `jenis.detail` names the file, page and line and is in English with
- * CLI advice on the end, so it sits under `Detail teknis` exactly like a raw
- * exception does everywhere else in this app. The codes themselves read the
- * same on every order, so they hide behind a mark.
- */
-function JenisNote({
-  jenis,
-  explainCodes = false,
-}: {
-  jenis: JenisOrder;
-  explainCodes?: boolean;
-}) {
-  return (
-    <>
-      {JENIS_SENTENCE[jenis.origin]}
-      {explainCodes ? (
-        <>
-          {" "}
-          <Hint label="Arti kode jenis order">
-            AO mengaktifkan layanan, MO mengubah, DO menghapus, dan jenis lain
-            juga ada.
-          </Hint>
-        </>
-      ) : null}
-      <TechnicalDetail>{jenis.detail}</TechnicalDetail>
-    </>
-  );
-}
-
-/**
  * One header field, and WHERE ITS VALUE CAME FROM, said beside it.
  *
  * A value read out of a file name is a guess: it is right exactly when the
@@ -673,10 +674,14 @@ function JenisNote({
  * An empty field says `(belum diisi)`, never a lone dash: a blank that says
  * nothing and a blank that means something look identical otherwise.
  *
- * `hint` is where a field's standing explanation goes. Two of these fields are
- * blank because an automatic reading of them shipped a wrong value into a
- * signed document, which is worth a paragraph, and that paragraph reads word
- * for word the same on every order.
+ * THERE IS NO `hint` SLOT ANY MORE, and what it held is worth recording so it
+ * does not come back. Two of these fields carried a paragraph saying that an
+ * automatic reading of them had once answered with the master agreement's
+ * title, or with an email's own `Cc:` line, and shipped that into a signed
+ * document. Every word of that is true and none of it is the operator's: they
+ * are trying to finish an order, and what they need from a blank field is its
+ * STATE, which is that it is theirs to fill. `note` says that in one line. The
+ * recorded failures live in AGENTS.md, where their audience is.
  */
 function Field({
   id,
@@ -691,7 +696,6 @@ function Field({
   derivedLabel = "Nama berkas",
   fallback = "",
   note,
-  hint,
   list,
 }: {
   id: string;
@@ -725,8 +729,6 @@ function Field({
   fallback?: string;
   /** Why this field is not filled in automatically, when that varies by run. */
   note?: ReactNode;
-  /** The standing explanation, which reads the same on every order. */
-  hint?: ReactNode;
   list?: string;
 }) {
   const empty = value.trim() === "";
@@ -761,7 +763,6 @@ function Field({
         <span className={fromFile ? "lt-label text-mark" : "lt-label"}>
           {marker}
         </span>
-        {hint ? <Hint label={`Tentang ${label}`}>{hint}</Hint> : null}
       </div>
       <input
         id={id}
@@ -777,10 +778,11 @@ function Field({
           keeps an operator from trusting a guess or from reading a deliberate
           blank as a broken feature, which is safety copy. */}
       {fromFile ? (
-        // A div, not a p: these slots take arbitrary nodes now, and a caller
-        // that puts a `Detail teknis` disclosure in one would otherwise nest a
-        // <details> inside a <p>, which is invalid and throws a hydration
-        // error rather than merely looking wrong.
+        // A div, not a p: these slots are typed `ReactNode`, and a block
+        // element inside a <p> is invalid HTML that React reports as a
+        // hydration error rather than as something merely looking wrong. The
+        // caller that proved it, a `Detail teknis` disclosure beside Jenis
+        // Order, is gone; the type has not narrowed, so neither has this.
         <div className="text-[0.8125rem] text-ink-2">
           {derivedNote ?? (derivedFrom ? (
             <>
@@ -870,7 +872,12 @@ function CapturePlate({
             <p className="text-[0.8125rem] text-gap">
               {thumb.fault === "size"
                 ? "Ukuran halaman berubah sejak areanya dibuat, jadi potongan ini tidak bisa diambil."
-                : "Halaman ini tidak bisa dirender lagi, jadi potongan ini tidak bisa diambil."}
+                : /* "dirender" was our word for it, and the operator has no
+                     use for it: what they need to know is that the page will
+                     not open, which is also what they would tell somebody
+                     else. The fault itself stays in prose, as every fault
+                     does. */
+                  "Halaman ini tidak bisa dibuka lagi, jadi potongan ini tidak bisa diambil."}
             </p>
           </div>
         ) : ships ? (
@@ -1314,7 +1321,9 @@ export function ExportPanel({
     ...faults.map((crop) => captureLabel(crop.label, crop.ordinal)),
   ];
 
-  // Why Simpan will not fire, said under the button rather than in a tooltip.
+  // Why Simpan will not fire. Both of these are routine, which is the whole
+  // test for riding on the key instead of standing on the page: the operator
+  // may miss either one entirely and be no worse off, because the key is down.
   const saveReason = stale
     ? "Isinya berubah. Buat ulang dulu."
     : built
@@ -1376,7 +1385,7 @@ export function ExportPanel({
               label="Nama Proyek"
               value={header.namaProyek}
               onChange={(value) => set({ namaProyek: value })}
-              hint="Tidak pernah diisi otomatis. Pembacaan otomatis berulang kali menjawab dengan judul perjanjian induk, bukan nama proyek order ini, dan jawaban itu lolos pemeriksaan sumber."
+              note="Tidak pernah terisi otomatis. Isi sendiri."
             />
             <Field
               id="header-quote"
@@ -1396,7 +1405,7 @@ export function ExportPanel({
               label="CC"
               value={header.cc}
               onChange={(value) => set({ cc: value })}
-              hint="Nama pelanggan pada order ini. Pembacaan otomatis pernah mengambilnya dari baris Cc: sebuah email, dan nama yang salah itu ikut tercetak di kedua berkas."
+              note="Nama pelanggan pada order ini. Isi sendiri."
             />
             <Field
               id="header-order"
@@ -1414,14 +1423,16 @@ export function ExportPanel({
               originMarker={JENIS_MARKER[jenis.origin]}
               derivedMarker={JENIS_MARKER[jenis.origin]}
               derivedLabel="Dokumen"
-              derivedNote={<JenisNote jenis={jenis} />}
+              derivedNote={JENIS_SENTENCE[jenis.origin]}
               list="jenis-order"
               /* Reached when the resolver answered "". Which of the three
                  silences it is decides where the operator goes next:
                  `conflict` sends them to two pages to choose between,
                  `inferred` to one page to read, and `none` nowhere, because
-                 nothing is printed. */
-              note={<JenisNote jenis={jenis} explainCodes />}
+                 nothing is printed. The same table serves both slots: the
+                 sentence is about where the value came from, which is the one
+                 thing the operator weighs, whether or not there is a value. */
+              note={JENIS_SENTENCE[jenis.origin]}
             />
             {/* A datalist, not a select: AO, MO and DO are the ones met so far
                 and more exist, so a closed list would lock the operator out of
@@ -1466,10 +1477,17 @@ export function ExportPanel({
                   </span>{" "}
                   bagian belum diperiksa lanjutannya.
                 </span>
+                {/* IT NAMES THE ACTION BY ITS LABEL, AND THAT LABEL CHANGED.
+                    This read "Jalankan Proses sekali lagi", and the operator
+                    retired the word "Proses" because it names no object, no
+                    agent and no result. The control on Muat now says "Baca
+                    dengan AI", so this says the same thing: an instruction
+                    that quotes a word no button carries any more sends the
+                    operator looking for a control that is not there. */}
                 <Hint label="Arti belum diperiksa lanjutannya">
                   Potongannya sudah Anda terima, tapi belum ada yang menengok
-                  apakah bloknya bersambung ke halaman berikutnya. Jalankan
-                  Proses sekali lagi. Bagian yang diambil satu halaman penuh
+                  apakah bloknya bersambung ke halaman berikutnya. Baca lagi
+                  dokumennya dengan AI. Bagian yang diambil satu halaman penuh
                   tidak bisa diperiksa begitu, jadi bukalah halaman berikutnya
                   sendiri.
                 </Hint>
@@ -1577,15 +1595,22 @@ export function ExportPanel({
               <span className="text-ink-2">
                 Kolom E kosong di seluruh baris.
               </span>
+              {/* The middle sentence used to explain our storage model ("a run
+                  in this browser holds pages and zones, not text values"),
+                  which is a fact about the app rather than about the order.
+                  What replaces it says the same thing the operator can act on:
+                  the tool collects pictures, so the values are theirs to
+                  type. The last sentence is the argument the product exists to
+                  make and does not move. */}
               <Hint label="Kenapa kolom E kosong">
                 Isinya sama pada setiap order:{" "}
                 <span className="lt-figure">
                   {AO_TEMPLATE.xlsxRows.length}
                 </span>{" "}
-                baris. Order di peramban ini menyimpan halaman dan area,
-                bukan nilai teks, jadi tidak ada nilai yang bisa diisikan. Sel
-                kosong adalah keluaran yang jujur; nilai tebakan adalah
-                kegagalan yang dicegah alat ini.
+                baris. Alat ini mengumpulkan potongan bukti, bukan nilai teks,
+                jadi kolom E terbit kosong dan Anda isi sendiri. Sel kosong
+                adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
+                dicegah alat ini.
               </Hint>
             </p>
           </FileSlab>
@@ -1593,11 +1618,17 @@ export function ExportPanel({
 
         {/* The one remedy for a download nobody can confirm arrived. It is an
             interruption wearing a calm voice, so it stays on screen, and it is
-            said once for both files rather than once per slab. */}
+            said once for both files rather than once per slab.
+
+            IT LOST ITS FIRST SENTENCE. "Berkas sudah diserahkan ke peramban
+            ini" describes what our code did, in our words, to somebody who
+            wants a file in a folder; the state word at the kop already says
+            "sudah diserahkan". What survives is the half an operator can act
+            on, which is the half this paragraph was kept for. */}
         {handedOver.docx || handedOver.xlsx ? (
           <p className="text-[0.8125rem] text-ink-2">
-            Berkas sudah diserahkan ke peramban ini. Jika tidak muncul di folder
-            unduhan, izinkan unduhan lalu tekan Simpan lagi.
+            Kalau berkasnya tidak muncul di folder unduhan, izinkan unduhan lalu
+            tekan Simpan lagi.
           </p>
         ) : null}
       </section>
@@ -1735,15 +1766,32 @@ export function ExportPanel({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-4">
+          {/* ONE LIVE PETROL KEY AT A TIME, WHICH IS THE WHOLE OF WHAT MAKES
+              ONE OF THEM PRIMARY. Four controls on this screen can wear the
+              face: this one, the way back to the review sheet, and the two
+              Simpan. The state decides, and in every state exactly one of them
+              is the thing to press.
+
+              Blocked: this key is down and the work is on the review sheet, so
+              the way back carries it. Nothing built: this key. Built and
+              stale: this key again, because Simpan is down until it is rebuilt.
+              Built and current: Simpan, and this becomes a way back to work
+              already done, so it hands the face over. Three petrol keys in one
+              viewport is the same defect as none, because the operator then
+              has to read all three to find out which one the screen wants. */}
           <Btn
-            tone="primary"
+            tone={built && !stale ? "default" : "primary"}
             disabled={blocked || state.kind === "working"}
             onClick={() => void write()}
           >
             {built ? "Buat ulang" : "Buat kedua berkas"}
           </Btn>
 
-          {blocked ? <Btn onClick={onGoToSheet}>Kembali ke lembar periksa</Btn> : null}
+          {blocked ? (
+            <Btn tone="primary" onClick={onGoToSheet}>
+              Kembali ke lembar periksa
+            </Btn>
+          ) : null}
 
           {/* A PRIVACY STATEMENT NEVER HIDES, whichever direction it points.
               A previous pass put this behind a question mark, reasoning that a
@@ -1751,18 +1799,32 @@ export function ExportPanel({
               this one is its opposite, a promise that nothing leaves. The two
               are indeed different sentences, and it still does not hide: an
               operator cannot tell a promise nobody made from one they did not
-              hover over, and that is the whole value of making it. What the
-              cost argument buys (every line in this bar is subtracted from the
-              page twice, once as the bar and once as the height
-              `useBarHeight` reserves for it) is a SHORTER line, not a hidden
-              one. Its first four words are the wording docs/ui-bahasa.md
-              fixes. */}
+              hover over, and that is the whole value of making it.
+
+              WHAT THE COST ARGUMENT BUYS IS A SHORTER LINE, AND IT IS NOW ONE
+              FACT. Every line in this bar is subtracted from the page twice,
+              once as the bar and once as the height `useBarHeight` reserves
+              for it. The operator's own instruction was to keep the fact and
+              drop the explanation after it: they are not the audience for how
+              the app is built, and where the work happens is a claim for the
+              privacy page to make in full. So the four words
+              docs/ui-bahasa.md fixes stay and the clause about where the two
+              files are made goes. */}
           <p className="max-w-[74ch] text-[0.8125rem] text-ink-2">
-            Berkas PDF tidak diunggah. Kedua berkas dibuat di peramban ini.
+            Berkas PDF tidak diunggah.
           </p>
 
           {state.kind === "working" ? (
             <div className="flex items-center gap-4">
+              {/* SOMETHING MOVES WHILE THE OPERATOR WAITS, and the ticks alone
+                  did not. They advance once per crop and then stand perfectly
+                  still through the whole packing step, which is where a build
+                  spends its last seconds: a bar that has stopped and a bar that
+                  is finished look the same. The spinner is the only thing on
+                  screen that says work is still going on, and it is hidden from
+                  a screen reader because the countable figure beside it already
+                  says everything it says. */}
+              <span className="lt-spinner" aria-hidden="true" />
               {/* Countable, never a percentage: this step only ever learns
                   about whole crops. It also lives OUTSIDE the button, so the
                   primary control does not change width while it cannot be

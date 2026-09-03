@@ -16,7 +16,7 @@
  *
  * IT IS A SEPARATE THING FROM THE RIWAYAT, which is the other half of the same
  * request. This bar is THIS order's documents and it follows the operator
- * through every phase. `Riwayat` is the order saved on this device, it
+ * through every phase. `Riwayat` is the orders saved on this device, it
  * lives at the bottom of Muat, and it appears nowhere else, so looking for an
  * old job cannot compete for attention with the job in hand.
  *
@@ -61,9 +61,12 @@ export function DocumentsBar({
 
   const documents = run.sources.length;
   const pages = run.pages.length;
-  // The partial form while an ingest is still reading. It used to live in the
-  // strip's h1 and came down here with the rest of the composition: "5 dari 29
-  // halaman terbaca" is a fact about the bundle, which is this bar's subject.
+  // The partial form while an ingest is still loading pages. It used to live
+  // in the strip's h1 and came down here with the rest of the composition:
+  // "5 dari 29 halaman" is a fact about the bundle, which is this bar's
+  // subject, and the difference between the two figures is the whole point.
+  // `RunSource.pageCount` is the document's own length even when a load died
+  // half way, so a run that would otherwise look complete says it is short.
   const expected = run.sources.reduce(
     (total, source) => total + source.pageCount,
     0,
@@ -92,8 +95,25 @@ export function DocumentsBar({
             <span className="lt-chevron" data-open={open} aria-hidden="true" />
           </button>
 
+          {/* THE MAIN ACTION OF THIS BAR, SO IT IS THE PRIMARY KEY. An
+              operator reported it as looking disabled while it was live: a
+              default key beside a disclosure that is itself quiet reads as
+              furniture, and the one thing this bar exists to let them do is
+              add the dokumen tambahan the review sheet asked for. `Hapus`
+              inside the open list stays a default key, because destroying
+              evidence is not what this bar is for. */}
           <div className="ml-auto flex items-center gap-2">
-            <Btn disabled={busy} onClick={onAdd}>
+            <Btn
+              tone="primary"
+              disabled={busy}
+              /* `busy` here is the shell's ingest OR its AI read, so the
+                 reason names BOTH moves rather than reaching for one word
+                 that covers them. It said "proses yang sedang berjalan", and
+                 "proses" is the word the operator retired for meaning
+                 anything at all. */
+              reason="Tunggu sampai dokumen selesai dimuat atau dibaca."
+              onClick={onAdd}
+            >
               <Klip size={16} />
               Tambah dokumen
             </Btn>
@@ -123,6 +143,17 @@ export function DocumentsBar({
                     </span>
                     <Btn
                       disabled={busy || documents === 1}
+                      /* ONLY THE BUSY HALF, because the other half is already
+                         said in prose directly under this row and a reason
+                         printed twice is a reason nobody reads. `busy` had
+                         nothing at all: the key went down mid-ingest with its
+                         explanation nowhere on the screen, which is the one
+                         thing a disabled control may never do. */
+                      reason={
+                        busy
+                          ? "Tunggu sampai dokumen selesai dimuat atau dibaca."
+                          : undefined
+                      }
                       onClick={() => setConfirming(asking ? null : source.id)}
                     >
                       <Coretan size={16} />
@@ -132,7 +163,7 @@ export function DocumentsBar({
 
                   {/* THE ONLY DOCUMENT CANNOT BE REMOVED, and the reason is
                       said rather than left to be guessed at. Removing it would
-                      leave a order with no pages, which is not a state
+                      leave an order with no pages, which is not a state
                       worth building screens for: "Mulai order lain" on
                       Muat is that, and it also frees the disk. */}
                   {documents === 1 && !busy ? (

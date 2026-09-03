@@ -28,11 +28,15 @@
  * and `.lt-btn[data-tone="primary"]` all read correctly on a sheet with no
  * help at all: petrol and its legend are never rebound, and the edge and the
  * plate the button draws with become the paper's own ink, which is what a
- * control printed on a form looks like. TWO CLASSES DO NEED HELP, and both
- * fail the same way. `.lt-kop` paints `--kop` under `--ink`, and on paper both
- * rebind to `--paper-ink`, so a kop is ink on ink and its legend has to be
- * spelled out as `--paper`. `.lt-kotak` fills with `--surface-sunk`, which is
- * the recess colour of the TABLE and is not a paper token at all.
+ * control printed on a form looks like. NO CLASS NEEDS HELP ANY MORE, and
+ * both of the ones that did are worth recording so neither workaround gets
+ * re-derived. `.lt-kop` paints `--kop` under `--ink`, both of which rebind to
+ * `--paper-ink` on a sheet, so a kop was ink on ink until every screen spelled
+ * its legend out by hand; `globals.css` now does it once, on
+ * `.lt-paper .lt-kop`, and the five copies are gone. `.lt-kotak` fills with
+ * `--surface-sunk`, which used to be the TABLE's recess with no paper value at
+ * all; the same rebind block gives it one, so a kotak on a sheet is a tray
+ * rather than a dark box and nothing here overrides its fill.
  *
  * IT IS DELIBERATELY NOT REDIRECTED FOR AN ALREADY-SIGNED-IN VISITOR. The
  * obvious improvement ("you are signed in, go to /") closes the only escape
@@ -52,6 +56,7 @@ import {
   Notice,
   TechnicalDetail,
 } from "@/components/operator/chrome";
+import { Otak } from "@/components/operator/icons";
 
 import {
   safeCallbackUrl,
@@ -65,19 +70,9 @@ import {
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Masuk - tv-validator",
+  title: "Masuk - TV Validator",
 };
 
-/**
- * What a kop costs on paper, in one place.
- *
- * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
- * paints ink on ink. `color` carries the bar itself and survives the fault
- * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
- * child that names the token, which is how `.lt-wordmark` stops needing a
- * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
- * this constant goes.
- */
 /**
  * The kop, on paper: the block's name on the left, whatever it owes on the
  * right.
@@ -86,11 +81,26 @@ export const metadata = {
  * in the container: an operator who was refused sees it before reading a word,
  * and it is one mechanism rather than a mark on every screen that has to
  * remember to draw itself.
+ *
+ * THE NAME IS "TV VALIDATOR", WITH NO DASH AND WITH THE BRAIN BESIDE IT. The
+ * dash was a package name wearing a product's clothes. `.lt-wordmark` already
+ * sets the caps and the tracking, so the string is written out in full here
+ * only so a reader of this file sees the name the operator sees.
+ *
+ * NOTHING SPELLS OUT AN INK ANY MORE. A constant used to sit above this
+ * function handing `--ink` to the bar by hand, because `.lt-paper` rebinds it
+ * to `--paper-ink`, which is also the masthead's own ground, so the wordmark
+ * was ink on ink at 1:1. `globals.css` gives `.lt-paper .lt-kop` its own
+ * legend now (`--ink: var(--paper)`, 15.65:1 on the bar) and the workaround
+ * went with it. `Otak` paints `currentColor`, so the same rule carries it.
  */
 function Kop({ owes, children }: { owes?: "fault"; children?: ReactNode }) {
   return (
     <div className="lt-kop" data-owes={owes}>
-      <span className="lt-wordmark">tv-validator</span>
+      <span className="lt-wordmark inline-flex items-center gap-2">
+        <Otak size={24} />
+        TV VALIDATOR
+      </span>
       {/* `.lt-kop-right` rather than a margin utility: one class puts the
           state at the same end of every kop in the product. */}
       {children ? <span className="lt-kop-right">{children}</span> : null}
@@ -101,17 +111,22 @@ function Kop({ owes, children }: { owes?: "fault"; children?: ReactNode }) {
 /**
  * A value quoted out of the request, in a ruled box.
  *
- * ONLY THE FILL IS SPELLED OUT. `.lt-kotak` takes its ink and its rule from
- * the tokens the sheet already rebinds; what it cannot take is
- * `--surface-sunk`, which is the TABLE's recess and has no paper value, so a
- * kotak on a sheet is a dark box until the fill is dropped.
+ * NO COLOUR IS SPELLED OUT HERE, AND THE ONE THAT USED TO BE IS A CORRECTION
+ * RATHER THAN A TIDY-UP. This wrapper forced `background: transparent`,
+ * because `--surface-sunk` was the TABLE's recess with no paper value and a
+ * kotak on a sheet came out a near-black box on white. `globals.css` rebinds
+ * that token on `.lt-paper` now, to `--paper-ink` at 4.5%, measured 1.09:1
+ * against the sheet: a visible tray rather than a second colour. Keeping the
+ * override would take the tray away again, on the one sheet whose kotak holds
+ * a value the operator is being asked to check.
+ *
+ * WHAT IS STILL SPELLED OUT IS NOT A COLOUR. `.lt-kotak` sets
+ * `white-space: nowrap`, which is right for a figure and wrong for a callback
+ * URL: a path long enough to run off the sheet has to break instead.
  */
 function Kotak({ children }: { children: ReactNode }) {
   return (
-    <span
-      className="lt-kotak break-all"
-      style={{ background: "transparent", whiteSpace: "normal" }}
-    >
+    <span className="lt-kotak break-all" style={{ whiteSpace: "normal" }}>
       {children}
     </span>
   );

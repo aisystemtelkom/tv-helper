@@ -39,6 +39,18 @@
  *   - Finding a field inside those pages is text only: numbered OCR lines go
  *     up, a line range comes back.
  *
+ * THIS PAGE IS NOW THE ONLY PLACE THOSE THREE SENTENCES LIVE, and that is a
+ * decision rather than an accident of drafting. The operator's objection to
+ * the screens was exact: they do not need to learn that we are compliant while
+ * they are trying to finish an order, the disclaimers belong in the privacy
+ * policy, and what the flow should say is simply that the PDF has not been
+ * uploaded. So the ingest screen keeps the short fact, "Berkas PDF tidak
+ * diunggah", and every sentence explaining the mechanism behind it was deleted
+ * from the flow ON THE PROMISE THAT THIS PAGE CARRIES IT. Shortening section 2
+ * or section 3 for readability would therefore not tidy up a duplicate. It
+ * would delete the disclosure, and the deletion would be invisible, because
+ * the screens no longer say it either.
+ *
  * IT DESCRIBES THE APP, NOT ITS HISTORY. This page carried a dated sentence
  * about text recognition having moved out of the browser, which is a changelog
  * entry rather than a policy: the product has not launched, so nobody reading
@@ -63,11 +75,13 @@
  *
  * IT OPENS WITH A KOP, the bar of ink an Indonesian letterhead starts with,
  * carrying the product's name. That is the same object that opens the sign-in
- * sheet and the three failure sheets, so the five paper surfaces in `src/app/`
- * are one thing seen five times. `signin/page.tsx` records the one hazard they
- * share: `.lt-kop` paints `--kop` under `--ink`, and both rebind to
- * `--paper-ink` here, so a kop on paper is ink on ink until its legend is
- * spelled out as `--paper`.
+ * sheet, the three failure sheets (404, error, global-error) and the wait, so
+ * the SIX paper surfaces in `src/app/` are one thing seen six times. Count them
+ * before quoting the number: this said five while `loading.tsx` was already
+ * drawing the same bar. `signin/page.tsx` records the hazard they share:
+ * `.lt-kop` paints `--kop` under `--ink`, and both rebind to `--paper-ink`
+ * here, so a kop on paper is ink on ink until its legend is spelled out as
+ * `--paper`, which `globals.css` now does for all six at once.
  *
  * Five details that are decisions rather than accidents:
  *
@@ -108,8 +122,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { Otak } from "@/components/operator/icons";
+
 export const metadata = {
-  title: "Kebijakan Privasi - tv-validator",
+  title: "Kebijakan Privasi - TV Validator",
   description:
     "Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.",
 };
@@ -235,25 +251,31 @@ function Rule() {
 }
 
 /**
- * What a kop costs on paper, in one place.
- *
- * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
- * paints ink on ink. `color` carries the bar itself; rebinding `--ink` carries
- * every child that names the token, which is how `.lt-wordmark` stops needing
- * a style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a
- * legend, this constant goes.
- */
-/**
  * The letterhead.
  *
  * Nothing sits at the right of it. A kop's right-hand side carries the state
  * the block is in, and a policy is not in a state: it is a document. The four
  * sheets that ARE in a state (404, gagal, gagal, memuat) say so there.
+ *
+ * THE NAME IS "TV VALIDATOR", WITH NO DASH AND WITH THE BRAIN BESIDE IT, the
+ * same lockup as on the other four sheets. A policy printed without a
+ * letterhead names nobody, which is why this one is not `print:hidden` the way
+ * the way back into the app is.
+ *
+ * NOTHING SPELLS OUT AN INK ANY MORE. A constant used to sit above this
+ * function handing `--ink` to the bar by hand, because `.lt-paper` rebinds it
+ * to `--paper-ink`, which is also the masthead's own ground, so the wordmark
+ * was ink on ink at 1:1. `globals.css` gives `.lt-paper .lt-kop` its own
+ * legend now (`--ink: var(--paper)`, 15.65:1 on the bar) and the copies went
+ * with it. `Otak` paints `currentColor`, so the same rule carries the mark.
  */
 function Kop() {
   return (
     <div className="lt-kop">
-      <span className="lt-wordmark">tv-validator</span>
+      <span className="lt-wordmark inline-flex items-center gap-2">
+        <Otak size={24} />
+        TV VALIDATOR
+      </span>
     </div>
   );
 }
@@ -295,20 +317,22 @@ export default function PrivacyPage() {
                 system's subtitle, and on the sheet it takes `--ink-2` from the
                 paper rebind. */}
             <p className="lt-lede">
-              tv-validator, alat bantu validasi dokumen order.
+              TV Validator, alat bantu validasi dokumen order.
             </p>
             {/* A date is a value quoted out of a document, so it is set in a
-                ruled box rather than loose in the sentence. `.lt-kotak` fills
-                itself with `--surface-sunk`, which is the TABLE's recess and
-                stays dark on paper, so the fill is spelled out. */}
+                ruled box rather than loose in the sentence. NOTHING SPELLS OUT
+                ITS FILL ANY MORE: `.lt-kotak` paints `--surface-sunk`, which
+                used to be the TABLE's recess with no paper value and so came
+                out a near-black box on white, and `globals.css` rebinds it on
+                `.lt-paper` now (`--paper-ink` at 4.5%, 1.09:1 against the
+                sheet). Forcing it transparent here would only take that tray
+                back off. */}
             <p
               className="flex items-center gap-2 text-[0.875rem]"
               style={{ color: "var(--paper-ink-2)" }}
             >
               Diperbarui
-              <span className="lt-kotak" style={{ background: "transparent" }}>
-                {UPDATED}
-              </span>
+              <span className="lt-kotak">{UPDATED}</span>
             </p>
           </header>
 

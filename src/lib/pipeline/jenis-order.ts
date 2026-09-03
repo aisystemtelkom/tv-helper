@@ -127,10 +127,13 @@ export type JenisOrder = {
  * that uses it to look something up, and printing the INDEX sends an operator
  * to the page before the one carrying the answer.
  *
- * This string is operator-facing in two places already -- the outstanding
- * report, via `outstandingHeaderFields`, and the operator UI's Jenis Order
- * field -- so the CLI and the browser must render it identically or the same
- * document produces two different locations depending on which path found it.
+ * This string reaches a reader through `detail`, in the outstanding report via
+ * `outstandingHeaderFields`. It used to reach one through the operator UI's
+ * Jenis Order field as well, and no longer does: `detail` is written for a
+ * developer reading a CLI log, in English, ending in advice about a flag, and
+ * an operator asked for it to go. The page number still has to be a page
+ * number and not an index wherever it is printed, which is what the paragraph
+ * above is about; only the second audience is gone.
  *
  * Kept local rather than imported so this module has no dependency at all: it
  * is four tokens, and sharing it would couple a browser import to a CLI helper.

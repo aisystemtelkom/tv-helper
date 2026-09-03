@@ -79,11 +79,19 @@
  * Four things here read word for word the same on every order, on every slot
  * and on every page: how to drag, what a saved area becomes, that the preview
  * is enlarged from the screen raster, and how the free-pixel modifier works.
- * Each is behind the `Hint` on the heading or the control it explains, which
- * is a place a person can point at when they want it. The transcript is a
- * CLOSED disclosure for a stronger reason: OCR text can be right while the
- * rectangle is wrong, so reading the text instead of looking at the picture is
- * exactly the shortcut that lets a wrong page through.
+ * The pass that put all four behind a `Hint` was followed by an operator
+ * saying the question marks themselves had become the clutter, so two of the
+ * four are now gone rather than hidden: HOW TO DRAG is drawn on the page
+ * itself, in place, while there is no rectangle on it, and the note about the
+ * preview's resolution explained how this app makes a picture rather than
+ * anything a person decides. The two that stayed each change an answer. What a
+ * saved area BECOMES says this screen has no second review step. The
+ * free-pixel modifier is an affordance that is invisible until it is named,
+ * which is a defect this screen has already shipped once.
+ *
+ * The transcript is a CLOSED disclosure for a stronger reason: OCR text can be
+ * right while the rectangle is wrong, so reading the text instead of looking
+ * at the picture is exactly the shortcut that lets a wrong page through.
  *
  * NOTHING MEASURED OFF THIS RECTANGLE MOVED, and that is the rule rather than
  * a judgement call. The citation register, every advisory under it (a whole
@@ -947,8 +955,20 @@ export function ZoneEditor({
   };
 
   /**
-   * Why the commit is refused, said beside the control it disables. A disabled
-   * primary action with no reason reads as a broken screen.
+   * WHY THE COMMIT IS REFUSED, CARRIED BY THE CONTROL ITSELF.
+   *
+   * It used to be a line of prose in the bar under the key, plus an
+   * affirmative "Siap disimpan." when nothing was wrong. An operator's verdict
+   * on that was that the sentence is redundant with the key being down, and
+   * for these three it is: a page still opening, a page that will not open,
+   * and no rectangle drawn yet are all routine and all visible elsewhere on
+   * the screen. So it rides on `Btn`'s `reason`, which reaches a pointer, a
+   * keyboard and a screen reader.
+   *
+   * THE FAULT DID NOT GO WITH IT. A page that will not open is still a stop
+   * notice in prose on the page block above, with its technical detail, and
+   * that is the copy an operator has to act on; this string is only the
+   * refusal, said where the refusal is.
    */
   const blocked = failure
     ? "Halaman ini tidak tampil. Pilih halaman lain."
@@ -1003,18 +1023,25 @@ export function ZoneEditor({
             the question being asked. The screen's own name used to be the most
             distinctive string here, above a 16px field label.
 
-            THE HOW-TO SITS BEHIND THE MARK, not above the page. "Tarik di
-            halaman untuk menandai areanya" is the same sentence on every order
-            and on every slot, and an operator who has drawn twelve rectangles
-            today reads it as furniture. What replaces it is not nothing: the
-            page itself carries the instruction, in place, for exactly as long
-            as there is no rectangle on it. */}
+            THE HOW-TO IS NOT HERE AT ALL, in either form. "Tarik di halaman
+            untuk menandai areanya" is the same sentence on every order and on
+            every slot, and an operator who has drawn twelve rectangles today
+            reads it as furniture; it stood above the page, then behind this
+            mark, and is now only where it is useful, which is ON the page, in
+            place, for exactly as long as there is no rectangle on it. */}
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="lt-field-name lt-figure">{target.label}</h2>
-          <Hint label="Penjelasan cara menandai area">
-            Tarik di halaman untuk menandai areanya. Area yang Anda simpan
-            langsung menjadi bukti yang diterima untuk bagian ini, atas
-            keputusan Anda.
+          {/* WHAT IS LEFT IN HERE IS A CONSEQUENCE, NOT AN INSTRUCTION. The
+              how-to ("tarik di halaman untuk menandai areanya") is drawn on
+              the page itself, in place, for exactly as long as there is no
+              rectangle on it, so saying it here as well was the same sentence
+              twice with one of them hidden. What cannot be read off the screen
+              is that this screen has no second review step: the area saved
+              here IS the accepted evidence, and an operator who expects to
+              approve it again afterwards would draw more carelessly. */}
+          <Hint label="Penjelasan area yang disimpan">
+            Area yang Anda simpan langsung menjadi bukti yang diterima untuk
+            bagian ini, atas keputusan Anda.
           </Hint>
         </div>
 
@@ -1328,24 +1355,15 @@ export function ZoneEditor({
         <aside className="flex min-w-0 flex-col gap-4">
           {/* THE PICTURE, and every advisory that is a statement about the
               picture. The note about resolution stood under every preview and
-              said the same thing under all of them: it is true on every order,
-              nothing it describes stops working when it is not read, and it sat
-              directly under the thing the operator is trying to look at. It is
-              on this block's mark now. What did NOT move is anything measured
+              said the same thing under all of them; it moved onto this block's
+              mark, and then off the screen altogether. It described how the
+              preview is produced (enlarged from the page raster, cut for real
+              from the full-resolution page) and there is nothing an operator
+              does differently for knowing it: the judgement here is whether
+              the rectangle holds the right thing, which is read off its edges
+              and not off its sharpness. What did NOT move is anything measured
               off this rectangle. */}
-          <Slab
-            name={
-              <span className="flex items-center gap-2">
-                Potongan
-                <Hint label="Penjelasan pratinjau potongan">
-                  Pratinjau ini diperbesar dari gambar halaman di layar.
-                  Potongan yang masuk ke berkas hasil dipotong dari halaman
-                  resolusi penuh.
-                </Hint>
-              </span>
-            }
-            aside={draft ? null : "belum ada area"}
-          >
+          <Slab name="Potongan" aside={draft ? null : "belum ada area"}>
             {draft && shown ? (
               <div className="lt-mat">
                 <CropPreview url={shown} page={page} box={draft.box} />
@@ -1567,6 +1585,7 @@ export function ZoneEditor({
           <Btn
             onClick={takeWholePage}
             disabled={!canDraw}
+            reason="Tunggu halamannya tampil dulu."
             aria-label="Ambil tangkapan satu halaman"
           >
             <HalamanUtuh />
@@ -1583,26 +1602,17 @@ export function ZoneEditor({
             {/* The save carries the potongan: what the click leaves behind is a
                 region cut out of a page, which is the one thing this screen
                 exists to author. */}
-            <Btn tone="primary" onClick={save} disabled={Boolean(blocked)}>
+            <Btn
+              tone="primary"
+              onClick={save}
+              disabled={Boolean(blocked)}
+              reason={blocked ?? undefined}
+            >
               <Potongan />
               Pakai area ini
             </Btn>
           </div>
         </div>
-
-        {/* A disabled primary action never appears without its reason beside
-            it, in the same viewport, and this line STAYS whatever else moves
-            behind a mark: it is the reason a control on screen is refusing to
-            work. It clears AFFIRMATIVELY too, because an absent warning is not
-            a confirmation, so the ready state is a state rather than the
-            absence of one. Full-strength ink in both cases: quietness here is
-            bought with size and position, never with contrast. */}
-        <p
-          className="max-w-[74ch] text-[0.8125rem]"
-          style={{ color: "var(--ink)" }}
-        >
-          {blocked ?? "Siap disimpan."}
-        </p>
 
         {confirmDiscard ? (
           <div className="flex flex-wrap items-center gap-4">

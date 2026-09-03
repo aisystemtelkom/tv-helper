@@ -2676,6 +2676,30 @@
     box-shadow: inset 0 0 0 2px var(--petrol);
   }
 
+  /* A STEP THAT IS CLOSED, AND THE RING IS DASHED RATHER THAN DIM.
+     `PhaseNav` emits four states and this rule is the fourth: without it a
+     LOCKED node and a REACHABLE-BUT-NOT-YET-VISITED node were the same
+     drawing, so the timeline could not answer the one question a locked step
+     raises, which is whether the operator may go there now.
+
+     Dimming the ring to open a luminance gap fails the same way it failed on
+     the rail, and the numbers say so: the reachable ring is 5.16:1 against its
+     ground, and every dimming that separates the two by even 1.7:1 drops the
+     locked ring to about 3.05:1 and the pair still reads as one. So the
+     channel is the DASH, which this product already uses for "not yet real"
+     on the drop target and on `.lt-hatch`. Both rings keep their full 5.16:1.
+
+     `border` rather than the inset ring the other states use, because a
+     box-shadow cannot be dashed. The node is a fixed 1.75rem under
+     `box-sizing: border-box`, so the border sits inside and no state changes
+     size. */
+  .lt-timeline-node[data-state="locked"] {
+    background: var(--surface-sunk);
+    color: var(--ink-3);
+    box-shadow: none;
+    border: 2px dashed var(--line-strong);
+  }
+
   /* The rail between two nodes, and the only thing here carrying progress.
 
      THE DIFFERENCE IS THICKNESS AS WELL AS HUE, and that is measured rather

@@ -36,13 +36,14 @@
  * paragraph somewhere else on the page.
  *
  * ONE ROW OF CHROME STICKS, NOT TWO, AND WHICH ONE IS LOAD-BEARING TWICE OVER.
- * The application strip scrolls away: the wordmark, the bundle line, the
- * account and the three links are read on arrival and never consulted while
- * judging a crop, and two 56px sticky rows spent 114px of a 768px panel on
- * them permanently. The PHASE ROW is what stays, and it carries the
- * persistence signal that used to live in the strip, because "Tersimpan di
- * perangkat ini" is the one line from up there that answers a question an
- * operator asks in the middle of a metre-long contact sheet.
+ * The application strip scrolls away: the wordmark and the account are read on
+ * arrival and never consulted while judging a crop, and two 56px sticky rows
+ * spent 114px of a 768px panel on them permanently. The PHASE ROW is what
+ * stays, and it carries the two things from up there that are still wanted
+ * mid-sheet: the persistence signal, because "Tersimpan di perangkat ini"
+ * answers a question an operator asks in the middle of a metre-long contact
+ * sheet, and the name of the order being worked on, which is now the page's
+ * one h1 sitting beside the timeline as its subject.
  *
  * The second reason is mechanical. `useStickyOffset` in `contact-sheet.tsx`
  * measures THE FIRST `<header>` IN THE DOCUMENT WHOSE COMPUTED POSITION IS
@@ -52,7 +53,8 @@
  * the chrome sitting on top of the section it just jumped to.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Popover } from "@base-ui/react/popover";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { getSession, signOut } from "next-auth/react";
@@ -73,6 +75,7 @@ import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome"
 import { ContactSheet } from "./contact-sheet";
 import { DocumentsBar } from "./documents-bar";
 import { ExportPanel } from "./export-panel";
+import { Chevron, Otak, Paraf } from "./icons";
 import { IngestPanel, type IngestProgress } from "./ingest-panel";
 import { OutstandingPanel, type RoundLog } from "./outstanding-panel";
 import { ToastHost, useSay } from "./toast";
@@ -133,31 +136,20 @@ function rememberRun(id: string | null): void {
 }
 
 /**
- * What is open, NAMED AS A WHOLE BUNDLE.
- *
- * Never `sources[0].name`. The dokumen tambahan loop guarantees multi-document
- * runs, and an operator who has just added a document has no other way to see
- * that it joined this run rather than starting a second one.
- *
- * When fewer pages are held than the documents declare, that difference IS the
- * headline. `RunSource.pageCount` is the document's own length even when an
- * ingest died halfway, so "27 dari 29 halaman terbaca" is the truth about a
- * run that would otherwise look complete and be short two pages of evidence.
- */
-/**
  * WHICH ORDER THIS IS, which is a different question from what is in it.
  *
- * The strip used to answer the second: "2 dokumen, 5 halaman" as the h1 with
- * every file name under it. `DocumentsBar` now sits directly below and says
- * exactly that, so the two were the same sentence twice, eleven pixels apart,
- * on every screen. The composition of the bundle belongs to the bar; the
- * strip's job is to name the thing being worked on.
+ * The application strip used to answer the second: "2 dokumen, 5 halaman" as
+ * the h1 with every file name under it. `DocumentsBar` says exactly that, so
+ * the two were the same sentence twice, eleven pixels apart, on every screen.
+ * The composition of the bundle belongs to the bar; naming the thing being
+ * worked on belongs to the one h1, which now rides beside the timeline as its
+ * subject rather than standing as a masthead of its own.
  *
  * IT IS NAMED BY ITS FIRST DOCUMENT because nothing better exists yet. The ID
  * EPIC would be the right title and the browser run does not carry one: field
  * extraction happens against `/api/extract` and its values are not folded back
  * into `BrowserRun`. Naming one document out of several is safe only because
- * the bar underneath lists the rest, which is the arrangement this is part of.
+ * `DocumentsBar` lists the rest, which is the arrangement this is part of.
  */
 function runTitle(run: BrowserRun): string {
   const first = run.sources[0];
@@ -165,20 +157,25 @@ function runTitle(run: BrowserRun): string {
   return shortenFileName(first.name, 44);
 }
 
+/** Where a run being opened belongs: mid-flow if it can be, Muat otherwise. */
+function landingPhase(run: BrowserRun): Phase {
+  return run.pages.length > 0 && hasBeenSearched(run) ? "sheet" : "ingest";
+}
+
 /**
- * HAS THE SEARCH RUN OVER THIS PEKERJAAN?
+ * HAS THE AI READ THIS ORDER YET?
  *
  * This is the gate on Periksa and on Berkas, and it is DERIVED FROM THE RUN
  * rather than kept in a boolean, because a boolean is lost on reload and would
- * re-lock a run that was searched an hour ago.
+ * re-lock a run that was read an hour ago.
  *
  * The obvious candidate is `wantedKeys(run).length === 0`, and it is the wrong
  * one. That expression means "nothing left to search", and `wantedKeys`
  * deliberately includes `outstanding` slots, because re-searching them IS the
  * dokumen tambahan loop. So a completed pass that left four bagian tidak
  * ditemukan reads as zero-searched under it, and the operator would be locked
- * out of the one screen where those four are settled. The gate is on the
- * search having RUN, not on it having found everything.
+ * out of the one screen where those four are settled. The gate is on the pass
+ * having RUN, not on it having found everything.
  *
  * What is true instead: every slot a run is seeded with is `pending` with no
  * zone (`seedSlots` in `src/lib/browser/runtime.ts`), and `/api/propose`
@@ -187,11 +184,6 @@ function runTitle(run: BrowserRun): string {
  * in the app can move a slot off `pending`: every manual decision lives behind
  * this gate.
  */
-/** Where a run being opened belongs: mid-flow if it can be, Muat otherwise. */
-function landingPhase(run: BrowserRun): Phase {
-  return run.pages.length > 0 && hasBeenSearched(run) ? "sheet" : "ingest";
-}
-
 function hasBeenSearched(run: BrowserRun): boolean {
   // A run holding no slots at all cannot be searched and cannot be reviewed;
   // locking the rest of the app behind a pass that can never happen would
@@ -625,8 +617,8 @@ function Workspace({
        * the review sheet, which was empty, because nothing had searched yet
        * and the only control that could was a band further down that screen.
        * Muat is now two moves, and this is the end of the first one: the
-       * second, `Proses`, is on this screen, below the film strip that just
-       * finished. Jumping away from it would hide the one thing left to do.
+       * second, `Baca dengan AI`, is on this screen, below the film strip that
+       * just finished. Jumping away would hide the one thing left to do.
        */
     } catch (problem) {
       setFault({
@@ -652,9 +644,14 @@ function Workspace({
   };
 
   /**
-   * THE SEARCH, which the operator now starts from Muat as `Proses`. The only
-   * thing that moves a slot to "proposed", and the only thing that opens the
-   * gate on Periksa.
+   * THE READING PASS, which the operator starts from Muat as `Baca dengan AI`.
+   * The only thing that moves a slot to "proposed", and the only thing that
+   * opens the gate on Periksa.
+   *
+   * IT IS NAMED BY ITS LABEL WHEREVER IT IS SPOKEN OF, and the label changed:
+   * the operator retired `Proses` because "it can mean a lot of thing". Every
+   * sentence below that quotes the control quotes the words on its face, so a
+   * result note does not send anybody looking for a key that is not there.
    *
    * The run is RE-READ from storage first, and the answer is applied to that
    * fresh copy rather than to the `run` in React state. A full pass is minutes
@@ -687,27 +684,33 @@ function Workspace({
       );
       const stored = (await runtime.loadRun(run.id)) ?? run;
       commit(applyResponse(stored, response));
-      // A multi-minute pass has to end in a sentence, and that sentence starts
-      // with the name of the button that started it. It used to say "Pencarian
-      // selesai", which left the operator to work out that the thing they
-      // clicked and the thing that finished were one event.
+      // A multi-minute pass has to end in a sentence, and that sentence names
+      // the thing that just finished in the same words as the key that started
+      // it. It said "Pencarian selesai" once, then "Proses selesai", and both
+      // left the operator to work out that the thing they clicked and the
+      // thing that finished were one event.
+      //
+      // THE PAGE COUNT CAME OUT OF THE EMPTY CASE. "di 29 halaman yang ada"
+      // measured our work rather than telling them anything they could act on,
+      // and how much text a pass carried is exactly the kind of sentence this
+      // flow was swept clean of.
       const lanjutanNote =
         lanjutan === 0
           ? ""
           : ` ${lanjutan} potongan lanjutan juga ditemukan: blok yang terpotong di bawah halaman dan bersambung ke halaman berikutnya, dan itu pun menunggu keputusan Anda.`;
       setSearchNote(
         (found === 0
-          ? `Proses selesai. Tidak ada bagian yang bisa ditemukan di ${run.pages.length} halaman yang ada. Buka lembar periksa untuk memutuskan tiap bagian, atau tambahkan dokumen lain lalu proses lagi.`
+          ? `AI selesai membaca. Tidak ada bagian yang bisa ditemukan di dokumen ini. Buka lembar periksa untuk memutuskan tiap bagian, atau tambahkan dokumen lain lalu baca lagi.`
           : missed === 0
-            ? `Proses selesai. ${found} usulan menunggu keputusan Anda di lembar periksa.`
-            : `Proses selesai. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
+            ? `AI selesai membaca. ${found} usulan menunggu keputusan Anda di lembar periksa.`
+            : `AI selesai membaca. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
           lanjutanNote,
       );
     } catch (problem) {
       setFault({
         origin: "search",
         sentence:
-          "Proses gagal, dan tidak ada yang berubah di order ini. Halaman yang sudah terbaca dan keputusan yang sudah Anda simpan tetap utuh, jadi Anda bisa menekan Proses lagi.",
+          "Pembacaan gagal, dan tidak ada yang berubah di order ini. Halaman yang sudah terbaca dan keputusan yang sudah Anda simpan tetap utuh, jadi Anda bisa menekan Baca dengan AI lagi.",
         detail: messageOf(problem),
       });
     } finally {
@@ -771,11 +774,16 @@ function Workspace({
                 ? {
                     ...slot,
                     status: "outstanding" as const,
+                    // The lanjutan verdict needs no clearing here, and that is
+                    // by construction rather than by luck: it is stored as
+                    // `continuationCheckedFor`, the FINGERPRINT of the zone it
+                    // was made about, so dropping the zone leaves
+                    // `continuationChecked(slot)` reading false on its own.
+                    // What was known about this bagian's page bottom cannot
+                    // survive onto whatever fills it next.
                     zone: undefined,
                     text: undefined,
-                    // The bagian is open again, so what was known about its
-                    // page bottom no longer applies to whatever fills it next.
-                                }
+                  }
                 : slot,
             ),
           }
@@ -803,15 +811,18 @@ function Workspace({
    * "Gambar ulang", and a redraw is a NEW RECTANGLE, not an annotation on the
    * old one.
    *
-   * `continuationChecked` is therefore cleared, always. It used to survive the
-   * spread, and the sequence that produces is ordinary: Proses proposes a ToP
-   * area that stops a few lines above the page bottom, the walk declines and
-   * stamps the capture checked, and the operator then draws the larger area
-   * that DOES run to the bottom. `capturesToWalk` filters on
-   * `!continuationChecked`, so no later Proses would ever look past the
-   * rectangle that actually needs looking past, while the sheet and the export
-   * screen both printed "diperiksa, tidak ada lanjutan" about an area nothing
-   * had examined. `rejectCapture` has always cleared it for the same reason.
+   * The lanjutan verdict is therefore NOT carried over, and this function does
+   * nothing to arrange that. It used to have to: the verdict was a boolean,
+   * it survived the spread, and the sequence that produces is ordinary. The AI
+   * proposes a ToP area that stops a few lines above the page bottom, the walk
+   * declines and stamps the capture checked, and the operator then draws the
+   * larger area that DOES run to the bottom; nothing would look past the one
+   * rectangle that needed looking past, while the sheet and the export screen
+   * both printed "diperiksa, tidak ada lanjutan" about an area nothing had
+   * examined. It is now `continuationCheckedFor`, the fingerprint of the zone
+   * the walk was made about, and `continuationChecked(slot)` compares it with
+   * the zone the slot holds NOW. A new rectangle reads as unchecked without
+   * this writer, or the next one, having to remember.
    *
    * AND REDRAWING A LANJUTAN TAKES ITS TAIL, exactly as rejecting one does.
    * `#3` was found by asking what follows `#2`; once `#2` is a different
@@ -869,18 +880,28 @@ function Workspace({
   const counts = run ? progressOf(run, AO_TEMPLATE) : null;
 
   // Bagian the model has not been asked about yet, or was asked and missed:
-  // exactly what the next `Proses` would look for. Nothing else in the app
+  // exactly what the next `Baca dengan AI` would look for. Nothing else in the app
   // produces a usulan, so this is the figure the Muat screen quotes before the
   // operator commits to minutes of model calls.
   const wanted = run ? wantedKeys(run).length : 0;
 
-  // Whether a pass has already run over this order. Derived from the run,
-  // never from a boolean this component keeps, so a reload does not re-lock a
-  // run that was searched yesterday. See `hasBeenSearched`.
+  // Whether a reading pass has already run over this order. Derived from the
+  // run, never from a boolean this component keeps, so a reload does not
+  // re-lock a run that was read yesterday. See `hasBeenSearched`.
   const searched = !!run && run.pages.length > 0 && hasBeenSearched(run);
 
   /**
-   * WHY A PHASE IS LOCKED, in one sentence, always beside the locked control.
+   * WHY A PHASE IS LOCKED, in one sentence, carried BY the locked control.
+   *
+   * It is one string used in three places, all of them attached to something
+   * that will not answer: the timeline step's `title`, the screen-reader
+   * paragraph each locked step points at, and `Btn`'s `reason` on the forward
+   * key at the foot of the screen. It is never printed as standing prose,
+   * because an operator's objection to that was exact: the key is down, and a
+   * sentence restating that is furniture on every screen forever.
+   *
+   * SO EACH BRANCH IS ONE ACTIONABLE SENTENCE. A second clause explaining that
+   * the later steps unlock afterwards says what the locked steps already show.
    *
    * The zone editor holds a rectangle the operator is part-way through
    * drawing. A phase click used to call `setEditing(null)`, which threw that
@@ -904,11 +925,11 @@ function Workspace({
   const lockReason = editing
     ? "Selesaikan atau batalkan penggambaran area dulu, supaya gambar Anda tidak hilang."
     : !run
-      ? "Muat dokumen order dulu. Dua langkah berikutnya terbuka setelah ada order yang dibuka."
+      ? "Muat dokumen order dulu."
       : !searched
         ? searching
-          ? "Proses sedang berjalan. Lembar periksa dan berkas hasil terbuka begitu prosesnya selesai."
-          : "Klik Proses di langkah Muat dulu. Lembar periksa baru berisi usulan setelah prosesnya selesai, dan berkas hasil dibuat dari keputusan Anda di sana."
+          ? "AI masih membaca dokumen ini. Tunggu sampai selesai."
+          : "Klik Baca dengan AI di langkah Muat dulu, supaya ada usulan untuk diperiksa."
         : null;
 
   const isLocked = (id: Phase) =>
@@ -979,15 +1000,18 @@ function Workspace({
     <div className="flex min-h-full flex-1 flex-col">
       {/* THE APPLICATION STRIP SCROLLS AWAY, AND THAT IS THE POINT.
           Two sticky rows cost 114px of a 768px panel permanently, and nothing
-          in this one is consulted while judging a crop: the wordmark, the
-          bundle line, the account and the three links are all read once, on
-          arrival. Unsticking it hands 56px of viewport back to the evidence on
-          every screen, which is a whole extra line of a scanned contract.
+          in this one is consulted while judging a crop: the wordmark and the
+          account are both read once, on arrival. Unsticking it hands 56px of
+          viewport back to the evidence on every screen, which is a whole extra
+          line of a scanned contract.
 
-          The one thing in here that a reviewer genuinely needs mid-sheet is
-          the persistence signal, and it has moved down into the phase row,
-          beside the owed count. */}
-      <Strip run={run} account={account} onFault={setFault} />
+          It is now down to those two things. The bundle line, the run title
+          and the three loose links all left: the first belongs to
+          `DocumentsBar`, the second rides with the timeline as its subject,
+          and the third folded into the account menu. The one thing in here
+          that a reviewer genuinely needs mid-sheet is the persistence signal,
+          and it moved down into the phase row beside the owed count. */}
+      <Strip account={account} onFault={setFault} />
 
       {/* THE STICKY ELEMENT IS THIS `<header>`, AND IT MUST STAY BOTH.
           `useStickyOffset` in contact-sheet.tsx finds the first `<header>` in
@@ -1018,6 +1042,10 @@ function Workspace({
           phase={phase}
           counts={counts}
           pages={run?.pages.length ?? 0}
+          subject={run ? runTitle(run) : "Belum ada order yang dibuka"}
+          subjectTitle={
+            run ? run.sources.map((source) => source.name).join(", ") : undefined
+          }
           lockReason={lockReason}
           isLocked={isLocked}
           signal={signal}
@@ -1212,12 +1240,21 @@ function persistenceSignal({
   saving: boolean;
   savedAt: number | null;
 }): string {
+  // MEMUAT, NOT MEMBACA. The two words name two different moves now: move one
+  // loads the pages, move two is the AI reading them. This line said "Membaca
+  // halaman" while the Muat screen underneath it said "Memuat", so the one
+  // signal that follows the operator onto every phase disagreed with the
+  // screen that produced it. The pre-count state says the same thing without a
+  // figure it does not have yet, rather than inventing a third verb for it.
   if (busy) {
     return progress && progress.total > 0
-      ? `Membaca halaman ${progress.done} dari ${progress.total}`
-      : "Menyiapkan berkas";
+      ? `Memuat halaman ${progress.done} dari ${progress.total}`
+      : "Memuat dokumen";
   }
-  if (searching) return "Sedang memproses halaman";
+  // The same words the key on Muat wears while it runs, so a reviewer two
+  // screens away recognises what is still going rather than meeting a third
+  // name for one operation.
+  if (searching) return "AI sedang membaca";
   if (saving) return "Menyimpan keputusan Anda";
   if (savedAt !== null) return "Tersimpan di perangkat ini";
   return "";
@@ -1227,11 +1264,19 @@ function persistenceSignal({
  * THE APPLICATION STRIP. One rail, ONE CONSTANT HEIGHT in every state, AND IT
  * IS NO LONGER STICKY.
  *
- * Everything in it is read on arrival and never again: the wordmark, the
- * bundle line, who is signed in, and the three destinations nothing else in
- * the product linked to. None of it is consulted while judging a crop, and two
- * sticky rows took 114px of a 768px panel away from the evidence permanently.
- * So it scrolls, and the phase row below it is what stays.
+ * Everything in it is read on arrival and never again: the product's name and
+ * who is signed in. Neither is consulted while judging a crop, and two sticky
+ * rows took 114px of a 768px panel away from the evidence permanently. So it
+ * scrolls, and the phase row below it is what stays.
+ *
+ * IT IS TWO THINGS NOW, AND THE SUBTRACTION IS THE POINT. An operator's
+ * verdict on the old one was that it is "sooo cluttered": a wordmark, a title,
+ * a subtitle, an account block and three loose links, five objects competing
+ * on one 56px line before any work had started. The title is the page's one
+ * h1 and moved down beside the timeline, where it reads as a caption on the
+ * position rather than as a masthead; the subtitle said what the empty screen
+ * under it already says; the links folded into the account menu. What is left
+ * is identity on the left and identity on the right.
  *
  * The persistence signal used to live here and does not any more; it is in the
  * phase row, which is the part that survives a scroll. Putting a live signal
@@ -1240,53 +1285,29 @@ function persistenceSignal({
  *
  * The height is still fixed. It used to grow by five tally blocks the moment a
  * run opened, which at 1366 pushed the phase nav onto a second row.
- *
- * The three destinations here are the ones NOTHING IN THE PRODUCT LINKED TO.
- * An admin typed /admin from memory, the consent given at sign-in pointed at a
- * privacy policy that could not be opened from the app, and a twelve-hour
- * session on a shared office machine had no way out of it.
  */
 function Strip({
-  run,
   account,
   onFault,
 }: {
-  run: BrowserRun | null;
   account: Account | null;
   onFault: (fault: Fault) => void;
 }) {
   return (
     <div className="lt-rail border-b">
       <div className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-5 px-5">
-        <span className="lt-wordmark shrink-0">tv-validator</span>
-
-        <div className="bg-line h-7 w-px shrink-0" aria-hidden="true" />
-
-        {/* THE ONE h1 ON THE PAGE. The subject of this work surface is the
-            order being worked on, and until now the operator app had no
-            heading at all: the run name was a 14px span, outranked by the five
-            counters beside it. */}
-        {/* ONE LINE WHEN A RUN IS OPEN, two only when there is none. The
-            second line was the file list, which `DocumentsBar` owns now; the
-            empty state keeps its because an empty screen should say what to
-            do next and there is no bar under it to do that. */}
-        <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <h1
-            className="lt-title truncate"
-            title={run ? run.sources.map((s) => s.name).join(", ") : undefined}
-          >
-            {run ? (
-              <span className="lt-figure">{runTitle(run)}</span>
-            ) : (
-              "Belum ada order yang dibuka"
-            )}
-          </h1>
-          {run ? null : (
-            <p className="text-ink-2 truncate text-[0.8125rem]">
-              Muat berkas PDF order untuk memulai.
-            </p>
-          )}
-        </div>
+        {/* NO DASH, AND A MARK BESIDE IT. The product was written
+            "tv-validator" everywhere, which is a package name rather than a
+            name a person says out loud. `Otak` is the one icon in the set
+            allowed to be a picture of the thing it names, and what this
+            product is is a machine that reads a contract and says where the
+            evidence is. The wordmark class supplies the uppercase; the string
+            is written in caps here anyway so that the no-dash rule is visible
+            in the source rather than only in the render. */}
+        <span className="text-ink flex shrink-0 items-center gap-2">
+          <Otak size={24} />
+          <span className="lt-wordmark">TV VALIDATOR</span>
+        </span>
 
         <AccountControls account={account} onFault={onFault} />
       </div>
@@ -1295,13 +1316,40 @@ function Strip({
 }
 
 /**
- * Who is signed in, and the way out.
+ * Whether this pointer is one that can rest on a thing without pressing it.
+ *
+ * `"touch"` cannot: a finger arriving and a finger pressing are one event, and
+ * a browser reports the arrival as a synthesised mouse enter. Anything else,
+ * including a pointer type an older browser leaves empty, keeps its hover.
+ */
+function canHover(event: React.PointerEvent): boolean {
+  return event.pointerType !== "touch";
+}
+
+/**
+ * Who is signed in, and the way out, BEHIND ONE CONTROL RATHER THAN BESIDE
+ * THREE.
  *
  * The account is read from this app's own session endpoint rather than
  * threaded from the server, so that the strip works with the app as it is
  * wired today. Passing it in from `src/app/page.tsx`, which already holds an
  * authorized user, is strictly better: it saves a round trip and it is the
  * only way this strip can know whether to offer the allowlist at all.
+ *
+ * THE THREE DESTINATIONS ARE STILL THE ONES NOTHING IN THE PRODUCT LINKED TO.
+ * An admin typed /admin from memory, the consent given at sign-in pointed at a
+ * privacy policy that could not be opened from the app, and a twelve-hour
+ * session on a shared office machine had no way out of it. All three are still
+ * reachable; what changed is that they no longer spend a permanent line of the
+ * strip on destinations an operator visits about once a month. They hang off
+ * the one thing up here an operator does look for, which is their own address.
+ *
+ * IT OPENS ON HOVER, ON CLICK AND ON FOCUS, and all three are load-bearing:
+ * hover-only does not exist on a touchscreen and cannot be reached from a
+ * keyboard, which for THIS menu would mean no way to sign out. The grace
+ * period on leaving lets the pointer travel from the name to the panel, and
+ * the panel carries the same focus handlers as the trigger so that tabbing
+ * into it does not close it under the operator's own cursor.
  */
 function AccountControls({
   account,
@@ -1312,6 +1360,8 @@ function AccountControls({
 }) {
   const [fetched, setFetched] = useState<Account | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [open, setOpen] = useState(false);
+  const grace = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Derived, not copied into state. A prop mirrored into state has to be kept
   // in sync by an effect, and an effect that sets state synchronously is a
@@ -1336,12 +1386,102 @@ function AccountControls({
     };
   }, [account]);
 
+  const clear = useCallback(() => {
+    if (grace.current !== null) {
+      clearTimeout(grace.current);
+      grace.current = null;
+    }
+  }, []);
+
+  /**
+   * EVERY CLOSE GOES THROUGH HERE, AND IT RECORDS WHEN, because that is what
+   * keeps Escape working.
+   *
+   * A menu that opens on focus and hands focus back to its trigger when it
+   * closes will re-open itself: the operator presses Escape, the panel returns
+   * focus to the name it came from, that focus opens the panel again, and
+   * Escape appears to do nothing at all. So a focus arriving within a frame or
+   * two of a close is read as the panel handing focus back rather than as the
+   * operator arriving, and is ignored. A later focus, which is a keyboard user
+   * actually tabbing here, opens it.
+   */
+  const closedAt = useRef(0);
+  const change = useCallback((next: boolean) => {
+    if (!next) closedAt.current = Date.now();
+    setOpen(next);
+  }, []);
+
+  // The same 160ms grace `Hint` uses, and for the same reason: the pointer has
+  // to be able to travel from the trigger to the panel without the panel
+  // disappearing out from under it.
+  const leave = useCallback(() => {
+    clear();
+    grace.current = setTimeout(() => change(false), 160);
+  }, [change, clear]);
+  const enter = useCallback(() => {
+    clear();
+    setOpen(true);
+  }, [clear]);
+
+  /**
+   * HOVER IS FOR POINTERS THAT CAN HOVER, AND A FINGER CANNOT.
+   *
+   * These were `onMouseEnter` / `onMouseLeave`, and on a touchscreen that made
+   * this a menu with no way into it at all. Tapping a control that has hover
+   * behaviour makes the browser synthesise `mouseenter` first: the panel
+   * opened on that, and then the real `click` arrived and toggled it straight
+   * back shut, so the one control on this screen carrying the way out of a
+   * session flashed and did nothing. `pointerType` is what tells a finger from
+   * a mouse, so a touch is left entirely to the click, which opens it, and to
+   * a press outside, which closes it. Anything that is not a finger keeps the
+   * hover it had, and the keyboard keeps `onFocus` either way.
+   */
+  const pointerIn = useCallback(
+    (event: React.PointerEvent) => {
+      if (canHover(event)) enter();
+    },
+    [enter],
+  );
+  const pointerOut = useCallback(
+    (event: React.PointerEvent) => {
+      if (canHover(event)) leave();
+    },
+    [leave],
+  );
+
+  const focused = useCallback(() => {
+    if (Date.now() - closedAt.current < 300) return;
+    enter();
+  }, [enter]);
+  useEffect(() => clear, [clear]);
+
   const email = session?.email ?? "";
 
+  // A menu row. Not `.lt-btn`: a key is a thing you press to make something
+  // happen, and these two are destinations. They keep the 44px hit area
+  // anyway, because a menu item that is hard to hit is hard to hit whatever it
+  // is made of.
+  const row =
+    "hover:text-ink flex min-h-11 items-center rounded-xl px-2 text-[0.875rem] font-semibold hover:bg-[var(--wash)]";
+
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-4">
-      {email ? (
-        <div className="flex items-center gap-2">
+    <Popover.Root open={open} onOpenChange={change}>
+      <Popover.Trigger
+        render={
+          <button
+            type="button"
+            /* `.lt-disclose-btn` rather than a key, and it is the same object
+               the documents bar opens its file list with: one gesture for
+               "there is more under this", drawn once. */
+            className="lt-disclose-btn ml-auto shrink-0"
+            onPointerEnter={pointerIn}
+            onPointerLeave={pointerOut}
+            onFocus={focused}
+            onBlur={leave}
+          />
+        }
+      >
+        {email ? (
           <span
             aria-hidden="true"
             /* THE FIGURE STEP, NOT THE SHEET CORNER. This was `rounded-[2px]`,
@@ -1350,62 +1490,94 @@ function AccountControls({
                of a crop is rounded off. Two initials in a ruled box are a chip,
                and a chip is 8px, the same corner every other small quoted
                figure in the product takes. */
-            className="lt-figure border-line text-ink-2 grid size-7 shrink-0 place-items-center rounded-sm border text-[0.8125rem]"
+            className="lt-figure border-line grid size-7 shrink-0 place-items-center rounded-sm border text-[0.8125rem]"
           >
             {initialsOf(session?.name, email)}
           </span>
-          <span
-            className="lt-figure text-ink-2 hidden max-w-[13rem] truncate text-[0.8125rem] xl:block"
-            title={email}
-          >
-            {email}
-          </span>
-        </div>
-      ) : null}
-
-      <nav
-        aria-label="Tautan aplikasi"
-        className="flex items-center gap-3 text-[0.8125rem] font-semibold"
-      >
-        {session?.isAdmin === false ? null : (
-          <Link
-            href="/admin"
-            className="text-ink-2 underline underline-offset-4"
-          >
-            Daftar izin akses
-          </Link>
-        )}
-        <Link href="/privacy" className="text-ink-2 underline underline-offset-4">
-          Kebijakan privasi
-        </Link>
-        {email ? (
-          <Btn
-            disabled={leaving}
-            onClick={() => {
-              setLeaving(true);
-              // Auth.js's own client helper: it reads the CSRF token from this
-              // app and posts to this app, so no external host enters the
-              // request path. `redirectTo` is set rather than defaulted,
-              // because the default is the current URL and that still carries
-              // a run fragment the signed-out browser cannot open.
-              void signOut({ redirectTo: "/signin" }).catch(
-                (problem: unknown) => {
-                  setLeaving(false);
-                  onFault({
-                    origin: "session",
-                    sentence:
-                      "Keluar dari akun gagal, jadi sesi Anda masih terbuka di peramban ini. Coba lagi, atau tutup seluruh jendela peramban kalau ini komputer bersama.",
-                    detail: messageOf(problem),
-                  });
-                },
-              );
-            }}
-          >
-            {leaving ? "Keluar..." : "Keluar"}
-          </Btn>
         ) : null}
-      </nav>
-    </div>
+        <span
+          className="lt-figure max-w-[13rem] truncate text-[0.8125rem]"
+          title={email || undefined}
+        >
+          {email || "Akun"}
+        </span>
+        <Chevron size={16} open={open} />
+      </Popover.Trigger>
+
+      <Popover.Portal>
+        <Popover.Positioner side="bottom" align="end" sideOffset={8}>
+          <Popover.Popup
+            className="lt-hint-panel"
+            onPointerEnter={pointerIn}
+            onPointerLeave={pointerOut}
+            onFocus={focused}
+            onBlur={leave}
+          >
+            <div className="flex w-[15rem] flex-col gap-1">
+              <nav aria-label="Tautan aplikasi" className="flex flex-col">
+                {session?.isAdmin === false ? null : (
+                  <Link
+                    href="/admin"
+                    className={row}
+                    onClick={() => change(false)}
+                  >
+                    Daftar izin akses
+                  </Link>
+                )}
+                <Link
+                  href="/privacy"
+                  className={row}
+                  onClick={() => change(false)}
+                >
+                  Kebijakan privasi
+                </Link>
+              </nav>
+
+              {email ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="bg-line my-1 h-px w-full"
+                  />
+                  {/* RED, because leaving is the one thing in this menu that
+                      ends the session. It is `--gap`'s own meaning: this is
+                      not a decision owed, it is a way out, and on a shared
+                      office machine it is the control an operator has to find
+                      in a hurry. `data-tone="reject"` puts the hue on the
+                      ink and the lip, never as a fill under light text. */}
+                  <Btn
+                    tone="reject"
+                    disabled={leaving}
+                    onClick={() => {
+                      setLeaving(true);
+                      // Auth.js's own client helper: it reads the CSRF token
+                      // from this app and posts to this app, so no external
+                      // host enters the request path. `redirectTo` is set
+                      // rather than defaulted, because the default is the
+                      // current URL and that still carries a run fragment the
+                      // signed-out browser cannot open.
+                      void signOut({ redirectTo: "/signin" }).catch(
+                        (problem: unknown) => {
+                          setLeaving(false);
+                          onFault({
+                            origin: "session",
+                            sentence:
+                              "Keluar dari akun gagal, jadi sesi Anda masih terbuka di peramban ini. Coba lagi, atau tutup seluruh jendela peramban kalau ini komputer bersama.",
+                            detail: messageOf(problem),
+                          });
+                        },
+                      );
+                    }}
+                  >
+                    {leaving ? "Keluar..." : "Keluar"}
+                  </Btn>
+                </>
+              ) : null}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -1426,11 +1598,19 @@ function AccountControls({
  * because it is what the screen is for, and back is a plain one because going
  * back is a correction, not a step.
  *
- * A LOCKED STEP IS SHOWN, DISABLED, WITH ITS REASON IN WORDS. The alternative
- * is hiding it, and a control that vanishes teaches an operator that the
- * product is unpredictable. The reason is prose next to the button rather than
- * a tooltip on it, because this system's rule is that the reason a control is
- * disabled is never hidden behind a hover.
+ * A LOCKED STEP IS SHOWN, DISABLED, AND ITS REASON RIDES ON THE KEY. The
+ * alternative is hiding the control, and a control that vanishes teaches an
+ * operator that the product is unpredictable.
+ *
+ * THE REASON USED TO BE A PARAGRAPH BESIDE THE KEY, and an operator's
+ * objection to it was exact: those sentences "are redundant too. The user know
+ * they can't proceed since the button is already disabled". They are right for
+ * this case. The key is down, that already reads as unavailable, and a
+ * sentence restating it is furniture on every screen forever. So it is passed
+ * as `Btn`'s `reason`, which reaches a pointer, a keyboard and a screen
+ * reader, and costs nothing until it is wanted. What may NOT move onto a
+ * control that way is a fault or a refusal: those stay in prose, which is
+ * what `Interruption` is for.
  */
 function StepNav({
   phase,
@@ -1466,13 +1646,14 @@ function StepNav({
       )}
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-4">
-        {next && nextLocked && lockReason ? (
-          <p className="lt-note max-w-[46ch] text-right">{lockReason}</p>
-        ) : null}
         {next ? (
           <Btn
             tone="primary"
             disabled={nextLocked}
+            /* `Btn` only wraps itself when it is BOTH disabled and given a
+               reason, so passing this unconditionally adds nothing to the tab
+               order of an enabled key. */
+            reason={lockReason ?? undefined}
             onClick={() => onGo(next.id)}
           >
             Lanjut: {next.label}
@@ -1485,18 +1666,28 @@ function StepNav({
 }
 
 /**
- * THE PHASE NAV, and the one figure in the shell that is an INSTRUCTION.
+ * THE PHASE ROW: A TIMELINE, NOT THREE KEYS.
  *
- * The current phase is marked by fill, by weight and by a tab rule that breaks
- * the rail's own bottom edge, NOT by a hue. Amber means "a decision is owed on
- * this evidence" and nothing else, and the old nav spent it on the active
- * button, on "this run is open" and on "you are dragging a file over this
- * card", all at once.
+ * The operator's verdict on the keys was that they were "just lazily slapping
+ * buttons", and the precise version of that complaint is worth keeping: three
+ * keys side by side say these are three THINGS, equally available, pick one.
+ * They are not. They are one route, with an order, a position on it, and a
+ * gate part way along, and a row of buttons drew none of those three facts.
+ * A node per phase and a rail that fills behind you draws all three.
  *
- * The counts beside it replace five identical monospace tallies. Only the owed
- * count is an instruction, so only it is set at display size; everything else
- * is a fact and reads one tier down. When nothing is owed the block says so
- * affirmatively, because an absent warning is not a confirmation.
+ * A PARAF ON A NODE MEANS "YOU HAVE PASSED THIS STEP", NOT "EVERY DECISION IN
+ * IT IS MADE", and the difference matters in a product organised against
+ * looking finished while being short a picture. What answers the second
+ * question is the owed count a few centimetres to the right, at display size,
+ * which is the only figure in this shell that is an instruction; the export
+ * screen refuses on the same number. So the paraf is deliberately not the
+ * packet's completeness, and nothing here should be read as saying it is.
+ *
+ * NO HUE CARRIES THE POSITION. Amber means "a decision is owed on this
+ * evidence" and nothing else, and the old nav spent it on the active button,
+ * on "this run is open" and on "you are dragging a file over this card", all
+ * at once. The current node is petrol, which is identity and interaction
+ * rather than status, and the finished ones are shape.
  *
  * THIS IS THE ONLY ROW THAT STICKS, so it also carries the persistence signal
  * that used to sit in the application strip. That signal is the one line of
@@ -1512,6 +1703,8 @@ function PhaseNav({
   phase,
   counts,
   pages,
+  subject,
+  subjectTitle,
   lockReason,
   isLocked,
   signal,
@@ -1520,6 +1713,10 @@ function PhaseNav({
   phase: Phase;
   counts: ReturnType<typeof progressOf> | null;
   pages: number;
+  /** The order being worked on: this page's one and only h1. */
+  subject: string;
+  /** Every file in the bundle, for the h1's hover title. */
+  subjectTitle?: string;
   lockReason: string | null;
   isLocked: (id: Phase) => boolean;
   /** Empty when nothing is in flight and nothing has been written yet. */
@@ -1527,85 +1724,114 @@ function PhaseNav({
   onGo: (phase: Phase) => void;
 }) {
   const lockId = "lt-phase-lock";
+  const at = PHASES.findIndex((step) => step.id === phase);
 
   return (
     <div className="lt-rail border-b">
       <nav
         aria-label="Tahapan order"
-        className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-5 px-5"
+        className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-4 px-5"
       >
-        <ul className="flex h-full items-stretch gap-1">
+        {/* An ordered list, because the order IS the content. It is also what
+            supplies "step 2 of 3" to a screen reader, which is why the node
+            itself is hidden from one: the number in it would be that same
+            position said twice, and on a finished step it would be said as a
+            picture of a pen stroke. */}
+        <ol className="lt-timeline max-w-[28rem] grow gap-2">
           {PHASES.map((step, i) => {
             const current = phase === step.id;
+            const done = i < at;
             const locked = isLocked(step.id);
             // NO BADGES. The tambahan step used to carry the outstanding
             // count; that step is gone, and the owed count already sits at
             // display size a few centimetres to the right, so anything here
             // would be the same figure twice at two sizes.
+            const state = current
+              ? "current"
+              : done
+                ? "done"
+                : locked
+                  ? "locked"
+                  : undefined;
 
             return (
-              <li key={step.id} className="relative flex items-center">
+              <li
+                key={step.id}
+                /* Only the steps AFTER the first grow, because only they carry
+                   a rail in front of them. The rail is the flexible part; the
+                   step itself is its own width. */
+                className={
+                  i === 0
+                    ? "flex min-w-0 items-center"
+                    : "flex min-w-0 grow items-center gap-2"
+                }
+              >
+                {i > 0 ? (
+                  // Filled for every segment BEHIND the current step, which is
+                  // the one fact three separate buttons could never show.
+                  <span
+                    aria-hidden="true"
+                    className="lt-timeline-link"
+                    data-done={i <= at ? "true" : undefined}
+                  />
+                ) : null}
                 <button
                   type="button"
                   aria-current={current ? "step" : undefined}
+                  /* `aria-disabled`, never `disabled`. A locked step stays in
+                     the tab order so a keyboard user can reach it and be told
+                     why, which a `disabled` button cannot do. The reason
+                     reaches a pointer as a title and a screen reader through
+                     the sr-only paragraph this points at. */
                   aria-disabled={locked || undefined}
                   aria-describedby={locked ? lockId : undefined}
-                  data-on={current ? "true" : undefined}
+                  title={locked && lockReason ? lockReason : undefined}
                   onClick={locked ? undefined : () => onGo(step.id)}
-                  /* NO INLINE LOCKED STYLE, AND NOTHING IS LOST WITH IT. The
-                     three properties it set are all delivered by the system's
-                     own disabled rule, which this button already opts into
-                     through `aria-disabled`: the ink ladder fades to 55% (so
-                     the step number below lands on exactly the key's own
-                     colour), the cursor is not-allowed, and the key rests down
-                     on its lip. The third property, `borderStyle: dashed`, was
-                     dead: `.lt-btn` is `border: 0`, so a dashed style had no
-                     width to paint. A locked step reads as locked because the
-                     KEY IS DOWN, which is the one gesture this system has for
-                     a control that will not answer. */
-                  className="lt-btn relative"
+                  className="lt-timeline-step"
                 >
-                  <span className="lt-figure text-ink-3">{i + 1}</span>
-                  <span>{step.label}</span>
-                </button>
-                {current ? (
-                  // The tab rule: a shape, not a hue. It sits ON the rail's own
-                  // bottom edge and covers it, so the current phase reads as
-                  // physically attached to the screen underneath it. Amber is
-                  // not available for this: it means a decision is owed on a
-                  // piece of evidence, and a nav position is not that.
                   <span
                     aria-hidden="true"
-                    /* Rounded ends, like every other short rule in the set
-                       (`.lt-advisory`'s leading bar, the coretan): a 2px rule
-                       is a shape rather than a box, and a square-ended one is
-                       the last thing on this row that still read as a stamped
-                       part. */
-                    className="bg-ink absolute inset-x-1 -bottom-px h-[2px] rounded-full"
-                  />
-                ) : null}
+                    className="lt-timeline-node"
+                    data-state={state}
+                  >
+                    {/* The shared `PARAF_D`, so the mark a node wears and the
+                        mark a confirmed capture wears cannot drift apart. */}
+                    {done ? <Paraf size={16} /> : i + 1}
+                  </span>
+                  <span>{step.label}</span>
+                </button>
               </li>
             );
           })}
-        </ul>
+        </ol>
+
+        {/* THE ONE h1 ON THE PAGE, and it came down here from the strip rather
+            than being deleted with it. The subject of this work surface is the
+            order being worked on; a page with no h1 is a real accessibility
+            regression, and this is the only string on screen that names the
+            thing. Parenthesised and small on purpose: beside the route it is a
+            caption on the position, not a masthead. */}
+        <h1 className="lt-timeline-subject" title={subjectTitle}>
+          ({subject})
+        </h1>
 
         {/* THE REASON IS NOT PRINTED HERE ANY MORE, and the rule it was
             written for is intact.
 
-            "A disabled control never appears without its reason beside it" is
-            still true: the reason now sits beside the DISABLED CONTROL, which
-            is the forward button in `StepNav` at the foot of the screen. It
-            was in both places at once for a while, and a sentence the operator
-            reads twice on one screen is a sentence they stop reading. This row
-            is a map of where you are; the reason you cannot go somewhere
-            belongs where you try to go.
+            "A disabled control never appears without its reason available" is
+            still true: it rides ON the disabled control now, as this row's
+            `title` and as `Btn`'s `reason` on the forward key at the foot of
+            the screen. It was printed in both places at once for a while, and
+            a sentence the operator reads twice on one screen is a sentence
+            they stop reading. This row is a map of where you are; the reason
+            you cannot go somewhere belongs where you try to go.
 
             IT IS STILL HERE FOR A SCREEN READER, though, because each locked
-            tab carries `aria-describedby` pointing at it. Deleting the element
-            and leaving the attribute is a dangling reference: the tab announces
-            as disabled with no reason given, which is the same failure this
-            rule exists to prevent, in the one modality that cannot compensate
-            by looking further down the page. */}
+            step carries `aria-describedby` pointing at it. Deleting the
+            element and leaving the attribute is a dangling reference: the step
+            announces as disabled with no reason given, which is the same
+            failure this rule exists to prevent, in the one modality that
+            cannot compensate by looking further down the page. */}
         {lockReason ? (
           <p id={lockId} className="sr-only">
             {lockReason}
