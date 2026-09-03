@@ -1,18 +1,43 @@
-# Meja Periksa, the inspection table
+# Meja Kaca, the glass bench
 
 The design system for tv-validator. `src/app/globals.css` and
 `src/components/operator/chrome.tsx` are the implementation; this file is the
 argument, so a later change can tell a decision from an accident.
 `docs/ui-bahasa.md` holds the language.
 
+**This is the third material this product has worn, and the first two were
+rejected by the client in their own words.** Both are recorded below rather
+than quietly deleted, because the reasons they failed are the only evidence
+this one has for being right.
+
 ## The one idea
 
-**This application is a work surface, and documents lie on it.**
+**The tool is glass, the work is solid.**
 
-A crop of a scan is a piece of paper on the table. The privacy policy is a
-sheet on the table. The sign-in form is a card on the table. Nothing else in
-the interface is allowed to look like paper, catch the light, or cast a
-shadow.
+One gradient ground runs under the whole product, and everything on it is one
+of two materials. Which one a thing gets is decided by a question anybody can
+answer by scrolling the page:
+
+- **Does it stay still?** Glass. The application strip, the phase rail, the
+  documents bar, the interruption band, a sticky action footer, a toast, a
+  hint panel, a dialog. Translucent, backdrop-blurred, a bright hairline along
+  the top edge where the light catches, a soft drop beneath. This is the TOOL.
+- **Does it move with the work?** Solid. Every slab, well, row, stage, mat,
+  kotak and sheet. Opaque, matte, no blur, no drop. This is the DOCUMENT UNDER
+  THE TOOL.
+
+**The seam is deliberate because it is also the performance rule.** A
+backdrop-filter inside a metre-long scrolling list is the most expensive thing
+you can put in a page like this one, and the review sheet holds two dozen
+panels. So "glass is what stays still" is not a taste, it is what keeps the
+app cheap, and it is why the seam can be pointed at rather than apologised
+for.
+
+Three things make them one product rather than two: one light source (glass
+takes a bright top edge, a solid panel a faint one, a control casts a hard lip
+downward); one radius family, one type scale, one motion curve, one button;
+and the solid panels are tinted out of the gradient's own hue, so a slab is
+the ground condensed rather than a foreign colour laid on it.
 
 ## What the operator does, in one sentence
 
@@ -77,85 +102,153 @@ first thing a new operator ever sees.
 
 The content is white paper. A scan's own white ground bleeds into a white
 interface, and the crop's edge (the exact boundary the operator is being asked
-to judge) stops being visible. On a toned graphite every crop is a lit
-rectangle with a hard edge. Functional, so it is not offered as a preference,
-and it extends to the pages that show no scans so the product is one thing.
+to judge) stops being visible. On a dark ground every crop is a lit rectangle
+with a hard edge. Functional, so it is not offered as a preference, and it
+extends to the pages that show no scans so the product is one thing.
 
 The privacy policy resolves the tension in the system's own terms: it is a
-long document, so it is set on a sheet of paper lying on the table, where
-reading is best and the metaphor holds.
+long document, so it is set on a sheet of paper on the bench, where reading is
+best and the metaphor holds.
 
-The ground is deliberately **not a near-black**: oklch lightness 0.235 with a
-faint green cast, because warm photocopy white on a blue-black ground reads
-cold.
+## Colour
 
-## Colour: temperature for materials, saturation for signals
+The ground is a gradient, not a plane, and it is the first thing the client
+asked for by name. It runs a real hue journey rather than one colour with
+lighting on it:
 
-The first version of this system was four steps of one graphite at chroma
-0.011. The client's word for it was **monotonous**, and they were right: that
-is not a colour, it is a shade of nothing. The planes are now told apart by
-**temperature as well as lightness**.
+| Token | Value | Role |
+| --- | --- | --- |
+| `--ground-1` | oklch(0.235 0.040 206) | teal, top |
+| `--ground-2` | oklch(0.185 0.045 244) | blue, middle |
+| `--ground-3` | oklch(0.140 0.030 264) | blue-black, bottom |
+| `--glow-1` | oklch(0.375 0.063 196) | the light entering top-left |
+| `--glow-2` | oklch(0.310 0.075 252) | the light leaving bottom-right |
+
+58 degrees of hue with a glow in two opposite corners, which is what makes it
+read as a lit ground rather than as a tint. The two glows are what the glass
+has to refract; under `prefers-reduced-transparency` they are dropped and the
+three-stop ramp stays, because the ramp is the product's ground and the glows
+are an effect.
+
+**Every ratio in the file is measured against the rasterised extremes**, not
+against a stop: `--ground-hi` (#012c30) is the lightest pixel the three layers
+can produce anywhere and `--ground-lo` (#030c1a) the darkest. Light ink is
+checked against the lightest, because that is its worst case.
+
+The solid planes are the ground condensed, all of them within the same hue
+family:
 
 | Plane | Value | Material |
 | --- | --- | --- |
-| `--surface-sunk` | oklch(0.156 0.024 246) | ink-well blue-black: what the MACHINE read |
-| `--surface-rail` | oklch(0.216 0.017 74) | warm kraft: chrome, a desk blotter |
-| `--surface` | oklch(0.252 0.022 174) | dark verdigris: the table itself |
-| `--surface-raised` | oklch(0.300 0.021 82) | warm kraft: a manila docket on the table |
+| `--surface-sunk` | oklch(0.185 0.030 244) | a recess: what the MACHINE read |
+| `--surface` | oklch(0.190 0.045 244) | the bench itself |
+| `--surface-raised` | oklch(0.315 0.030 232) | a block on the bench |
+| `--surface-lift` | oklch(0.365 0.030 230) | a block nested in a block |
+| `--surface-rail` | #173e42 | the opaque value glass becomes when it cannot blur |
+| `--mat` | oklch(0.115 0.018 246) | the mount a scan is pinned to |
 | `--paper` | oklch(0.988 0.004 91) | the only lit material |
 
-**Warmth rises toward paper.** The closer a thing is to being a document, the
-warmer it is, and the crop is the warmest and only lit thing on screen. What
-lies in a well is writing, and writing is blue-black; no paper is ever laid in
-a well, so the objection that warm white reads cold on a blue ground does not
-reach there.
+**A lifted block is lighter than its ground and a set-in block is darker.**
+That rule exists because the review sheet nests a slab inside a slab: the open
+capture plate sits inside its section, and without an explicit ladder the two
+were the same fill and the plate stopped reading as an object.
 
-The lightness steps are only about 1.12, so the material difference is carried
-by hue. Blocks are separated by rules rather than by fills, so plane identity
-is never the only cue, and the rail sits *below* the table because a rail never
-holds a fact you read for meaning.
+### The two hues, and how they may be worn
 
-### The invariant that replaced "two hues in the whole product"
+`--mark` (amber) means **a decision is owed here** and nothing else, ever.
+`--gap` (red) means **a fault or a refusal** and is absent from a healthy
+screen. Confirmed work carries no colour at all, so a finished packet is a
+screen with the colour gone out of it.
 
-**No non-status token may exceed chroma 0.030.** The highest is `--wash` at
-0.030 and `--line-strong` at 0.026, against `--mark` at 0.155 and `--gap` at
-0.160: a factor of five. Hue is free for materials; saturation stays rationed
-for signals. Unlike the old rule this one can be checked by reading the file.
+**Neither may ever be a saturated fill under light text.** That is not a
+preference, it is the client's rejection of the previous system quoted back as
+a rule: *"lots of clashing colors like bright yellow and white text"*. They may
+appear as a 4px rule down a block's leading edge, a 12% tint of the block's own
+ground, a filled chip carrying dark text, a stroke, a glyph, or plain coloured
+text. `--mark-ink`, `--gap-ink` and `--petrol-ink` exist for no other reason,
+and there is no exception for a colour that looks dark enough.
 
-`--mark` (amber) still means exactly one thing, a decision is owed, and is
-byte-identical to the value it has always had. `--gap` (red) is a fault or a
-refusal, used as rules, strokes and text and **never as a fill**. Confirmed
-work still has no colour at all.
+`--petrol` is the third colour and it is **not a status**. It is identity and
+interaction: the primary key, a link, and the step you are standing on. It is
+deliberately not on the amber-red axis so that "this is the button" can never
+be confused with "something is owed" or "something is wrong".
 
-### Four defects this pass fixed, all measured
+### The control is a pressed key
 
-- **`.lt-denah` never rebound the ink tokens**, so the crop rectangle in the
-  hero device used the *table's* amber on white and measured **1.13:1**. It
-  survived only on its stroke, on the one device whose whole job is answering
-  "is this the right page" with a shape. The paper rebinds are now a shared
-  selector covering `.lt-paper` and `.lt-denah`, and the cut measures 1.82:1.
-  The old paper `--mark` was also outside the sRGB gamut and being silently
-  clamped, so it was not a colour anyone had chosen.
-- **`--line` measured 1.47:1** while being the declared border of `.lt-btn`,
-  `.lt-input` and `.lt-mark-box`. WCAG 1.4.11 asks 3:1 of a control boundary.
-  `--line` is now separation only; `--line-strong` (3.42:1 on the tightest
-  ground) is the boundary of anything you can click, type into or focus.
-- **Amber was on nine surfaces**, not the four the rule claimed: the ingest
-  ticks, the denah cut and text selection were all borrowing the product's
-  loudest signal for things that owe nobody anything.
-- **Red was used as a fill** in `.lt-band`, contradicting this document. A rule
-  that is stated and then broken stops being read.
+Generous radius, weight 700, a **solid lip** in a darker shade of the
+control's own colour sitting hard beneath it with no blur, and a press that
+moves the face down onto the lip until the lip is gone. 44px minimum. The lip
+height is one token, `--lip-h`, used by the shadow, the reserved margin and
+the press translate together, so the key cannot land beside its own shelf.
 
-### Measured floors, on `--surface-raised`, the lightest ground text sits on
+This is what the client meant by *"duolingo like button and components"*, and
+the last clause is the half that is easy to drop: chips, toggles and the state
+boxes share the roundness, so the family is legible as a family.
 
-`--ink` 12.5:1, `--ink-2` 7.5:1, `--ink-3` 5.5:1, `--mark` 8.5:1, `--gap`
-5.1:1, `--line-strong` 3.4:1. Paper's own edge clears 3:1 in **both**
-directions (3.78 on paper, 3.49 on a docket), because half the time the
-operator is judging where a sheet ends and half the time where it begins.
+### Two materials the file rejected, and why
 
-`--wash` has a rule that is not optional: **it may only sit under `--ink` or
-`--ink-2`.** Under it on a raised plane, `--ink-3` falls to about 4.2:1 and
-`--gap` to about 4.0:1, both below AA.
+The first was **four steps of one graphite at chroma 0.011**. The client's word
+was *monotonous*, and they were right: that is not a colour, it is a shade of
+nothing.
+
+The second was **Stempel Basah, the wet stamp**: hard offset plates with no
+blur, 2px and 3px borders, full-width bars of solid ink, zero radius. It was
+built to answer a real diagnosis, that the system was written entirely as
+prohibitions and named nothing to look at. It over-corrected into a style the
+client rejected as *"absolutely the wrong aesthetic"*, and its amber status bar
+under white text is the specific object that produced the complaint above.
+
+What survives from it is the STRUCTURE, which was never what was wrong: every
+block is a block with a header, the header is the status channel, identifiers
+sit in a ruled box, evidence is mounted rather than placed, and there are six
+type steps and four spaces. Meja Kaca is that structure in a different
+material.
+
+### Defects this material fixed, all measured
+
+Kept because each is a way of being wrong that will otherwise be re-derived.
+
+- **Every piece of glass had no blur at all.** Written with the standard
+  property first and `-webkit-backdrop-filter` second, Lightning CSS collapses
+  the pair and emits ONLY the prefixed one. Chrome has no `-webkit-` alias, so
+  `backdrop-filter` computed as `none` on a bare `.lt-rail` while the
+  background from the same rule applied normally, and the whole liquid-glass
+  half of the design was simply absent while looking deliberate. The prefixed
+  property goes first now and the standard one last, everywhere.
+- **The sticky chrome was 8.5% opaque over whatever was scrolling.** That is
+  the right number for a panel, which floats over the gradient and nothing
+  else. It is catastrophic for chrome, which on the review sheet floats over a
+  white A4 scan: composited about #ebeeef, putting the phase rail and the owed
+  count at roughly **1.1:1** for as long as a page of evidence passed
+  underneath, then back to normal. `--glass-rail` is a separate material at
+  90%, keeping the blur; worst case 8.1:1.
+- **The amber status bar carried white text.** This is the client's complaint
+  itself. The bar is now a 12% tint of the block's own ground with a 4px
+  `--mark` rule down its leading edge, so a block that owes a decision still
+  turns as a whole and no saturated fill ever carries light text.
+- **`.lt-hatch` painted 30%-alpha stripes and its comment claimed 4.14:1.**
+  The real figure was about 1.56:1: the quoted number was the token's ratio,
+  not the painted stripe's. `Missing` in `denah.tsx` renders a hatched sheet as
+  the ENTIRE representation of a capture with no evidence, so an unreadable
+  hatch is a wrong-and-quiet surface built by the device meant to close one.
+  Solid stripes now, and the comment says what the paint does.
+- **The denah's "teks tidak terbaca" caption was 10px**, three sizes below
+  anything else in the product, on the one device whose job is telling you a
+  page could not be read.
+- **`.lt-kop { overflow: hidden }` clipped a focus ring.** Two screens render a
+  Hint button inside the bar and the global ring sits 4px outside the control.
+  The leading rule is drawn with an inset shadow now, which follows the rounded
+  corner by construction and needs no clipping ancestor.
+
+### The measurement rule
+
+Every ratio in `globals.css` is computed against the composite that actually
+paints, never against a token. Glass is measured over the **rasterised
+lightest pixel** of the gradient, a stripe is measured at its own alpha, a
+nested panel is measured as two films, and a bar with a gradient over it is
+measured including the overlay. Three separate verification passes on this
+system each caught the same class of error: a comment quoting the ratio of the
+colour the author wished were behind the text.
 
 ## Typography
 
@@ -243,23 +336,24 @@ and "it is saved" become one gesture instead of two observations.
 
 ## Materials
 
-Five, and each declares what it is. A control and a piece of evidence are
-physically different objects.
+Each declares what it is. A control and a piece of evidence are physically
+different objects, and the seam between glass and solid is the first thing to
+check when adding one.
 
-| Class | Radius | Shadow | For |
-| --- | --- | --- | --- |
-| `.lt-rail` | 0 | none | chrome; never holds a fact you read for meaning |
-| `.lt-well` | 4px | inset by value | things the app READ: inputs, OCR text, technical detail |
-| `.lt-panel` | 6px | none | a genuinely grouped block; the exception, not the default |
-| `.lt-paper` | 2px | **`--lift`** | a document: crops, page rasters, the sign-in and policy sheets |
-| `.lt-hatch` | 2px | none | a deliberate absence, on the record |
+| Class | Material | For |
+| --- | --- | --- |
+| `.lt-rail` | glass, blurred, 90% | chrome that stays still while work scrolls under it |
+| `.lt-toast` `.lt-hint-panel` | glass, blurred | transient, floating, never scrolls with content |
+| `.lt-slab` `.lt-panel` | solid, `--surface-raised` | a block of work |
+| `.lt-slab-flat` | solid, `--surface-lift` | a block nested inside a block |
+| `.lt-well` `.lt-row` | solid, `--surface-sunk` | what the app READ: inputs, OCR text, technical detail |
+| `.lt-mat` `.lt-stage` | solid, `--mat` | the dark mount a scan or crop is pinned to |
+| `.lt-paper` | solid, `--paper` | a document: the sign-in, policy and failure sheets |
+| `.lt-hatch` | solid stripes | a deliberate absence, on the record |
 
-**A block is the space between two rules.** `.lt-panel` is for forms and lists
-that are genuinely one group. The old UI put the header, a form, a list and a
-piece of evidence in the same 10px rounded rectangle with the same border.
-
-`.lt-paper` owns the only shadow in the stylesheet. If a new component wants
-one, the answer is no.
+**Glass never scrolls with the content.** It is the rule that keeps the app
+cheap and it is the rule that keeps the two materials meaningful; a blurred
+panel in the review sheet's scroll would break both at once.
 
 ## The review plate
 

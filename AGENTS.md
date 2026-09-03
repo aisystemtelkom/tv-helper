@@ -482,10 +482,21 @@ and looks for the same slots in any document.*
 
 ## The operator UI
 
-Redesigned wholesale (branch `ui-rehaul`). The argument lives in
-`docs/design-system.md` and the language in `docs/ui-bahasa.md`; read the first
-before you move a token and the second before you write a string. What follows
-is only the part that bites.
+The material is **Meja Kaca, the glass bench**, and it is the THIRD one this
+product has worn: the client rejected a monotone graphite as "monotonous" and
+a hard-edged stamped look as "absolutely the wrong aesthetic". The argument
+lives in `docs/design-system.md` and the language in `docs/ui-bahasa.md`; read
+the first before you move a token and the second before you write a string.
+What follows is only the part that bites.
+
+**THE TOOL IS GLASS, THE WORK IS SOLID, and that seam is also the performance
+rule.** Anything that STAYS STILL while work scrolls under it is glass:
+translucent, backdrop-blurred, a bright hairline on the top edge (`.lt-rail`,
+`.lt-toast`, `.lt-hint-panel`, the dialog). Anything that MOVES WITH THE WORK
+is solid and matte: every slab, well, row, stage, mat, kotak and sheet. A
+backdrop-filter inside the review sheet's metre-long scroll re-samples the
+backdrop every frame across two dozen panels, so "glass never scrolls" is what
+keeps the app cheap as well as what keeps the two materials meaningful.
 
 **THE OPERATOR UI IS IN BAHASA INDONESIA.** Screen copy, labels, status words,
 errors, empty states. Code, identifiers, comments, commit messages, this file
@@ -505,27 +516,47 @@ the sample and must keep matching it.
 
 **Two hues in the whole product.** `--mark` (amber) means "a decision is owed
 here" and nothing else, ever. `--gap` (red) means a fault or a refusal and is
-absent from a healthy screen. Confirmed work has NO colour: it is an ink paraf
-in a ruled box, so a finished packet is a screen with no colour left on it. The
-old `--lt-mark` carried five unrelated signals at once, which teaches an
-operator to read none of them.
+absent from a healthy screen. Confirmed work has NO colour, so a finished
+packet is a screen with the colour gone out of it. `--petrol` is a third
+colour and is NOT a status: it is identity and interaction (the primary key, a
+link, the step you are standing on), deliberately off the amber-red axis so
+"this is the button" cannot be read as "something is owed".
 
-- **Focus is ink, never amber.** A keyboard position is not a decision that is
-  owed.
+- **A SATURATED FILL ALWAYS CARRIES DARK TEXT.** This is the client's own
+  complaint written as a rule: *"lots of clashing colors like bright yellow and
+  white text"*. `--mark-ink`, `--gap-ink` and `--petrol-ink` exist for no other
+  reason, and there is no exception for a colour that looks dark enough. A
+  block that owes a decision turns as a whole through a 12% tint of its own
+  ground plus a 4px rule down its leading edge, never a coloured bar.
+- **Focus is ink, never amber.** A keyboard position is not a decision owed.
 - **`.lt-paper` rebinds the ink tokens, and that is load-bearing.** Every token
-  is defined against the graphite table, so on a white sheet `--ink` is
-  invisible: the global `:focus-visible` rule drew a near-white outline on
-  paper, measured at about 1.08:1, on the sign-in button among others. `--gap`
-  and `--mark` get paper values there too, for the same reason.
-- **`--ink-3` is the AA floor, measured, not estimated** (5.0:1 on
-  `--surface-raised`, the lightest ground any of it sits on). It was 3.7:1 while
-  carrying every safety advisory on screen. Quietness is bought with size and
-  position, never with lower contrast, and nothing in the product is under 13px.
-- **Only `.lt-paper` casts a shadow.** If a new component wants one, no.
+  is defined against the dark bench, so on a white sheet `--ink` is invisible:
+  the global `:focus-visible` rule once drew a near-white outline on paper at
+  about 1.08:1, on the sign-in button among others. The rebind covers
+  `.lt-paper`, `.lt-denah` AND `*:has(> .lt-denah)`; that third selector is
+  there because `denah.tsx` puts its "teks tidak terbaca" caption in a SIBLING
+  of the svg, so a rebind scoped to the svg never reached it.
+- **PREFIXED FIRST, STANDARD LAST, for `backdrop-filter`.** Written the other
+  way round, Lightning CSS collapses the pair and emits only
+  `-webkit-backdrop-filter`; Chrome has no such alias, so every piece of glass
+  renders with no blur while looking entirely deliberate.
+- **Chrome glass is `--glass-rail` at 90%, not `--glass` at 8.5%.** A panel
+  floats over the gradient and nothing else. Chrome floats over whatever is
+  scrolling, which on the review sheet is a white A4 scan: at 8.5% the phase
+  rail composited to about #ebeeef and its own text measured 1.1:1 until the
+  page passed.
+- **Nothing in the product is under 13px**, because every small string here is
+  safety copy. Quietness is bought with size and position, never with lower
+  contrast.
 - **Uppercase is reserved for quoting the document.** The interface never puts
-  a label in caps to give it rank, which is what retires the tracked-out eyebrow
-  labels. Positive letter-spacing appears in exactly two rules, the wordmark and
-  `.lt-stamp`, both quotations.
+  a label in caps to give it rank. Positive letter-spacing appears in exactly
+  two rules, the wordmark and `.lt-stamp`, both quotations.
+- **Every ratio in `globals.css` is measured against the composite that
+  actually paints**, never against a token: glass over the rasterised lightest
+  pixel of the gradient, a stripe at its own alpha, a nested panel as two
+  films. Three independent verification passes each caught the same error, a
+  comment quoting the ratio of the colour its author wished were behind the
+  text.
 
 **The denah halaman** (`denah.tsx`) is the hero device: a plan of the page drawn
 from `StoredPage.lines[].box`, with the crop knocked out. It answers "is this
