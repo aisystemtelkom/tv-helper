@@ -157,6 +157,10 @@ import {
   MAX_FOOTER_LINES,
 } from "../src/lib/pipeline/locate.ts";
 import { boxForLineRange } from "../src/lib/pipeline/geometry.ts";
+import {
+  findContinuations,
+  runningFurniture,
+} from "../src/lib/pipeline/continuation.ts";
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1379,17 +1383,49 @@ const GROUND_TRUTH = [
     //
     // Worth knowing before treating this row as a product defect: PRODUCTION
     // NEVER ASKS THIS QUESTION. `kbLanjutan.top` is one slot with one hint and
-    // `crops: 2`, so `generate.mjs` makes a single locate call per round (the
-    // one scored as `KB / ToP (1)`, which passes) and the second capture stays
-    // outstanding for the dokumen tambahan round and manual selection -- see
-    // the `crops: 2` comment in template.ts. The hint on this row is therefore
-    // this harness's own invention, not a production string, which is also why
-    // rewriting it until the row passes would measure nothing: it would be
-    // tuning a question no shipping code asks.
+    // `crops: 2`, so `generate.mjs` made a single locate call per round and the
+    // second capture stayed outstanding.
+    //
+    // THAT IS NO LONGER WHAT PRODUCTION DOES, and this row was rewritten to
+    // follow it. `crops` is gone: a continuation is DISCOVERED, and
+    // `findContinuations` is handed the confirmed first capture and the page
+    // AFTER it, then asked one narrow question. That is a far easier question
+    // than the wide search this row used to run, and it cannot land on the
+    // wrong page because the page is given.
+    //
+    // So the row no longer carries a hint of its own. It carried one for years
+    // -- "the bank account number the payment is transferred to" -- and that
+    // string was this harness's invention rather than a production string,
+    // which meant the row measured a question no shipping code asked, and
+    // tuning it until it passed would have measured nothing. The production
+    // hint now comes from the template, through the same path the product
+    // uses.
     slot: "KB / ToP (2)",
     doc: "merged",
     page: 20,
-    hint: "the bank account number the payment is transferred to",
+    // Walked forward from the capture this row's sibling located. Naming the
+    // sibling rather than a page is the point: if `KB / ToP (1)` regresses,
+    // this row cannot pass by accident on a lucky wide search.
+    //
+    // IT STILL FAILS, AND THE FAILURE IS NOW INFORMATIVE RATHER THAN INERT.
+    // Measured: the walk answers page 20 lines [2,15]; the human crop is
+    // [0,15]. Lines 0 and 1 are the PAGE LETTERHEAD -- two logos at y=207 with
+    // h=140, then a tagline at y=368 -- and line 2 is where clause item 4
+    // starts. So the product returns the clause exactly and the human's crop
+    // additionally carries the furniture above it, because a person
+    // screenshotting a region takes what is on the paper.
+    //
+    // DO NOT "FIX" THIS BY TEACHING THE PRODUCT TO INCLUDE LETTERHEADS.
+    // `runningFurniture` exists to exclude exactly those lines, the product is
+    // right to, and widening it to pass this row would be tuning to one
+    // sample. The open question is the GATE's, not the product's: whether
+    // containment should be computed against the human crop's CONTENT lines,
+    // with furniture excluded by the same detector the product uses. That is a
+    // scoring-rule change, it moves every row, and it needs its own
+    // measurement -- so it is recorded here and in AGENTS.md rather than done
+    // quietly while fixing something else.
+    continuationOf: "KB / ToP (1)",
+    slotKey: "kbLanjutan.top",
     image: "image10.png",
   },
   {
@@ -1854,6 +1890,62 @@ async function main() {
         text: pageEntry.lines.map((l) => l.text).join("\n"),
         confidence: "high",
       };
+    } else if (entry.continuationOf) {
+      // A CONTINUATION ROW MEASURES WHAT PRODUCTION MEASURES. It walks forward
+      // from the capture its sibling row located, exactly as
+      // src/app/api/propose/handler.ts does, rather than running a wide search
+      // for a second capture -- which is a question no shipping code asks any
+      // more, and which this row used to answer with a hint invented here.
+      //
+      // Depending on the sibling is deliberate. If `KB / ToP (1)` regresses,
+      // this row fails too rather than passing on a lucky wide search, which is
+      // the honest coupling: production cannot find a lanjutan for a capture it
+      // never found either.
+      const parent = results.find((r) => r.entry.slot === entry.continuationOf);
+      const parentZone = parent && parent.result ? parent.result.zone : null;
+      if (!parentZone) {
+        error = new Error(
+          `${entry.continuationOf} produced no zone, so there is nothing to ` +
+            "walk forward from",
+        );
+      } else {
+        const slotDef = AO_TEMPLATE.sections
+          .flatMap((section) => section.slots.map((slot) => ({ section, slot })))
+          .find((pair) => pair.slot.key === entry.slotKey);
+        if (!slotDef) {
+          error = new Error(`no template slot with key ${entry.slotKey}`);
+        } else {
+          // The pages of the SOURCE DOCUMENT only. A continuation lives on the
+          // next page of the same scan; handing it the whole bundle would let
+          // it walk across a file boundary, which is never a continuation.
+          const parentDoc = pages[parentZone.pageIndex].doc;
+          const documentPages = pages.filter((page) => page.doc === parentDoc);
+          try {
+            const walk = await findContinuations({
+              slotLabel: slotDef.slot.label,
+              // THE PRODUCTION HINT, from the template, not one written here.
+              hint: slotDef.slot.hint,
+              zone: parentZone,
+              documentPages,
+              furniture: runningFurniture(documentPages),
+              wholePageCapture: slotDef.section.layout === "images",
+              ask: cachedAsk,
+            });
+            const step = walk.steps.find((s) => s.zone);
+            result = step
+              ? { zone: step.zone, text: step.text ?? "", confidence: step.confidence ?? "low" }
+              : null;
+            if (!result) {
+              const why = walk.steps.map((s) => s.reason).filter(Boolean);
+              error = new Error(
+                `findContinuations proposed no lanjutan${why.length ? `: ${why[0]}` : ""}`,
+              );
+            }
+          } catch (err) {
+            error = err;
+          }
+        }
+      }
     } else {
       try {
         result = await locateSlot(label, hint, pages, cachedAsk);

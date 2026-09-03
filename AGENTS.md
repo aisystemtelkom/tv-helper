@@ -170,11 +170,18 @@ recorded here as current and quoted to a peer session as the state of the tool.
 The current column is the one to believe, and the way to tell is that it names
 its date.
 
-- The current miss is `KB / ToP (2)`, chosen [5,16] against required [0,15].
-  Worth knowing before you chase it: production no longer asks the question
-  this row measures. Continuations are discovered and handed a specific page by
-  `findContinuations`, where this row still runs a wide search for a second
-  capture. The row is measuring a path the product does not use.
+- The current miss is `KB / ToP (2)`, and the row was rewritten to measure what
+  production actually does: it now walks forward from `KB / ToP (1)`'s answer
+  through `findContinuations`, with the template's own hint, instead of running
+  a wide search with a hint this harness invented. The continuation feature had
+  no gate coverage at all before that.
+  It still fails, informatively: the walk answers `[2,15]` where the human crop
+  is `[0,15]`, and lines 0-1 are the PAGE LETTERHEAD. The product returns the
+  clause exactly; the human additionally captured the furniture above it. Do
+  not widen the product to include letterheads -- `runningFurniture` exists to
+  exclude them. The open question is whether the GATE should compute containment
+  against the crop's CONTENT lines. That moves every row and needs its own
+  measurement.
 - `KB / ToP (1)` was failing HALF THE TIME on a defect the cache hid, and it
   now passes. See `clampRangeToPage` in `src/lib/pipeline/locate.ts`.
 - **RE-RUN AND REPLACE THE CURRENT COLUMN** when the engine, a constant, a hint
