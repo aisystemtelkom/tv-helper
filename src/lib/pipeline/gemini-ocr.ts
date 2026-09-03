@@ -1449,8 +1449,15 @@ export function checkPageCompleteness(
 export class IncompletePageError extends Error {
   readonly completeness: PageCompleteness;
   readonly attempts: number;
+  /** The last attempt's throw, when one of them failed rather than read short. */
+  readonly lastError?: unknown;
 
-  constructor(label: string, completeness: PageCompleteness, attempts: number) {
+  constructor(
+    label: string,
+    completeness: PageCompleteness,
+    attempts: number,
+    lastError?: unknown,
+  ) {
     super(
       `${label}: OCR came back short on all ${attempts} attempts -- ` +
         `${completeness.shortfalls.join("; and ")}. The model transcribed part ` +
@@ -1470,16 +1477,55 @@ export class IncompletePageError extends Error {
     this.name = "IncompletePageError";
     this.completeness = completeness;
     this.attempts = attempts;
+    this.lastError = lastError;
+    // A MIXED LADDER IS NOT A SHORT PAGE, and saying so sends the reader to the
+    // pixels when the answer is in the reply. When some attempt threw -- a
+    // truncated reply, an unusable one -- the message above is true of the
+    // attempts that DID return and silent about the one that did not, so the
+    // cause is appended rather than left for someone to find in a stack trace.
+    if (lastError) {
+      const why =
+        lastError instanceof Error ? lastError.message : String(lastError);
+      this.message +=
+        ` At least one attempt did not come back short but FAILED outright: ` +
+        `${why} That is a different fault from a short read and is worth ` +
+        "ruling out first.";
+      this.cause = lastError;
+    }
   }
 }
 
-/** One attempt that came back short, handed to the caller so it can log it. */
+/** One attempt that did not produce a usable reading, handed to the caller. */
 export type ShortRead = {
   /** 1-based. */
   attempt: number;
   attempts: number;
   lines: number;
   completeness: PageCompleteness;
+  /**
+   * Set when the attempt THREW rather than came back short -- a truncated
+   * reply, an unusable one, a transport failure that outlived its own retries.
+   * The ladder treats both the same way, because both mean "ask again", but a
+   * log that showed them the same way would send someone hunting a short page
+   * that never existed.
+   */
+  error?: unknown;
+};
+
+/**
+ * The stand-in completeness for an attempt that threw before anything could be
+ * measured. Zero coverage and one shortfall naming the cause: a page nothing
+ * read is not a page that read well, and defaulting it to complete would let
+ * a failed attempt look like a passing one in the log.
+ */
+const UNREAD_PAGE: PageCompleteness = {
+  complete: false,
+  inkCoverage: 0,
+  uncoveredInkRunShare: 1,
+  inkBottomY: 0,
+  boxBottomY: 0,
+  uncoveredInkRun: 0,
+  shortfalls: ["the attempt failed before a reading could be measured"],
 };
 
 /**
@@ -1539,8 +1585,32 @@ export async function ocrPageCompletely(
   const ink = inkRowProfile(page);
 
   let last: PageCompleteness | null = null;
+  let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const { lines, report } = await recognize(image);
+    // A FAILED ATTEMPT IS NOT A FAILED LADDER, and getting that wrong cost a
+    // 29-page gate run at page 26. The guard correctly caught a short read and
+    // re-sent the identical image; the RETRY came back at 16,369 output tokens
+    // against a 16,384 cap, which the OCR path rightly refuses -- and because
+    // the throw escaped this loop, one unlucky second attempt ended a run that
+    // had already paid for twenty-five pages.
+    //
+    // An attempt that ERRORS and one that comes back SHORT are the same thing
+    // to the ladder: this reading is unusable, ask again. They are NOT the same
+    // thing in the message at the end, so both are carried and both are named.
+    let lines, report;
+    try {
+      ({ lines, report } = await recognize(image));
+    } catch (error) {
+      lastError = error;
+      options.onShort?.({
+        attempt,
+        attempts,
+        lines: 0,
+        completeness: last ?? UNREAD_PAGE,
+        error,
+      });
+      continue;
+    }
     const completeness = checkPageCompleteness(lines, ink);
     last = completeness;
     if (completeness.complete) {
@@ -1564,5 +1634,14 @@ export async function ocrPageCompletely(
     });
   }
 
-  throw new IncompletePageError(label, last as PageCompleteness, attempts);
+  // An error on the LAST attempt is the more useful thing to report: claiming
+  // "came back short on all attempts" when the final one actually threw sends
+  // the reader looking at the pixels instead of at the reply.
+  if (!last && lastError) throw lastError;
+  throw new IncompletePageError(
+    label,
+    last as PageCompleteness,
+    attempts,
+    lastError,
+  );
 }

@@ -1105,3 +1105,57 @@ test("a short read once, then a complete one, recovers and is counted", async ()
   assert.equal(result.completeness.complete, true);
   assert.equal(result.lines[1].text, "LOP999001");
 });
+
+test("an attempt that THROWS does not end the ladder, and the next one can recover", async () => {
+  // THE SHAPE THAT KILLED A 29-PAGE GATE RUN AT PAGE 26. The guard correctly
+  // caught a short read and re-sent the identical image; that retry came back
+  // at 16,369 output tokens against a 16,384 cap, which the OCR path rightly
+  // refuses -- and the throw escaped the loop, ending a run that had already
+  // paid for twenty-five pages. One unlucky second attempt, twenty-five pages
+  // of spend.
+  //
+  // A failed attempt and a short one mean the same thing to the ladder ("this
+  // reading is unusable, ask again") and different things in the log.
+  const page = printedPage();
+  const images: ImageInput[] = [];
+  const seen: { attempt: number; failed: boolean }[] = [];
+  let call = 0;
+  const recognize: RecognizePage = async (image) => {
+    images.push(image);
+    call++;
+    if (call === 1) return linesFromGeminiReply(SHORT_REPLY, PAGE_W, PAGE_H);
+    if (call === 2) {
+      throw new Error(
+        'Gemini stopped with finishReason=MAX_TOKENS, not STOP.',
+      );
+    }
+    return linesFromGeminiReply(COMPLETE_REPLY, PAGE_W, PAGE_H);
+  };
+
+  const result = await ocrPageCompletely(page, recognize, {
+    attempts: 3,
+    onShort: (s) => seen.push({ attempt: s.attempt, failed: s.error !== undefined }),
+  });
+
+  assert.equal(result.attempt, 3, "the third attempt answered");
+  assert.equal(images.length, 3);
+  // Attempt 1 was short, attempt 2 threw, and the caller can tell them apart.
+  assert.deepEqual(seen, [
+    { attempt: 1, failed: false },
+    { attempt: 2, failed: true },
+  ]);
+});
+
+test("a ladder that only ever throws reports the throw, not a short page", async () => {
+  // Claiming "came back short on all attempts" when every attempt actually
+  // failed sends the reader to the pixels instead of to the reply.
+  const page = printedPage();
+  const boom = new Error("Gemini stopped with finishReason=MAX_TOKENS");
+  const recognize: RecognizePage = async () => {
+    throw boom;
+  };
+  await assert.rejects(
+    () => ocrPageCompletely(page, recognize, { attempts: 2 }),
+    (error: unknown) => error === boom,
+  );
+});
