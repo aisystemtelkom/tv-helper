@@ -1260,11 +1260,7 @@ function Strip({
       <div className="mx-auto flex h-14 w-full max-w-[92rem] items-center gap-5 px-5">
         <span className="lt-wordmark shrink-0">tv-validator</span>
 
-        <div
-          className="h-7 w-px shrink-0"
-          style={{ background: "var(--line)" }}
-          aria-hidden="true"
-        />
+        <div className="bg-line h-7 w-px shrink-0" aria-hidden="true" />
 
         {/* THE ONE h1 ON THE PAGE. The subject of this work surface is the
             order being worked on, and until now the operator app had no
@@ -1286,7 +1282,7 @@ function Strip({
             )}
           </h1>
           {run ? null : (
-            <p className="truncate text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+            <p className="text-ink-2 truncate text-[0.8125rem]">
               Muat berkas PDF order untuk memulai.
             </p>
           )}
@@ -1348,14 +1344,18 @@ function AccountControls({
         <div className="flex items-center gap-2">
           <span
             aria-hidden="true"
-            className="lt-figure grid size-7 shrink-0 place-items-center rounded-[2px] border text-[0.8125rem]"
-            style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+            /* THE FIGURE STEP, NOT THE SHEET CORNER. This was `rounded-[2px]`,
+               which is `--sheet-corner`, and that radius is reserved for a
+               drawing of a page: it is near-square on purpose, so that nothing
+               of a crop is rounded off. Two initials in a ruled box are a chip,
+               and a chip is 8px, the same corner every other small quoted
+               figure in the product takes. */
+            className="lt-figure border-line text-ink-2 grid size-7 shrink-0 place-items-center rounded-sm border text-[0.8125rem]"
           >
             {initialsOf(session?.name, email)}
           </span>
           <span
-            className="lt-figure hidden max-w-[13rem] truncate text-[0.8125rem] xl:block"
-            style={{ color: "var(--ink-2)" }}
+            className="lt-figure text-ink-2 hidden max-w-[13rem] truncate text-[0.8125rem] xl:block"
             title={email}
           >
             {email}
@@ -1370,17 +1370,12 @@ function AccountControls({
         {session?.isAdmin === false ? null : (
           <Link
             href="/admin"
-            className="underline underline-offset-4"
-            style={{ color: "var(--ink-2)" }}
+            className="text-ink-2 underline underline-offset-4"
           >
             Daftar izin akses
           </Link>
         )}
-        <Link
-          href="/privacy"
-          className="underline underline-offset-4"
-          style={{ color: "var(--ink-2)" }}
-        >
+        <Link href="/privacy" className="text-ink-2 underline underline-offset-4">
           Kebijakan privasi
         </Link>
         {email ? (
@@ -1455,8 +1450,11 @@ function StepNav({
 
   return (
     <nav
+      /* `.lt-steps` already IS the row: display, alignment and a 1rem gap are
+         in the class, and repeating them here as utilities is two places that
+         have to agree about one bar. Only the wrap is this call site's. */
       aria-label="Langkah berikutnya"
-      className="lt-steps mt-6 flex flex-wrap items-center gap-4"
+      className="lt-steps mt-6 flex-wrap"
     >
       {back ? (
         <Btn onClick={() => onGo(back.id)}>
@@ -1554,20 +1552,20 @@ function PhaseNav({
                   aria-describedby={locked ? lockId : undefined}
                   data-on={current ? "true" : undefined}
                   onClick={locked ? undefined : () => onGo(step.id)}
+                  /* NO INLINE LOCKED STYLE, AND NOTHING IS LOST WITH IT. The
+                     three properties it set are all delivered by the system's
+                     own disabled rule, which this button already opts into
+                     through `aria-disabled`: the ink ladder fades to 55% (so
+                     the step number below lands on exactly the key's own
+                     colour), the cursor is not-allowed, and the key rests down
+                     on its lip. The third property, `borderStyle: dashed`, was
+                     dead: `.lt-btn` is `border: 0`, so a dashed style had no
+                     width to paint. A locked step reads as locked because the
+                     KEY IS DOWN, which is the one gesture this system has for
+                     a control that will not answer. */
                   className="lt-btn relative"
-                  style={
-                    locked
-                      ? {
-                          color: "var(--ink-3)",
-                          borderStyle: "dashed",
-                          cursor: "not-allowed",
-                        }
-                      : undefined
-                  }
                 >
-                  <span className="lt-figure" style={{ color: "var(--ink-3)" }}>
-                    {i + 1}
-                  </span>
+                  <span className="lt-figure text-ink-3">{i + 1}</span>
                   <span>{step.label}</span>
                 </button>
                 {current ? (
@@ -1578,8 +1576,12 @@ function PhaseNav({
                   // piece of evidence, and a nav position is not that.
                   <span
                     aria-hidden="true"
-                    className="absolute inset-x-1 -bottom-px h-[2px]"
-                    style={{ background: "var(--ink)" }}
+                    /* Rounded ends, like every other short rule in the set
+                       (`.lt-advisory`'s leading bar, the coretan): a 2px rule
+                       is a shape rather than a box, and a square-ended one is
+                       the last thing on this row that still read as a stamped
+                       part. */
+                    className="bg-ink absolute inset-x-1 -bottom-px h-[2px] rounded-full"
                   />
                 ) : null}
               </li>
@@ -1620,8 +1622,7 @@ function PhaseNav({
           <p
             aria-live="polite"
             title={signal || undefined}
-            className="hidden w-[9rem] shrink-0 truncate text-right text-[0.8125rem] md:block lg:w-[14rem]"
-            style={{ color: "var(--ink-2)" }}
+            className="text-ink-2 hidden w-[9rem] shrink-0 truncate text-right text-[0.8125rem] md:block lg:w-[14rem]"
           >
             {signal}
           </p>
@@ -1666,16 +1667,10 @@ function CountBlock({
     <div className="flex items-center gap-3" aria-live="polite">
       <OwedCount value={owed} />
       <div className="flex flex-col">
-        <span
-          className="text-[0.8125rem] font-semibold"
-          style={{ color: "var(--ink)" }}
-        >
+        <span className="text-ink text-[0.8125rem] font-semibold">
           {headline}
         </span>
-        <span
-          className="text-[0.8125rem] whitespace-nowrap"
-          style={{ color: "var(--ink-2)" }}
-        >
+        <span className="text-ink-2 text-[0.8125rem] whitespace-nowrap">
           {under}
         </span>
       </div>

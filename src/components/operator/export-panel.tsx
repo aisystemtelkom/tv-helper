@@ -27,8 +27,10 @@
  * of them is not what makes the packet right. What is NOT reference material is
  * a fault, so a thumbnail that could not be cut, or a capture whose page has
  * gone, OPENS the list and is named in the action bar as well. A collapsed
- * block still reports its state, because its kop is the status channel and goes
- * red across its full width.
+ * block still reports its state, because its kop is the status channel: the
+ * whole bar takes the correction pen's tint and a 4px rule down its leading
+ * edge, which reads at a glance down a column of blocks without ever becoming
+ * a bar of saturated red under light text.
  *
  * EVERY NUMBER SAYS WHETHER IT COUNTS SLOTS OR CAPTURES. `bagian` and
  * `potongan` are different units and the sample's ToP row holds two potongan
@@ -185,13 +187,20 @@ function fileSize(bytes: Uint8Array): string {
 type Owes = "decision" | "fault" | "done";
 
 /**
- * The one container on this screen: a plate with a title bar of ink.
+ * The one container on this screen: a solid block opened by a kop.
  *
  * THE KOP IS THE BLOCK'S STATUS CHANNEL, which is what lets a block be closed
- * at rest without hiding its state. `owes` paints the whole bar rather than a
- * small mark somewhere inside it, so a block that owes something is legible
- * from across the room and a collapsed one is no quieter about a fault than an
- * open one.
+ * at rest without hiding its state. `owes` is carried by the whole bar rather
+ * than by a small mark somewhere inside it, so a block that owes something is
+ * legible from across the room and a collapsed one is no quieter about a fault
+ * than an open one.
+ *
+ * WHAT THE BAR IS MADE OF IS THE STYLESHEET'S BUSINESS AND IT CHANGED: it used
+ * to be a full-width fill of solid hue, and it is now a 12% tint of the block's
+ * own ground with a 4px rule down its leading edge. The rule is the loudest of
+ * the channels and the one that reads down a column of stacked blocks, which is
+ * what this screen is. Nothing here had to change for that, which is the point
+ * of the status living on `data-owes` rather than in a colour chosen here.
  */
 function Slab({
   id,
@@ -206,7 +215,14 @@ function Slab({
   /** The count or state this block owes, at the kop's right edge. */
   aside?: ReactNode;
   owes?: Owes;
-  /** A slab nested inside another slab casts no plate. */
+  /**
+   * A slab nested inside another slab is furniture rather than content, so it
+   * takes `.lt-slab-flat` and is SET IN: darker than the block holding it,
+   * with the shallow inner shadow that says so. The old wording here, "casts
+   * no plate", named a hard offset shadow that this system does not have
+   * anywhere; the distinction it was drawing is real and is now lifted
+   * against set-in rather than shadow against no shadow.
+   */
   flat?: boolean;
   children: ReactNode;
 }) {
@@ -482,11 +498,12 @@ function FileSlab({
       : "belum dibuat";
 
   return (
-    /* NO `owes`, AND THAT IS THE POINT. `data-owes="done"` paints the kop
-       petrol, and petrol here belongs to primary controls and links, never to
-       a status; the design's promise is that a finished packet is a screen
-       with no colour left on it. A built file is also not "done": it is ready
-       to be saved, which the state word at the kop's right says in words. */
+    /* NO `owes`, AND THAT IS THE POINT. `data-owes="done"` tints the kop
+       petrol, and the design's promise is that a finished packet is a screen
+       with the colour gone out of it: two petrol bars sitting side by side at
+       the foot of the last screen would be the loudest thing on it. A built
+       file is also not "done": it is ready to be saved, which the state word
+       at the kop's right says in words. */
     <Slab id={id} name={kind} aside={state}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-4">
@@ -816,24 +833,36 @@ function CapturePlate({
       <div className="flex min-w-0 flex-col gap-2">
         {ships && thumb?.url ? (
           /* EVIDENCE IS MOUNTED, NEVER PLACED: a sunk stage, a near-black mat
-             and a bone keyline, three drawn cues for the one boundary the
-             operator is paid to judge. A scan's own white ground against a
+             and the sheet's own edge, three drawn cues for the one boundary
+             the operator is paid to judge. A scan's own white ground against a
              single luminance step is exactly the cue that fails on a dark
-             scan. */
+             scan.
+
+             THE EDGE IS `.lt-paper`'S, NOT A HAND-ROLLED RULE. This drew a 2px
+             `--keyline` border on the image itself, which is the third hard
+             rule inside a mat that already draws its own bone ring: the two
+             competed for the boundary that matters, and a 2px border is the
+             stamped-plate gesture the client rejected. The sheet class carries
+             it now, at the weight and the corner the system sets for a mounted
+             crop -- `--sheet-corner`, near-square on purpose, because 20px of
+             rounding would cut about 1250 square pixels off each corner of the
+             evidence. Same recipe as the review plate, one class instead of
+             two declarations. */
           <figure className="lt-stage max-w-[42rem]">
             <div className="lt-mat">
-              {/* eslint-disable-next-line @next/next/no-img-element -- a blob
-                  URL cut in this tab from a document that must never leave it;
-                  next/image would want a loader and a remote pattern. */}
-              <img
-                className="block h-auto w-full border-2"
-                style={{ borderColor: "var(--keyline)" }}
-                src={thumb.url}
-                alt={`Potongan untuk ${captureLabel(
-                  slot.label,
-                  capture.ordinal,
-                )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
-              />
+              <div className="lt-paper overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element -- a blob
+                    URL cut in this tab from a document that must never leave
+                    it; next/image would want a loader and a remote pattern. */}
+                <img
+                  className="block h-auto w-full"
+                  src={thumb.url}
+                  alt={`Potongan untuk ${captureLabel(
+                    slot.label,
+                    capture.ordinal,
+                  )}${cite ? `, halaman ${cite.page} dari ${cite.pagesInDoc}` : ""}`}
+                />
+              </div>
             </div>
           </figure>
         ) : ships && thumb?.fault ? (
@@ -949,10 +978,20 @@ function SlotBlock({
   const label = displayLabel(slot.label, quote || "(belum diisi)");
 
   return (
-    <div className="flex flex-col gap-4 border-t-2 border-line py-4">
+    /* A HAIRLINE, NOT A 2px RULE. `--line` is separation between content and
+       nothing else, and the system draws that at one pixel; two was the
+       stamped-plate weight, and a dozen of them down the inventory read as a
+       stack of parts rather than as one list. */
+    <div className="flex flex-col gap-4 border-t border-line py-4">
       <div className="flex flex-wrap items-center gap-4">
         <Mark status={status} title={`${label}: ${STATUS_WORDS[status]}`} />
-        <span className="lt-figure text-base font-bold">{label}</span>
+        {/* THE RANK IS WEIGHT, NOT AN OFF-RAMP SIZE. This carried `text-base`,
+            16px, which is not a step this system has: the sans runs 13, 14, 15
+            and then jumps to a title at 21. A bagian's name is the body size at
+            700 against the 400 around it, which is the same move `.lt-btn` and
+            `.lt-kop` make and one every sibling screen already makes at 13 and
+            14px. */}
+        <span className="lt-figure font-bold">{label}</span>
         <StateWord status={status} />
         {slot.captures.length > 1 ? (
           <span className="lt-kotak ml-auto">
@@ -1049,7 +1088,7 @@ function SectionBlock({
             {manual.map((slot) => (
               <li
                 key={slot.key}
-                className="flex flex-wrap items-baseline justify-between gap-4 border-t-2 border-line py-2"
+                className="flex flex-wrap items-baseline justify-between gap-4 border-t border-line py-2"
               >
                 <span className="lt-figure text-[0.8125rem]">
                   {displayLabel(slot.label, quote || "(belum diisi)")}
@@ -1218,7 +1257,8 @@ export function ExportPanel({
    * Collapsing the pre-flight list is the density win the client asked for,
    * and it is only defensible while nothing that went wrong can be inside it
    * unseen. A crop that could not be cut, or a capture whose page has gone, is
-   * named in the action bar, turns this block's kop red, AND opens the list.
+   * named in the action bar, puts the correction pen on this block's kop, AND
+   * opens the list.
    *
    * DERIVED, NOT SYNCHRONISED. `openedByHand` is null until the operator
    * touches the disclosure, so the fault decides while nobody has an opinion
@@ -1584,16 +1624,29 @@ export function ExportPanel({
           build button are in one viewport at 1366x768. The reason a control is
           disabled is never off screen from the control.
 
+          GLASS, AND IT IS ON THE RIGHT SIDE OF THE SEAM: it stays still while
+          the inventory scrolls under it, which is the one question that decides
+          the material. The evidence in that inventory is white A4 at 300 DPI,
+          which is exactly the case `--glass-rail` is nearly opaque for.
+
+          IT DRAWS NO BORDER OF ITS OWN. `.lt-rail::before` already lays the
+          bright hairline along the top edge -- the edge a bottom-pinned rail
+          catches the light on -- so the 2px `--edge` rule this carried was a
+          second, dimmer line under the first, and 2px is the stamped-plate
+          weight the client rejected.
+
           The negative margin is not a spacing choice: it is the shell's own
           gutter, cancelled so the rail reaches both edges of the page. */}
       <div
         ref={barRef}
-        className="lt-rail sticky bottom-0 z-10 -mx-5 flex flex-col gap-4 border-t-2 border-edge px-6 py-4"
+        className="lt-rail sticky bottom-0 z-10 -mx-5 flex flex-col gap-4 px-6 py-4"
       >
         <div role="status" aria-live="polite" className="flex flex-col gap-2">
           {blocked ? (
             <>
-              <p className="text-base font-bold">Belum bisa diekspor.</p>
+              {/* The verdict, at body size and 700: see the note on the
+                  inventory's bagian names. 16px is not a rung of this ramp. */}
+              <p className="font-bold">Belum bisa diekspor.</p>
               <ul className="flex flex-col gap-2">
                 {byKind.proposed.length > 0 ? (
                   <li className="text-sm">
@@ -1646,7 +1699,7 @@ export function ExportPanel({
             </>
           ) : (
             <>
-              <p className="text-base font-bold">Siap diekspor.</p>
+              <p className="font-bold">Siap diekspor.</p>
               <p className="text-sm">
                 <span className="lt-figure">{tally.slotsComplete}</span> dari{" "}
                 <span className="lt-figure">{tally.fillableSlots}</span> bagian

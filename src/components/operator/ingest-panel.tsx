@@ -227,48 +227,81 @@ export function DocumentDrop({
           }
           take(event.dataTransfer.files);
         }}
-        /* py-6, not py-12. The hero target was 290px of mostly empty
+        /* A TRAY CUT INTO THE BENCH, NOT A DASHED RECTANGLE INHERITED FROM A
+           FORM. This is the first thing an operator touches, and what stood
+           here was a 2px dashed rule on a 4px corner: the squarest object in
+           the product, drawn in the one geometry the client rejected by name.
+           `.lt-well` is the system's recess -- the same material the film
+           strip's trough below and the OCR transcript sit in -- so the place
+           you put paper now reads as a place that HAS a place for it, by fill
+           and depth rather than by a borrowed border. Measured, the recess is
+           1.45:1 against the slab it is cut into, where the system's own
+           lifted/set-in rule calls 1.22:1 enough to make a block an object.
+           The tray is a tray before its edge is drawn at all.
+
+           THE BLOCK RADIUS, NOT THE WELL'S OWN. `.lt-well` is 14px because
+           most wells are control-sized; this one is the subject of the screen,
+           so it takes the 20px block step off the same four-step scale.
+
+           `--line-control` AT REST, BECAUSE THIS WHOLE CARD IS A CONTROL: it
+           takes a drop. That token is the 3:1 boundary WCAG 1.4.11 asks of a
+           control at rest, and here it measures 3.92:1 against the slab
+           outside the tray and 5.68:1 against the recess inside it, so the
+           edge holds in both directions. It is deliberately NOT
+           `--line-strong`, which is the boundary of something ACTIVE -- and
+           under the pointer that is exactly what this becomes: `--ink` at
+           11.96:1 against the slab and 8.43:1 against its own lit fill.
+
+           py-6, not py-12. The hero target was 290px of mostly empty
            rectangle on the screen an operator opens the product to, and a drop
            target does not become easier to hit by being taller than the thing
            being dropped on it. Its size should say "this is the main action",
            not "this is the main content". */
-        className={`flex flex-col items-center gap-4 rounded-[4px] border-2 border-dashed px-6 text-center ${
-          size === "hero" ? "py-6" : "py-4"
-        }`}
-        style={{
+        className={`lt-well flex flex-col items-center gap-4 rounded-xl px-6 text-center transition-colors duration-90 ease-[var(--ease)] ${
           // THE DRAG TARGET IS INK, NEVER AMBER. Amber means a decision is
           // owed on a piece of evidence; where the pointer happens to be is
           // not that, and the two sharing one colour is what taught an
           // operator to stop reading amber at all.
-          borderColor: over ? "var(--ink)" : "var(--line-strong)",
-          background: over
-            ? "color-mix(in oklch, var(--ink), transparent 93%)"
-            : "transparent",
-          transition: "border-color 90ms ease, background-color 90ms ease",
-        }}
+          //
+          // The fill under the pointer is `--wash`, the film a hand leaves,
+          // which is the system's one recipe for "this is being touched and it
+          // is not a key" (`.lt-btn[data-flat]:hover` is the other place it is
+          // painted). It is written as `bg-[var(--wash)]` because the token is
+          // deliberately absent from the Tailwind colour map: it is a neutral
+          // white film to lay OVER whatever ground it lands on, not a colour
+          // to paint with, and `bg-ink/6` would be an oklab mix, which this
+          // system rules out by name. Naming the variable keeps it declarative,
+          // so a runtime branch does not need a style object of its own.
+          over ? "border-ink bg-[var(--wash)]" : "border-line-control"
+        } ${size === "hero" ? "py-6" : "py-4"}`}
       >
         {/* The set's own drop mark, at the one size the set reserves for an
             empty state. What stood here was the same drawing on a 40 viewBox
             with its own stroke widths: a foreign grid beside every other icon
             in the product. */}
-        <Muat size={40} style={{ color: "var(--ink-3)" }} />
+        <Muat size={40} className="text-ink-3" />
 
         {/* The question mark sits BESIDE the heading, never inside the
             sentence under it, so the row it belongs to is unambiguous. */}
         <div className="flex items-center gap-1">
-          <h3 id={labelId} className="text-[1.0625rem] font-semibold">
+          {/* `.lt-title`, NOT A SIZE OF ITS OWN. This was `text-[1.0625rem]`,
+              17px, which is on no rung of the type scale: the system paints
+              13, 14, 15, 21, 22 and 34 and nothing between 15 and 21, so a
+              heading at 17 was a private size that no other rule in the
+              product agrees with. The role already exists -- `.lt-title` is
+              the class for a screen or section title -- and this heading is
+              the subject of the screen it opens: the invitation the whole
+              empty state is built around. Taking the role rather than an
+              arbitrary size is also what keeps the two hand-over points (this
+              one and the dokumen tambahan dialog) reading as one object. */}
+          <h3 id={labelId} className="lt-title">
             {label}
           </h3>
           {explain ? <Hint label={`Penjelasan: ${label}`}>{explain}</Hint> : null}
         </div>
 
         {hint ? (
-          <p
-            className="max-w-[52ch] text-[0.9375rem]"
-            style={{ color: "var(--ink-2)" }}
-          >
-            {hint}
-          </p>
+          <p className="text-ink-2 max-w-[52ch] text-[0.9375rem]">{hint}</p>
         ) : null}
 
         <label htmlFor={inputId} className="sr-only">
@@ -298,10 +331,7 @@ export function DocumentDrop({
         {/* Safety copy, so it never uses `--ink-3`. This sentence is the one
             the client's whole constraint story rests on, and it was previously
             set in the least readable colour in the system at 12px. */}
-        <p
-          className="max-w-[62ch] text-[0.8125rem]"
-          style={{ color: "var(--ink-2)" }}
-        >
+        <p className="text-ink-2 max-w-[62ch] text-[0.8125rem]">
           Berkas PDF tidak diunggah. Halaman dirender di peramban ini, dan hanya
           gambar halaman yang dikirim ke server aplikasi untuk dibaca teksnya.
         </p>
@@ -357,8 +387,7 @@ function Reading({ progress }: { progress: IngestProgress }) {
 
   return (
     <section
-      className="flex flex-col gap-4 border-y py-5"
-      style={{ borderColor: "var(--line)" }}
+      className="border-line flex flex-col gap-4 border-y py-5"
       aria-labelledby="ingest-reading"
     >
       <div>
@@ -398,11 +427,7 @@ function Reading({ progress }: { progress: IngestProgress }) {
           </Hint>
         </div>
         {progress.fileCount && progress.fileCount > 1 ? (
-          <p
-            aria-live="polite"
-            className="text-[0.8125rem]"
-            style={{ color: "var(--ink-2)" }}
-          >
+          <p aria-live="polite" className="text-ink-2 text-[0.8125rem]">
             Berkas ke-<span className="lt-figure">{progress.fileIndex ?? 1}</span>{" "}
             dari <span className="lt-figure">{progress.fileCount}</span> yang
             Anda berikan.
@@ -412,7 +437,7 @@ function Reading({ progress }: { progress: IngestProgress }) {
 
       <FilmStrip done={progress.done} total={progress.total} />
 
-      <p className="text-[0.9375rem]" style={{ color: "var(--ink)" }}>
+      <p className="text-ink text-[0.9375rem]">
         {counting ? (
           "Membuka berkas dan menghitung halamannya."
         ) : (
@@ -479,8 +504,7 @@ function RunContents({ run }: { run: BrowserRun }) {
 
   return (
     <section
-      className="flex flex-col gap-4 border-t pt-5"
-      style={{ borderColor: "var(--line)" }}
+      className="border-line flex flex-col gap-4 border-t pt-5"
       aria-labelledby="ingest-contents"
     >
       <h3 id="ingest-contents" className="text-[0.9375rem] font-semibold">
@@ -488,7 +512,7 @@ function RunContents({ run }: { run: BrowserRun }) {
       </h3>
 
       {run.sources.length === 0 ? (
-        <p style={{ color: "var(--ink-2)" }}>
+        <p className="text-ink-2">
           Pekerjaan ini belum berisi berkas apa pun. Taruh berkas PDF di kotak
           di atas untuk mulai.
         </p>
@@ -509,20 +533,17 @@ function RunContents({ run }: { run: BrowserRun }) {
                   className="flex items-center gap-2 text-[0.9375rem]"
                   title={source.name}
                 >
-                  <Berkas style={{ color: "var(--ink-3)" }} />
+                  <Berkas className="text-ink-3" />
                   <span className="lt-figure">
                     {shortenFileName(source.name, 44)}
                   </span>
                 </p>
 
-                <p
-                  className="text-[0.8125rem]"
-                  style={{ color: "var(--ink-2)" }}
-                >
+                <p className="text-ink-2 text-[0.8125rem]">
                   {length === 0 && pages.length === 0 ? (
                     "Belum ada halaman yang terbaca dari berkas ini."
                   ) : missing > 0 ? (
-                    <span style={{ color: "var(--gap)" }}>
+                    <span className="text-gap">
                       <span className="lt-figure">{pages.length}</span> dari{" "}
                       <span className="lt-figure">{length}</span> halaman
                       terbaca, <span className="lt-figure">{missing}</span>{" "}
@@ -557,13 +578,13 @@ function RunContents({ run }: { run: BrowserRun }) {
       {/* The total is only worth stating once there is something to total, and
           the "no berkas at all" sentence above already covers an empty run. */}
       {run.sources.length === 0 ? null : read > 0 ? (
-        <p style={{ color: "var(--ink)" }}>
+        <p className="text-ink">
           <span className="lt-figure">{read}</span> halaman dari{" "}
           <span className="lt-figure">{run.sources.length}</span> berkas siap
           diperiksa.
         </p>
       ) : (
-        <p style={{ color: "var(--ink)" }}>
+        <p className="text-ink">
           Belum ada satu halaman pun yang tersimpan di pekerjaan ini. Muat ulang
           berkasnya untuk mencoba lagi.
         </p>
@@ -616,7 +637,7 @@ function Elapsed({ since }: { since: number }) {
   const rest = String(seconds % 60).padStart(2, "0");
 
   return (
-    <span className="lt-figure" style={{ color: "var(--ink)" }}>
+    <span className="lt-figure text-ink">
       Sudah {minutes}:{rest} berjalan.
     </span>
   );
@@ -662,8 +683,7 @@ function Process({
 
   return (
     <section
-      className="flex flex-col gap-4 border-t pt-5"
-      style={{ borderColor: "var(--line)" }}
+      className="border-line flex flex-col gap-4 border-t pt-5"
       aria-labelledby="ingest-process"
     >
       <div className="flex items-center gap-1">
@@ -685,7 +705,7 @@ function Process({
           a live region is read aloud once per second. */}
       <div role="status" aria-live="polite">
         {searching ? (
-          <p style={{ color: "var(--ink)" }}>
+          <p className="text-ink">
             Mencari bukti untuk <span className="lt-figure">{wanted}</span>{" "}
             bagian, dari teks <span className="lt-figure">{pages}</span> halaman
             yang sudah dibaca.
@@ -697,11 +717,7 @@ function Process({
 
       {/* Safety copy, so never `--ink-3`, and never further from the button
           than this. */}
-      <p
-        id={why}
-        className="max-w-[68ch] text-[0.9375rem]"
-        style={{ color: "var(--ink-2)" }}
-      >
+      <p id={why} className="text-ink-2 max-w-[68ch] text-[0.9375rem]">
         {searching ? (
           <>
             {startedAt !== null ? (
@@ -899,10 +915,7 @@ function Riwayat({
                       {/* 13px, not 12: nothing in this product is set
                           smaller, because the date is how one order of a
                           customer's paperwork is told from another. */}
-                      <span
-                        className="text-[0.8125rem] font-normal"
-                        style={{ color: "var(--ink-2)" }}
-                      >
+                      <span className="text-ink-2 text-[0.8125rem] font-normal">
                         {WAKTU.format(summary.createdAt)}
                         {open ? ", sedang dibuka" : ""}
                       </span>

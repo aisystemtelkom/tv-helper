@@ -5,10 +5,10 @@
  *
  * The design calls manual selection the TERMINAL STATE of the whole flow, not
  * a fallback, so this screen is built like a work surface rather than like a
- * dialog. THE PAGE IS THE ONE MEMORABLE OBJECT ON IT: it is the only slab that
- * casts a plate, it is mounted on a stage inside a mat, and it takes as much
- * of the viewport as the readout beside it can spare. Everything else is quiet
- * on purpose, because a screen that emphasises everything reads as a form.
+ * dialog. THE PAGE IS THE ONE MEMORABLE OBJECT ON IT: it is the only full block
+ * here, it is mounted on a stage inside a mat, and it takes as much of the
+ * viewport as the readout beside it can spare. Everything else is furniture set
+ * into the bench, because a screen that emphasises everything reads as a form.
  *
  * Three things here are requirements rather than polish:
  *
@@ -35,13 +35,13 @@
  *    at any container width the same fractions land on the same page pixels.
  *
  * WHY `.lt-paper` IS ON THE SCROLL BOX AND NOT ON THE PAGE FRAME, which looks
- * backwards and is not: `.lt-paper` carries a 2px border, and
- * `getBoundingClientRect` on the frame reports the BORDER box while the page
- * image fills the padding box. Moving the class inward would put a two pixel
- * offset between where the operator points and where the rectangle lands, on
- * the one screen whose entire job is that the drawn rectangle and the cut
- * rectangle are the same rectangle. The mat and the stage supply the dark
- * surround instead.
+ * backwards and is not: `.lt-paper` carries a border of its own (1.5px, and the
+ * exact width is not the point), and `getBoundingClientRect` on the frame
+ * reports the BORDER box while the page image fills the padding box. Moving the
+ * class inward would put that offset between where the operator points and
+ * where the rectangle lands, on the one screen whose entire job is that the
+ * drawn rectangle and the cut rectangle are the same rectangle. The mat and the
+ * stage supply the dark surround instead.
  *
  * WHAT THE REDESIGN CHANGED, and why none of it is cosmetic:
  *
@@ -222,8 +222,15 @@ function linesInRange(page: StoredPage, from: number, to: number): Line[] {
  * THE KOP IS THE BLOCK'S STATUS CHANNEL, which is why `owes` lives here rather
  * than as a mark somewhere inside the body: a block waiting on the operator is
  * legible from across the room instead of being a small glyph they have to
- * hunt for. Only the page casts a plate on this screen, so `plate` is opt-in
- * and everything else is furniture around the one object that matters.
+ * hunt for. It is a tint of the block's own ground with a 4px rule down its
+ * leading edge, never a bar of saturated hue under light text.
+ *
+ * `plate` PICKS THE MATERIAL, and the name survives from a system where a block
+ * cast a hard offset shadow. Nothing casts one now: the flag chooses between a
+ * full block (`.lt-slab`, lit along its top edge and floored along its bottom)
+ * and furniture (`.lt-slab-flat`, the same work surface with the lighting taken
+ * off and the control radius). Only the page gets the full block, so everything
+ * else stays quieter than the one object that matters.
  *
  * Local to this file on purpose: it is this screen's layout, not a shared
  * primitive, and chrome.tsx is owned elsewhere.
@@ -345,19 +352,29 @@ const PageGlyph = memo(function PageGlyph({
 }) {
   const unreadable = page.lines.length === 0;
   return (
-    <button
-      type="button"
+    /* A CONTROL, SO IT IS THE SYSTEM'S CONTROL. This was a bare `<button>`
+       carrying a hand-rolled 2px bottom border, which is two problems at once:
+       twenty-nine of the busiest controls on this screen had NO resting
+       boundary at all (WCAG 1.4.11 asks 3:1 of one), and the mark for "you are
+       here" was a rule invented in this file. The flat key is the set's row
+       control: `--line-control` is set at the 3:1 floor, hover raises it, and
+       the press answers the finger.
+
+       THE OPEN PAGE WEARS `data-on`, WHICH IS PETROL AND NOT AMBER. Amber means
+       a decision is owed on a piece of evidence; where the operator happens to
+       be standing is not that. Petrol is this system's "you are here" -- the
+       phase step you are on, the run that is open -- and it carries dark ink
+       like every saturated fill here. The number under the plan still goes to
+       700, so selection is weight and face together rather than a hue alone,
+       and `aria-current` carries it for anyone who sees neither. */
+    <Btn
+      data-flat="true"
+      on={current}
       data-current={current ? "true" : undefined}
       aria-current={current ? "page" : undefined}
       aria-label={unreadable ? `${identity}, teks tidak terbaca` : identity}
       onClick={() => onPick(page.id)}
-      className="flex shrink-0 flex-col items-center gap-2 pb-2"
-      style={{
-        // The open page is marked by a RULE and by the weight of its number,
-        // never by a hue alone. Amber means a decision is owed on a piece of
-        // evidence; where the operator happens to be standing is not that.
-        borderBottom: current ? "2px solid var(--ink)" : "2px solid transparent",
-      }}
+      className="h-auto shrink-0 flex-col px-2 py-2"
     >
       {/* A page whose OCR found nothing draws as a struck sheet rather than as
           a blank one, so the operator can see BEFORE drawing that snapping
@@ -374,6 +391,11 @@ const PageGlyph = memo(function PageGlyph({
         label={`denah halaman ${ordinal + 1}`}
         decorative
       />
+      {/* `--ink` and `--ink-3` READ THROUGH THE KEY'S OWN LADDER, which is why
+          this needs no special case for the selected face: `.lt-btn[data-on]`
+          rebinds the ink tokens to the petrol face's dark ink, so the same two
+          declarations land on the table's ink at rest and on the key's ink when
+          it is on. */}
       <span
         className="lt-figure text-[0.8125rem] leading-none"
         style={{
@@ -383,7 +405,7 @@ const PageGlyph = memo(function PageGlyph({
       >
         {ordinal + 1}
       </span>
-    </button>
+    </Btn>
   );
 });
 
@@ -1055,8 +1077,11 @@ export function ZoneEditor({
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        {/* THE ONE MEMORABLE OBJECT ON THIS SCREEN, and the only slab that
-            casts a plate. Everything else is furniture around it. */}
+        {/* THE ONE MEMORABLE OBJECT ON THIS SCREEN, and the only FULL block on
+            it: `plate` picks `.lt-slab` here and `.lt-slab-flat` for the two
+            readout blocks beside it. Nothing casts a hard offset shadow any
+            more, so the difference is lit-block against furniture; see the
+            note on `Slab` above. Everything else is furniture around it. */}
         <Slab
           plate
           name="Halaman"
@@ -1175,10 +1200,16 @@ export function ZoneEditor({
                       PAINTED IN `--paper`, NOT IN `--ink`. `.lt-paper` rebinds
                       the ink tokens to the sheet's own dark values, so this
                       chip was dark text on a near-black ground: an instruction
-                      that was, measurably, not there. */}
+                      that was, measurably, not there.
+
+                      `rounded-sm` IS THE FIGURE STEP, 8px, and it is the whole
+                      of what this chip needed from the restyle: a square corner
+                      is the one gesture the client named, and the radius scale
+                      has four values so that a small object standing on the
+                      evidence takes the smallest. */}
                   {!draft && canDraw ? (
                     <p
-                      className="pointer-events-none absolute inset-x-0 top-6 mx-auto w-fit px-4 py-2 text-sm"
+                      className="pointer-events-none absolute inset-x-0 top-6 mx-auto w-fit rounded-sm px-4 py-2 text-sm"
                       style={{
                         background: "var(--mat)",
                         color: "var(--paper)",
@@ -1229,6 +1260,18 @@ export function ZoneEditor({
                           height: pct(box.h, page.heightPx),
                         }}
                       />
+                      {/* ONLY GEOMETRY IS INLINE HERE, AND THE ONE
+                          DECLARATION THAT LEFT IS WORTH RECORDING. `.lt-zone`
+                          marks the edge with an outline, and CSS outlines
+                          paint OUTSIDE the element box, so the rectangle on
+                          screen would be two pixels larger on every side than
+                          the one that gets cut. `outline-offset: -2px` pulls
+                          it back inside, and `globals.css` now carries that on
+                          the class itself; this file was setting it a second
+                          time. A marker drawn a few pixels off the cut is the
+                          picture of a lie this module exists to avoid, so if
+                          the class ever loses the offset it has to come back
+                          here. */}
                       <div
                         className="lt-zone"
                         style={{
@@ -1236,13 +1279,6 @@ export function ZoneEditor({
                           top: pct(box.y, page.heightPx),
                           width: pct(box.w, page.widthPx),
                           height: pct(box.h, page.heightPx),
-                          // `.lt-zone` marks the edge with an outline, and CSS
-                          // outlines paint OUTSIDE the element box: without
-                          // this the rectangle on screen is two pixels larger
-                          // on every side than the one that gets cut. A marker
-                          // drawn a few pixels off the cut is the picture of a
-                          // lie this module exists to avoid.
-                          outlineOffset: "-2px",
                         }}
                       />
                     </>
@@ -1267,7 +1303,10 @@ export function ZoneEditor({
                       Drawn in pencil on the paper rather than in a product hue:
                       the advisory beside the register says what it means, and
                       neither of this product's two hues means "look here as
-                      well". 2px, because this system has no 1px rule. */}
+                      well". 2px because that is the weight of every other mark
+                      on this overlay -- `.lt-zone`'s outline and `.lt-guide`'s
+                      rule are both 2px -- and a mark ON the evidence is not one
+                      of the interface's hairlines. */}
                   {strayLines.map((line) => (
                     <div
                       key={`stray-${line.i}`}
@@ -1459,11 +1498,16 @@ export function ZoneEditor({
           drawing happens at the bottom of a page and committing used to happen
           at the top of the document, so every correction ended in a scroll away
           from the evidence. The view steps and the whole-page capture used to
-          sit under the picture, which put the hand in three places. */}
-      <div
-        className="lt-rail sticky bottom-0 z-10 flex flex-col gap-2 p-4"
-        style={{ borderTop: "3px solid var(--edge)" }}
-      >
+          sit under the picture, which put the hand in three places.
+
+          GLASS, BECAUSE IT STAYS STILL while the page scrolls under it, which
+          is the one question that decides the material here. It draws no border
+          of its own: `.lt-rail::before` lays a bright hairline along the top
+          edge, which is the edge a bottom-pinned rail catches the light on, and
+          the 3px `--edge` rule this carried was a second and dimmer line under
+          it -- a stamped-plate weight on the one screen that has to look like a
+          work surface. */}
+      <div className="lt-rail sticky bottom-0 z-10 flex flex-col gap-2 p-4">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="lt-label">Tampilan</span>

@@ -35,11 +35,15 @@
  * EVERY SECTION IS A SLAB AND ITS NAME IS THE KOP. The packet's own structure
  * is the only grouping this screen is allowed to invent, so the docx sections
  * are the blocks and the kop carries what each one still owes at its right. The
- * kop is the status channel: amber across its full width while a section holds a
- * proposal, red when one of its captures can never produce a picture, which is
- * legible from across the room and costs no component a rule to remember. Red
- * outranks amber, exactly as `owedBy` orders them in the plate: a decision the
- * operator cannot make is not work waiting, it is something broken.
+ * kop is the status channel: a 4px amber rule down its leading edge over a 12%
+ * tint of its own ground while a section holds a proposal, the same in red when
+ * one of its captures can never produce a picture. That reads down a column of
+ * stacked slabs at a glance and costs no component a rule to remember. It is
+ * deliberately NOT a bar of saturated colour under light text -- the leading
+ * rule is the loudest of the three channels the kop has and the one that
+ * survives a fast scroll. Red outranks amber, exactly as `owedBy` orders them
+ * in the plate: a decision the operator cannot make is not work waiting, it is
+ * something broken.
  * `data-owes="done"` is deliberately unused: it paints the kop petrol, and this
  * design's promise is that a finished packet is a screen with NO colour left on
  * it. A section with nothing owed says so in words instead.
@@ -271,27 +275,34 @@ function useStickyOffset(): number {
  * ------------------------------------------------------------------ */
 
 /**
- * The kop's own mark inherits the bar's colour.
+ * THE KOP'S OWN MARK TAKES THE BAR'S INK, AND THE STYLESHEET NOW OWNS THAT.
  *
- * `.lt-hint` is drawn in `--ink-3`, which is a token for text on the table. The
- * kop is a bar of ink, and an amber one when the block owes a decision, so a
- * fixed token there is either invisible or wrong on one of the two grounds.
- * Rebinding the two tokens the hint reads to `currentColor` makes the mark take
- * whatever the bar is using, in both states, with no component branching on it.
- * The panel is portalled out of here, so it keeps the table's own values.
+ * The defect is worth keeping on the record because it is the kind that gets
+ * re-derived: `.lt-hint` is drawn in `--ink-3`, a token for text on the table,
+ * and a kop that reports something is a tint of its own block, so a fixed token
+ * there is wrong on one of the two grounds. This file used to carry a `KOP_INK`
+ * constant that rebound `--ink` and `--ink-3` to `currentColor` on the span
+ * holding the mark.
+ *
+ * It rebound TWO of the five tokens a coloured kop has to move, and it rebound
+ * them unconditionally, so on a plain kop the question mark came out at full
+ * ink instead of `.lt-hint`'s own quiet value. `.lt-kop[data-owes] > *` in
+ * `globals.css` now rebinds all five, on the bar's children and never on the
+ * bar itself (the bar's own fill is written in terms of `--mark` and `--gap`,
+ * so rebinding them on the element resolves its background to near-white and
+ * silently deletes the status channel). Every kop in the product gets it, and a
+ * component that forgets cannot be wrong any more. The panel is portalled out
+ * of the bar, so it keeps the table's own values either way.
  */
-const KOP_INK = {
-  "--ink-3": "currentColor",
-  "--ink": "currentColor",
-} as CSSProperties;
 
 /**
  * EVERY BLOCK ON THIS SCREEN IS A SLAB, and every slab opens with a kop.
  *
  * The kop carries the block's name and, at its right, what the block still owes.
- * That right-hand figure is the block's whole status in words, and the bar's own
- * colour is the same fact at a glance: amber while a decision is owed, red for a
- * fault. A block with neither is the neutral case and most of them are.
+ * That right-hand figure is the block's whole status in words, and the leading
+ * rule and faint tint `data-owes` puts on the bar are the same fact at a
+ * glance: amber while a decision is owed, red for a fault. A block with neither
+ * is the neutral case and most of them are.
  */
 function Slab({
   id,
@@ -341,11 +352,7 @@ function Slab({
         >
           {title}
         </h2>
-        {hint ? (
-          <span className="flex items-center" style={KOP_INK}>
-            {hint}
-          </span>
-        ) : null}
+        {hint ? <span className="flex items-center">{hint}</span> : null}
         {/* `.lt-kop-right` is the system's own place for what a block owes, so
             every kop in the product lands it on the same pixel. */}
         {meta ? <span className="lt-kop-right shrink-0">{meta}</span> : null}
@@ -1025,7 +1032,18 @@ function Sheet({
                       aria-label={
                         open ? displayLabel(entry.def.label) : undefined
                       }
-                      className="border-s-2 ps-4"
+                      // THE LEADING RULE, at the width and the shape the rest
+                      // of the system draws one: 3px with rounded ends, which
+                      // is `.lt-notice`'s rule exactly. It was a 2px square
+                      // border, the only leading mark in the product not in
+                      // that family (a kop's is 4px, a band's 4px, an
+                      // advisory's a 3px pill), and a hard square 2px edge is
+                      // the stamped-plate gesture the material rejects.
+                      //
+                      // It is always drawn, transparent when this is not the
+                      // cursor, so a row does not shift sideways when the
+                      // keyboard arrives on it.
+                      className="rounded-s-[3px] border-s-[3px] ps-4"
                       style={{
                         scrollMarginTop: offset + 16,
                         // The cursor is INK, never amber. A keyboard position
@@ -1291,10 +1309,40 @@ function ManualRow({ label }: { label: string }) {
  * The pieces below the sheet's own hierarchy.
  * ------------------------------------------------------------------ */
 
-/** A key in the shortcut legend. Mono, because it is a thing to be typed. */
+/**
+ * A key in the shortcut legend. Mono, because it is a thing to be typed.
+ *
+ * IT IS THE PRESSED KEY THE WHOLE CONTROL FAMILY IS BUILT ON, at legend size.
+ * It used to be a 2px outline with its own radius: a decorative hard border,
+ * which is the half of the rejected system that had no business surviving, and
+ * the one object in the product that literally IS a keycap wearing none of the
+ * gesture every button on the screen wears.
+ *
+ * The face, the ink and the lip are the button's own tokens rather than a
+ * hand-picked grey, so the key in the legend and the key under the operator's
+ * finger are the same object; `--btn-ink` on `--btn` measures 6.36:1 and the
+ * lip's 1.5px ring draws the boundary. `--plate-sm` is the shallower shelf the
+ * system declares for exactly this, a pressed thing smaller than a control, and
+ * `margin-bottom` reserves its height because a box-shadow takes no layout
+ * space -- the same reserve `.lt-btn` makes, derived from the same `--lip-h` so
+ * the two cannot drift.
+ *
+ * NOT a `.lt-btn`: this is a picture of a key, not a control, so it carries no
+ * 44px hit area, no hover and no press. The radius is the figure step, which is
+ * what a state box and a kotak isian already take, so all three read as one
+ * family at one size.
+ */
 function Key({ children }: { children: ReactNode }) {
   return (
-    <kbd className="lt-figure rounded-sm border-2 border-line-strong px-2 text-[0.8125rem] text-ink">
+    <kbd
+      className="lt-figure inline-flex min-w-7 items-center justify-center rounded-sm px-2 py-0.5 text-[0.8125rem] font-bold"
+      style={{
+        background: "var(--btn)",
+        color: "var(--btn-ink)",
+        boxShadow: "var(--plate-sm)",
+        marginBottom: "calc(var(--lip-h) - 1px)",
+      }}
+    >
       {children}
     </kbd>
   );
@@ -1374,9 +1422,19 @@ function BulkConfirm({
           </Hint>
         </p>
 
-        <ul className="lt-figure flex flex-col gap-2 text-[0.8125rem] text-ink">
+        {/* ONE RULED BOX PER NAME, which is what the rest of the product does
+            with a figure quoted out of a document: the page reference on every
+            collapsed row, the berkas and baris of every citation. A bare mono
+            list read as a code listing, and this is a list the operator is
+            asked to READ, one line at a time, before pressing the one control
+            that can accept several crops at once. Stacked rather than wrapped,
+            so each name keeps its own line and a long one cannot be split
+            across a wrap from its neighbour. */}
+        <ul className="flex flex-col items-start gap-2">
           {indexes.map((index) => (
-            <li key={index}>{names.get(index) ?? `bagian ke-${index + 1}`}</li>
+            <li key={index} className="lt-kotak">
+              {names.get(index) ?? `bagian ke-${index + 1}`}
+            </li>
           ))}
         </ul>
 
@@ -1416,10 +1474,15 @@ function BulkConfirm({
 function ManualLines({ rows }: { rows: { title: string; fields: string }[] }) {
   return (
     <ul className="flex flex-col">
+      {/* A HAIRLINE, NOT A 2px RULE. `--line` is separation between content and
+          nothing else, and a 2px border used to divide a list is the decorative
+          hard edge the material rejects. Seven of these stacked at 2px read as
+          a stamped grid; at 1px they read as a register, which is what a list
+          of sections the operator fills in by hand is. */}
       {rows.map((row, i) => (
         <li
           key={`${row.title}-${i}`}
-          className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b-2 border-line py-2 last:border-b-0"
+          className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b border-line py-2 last:border-b-0"
         >
           <span className="lt-figure text-[0.875rem] text-ink-2">
             {row.title}

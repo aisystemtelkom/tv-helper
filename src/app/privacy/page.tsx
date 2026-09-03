@@ -103,7 +103,7 @@
  */
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export const metadata = {
   title: "Kebijakan Privasi - tv-validator",
@@ -249,11 +249,6 @@ function Rule() {
  * a style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a
  * legend, this constant goes.
  */
-const KOP_ON_PAPER = {
-  color: "var(--paper)",
-  "--ink": "var(--paper)",
-} as CSSProperties;
-
 /**
  * The letterhead.
  *
@@ -263,7 +258,7 @@ const KOP_ON_PAPER = {
  */
 function Kop() {
   return (
-    <div className="lt-kop" style={KOP_ON_PAPER}>
+    <div className="lt-kop">
       <span className="lt-wordmark">tv-validator</span>
     </div>
   );

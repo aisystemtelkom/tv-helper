@@ -21,11 +21,13 @@
  * rectangle is wrong. The transcript is a closed disclosure now, and the
  * picture is the hero.
  *
- * THE PLATE IS A SLAB, AND ITS KOP IS THE STATUS CHANNEL. One bone edge, one
- * hard plate, and a bar of ink across the top carrying the bagian's name on the
- * left and its state on the right. The bar turns amber when this bagian owes a
- * decision and red when something under it failed, so a plate's state is
- * legible from across the room instead of being a small mark to hunt for.
+ * THE PLATE IS A SLAB, AND ITS KOP IS THE STATUS CHANNEL. A lifted block, and
+ * a header bar across the top carrying the bagian's name on the left and its
+ * state on the right. The bar takes a 4px amber rule down its leading edge and
+ * a 12% tint of its own ground when this bagian owes a decision, red when
+ * something under it failed, so a plate's state is legible from across the room
+ * instead of being a small mark to hunt for. It is a TINT AND A RULE, never a
+ * saturated bar under light text: that gesture is the one the client named.
  *
  * A CONFIRMED PLATE GETS NO COLOUR AT ALL, which is why `data-owes="done"` is
  * not used here: it paints the bar petrol, and this product's oldest rule is
@@ -33,13 +35,23 @@
  * bars would be the loudest thing on a finished sheet.
  *
  * A COLOURED KOP IS A DIFFERENT GROUND, so it rebinds the ink tokens for its
- * children exactly as `.lt-paper` does for a sheet. Without that, `StateWord`
- * on an amber bar is `--mark` on `--mark` and `Hint`'s question mark is
- * `--ink-3` on amber, both about 1.4:1, which is to say invisible: two
- * components that read perfectly on the raised plane and disappear on the one
- * bar the design asks the operator to read first. The rebind is declared on the
- * bar's two child groups and NEVER on the bar itself; `ON_COLOURED_KOP` records
- * what happens to the amber when it is put one level up.
+ * children exactly as `.lt-paper` does for a sheet, AND THE STYLESHEET OWNS
+ * THAT REBIND NOW. Without it, `StateWord` on a marked bar is `--mark` on
+ * `--mark` and `Hint`'s question mark is `--ink-3` on the same tint: two
+ * components that read perfectly on the raised plane and go quiet on the one
+ * bar the design asks the operator to read first.
+ *
+ * This file used to declare that rebind itself, as `ON_COLOURED_KOP`, and the
+ * hazard it recorded is still live and still worth knowing: the rebind goes on
+ * the bar's CHILDREN and never on the bar. A custom property applies to the
+ * element that declares it as well as to its descendants, and the bar's own
+ * fill is written in terms of `--mark` and `--gap`, so declaring it one level
+ * up resolves that fill through the rebind and the bar comes out unpainted --
+ * the status channel silently deleting itself on exactly the plates that owe a
+ * decision, invisible in review because every plate that owes nothing still
+ * renders perfectly. `.lt-kop[data-owes] > *` in `globals.css` now does it for
+ * every kop in the product, on the children, so no component can forget and
+ * none can put it in the wrong place.
  *
  * THE ORDER OF THE PLATE IS THE DESIGN, and it is not free to rearrange:
  *   1. the crop, big enough to read small print, and MOUNTED rather than
@@ -125,7 +137,6 @@
  */
 
 import { useId, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 
 import type { SlotDef } from "@/lib/forms/template";
 import type { Box } from "@/lib/pipeline/render";
@@ -186,32 +197,6 @@ export function displayLabel(label: string): string {
   if (!token) return label;
   return TOKEN_LABELS[token[1]] ?? "(belum diisi)";
 }
-
-/**
- * What a coloured kop rebinds, and WHERE IT MAY BE PUT.
- *
- * The bar is `--mark` or `--gap` edge to edge, so every token that means "ink
- * on the raised plane" has to name the bar's own fill instead. `StateWord` and
- * `Hint` each hard-code one of these and would otherwise draw amber on amber at
- * about 1.4:1. The mechanism is `.lt-paper`'s, applied for the same reason: the
- * ground changed, so the ink has to.
- *
- * IT GOES ON THE KOP'S CHILDREN, NEVER ON THE KOP. A custom property declared
- * on an element applies to that element as well as to its descendants, and
- * `.lt-kop[data-owes]` paints itself `background: var(--mark)`. Put this on the
- * bar and that background resolves through the rebind to `var(--kop)`: the
- * amber goes away entirely and the bar comes out dark ink on dark ink, which is
- * the status channel silently deleting itself on exactly the plates that owe a
- * decision. It cost nothing to write and would have been invisible in review,
- * because every plate that does NOT owe anything still renders perfectly.
- */
-const ON_COLOURED_KOP = {
-  "--ink": "var(--kop)",
-  "--ink-2": "var(--kop)",
-  "--ink-3": "var(--kop)",
-  "--mark": "var(--kop)",
-  "--gap": "var(--kop)",
-} as CSSProperties;
 
 /** What the kop reports about the block under it. */
 type Owes = "decision" | "fault" | undefined;
@@ -276,11 +261,18 @@ const CROP_CAP: Record<CropCap, { height: string; width: string }> = {
 
 /**
  * The mount's own inset, both sides: 12px of mat, 12px of stage padding and the
- * stage's 3px edge. The cap is a limit on the PICTURE, so the frame has to ask
- * for that much more than the picture may be, or a 70vh cap quietly becomes
- * 70vh minus the mount.
+ * stage's 1px edge, so 25 a side and 50 across. The cap is a limit on the
+ * PICTURE, so the frame has to ask for that much more than the picture may be,
+ * or a 70vh cap quietly becomes 70vh minus the mount.
+ *
+ * IT WAS 54, WHICH IS THE SAME ARITHMETIC OVER A 3px STAGE EDGE. The stage
+ * wears a 1px hairline now -- a solid block is separated by its fill and only
+ * needs its edge described -- and this number did not follow it, so every crop
+ * on the sheet was mounted 4px wider than its own cap allowed. Small, and the
+ * kind of small that is invisible until somebody re-derives the wrong figure
+ * from it. If `.lt-stage`'s border or either padding moves, this moves with it.
  */
-const MOUNT_INSET_PX = 54;
+const MOUNT_INSET_PX = 50;
 
 type CropCondition = "ready" | "waiting" | "broken" | "unrenderable";
 
@@ -331,6 +323,15 @@ function CropFrame({
       <div className="lt-stage" style={mount}>
         <div className="lt-mat">
           {condition === "ready" && url ? (
+            /* NOTHING ROUNDS THE EVIDENCE. `overflow-hidden` clips the picture
+               to this box's corner, and `.lt-mat .lt-paper` in `globals.css` is
+               what makes that corner `--sheet-corner` (2px) rather than the
+               block radius a full sheet takes: a crop is a photograph of a
+               document, its own edge is the boundary the operator is paid to
+               judge, and 20px rounds about 1250 square pixels off each corner
+               of a 300 DPI crop. Checked here rather than assumed, because the
+               rule is a DESCENDANT selector and it is this element it has to
+               reach. */
             <div className="lt-paper overflow-hidden" style={picture}>
               {/* eslint-disable-next-line @next/next/no-img-element -- a blob
                   URL cut in this tab from a document that must never leave it;
@@ -341,9 +342,18 @@ function CropFrame({
             /* Same family as `broken`: the picture is not coming. Different
                sentence, because the cause is different and the operator can act
                on knowing which. Hatched rather than lit, for the reason
-               below. */
+               below.
+
+               THE CORNER IS THE SHEET'S, and the three stand-ins take it by
+               hand because their own classes are shaped for elsewhere: a hatch
+               carrying words is a block and rounds to 20px, a well is a control
+               and rounds to 14px, and either one inside an 8px mat runs the
+               nest backwards -- the innermost box rounder than the mount
+               holding it. The claim above this component is that the mount is
+               IDENTICAL in all four conditions, and a corner that changes when
+               the picture lands is that claim being not quite true. */
             <div
-              className="lt-hatch text-gap grid place-items-center p-4 text-center text-[0.8125rem]"
+              className="lt-hatch text-gap grid place-items-center rounded-[var(--sheet-corner)] p-4 text-center text-[0.8125rem]"
               style={picture}
             >
               Halaman gagal dibuka
@@ -354,7 +364,7 @@ function CropFrame({
                blank lit sheet would invent exactly the picture this product
                exists to prevent: a plausible empty page. */
             <div
-              className="lt-hatch text-gap grid place-items-center p-4 text-center text-[0.8125rem]"
+              className="lt-hatch text-gap grid place-items-center rounded-[var(--sheet-corner)] p-4 text-center text-[0.8125rem]"
               style={picture}
             >
               Halamannya sudah tidak ada
@@ -364,7 +374,7 @@ function CropFrame({
                document lying on the table, and a white rectangle here would
                read as a blank scan. */
             <div
-              className="lt-well text-ink-2 grid place-items-center p-4 text-center text-[0.8125rem]"
+              className="lt-well text-ink-2 grid place-items-center rounded-[var(--sheet-corner)] p-4 text-center text-[0.8125rem]"
               style={picture}
             >
               Menyiapkan potongan
@@ -689,9 +699,19 @@ function CaptureRow({
                 {showState ? (
                   <>
                     <StateWord status={state.status} />
+                    {/* WHICH OF THE SLOT'S CAPTURES THIS IS, as a label and a
+                        ruled box rather than as one run of mono. It is a figure
+                        a reader compares -- 1 of 2 against 2 of 2, down a
+                        stacked pair -- which is the kotak isian's whole job,
+                        and it is the same label-then-box pair `Sumber` prints
+                        three of a few centimetres to the right. One family, one
+                        roundness, one weight. */}
                     {ordinal ? (
-                      <span className="lt-figure text-ink-2 text-[0.8125rem]">
-                        potongan {ordinal}/{maxOrdinal}
+                      <span className="flex items-center gap-2">
+                        <span className="lt-label">potongan</span>
+                        <span className="lt-kotak">
+                          {ordinal}/{maxOrdinal}
+                        </span>
                       </span>
                     ) : null}
                   </>
@@ -898,7 +918,9 @@ export function ProposalPlate({
    */
   if (!entry.def.fillable) {
     return (
-      <div className="border-line flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t-2 py-2">
+      /* A hairline, not a 2px rule: `--line` separates content and a heavy
+         border used as decoration is the stamped edge the material rejects. */
+      <div className="border-line flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="lt-hatch h-4 w-8 shrink-0" aria-hidden="true" />
           <h3 className="lt-figure text-ink-2 text-[0.875rem] font-bold">
@@ -937,7 +959,7 @@ export function ProposalPlate({
 
   return (
     <article aria-labelledby={headingId} className="lt-slab">
-      {/* ONE BAR OF INK, and everything on it varies from order to order: which
+      {/* ONE HEADER BAR, and everything on it varies from order to order: which
           bagian this is, which state it is in, and whether it is short a
           picture. The definition that used to sit under it is one question mark
           away, at the end of the name it defines. */}
@@ -948,10 +970,7 @@ export function ProposalPlate({
             to grow, the question mark was pushed across the kop and came to
             rest beside the state word, where it reads as an explanation of the
             state rather than of the field. */}
-        <div
-          className="flex min-w-0 items-center gap-2"
-          style={owes ? ON_COLOURED_KOP : undefined}
-        >
+        <div className="flex min-w-0 items-center gap-2">
           <h3 id={headingId} className="lt-figure min-w-0">
             {label}
           </h3>
@@ -973,11 +992,12 @@ export function ProposalPlate({
             sheet: it is the difference between a packet that is finished and
             one that is silently short a picture. It is the only figure in this
             bar, so it survives a fast scroll. `lt-kop-right` is what puts it
-            and the state word where every other kop in the product puts them. */}
-        <span
-          className="lt-kop-right flex items-center gap-2"
-          style={owes ? ON_COLOURED_KOP : undefined}
-        >
+            and the state word where every other kop in the product puts them.
+            Both this group and the name group opposite are DIRECT children of
+            the bar, which is what `.lt-kop[data-owes] > *` selects: a wrapper
+            slipped between them and the kop would take the rebind with it and
+            leave these two on the table's ink. */}
+        <span className="lt-kop-right flex items-center gap-2">
           {multi ? (
             <span className="lt-figure">
               {entry.found} dari {entry.states.length} potongan
@@ -991,7 +1011,10 @@ export function ProposalPlate({
         {entry.states.map((placed, i) => (
           <div
             key={`${entry.def.key}-${placed.index}`}
-            className={i > 0 ? "border-line border-t-2 pt-6" : undefined}
+            /* The rule between two captures of one slot: a hairline, which is
+               all `--line` is for. It divides two pictures of the same bagian,
+               so it must not read as heavily as the kop that opens the block. */
+            className={i > 0 ? "border-line border-t pt-6" : undefined}
           >
             <CaptureRow
               run={run}

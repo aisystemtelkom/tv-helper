@@ -6,16 +6,18 @@
  * the app. For a product organised against quiet failure, the failure screens
  * are not polish.
  *
- * It renders inside the root layout, so it inherits the graphite table and the
+ * It renders inside the root layout, so it inherits the table and the
  * self-hosted type, and the message is a sheet lying on that table, opening
  * with the same kop as `signin`, `error`, `global-error` and `loading`. That
  * file's header comment carries the one thing to know before editing any of
- * them: which classes survive the paper rebind and which two do not.
+ * them: which classes survive the paper rebind and which do not.
  *
- * THE KOP IS NEUTRAL HERE, on purpose. Nothing failed. A mistyped address is
- * not a fault of the app's, and spending the correction pen on it is how red
- * stops meaning anything by the time something really does break. The figure
- * on the right is the one thing worth quoting to an administrator.
+ * THE KOP IS NEUTRAL HERE, on purpose, and under the glass bench that is a
+ * plain masthead of ink with no leading rule at all. Nothing failed. A
+ * mistyped address is not a fault of the app's, and spending the correction
+ * pen on it is how red stops meaning anything by the time something really
+ * does break. The figure on the right is the one thing worth quoting to an
+ * administrator, and it is set in the mono because it is a figure.
  *
  * TWO THINGS TO KNOW BEFORE EDITING THIS FILE.
  *
@@ -32,36 +34,45 @@
  */
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
 
 /**
- * What a kop costs on paper, in one place.
+ * What a kop costs on paper, in one place, and it is now ONE declaration
+ * rather than two.
  *
- * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
- * paints ink on ink. `color` carries the bar itself and survives the fault
- * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
- * child that names the token, which is how `.lt-wordmark` stops needing a
- * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
- * this constant goes.
+ * The `color: var(--paper)` that used to sit beside this is gone:
+ * `globals.css` gives `.lt-paper .lt-kop` a legend of its own and states in
+ * its own comment that the inline copy is what that rule makes redundant. An
+ * inline style restating a class is a second place to keep a colour in step.
+ *
+ * WHAT THE STYLESHEET DOES NOT DO IS REBIND `--ink` ON THE BAR. `.lt-paper`
+ * rebinds it to `--paper-ink`, which is also the masthead's own ground, so
+ * `.lt-wordmark` -- which paints `color: var(--ink)` -- is ink on ink at 1:1
+ * without this line. The bench rule `.lt-kop[data-owes] > *` happens to hand
+ * the same value to the children of a bar that REPORTS something, so on
+ * `error.tsx` this restates it; a bar that reports nothing has no rule to
+ * match it at all, and that is `not-found.tsx` and `loading.tsx`. It is
+ * written identically in all three so that a screen gaining or losing
+ * `data-owes` cannot make the wordmark disappear. `signin/page.tsx` carries
+ * the same constant. If `globals.css` ever adds `--ink: var(--paper)` to
+ * `.lt-paper .lt-kop`, all four go.
  */
-const KOP_ON_PAPER = {
-  color: "var(--paper)",
-  "--ink": "var(--paper)",
-} as CSSProperties;
-
 export default function NotFound() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
       <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
         <div className="lt-paper overflow-hidden">
-          <div className="lt-kop" style={KOP_ON_PAPER}>
+          <div className="lt-kop">
             <span className="lt-wordmark">tv-validator</span>
             {/* `.lt-kop-right` rather than a margin utility: one class puts
                 the state at the same end of every kop in the product. */}
             <span className="lt-figure lt-kop-right">404</span>
           </div>
 
-          <div className="lt-slab-body flex flex-col gap-6 p-6">
+          {/* `.lt-paper-body`, not `.lt-slab-body` under a `p-6` that overrode
+              it. A sheet takes the sheet's own padding step, and the 3px the
+              slab body used to hold clear was room for a double-ruled kop that
+              no longer exists: a paper masthead carries no bottom border. */}
+          <div className="lt-paper-body flex flex-col gap-6">
             {/* An h1, not the shared `Title`: this is the top of the document
                 and `Title` renders an h2. */}
             <h1 className="lt-title">Halaman tidak ada.</h1>

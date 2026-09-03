@@ -39,7 +39,6 @@ import {
   useRef,
   useState,
   useTransition,
-  type CSSProperties,
 } from "react";
 
 import { Btn, Notice, TechnicalDetail } from "@/components/operator/chrome";
@@ -85,53 +84,49 @@ const ROLE_LABEL: Record<Role, string> = {
 };
 
 /**
- * THE PAPER GROUND, in tokens.
+ * THE PAPER GROUND MOVED INTO `globals.css`, AND THIS NOTE IS WHY IT EXISTED.
  *
- * `globals.css` defines the ink, the rules and the correction pen against the
- * graphite table, which is the ground almost everything in this product sits
- * on. The register is the exception the design names: it is a document, so it
- * lies on `.lt-paper`, and on paper every one of those values is wrong.
- * Near-white ink on warm white is invisible, and `--gap` at oklch lightness
- * 0.72 measures 2.6:1 against `--paper` (`#fb766a` on `#fcfbf8`), under the
- * floor for a rule and far under it for text. `--mark` is worse at 1.6:1,
- * which is one reason nothing on this sheet is amber: an allowlist row owes no
- * decision, so the one hue that means "a decision is owed here" has no
- * business on it.
+ * Kept rather than deleted with the constant, because the reasoning is what a
+ * later pass would otherwise re-derive from scratch after re-introducing the
+ * bug. This file used to carry a `PAPER_GROUND` object of a dozen custom
+ * properties and hand it to the same element that already had the `.lt-paper`
+ * class. That was a copy of the stylesheet living in a component.
  *
- * Rather than hand-pick a colour at every call site, the sheet re-declares the
- * tokens for the ground it actually is. Everything inside inherits them: the
- * `.lt-*` classes, the `.lt-coretan` strike (its `::after` reads `var(--gap)`
- * off the element it is drawn on), and, most importantly, the global
- * `:focus-visible { outline: 2px solid var(--ink) }` rule, which without this
- * would draw a near-white outline on white paper and leave a keyboard user
- * pressing Enter on a remove button they cannot see themselves land on.
+ * The argument was, and still is: `globals.css` defines the ink, the rules and
+ * the correction pen against the graphite table, which is the ground almost
+ * everything in this product sits on. The register is the exception the design
+ * names: it is a document, so it lies on `.lt-paper`, and on paper every one
+ * of those values is wrong. Near-white ink on warm white is invisible, the
+ * bench's `--gap` measures 2.07:1 against `--paper` and its `--mark` 1.51:1 --
+ * under the floor for a rule and far under it for text. That last figure is
+ * one reason nothing on this sheet is amber anyway: an allowlist row owes no
+ * decision, so the hue that means "a decision is owed here" has no business on
+ * it.
  *
- * THIS BELONGS IN `globals.css`, on `.lt-paper` itself. It is written here
- * because that file is owned elsewhere; the report that landed this screen
- * asks for it to move.
+ * `.lt-paper` now rebinds every one of them itself, with the ratios measured
+ * in the comment beside the rule: `--ink`, `--ink-2`, `--ink-3`, `--line`,
+ * `--line-control`, `--line-strong`, `--edge`, `--surface-sunk`, `--gap`,
+ * `--mark`, the whole button family, and `--focus-ring`. The last of those is
+ * the one this constant was really written for: the global
+ * `:focus-visible { outline: 2px solid var(--focus-ring) }` would otherwise
+ * draw a near-white outline on white paper and leave a keyboard user pressing
+ * Enter on a remove button they cannot see themselves land on. It is spelled
+ * out on `.lt-paper` as `var(--ink)`, which computes against the paper ink the
+ * same rule has just set, at 15.65:1.
+ *
+ * `--surface` is the only member of the old list that is NOT rebound, and it
+ * does not need to be: this constant set it because `.lt-btn[data-tone=
+ * "primary"]` used to paint its label `var(--surface)`. That button is petrol
+ * with `--petrol-ink` now, and `var(--surface)` survives in exactly three
+ * places in the stylesheet -- the `html` background, the `@theme` map, and the
+ * shadcn `--background` alias -- none of which anything on this sheet paints.
+ * Checked rather than assumed: no `bg-background` or `bg-surface` utility
+ * appears anywhere in `src/`.
+ *
+ * SO: no inline token block on this screen. If a colour looks wrong on the
+ * register, fix it on `.lt-paper` where every sheet in the product gets it,
+ * not here where only this one does.
  */
-const PAPER_GROUND = {
-  "--ink": "var(--paper-ink)",
-  "--ink-2": "var(--paper-ink-2)",
-  // There is no third paper ink, and there should not be: the graphite ground
-  // has one because it has room to whisper. `--paper-ink-2` measures 7.1:1
-  // here, so quiet copy on this sheet is bought with size and position, which
-  // is the rule the type scale already follows.
-  "--ink-3": "var(--paper-ink-2)",
-  // The rule at full strength rather than a tint of it. It draws the register's
-  // own ruling, and `.lt-btn` takes its border from the same token: a remove
-  // control outlined at 45% of this would sit under the 3:1 floor for telling
-  // a control from its ground.
-  "--line": "var(--paper-edge)",
-  "--line-strong": "var(--paper-ink-2)",
-  // The correction pen at a lightness that survives a white ground: 8.5:1 as a
-  // rule and as text, and still 5.1:1 after `.lt-btn[data-tone="reject"]`
-  // mixes it 20% toward white for its label.
-  "--gap": "oklch(0.43 0.15 27)",
-  // `.lt-btn[data-tone="primary"]` paints its label `var(--surface)` on
-  // `var(--ink)`, so the sheet's own ground has to be the paper.
-  "--surface": "var(--paper)",
-} as CSSProperties;
 
 const MONTHS = [
   "Jan",
@@ -350,6 +345,27 @@ export function AllowlistEditor({
   const onlyBootstrap =
     rows.length === 1 && rows[0]?.entry.email === BOOTSTRAP_OWNER_EMAIL;
 
+  // What the register owes, and it is the STRUCK phase only.
+  //
+  // NOT `held.length > 0`, which is what this said first and which spent the
+  // correction pen a phase too early. A hold in `removing` is a write still in
+  // flight: nothing has been refused, nothing has failed, and nothing has been
+  // revoked yet either. The row itself already says so, deliberately, by
+  // setting "Menghapus…" in `--ink-2` rather than in the hue -- so turning the
+  // whole block red underneath it contradicted the one line that knew the
+  // truth, and it did it on EVERY removal, including the ones that go on to
+  // fail (the hold is dropped, the red vanishes, and the actual failure notice
+  // arrives afterwards). Red that comes and goes before the fault does is red
+  // an admin learns to read past, on the screen where it matters most.
+  //
+  // Struck is different and is the state worth a container-scale signal: the
+  // write landed, the row is voided, and access HAS NOT ENDED YET. That is
+  // this project's named failure class applied to access control, it is the
+  // reason the struck row exists at all, and the row and its annotation
+  // already carry `--gap` for it. A healthy register owes nothing and shows no
+  // colour, which is what makes the rule mean something when it appears.
+  const stillLive = held.some((hold) => hold.phase === "struck");
+
   return (
     <div className="flex flex-col gap-10">
       {/* The one place a removal reports itself, and the only live region on
@@ -360,209 +376,229 @@ export function AllowlistEditor({
         {removal ? <RemovalReport removal={removal} /> : null}
       </div>
 
-      <section
-        aria-labelledby={`${fieldId}-register`}
-        className="flex flex-col gap-4"
-      >
-        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="lt-title" id={`${fieldId}-register`}>
-              Orang yang punya akses
-            </h2>
+      {/* THE REGISTER IS A BLOCK, SO IT IS A SLAB THAT OPENS WITH A KOP. It
+          used to be a loose heading, a loose paragraph and a sheet, three
+          things on the bare bench with nothing saying they were one object.
+
+          THE KOP CARRIES WHAT THIS BLOCK OWES, and here that is not a decision
+          but a fault: while a struck row is still counting down, the register
+          is telling the admin that somebody's access HAS NOT ENDED YET. The
+          condition is `stillLive`, and the note on it above says why it is not
+          simply "any hold". */}
+      <section aria-labelledby={`${fieldId}-register`} className="lt-slab">
+        <div className="lt-kop" data-owes={stillLive ? "fault" : undefined}>
+          <h2 id={`${fieldId}-register`}>Orang yang punya akses</h2>
+          {/* The count of lines on the register, in the mono the rest of the
+              product sets a figure in, at the kop's one right-hand slot. */}
+          <span className="lt-kop-right lt-figure">{rows.length}</span>
+        </div>
+
+        <div className="lt-slab-body flex flex-col gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
             <p className="lt-note">
               Pemilik dan Administrator boleh menambah dan menghapus akses di
               halaman ini. Operator hanya membuka aplikasi dan mengerjakan
               pekerjaan.
             </p>
+
+            {rows.length > 8 ? (
+              <div className="flex flex-col gap-1.5">
+                <label className="lt-label" htmlFor={`${fieldId}-cari`}>
+                  Cari alamat
+                </label>
+                {/* `w-64` rather than an inline width. The utilities layer
+                    wins over `.lt-input`'s own `width: 100%`, so the field is
+                    sized by the same scale as everything else on the screen
+                    instead of by a literal only this file knows about. */}
+                <input
+                  id={`${fieldId}-cari`}
+                  type="search"
+                  className="lt-input w-64"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="sebagian alamat"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            ) : null}
           </div>
 
-          {rows.length > 8 ? (
-            <div className="flex flex-col gap-1.5">
-              <label className="lt-label" htmlFor={`${fieldId}-cari`}>
-                Cari alamat
-              </label>
-              <input
-                id={`${fieldId}-cari`}
-                type="search"
-                className="lt-input"
-                style={{ width: "16rem" }}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="sebagian alamat"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        <div className="lt-paper px-5 py-4" style={PAPER_GROUND}>
-          {/* The caption is the table's accessible name, so there is no
-              `aria-labelledby` here to override it: a screen reader landing on
-              the table hears what its four columns are before reading a
-              single address. */}
-          <table className="w-full border-collapse text-left">
-            <caption className="sr-only">
-              Daftar alamat email yang boleh masuk ke tv-validator, dengan
-              perannya, catatan siapa yang menambahkannya, dan tombol untuk
-              menghapus aksesnya.
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" className={`${HEAD} pr-4`} style={INK_2}>
-                  Alamat email
-                </th>
-                <th
-                  scope="col"
-                  className={`${HEAD} pr-4 whitespace-nowrap`}
-                  style={INK_2}
-                >
-                  Peran
-                </th>
-                <th
-                  scope="col"
-                  className={`${HEAD} pr-4 whitespace-nowrap`}
-                  style={INK_2}
-                >
-                  Ditambahkan
-                </th>
-                <th scope="col" className={`${HEAD} text-right`} style={INK_2}>
-                  Tindakan
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length === 0 ? (
-                <tr style={RULE}>
-                  <td colSpan={4} className="py-4 text-[0.875rem]">
-                    {needle ? (
-                      <>
-                        Tidak ada alamat yang memuat{" "}
-                        <span className="lt-figure">{query.trim()}</span>.
-                      </>
-                    ) : (
-                      // `allowlist().list()` always appends the bootstrap
-                      // owner, so this cannot happen today. It is written down
-                      // rather than left to render as an empty sheet, because
-                      // a register with no lines and no sentence reads as a
-                      // list that failed to load.
-                      "Belum ada satu pun alamat di daftar ini. Tambahkan orang lewat formulir di bawah."
-                    )}
-                  </td>
+          {/* THE SHEET, INSIDE THE BLOCK. The register is a document and takes
+              the product's one lit material; the block around it is the
+              furniture the document lies on. `.lt-paper-body` is the system's
+              own sheet padding, not the 20/16 this had. No token block: see
+              the note at the top of this file for where that went. */}
+          <div className="lt-paper lt-paper-body">
+            {/* The caption is the table's accessible name, so there is no
+                `aria-labelledby` here to override it: a screen reader landing
+                on the table hears what its four columns are before reading a
+                single address. */}
+            <table className="w-full border-collapse text-left">
+              <caption className="sr-only">
+                Daftar alamat email yang boleh masuk ke tv-validator, dengan
+                perannya, catatan siapa yang menambahkannya, dan tombol untuk
+                menghapus aksesnya.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" className={`${HEAD} pr-4`}>
+                    Alamat email
+                  </th>
+                  <th scope="col" className={`${HEAD} pr-4 whitespace-nowrap`}>
+                    Peran
+                  </th>
+                  <th scope="col" className={`${HEAD} pr-4 whitespace-nowrap`}>
+                    Ditambahkan
+                  </th>
+                  <th scope="col" className={`${HEAD} text-right`}>
+                    Tindakan
+                  </th>
                 </tr>
-              ) : null}
+              </thead>
+              <tbody>
+                {visible.length === 0 ? (
+                  <tr className={RULE}>
+                    <td colSpan={4} className="py-4 text-[0.875rem]">
+                      {needle ? (
+                        <>
+                          Tidak ada alamat yang memuat{" "}
+                          <span className="lt-figure">{query.trim()}</span>.
+                        </>
+                      ) : (
+                        // `allowlist().list()` always appends the bootstrap
+                        // owner, so this cannot happen today. It is written
+                        // down rather than left to render as an empty sheet,
+                        // because a register with no lines and no sentence
+                        // reads as a list that failed to load.
+                        "Belum ada satu pun alamat di daftar ini. Tambahkan orang lewat formulir di bawah."
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
 
-              {visible.map((row) => (
-                <Line
-                  key={row.entry.email}
-                  entry={row.entry}
-                  held={row.held}
-                  nowMs={nowMs}
-                  isSelf={row.entry.email === currentEmail}
-                  armed={armed === row.entry.email}
-                  onArm={() => setArmed(row.entry.email)}
-                  onCancel={() => setArmed(null)}
-                  onConfirm={() => submitRemoval(row.entry)}
-                  confirmId={`${fieldId}-hapus-${row.entry.email}`}
-                />
-              ))}
-            </tbody>
-          </table>
+                {visible.map((row) => (
+                  <Line
+                    key={row.entry.email}
+                    entry={row.entry}
+                    held={row.held}
+                    nowMs={nowMs}
+                    isSelf={row.entry.email === currentEmail}
+                    armed={armed === row.entry.email}
+                    onArm={() => setArmed(row.entry.email)}
+                    onCancel={() => setArmed(null)}
+                    onConfirm={() => submitRemoval(row.entry)}
+                    confirmId={`${fieldId}-hapus-${row.entry.email}`}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="lt-note">
+            <span className="lt-figure">{rows.length}</span> orang terdaftar.
+            Perubahan berlaku paling lambat{" "}
+            <span className="lt-figure">{GRACE_SECONDS}</span> detik.
+            {onlyBootstrap
+              ? " Baru pemilik bawaan yang ada di sini. Tambahkan operator lewat formulir di bawah."
+              : null}
+          </p>
         </div>
-
-        <p className="lt-note">
-          <span className="lt-figure">{rows.length}</span> orang terdaftar.
-          Perubahan berlaku paling lambat{" "}
-          <span className="lt-figure">{GRACE_SECONDS}</span> detik.
-          {onlyBootstrap
-            ? " Baru pemilik bawaan yang ada di sini. Tambahkan operator lewat formulir di bawah."
-            : null}
-        </p>
       </section>
 
-      <section
-        aria-labelledby={`${fieldId}-tambah`}
-        className="lt-panel flex flex-col gap-4 p-5"
-      >
-        <div className="flex flex-col gap-1">
-          <h2 className="lt-title" id={`${fieldId}-tambah`}>
-            Tambah orang
-          </h2>
+      {/* THE ONE PLACE A NEW LINE IS WRITTEN, so it keeps `.lt-panel` -- the
+          lifted member of the slab family, which `globals.css` records this
+          screen as using for a block standing on the bench. The register is
+          the record and this is the act, so the act sits a step above it.
+
+          The kop takes the block's name and reports a refused write. It never
+          takes amber: adding somebody is an action the admin chose, not a
+          decision the screen is owed. */}
+      <section aria-labelledby={`${fieldId}-tambah`} className="lt-panel">
+        <div
+          className="lt-kop"
+          data-owes={addState.status === "failed" ? "fault" : undefined}
+        >
+          <h2 id={`${fieldId}-tambah`}>Tambah orang</h2>
+        </div>
+
+        <div className="lt-slab-body flex flex-col gap-4">
           <p className="lt-note">
             Alamat yang sudah terdaftar tidak menambah baris baru: perannya yang
             diperbarui.
           </p>
-        </div>
 
-        <form action={addAction} className="flex flex-wrap items-end gap-4">
-          <div className="flex min-w-[18rem] grow flex-col gap-1.5">
-            <label className="lt-label" htmlFor={`${fieldId}-email`}>
-              Alamat Gmail
-            </label>
-            {/* Wide, because access is granted by exact string and this is the
-                one field where a typo quietly admits the wrong person. It used
-                to be 288px, which does not hold a real address. */}
-            <input
-              ref={emailField}
-              id={`${fieldId}-email`}
-              name="email"
-              type="email"
-              required
-              className="lt-input"
-              style={{ maxWidth: "28rem" }}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="operator@gmail.com"
-              autoComplete="off"
-              spellCheck={false}
-            />
+          <form action={addAction} className="flex flex-wrap items-end gap-4">
+            <div className="flex min-w-[18rem] grow flex-col gap-1.5">
+              <label className="lt-label" htmlFor={`${fieldId}-email`}>
+                Alamat Gmail
+              </label>
+              {/* Wide, because access is granted by exact string and this is
+                  the one field where a typo quietly admits the wrong person.
+                  It used to be 288px, which does not hold a real address. The
+                  cap is a utility now rather than an inline style: the
+                  utilities layer wins over `.lt-input`, so nothing is lost and
+                  the value stops being a literal only this file knows. */}
+              <input
+                ref={emailField}
+                id={`${fieldId}-email`}
+                name="email"
+                type="email"
+                required
+                className="lt-input max-w-[28rem]"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="operator@gmail.com"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="lt-label" htmlFor={`${fieldId}-peran`}>
+                Peran
+              </label>
+              {/* The roles are read as words, so the select is set in the app's
+                  own voice rather than in the figure face `.lt-input` carries
+                  for addresses. */}
+              <select
+                id={`${fieldId}-peran`}
+                name="role"
+                className="lt-input w-auto font-sans"
+                value={role}
+                onChange={(event) => setRole(event.target.value as Role)}
+              >
+                {ROLES.map((value) => (
+                  <option key={value} value={value}>
+                    {ROLE_LABEL[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <Btn type="submit" tone="primary" disabled={adding}>
+              {adding ? "Menambahkan…" : "Tambah"}
+            </Btn>
+          </form>
+
+          <div role="status" aria-live="polite">
+            {addState.status === "saved" ? (
+              <Notice>
+                Akses <span className="lt-figure">{addState.email}</span>{" "}
+                tercatat sebagai {ROLE_LABEL[addState.role]}. Kalau orang itu
+                baru saja ditolak waktu mencoba masuk, tunggu paling lambat{" "}
+                {GRACE_SECONDS} detik lalu coba lagi.
+              </Notice>
+            ) : null}
+            {addState.status === "failed" ? (
+              <Notice tone="stop">
+                <span>{addState.message}</span>
+                {addState.detail ? (
+                  <TechnicalDetail>{addState.detail}</TechnicalDetail>
+                ) : null}
+              </Notice>
+            ) : null}
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="lt-label" htmlFor={`${fieldId}-peran`}>
-              Peran
-            </label>
-            {/* The roles are read as words, so the select is set in the app's
-                own voice rather than in the figure face `.lt-input` carries for
-                addresses. */}
-            <select
-              id={`${fieldId}-peran`}
-              name="role"
-              className="lt-input font-sans"
-              style={{ width: "auto" }}
-              value={role}
-              onChange={(event) => setRole(event.target.value as Role)}
-            >
-              {ROLES.map((value) => (
-                <option key={value} value={value}>
-                  {ROLE_LABEL[value]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <Btn type="submit" tone="primary" disabled={adding}>
-            {adding ? "Menambahkan…" : "Tambah"}
-          </Btn>
-        </form>
-
-        <div role="status" aria-live="polite">
-          {addState.status === "saved" ? (
-            <Notice>
-              Akses <span className="lt-figure">{addState.email}</span> tercatat
-              sebagai {ROLE_LABEL[addState.role]}. Kalau orang itu baru saja
-              ditolak waktu mencoba masuk, tunggu paling lambat {GRACE_SECONDS}{" "}
-              detik lalu coba lagi.
-            </Notice>
-          ) : null}
-          {addState.status === "failed" ? (
-            <Notice tone="stop">
-              <span>{addState.message}</span>
-              {addState.detail ? (
-                <TechnicalDetail>{addState.detail}</TechnicalDetail>
-              ) : null}
-            </Notice>
-          ) : null}
         </div>
       </section>
     </div>
@@ -572,9 +608,22 @@ export function AllowlistEditor({
 // Padding-right is added per column rather than carried here and cancelled on
 // the last one: two utilities for the same property win by their order in the
 // generated stylesheet, not by their order in the class attribute.
-const HEAD = "py-2 text-[0.8125rem] font-semibold";
-const INK_2 = { color: "var(--ink-2)" } as const;
-const RULE = { borderTop: "1px solid var(--line)" } as const;
+//
+// THE COLOUR IS IN THE CLASS NOW, not in a `style` object handed to four
+// `<th>`s. `text-ink-2` resolves `--ink-2` at the element it lands on, so a
+// column heading reads as the sheet's second ink here and would read as the
+// bench's if this table were ever moved off paper. An inline
+// `color: var(--ink-2)` does the same thing, one call site at a time, with
+// nothing to stop the fifth call site spelling a literal instead.
+const HEAD = "py-2 text-[0.8125rem] font-semibold text-ink-2";
+
+// The register's own ruling. `.lt-paper-rule` is the stylesheet's line for a
+// sheet, so this file no longer decides what a rule on paper looks like. It
+// must NOT be `border-t` from Tailwind: that resolves `--border`, whose value
+// was computed at `:root` from the BENCH's `--line` and inherits down
+// unchanged, so it would draw the graphite rule on white paper. `--paper-edge`
+// is what a sheet is ruled with.
+const RULE = "lt-paper-rule";
 
 function RemovalReport({ removal }: { removal: Removal }) {
   if (removal.kind === "failed") {
@@ -641,7 +690,7 @@ function Line({
 
   return (
     <>
-      <tr style={RULE}>
+      <tr className={RULE}>
         <td className="py-2.5 pr-4 align-top">
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             {/* The strike lands on the ADDRESS, which is the entry's identity
@@ -654,16 +703,13 @@ function Line({
               {entry.email}
             </span>
             {isSelf ? (
-              <span className="text-[0.8125rem]" style={INK_2}>
-                akun Anda
-              </span>
+              <span className="text-[0.8125rem] text-ink-2">akun Anda</span>
             ) : null}
           </span>
         </td>
 
         <td
-          className="py-2.5 pr-4 align-top text-[0.8125rem] whitespace-nowrap"
-          style={struck ? INK_2 : undefined}
+          className={`py-2.5 pr-4 align-top text-[0.8125rem] whitespace-nowrap ${struck ? "text-ink-2" : ""}`}
         >
           {ROLE_LABEL[entry.role]}
         </td>
@@ -672,7 +718,7 @@ function Line({
             a hyphen for any entry imported before the fields existed, at the
             same weight as the address. It is one column now, and an empty one
             says what is missing rather than drawing a dash. */}
-        <td className="py-2.5 pr-4 align-top text-[0.8125rem]" style={INK_2}>
+        <td className="py-2.5 pr-4 align-top text-[0.8125rem] text-ink-2">
           {bootstrap ? (
             "ditulis di dalam aplikasi"
           ) : date || entry.addedBy ? (
@@ -693,17 +739,16 @@ function Line({
 
         <td className="py-2.5 text-right align-top">
           {bootstrap ? (
-            <span className="text-[0.8125rem]" style={INK_2}>
-              pemilik bawaan
-            </span>
+            <span className="text-[0.8125rem] text-ink-2">pemilik bawaan</span>
           ) : struck ? (
-            <span className="text-[0.8125rem]" style={{ color: "var(--gap)" }}>
-              dihapus
-            </span>
+            // The correction pen as PLAIN COLOURED TEXT, which is one of the
+            // shapes the two hues are allowed to take. Never a filled chip
+            // here: a fill would have to carry dark ink, and a word this small
+            // reversed out of red beside a struck address is the clashing
+            // gesture the whole palette was rebuilt to remove.
+            <span className="text-[0.8125rem] text-gap">dihapus</span>
           ) : removing ? (
-            <span className="text-[0.8125rem]" style={INK_2}>
-              Menghapus…
-            </span>
+            <span className="text-[0.8125rem] text-ink-2">Menghapus…</span>
           ) : (
             <Btn
               onClick={onArm}
@@ -718,7 +763,7 @@ function Line({
 
       {bootstrap ? (
         <tr>
-          <td colSpan={4} className="pb-2.5 text-[0.8125rem]" style={INK_2}>
+          <td colSpan={4} className="pb-2.5 text-[0.8125rem] text-ink-2">
             Tidak dapat dihapus, agar pemilik tidak pernah terkunci di luar.
           </td>
         </tr>
@@ -728,11 +773,7 @@ function Line({
           it is the sentence explaining why the line above still counts. */}
       {struck ? (
         <tr>
-          <td
-            colSpan={4}
-            className="pb-2.5 text-[0.8125rem]"
-            style={{ color: "var(--gap)" }}
-          >
+          <td colSpan={4} className="pb-2.5 text-[0.8125rem] text-gap">
             akses masih aktif, sisa <span className="lt-figure">{left}</span>{" "}
             detik
           </td>
@@ -740,41 +781,67 @@ function Line({
       ) : null}
 
       {armed ? (
-        <tr id={confirmId} style={RULE}>
+        <tr id={confirmId} className={RULE}>
           <td colSpan={4} className="py-3">
+            {/* THE ONE DESTRUCTIVE CONFIRMATION IN THE PRODUCT, AND IT HAS TO
+                LOOK LIKE ONE. It used to be an unmarked paragraph sitting in a
+                table cell, indistinguishable from the provenance line two rows
+                up, carrying a control with `autoFocus`.
+
+                `.lt-notice[data-tone="stop"]` is the system's shape for that:
+                a 3px rule of the correction pen down the leading edge and full
+                ink for the sentence. NOT `.lt-band`, which is the other
+                candidate and is wrong here for a measurable reason -- it tints
+                itself against `--surface-raised`, which is the BENCH's raised
+                slate and is not rebound on paper, so it would paint a dark box
+                in the middle of a white sheet.
+
+                The keys are inside it, so the rule runs down the whole
+                decision rather than down its explanation only. */}
             <div
-              className="flex flex-wrap items-start justify-between gap-4"
+              className="lt-notice"
+              data-tone="stop"
               onKeyDown={(event) => {
                 if (event.key === "Escape") onCancel();
               }}
             >
-              <div className="flex max-w-[46ch] flex-col gap-1">
-                <p className="text-[0.9375rem] font-semibold">
-                  Hapus akses <span className="lt-figure">{entry.email}</span>?
-                </p>
-                <p className="text-[0.8125rem]">
-                  Sesi yang sedang berjalan masih berlaku hingga {GRACE_SECONDS}{" "}
-                  detik setelah Anda menekan Hapus. Barisnya tetap di sini,
-                  dicoret, sampai hitungannya habis.
-                </p>
-                {isSelf ? (
-                  <p
-                    className="text-[0.8125rem]"
-                    style={{ color: "var(--gap)" }}
-                  >
-                    Ini akun Anda sendiri. Menghapusnya akan mengeluarkan Anda
-                    dari halaman ini.
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex max-w-[46ch] flex-col gap-1">
+                  <p className="text-[0.9375rem] font-semibold">
+                    Hapus akses{" "}
+                    <span className="lt-figure">{entry.email}</span>?
                   </p>
-                ) : null}
-              </div>
-              <div className="flex gap-2">
-                {/* Focus moves to the confirmation, so the keyboard path to a
-                    removal is arm, read, confirm, and never one Enter on a
-                    button a keyboard user cannot see themselves land on. */}
-                <Btn tone="reject" autoFocus onClick={onConfirm}>
-                  Hapus
-                </Btn>
-                <Btn onClick={onCancel}>Batal</Btn>
+                  <p className="text-[0.8125rem]">
+                    Sesi yang sedang berjalan masih berlaku hingga{" "}
+                    {GRACE_SECONDS} detik setelah Anda menekan Hapus. Barisnya
+                    tetap di sini, dicoret, sampai hitungannya habis.
+                  </p>
+                  {isSelf ? (
+                    <p className="text-[0.8125rem] text-gap">
+                      Ini akun Anda sendiri. Menghapusnya akan mengeluarkan Anda
+                      dari halaman ini.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex gap-2">
+                  {/* Focus moves to the confirmation, so the keyboard path to
+                      a removal is arm, read, confirm, and never one Enter on a
+                      button a keyboard user cannot see themselves land on.
+
+                      THE RING IT LANDS ON IS THE SHEET'S, and that is now the
+                      stylesheet's job rather than this file's: `.lt-paper`
+                      rebinds `--focus-ring` to the paper ink, so the global
+                      `:focus-visible` outline reads 15.65:1 here instead of
+                      the near-white 1.08:1 it drew before. The label is
+                      `--gap-ink`, which INVERTS on a sheet because the neutral
+                      key does: 4.91:1 at rest, 5.16:1 on hover. Both of those
+                      were carried by the inline token block this file used to
+                      hold, and both are measured in `globals.css` now. */}
+                  <Btn tone="reject" autoFocus onClick={onConfirm}>
+                    Hapus
+                  </Btn>
+                  <Btn onClick={onCancel}>Batal</Btn>
+                </div>
               </div>
             </div>
           </td>

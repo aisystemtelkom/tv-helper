@@ -1471,6 +1471,30 @@
     /* The masthead is the one DARK ground a sheet contains, so the ring flips
        back. See `--focus-ring`. 15.65:1 on the bar. */
     --focus-ring: var(--paper);
+
+    /* THE INK LADDER FLIPS BACK TOO, and leaving it out was a real defect
+       rather than an omission of polish.
+
+       `color` alone is not enough, because `.lt-paper` rebinds `--ink` to
+       `--paper-ink` for the sheet, and `--paper-ink` IS THIS BAR'S OWN
+       BACKGROUND. Anything inside the masthead that paints `var(--ink)`
+       rather than inheriting `color` therefore renders at 1:1, invisible.
+       `.lt-wordmark` is exactly that, and the wordmark is the only thing in
+       most mastheads: sign-in, the 404, the loading sheet and both error
+       sheets each put one there.
+
+       It was masked, which is why it survived. Four screens carried an inline
+       `KOP_ON_PAPER` constant setting `--ink` by hand, and a fifth path
+       (`.lt-kop[data-owes] > *`) rescued any bar that reports something. So
+       the bars that reported a fault looked right and the two that report
+       nothing were the broken ones, which is the least likely pair for anyone
+       to check. The workaround is deleted with this fix.
+
+       Measured on the bar: `--ink` 15.65:1, `--ink-2` 9.34:1, `--ink-3`
+       6.21:1. */
+    --ink: var(--paper);
+    --ink-2: color-mix(in srgb, var(--paper) 80%, var(--paper-ink));
+    --ink-3: color-mix(in srgb, var(--paper) 66%, var(--paper-ink));
   }
 
   /* THE STATUS IS THE LEADING RULE, AND THE THREE COLOURED BARS ARE GONE.

@@ -540,10 +540,13 @@ function Panel({
 
   return (
     <section aria-labelledby="tambahan-head" className="lt-slab">
-      {/* THE KOP IS THIS BLOCK'S STATUS CHANNEL. Amber across the full width
-          means it owes the operator a decision, red means a read failed, and
-          the figure at the right is the size of the debt. Nothing else on the
-          block has to carry that signal, and none of it can be collapsed. */}
+      {/* THE KOP IS THIS BLOCK'S STATUS CHANNEL. An amber tint over the bar and
+          a 4px amber rule down its leading edge mean it owes the operator a
+          decision, the correction pen in the same two places means a read
+          failed, and the figure at the right is the size of the debt. Neither
+          hue is ever a saturated fill under light text; the rule is what reads
+          from across the room. Nothing else on the block has to carry that
+          signal, and none of it can be collapsed. */}
       <div className="lt-kop" data-owes={error ? "fault" : "decision"}>
         <h2 id="tambahan-head">Bagian tanpa bukti</h2>
         <span className="lt-figure lt-kop-right">{blanks.length}</span>
@@ -614,11 +617,15 @@ function Panel({
           <summary>Daftar bagian</summary>
 
           <div className="flex flex-col gap-4 pt-2">
+            {/* A RULED REGISTER, DRAWN IN HAIRLINES. The rules were 2px, which
+                is the stamped-plate weight rather than this system's: `--line`
+                is separation between content and nothing else, and a dozen
+                two-pixel rules down one column read as a stack of parts. */}
             <ul
               ref={listRef}
               tabIndex={-1}
               aria-label="Bagian yang belum ada buktinya"
-              className="border-line flex flex-col border-t-2"
+              className="border-line flex flex-col border-t"
             >
               {blanks.map((blank) => (
                 <BlankRow
@@ -730,7 +737,7 @@ function BlankRow({
   const resolved = blank.zone ? resolvePage(run, blank.zone.pageIndex) : null;
 
   return (
-    <li className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b-2 py-2">
+    <li className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-2">
       <Mark
         status={REASON_MARK[blank.reason]}
         title={REASON_WORD[blank.reason]}
@@ -741,7 +748,11 @@ function BlankRow({
       <span className="lt-figure text-ink-3 text-[0.8125rem]">
         {blank.sectionTitle}
       </span>
-      <span className="lt-figure text-base font-bold">{blank.label}</span>
+      {/* Body size at 700, not the 16px `text-base` this carried: the sans
+          ramp here runs 13, 14, 15 and then a title at 21, and rank on a row
+          is bought with weight. It reads against the 13px section title to its
+          left, which is the pair that tells the two apart. */}
+      <span className="lt-figure font-bold">{blank.label}</span>
       <StateWord status={REASON_MARK[blank.reason]}>
         {REASON_WORD[blank.reason]}
       </StateWord>
@@ -1015,8 +1026,13 @@ function Fork({
  * unsearched bagian is a different act from writing off one the search
  * genuinely could not answer.
  *
- * A SLAB INSIDE A SLAB, so it casts no plate of its own: the kop asks the
- * question, and the well under it lists what is about to be written off.
+ * A SLAB INSIDE A SLAB, so it is SET IN rather than lifted: `.lt-slab-flat`
+ * nested in a block goes darker than the block holding it and takes the
+ * shallow inner shadow that says so, which is what makes a confirmation read
+ * as something opened inside the list rather than as a second list beside it.
+ * The old wording, "casts no plate of its own", named a hard offset shadow
+ * this system does not have. The kop asks the question, and the well under it
+ * lists what is about to be written off.
  */
 function BulkConfirm({
   ref,

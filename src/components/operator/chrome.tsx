@@ -420,16 +420,22 @@ export function Interruption({
  * Environment variable names, file paths and raw exception strings never share
  * a paragraph with the sentence an operator is meant to act on. Both audiences
  * are real; they are not the same person.
+ *
+ * IT IS `.lt-disclose`, NOT A HAND-STYLED `<details>`. A bare `<summary>`
+ * renders the browser's own triangle, which is the most reliable sign on the
+ * web that nobody styled a page, and this one shipped on the failure screens,
+ * the sign-in refusals and the admin register, where the first thing an
+ * operator meets is a page saying something went wrong. The class draws the
+ * set's own chevron and owns the cursor, the size and the ink, so this
+ * disclosure and the two on the review screens are one object rather than
+ * three near-misses. It also lifts the summary out of `--ink-3`, which is the
+ * floor ink for quiet TEXT and was never the right value for a control the
+ * operator is meant to find and press.
  */
 export function TechnicalDetail({ children }: { children: ReactNode }) {
   return (
-    <details className="text-[0.8125rem]">
-      <summary
-        className="cursor-pointer select-none"
-        style={{ color: "var(--ink-3)" }}
-      >
-        Detail teknis
-      </summary>
+    <details className="lt-disclose">
+      <summary>Detail teknis</summary>
       <pre className="lt-well lt-figure mt-2 max-h-40 overflow-auto p-2 text-[0.8125rem] whitespace-pre-wrap">
         {children}
       </pre>

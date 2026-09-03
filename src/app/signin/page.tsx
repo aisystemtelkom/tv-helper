@@ -42,7 +42,7 @@
  */
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { isAuthDisabled } from "@/lib/auth/guard";
 import { signIn } from "@/lib/auth";
@@ -78,11 +78,6 @@ export const metadata = {
  * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
  * this constant goes.
  */
-const KOP_ON_PAPER = {
-  color: "var(--paper)",
-  "--ink": "var(--paper)",
-} as CSSProperties;
-
 /**
  * The kop, on paper: the block's name on the left, whatever it owes on the
  * right.
@@ -94,7 +89,7 @@ const KOP_ON_PAPER = {
  */
 function Kop({ owes, children }: { owes?: "fault"; children?: ReactNode }) {
   return (
-    <div className="lt-kop" data-owes={owes} style={KOP_ON_PAPER}>
+    <div className="lt-kop" data-owes={owes}>
       <span className="lt-wordmark">tv-validator</span>
       {/* `.lt-kop-right` rather than a margin utility: one class puts the
           state at the same end of every kop in the product. */}

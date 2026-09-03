@@ -69,10 +69,16 @@ const VIA_LABEL: Record<AuthorizedUser["via"], string> = {
 /**
  * The application strip and one measure for the page under it.
  *
- * Chrome, so `.lt-rail`: flat, hairline, no shadow, and it never holds a fact
- * you read for meaning. It exists here mostly to carry the way home. Nothing
- * in the app linked to `/admin` and this page linked back with one underlined
- * word, so an admin arrived by typing a URL and left the same way.
+ * IT IS THE TOOL, SO IT IS GLASS. `.lt-rail` is the material every piece of
+ * app chrome takes: it stays still while the register scrolls under it, which
+ * is the one question the design system asks before handing out a material.
+ * The old note here called it "flat, hairline, no shadow", which described the
+ * system before MEJA KACA; a rail is translucent, backdrop-blurred, lit along
+ * its top edge and dropped beneath. What has not changed is the rule that
+ * matters: it never holds a fact you read for meaning. It exists here mostly
+ * to carry the way home. Nothing in the app linked to `/admin` and this page
+ * linked back with one underlined word, so an admin arrived by typing a URL
+ * and left the same way.
  *
  * This wants to be the product's one shared strip rather than a local copy;
  * see the report that landed this screen.
@@ -111,6 +117,24 @@ function Shell({
  *
  * The old shell kept the heading "Allowlist" and the subtitle about 60 seconds
  * above every denial, describing a table the visitor was never going to see.
+ *
+ * IT IS A BLOCK NOW, WHICH MEANS A SLAB THAT OPENS WITH A KOP. Every other
+ * screen in the product states what a block owes in the bar across its top,
+ * and this one used to state it nowhere: four different outcomes rendered as a
+ * loose heading over a loose paragraph on the bare bench. The kop is the one
+ * place the difference the file's header comment insists on is actually drawn.
+ *
+ *   AN OUTAGE OWES A FAULT AND A ROUTINE REFUSAL DOES NOT, and that asymmetry
+ *   is the whole point of the `incident` flag. `--gap` covers both a fault and
+ *   a refusal by the system's own definition, so painting the leading rule red
+ *   on every denial would be defensible and would also be exactly the mistake
+ *   this file was written to undo: "you are not an admin" is the visitor's own
+ *   answer, expected and benign, and it must not look like Firestore being
+ *   down. So the incident takes `data-owes="fault"` and the `Interruption`
+ *   band with role="alert"; the refusal takes a plain kop and a quiet
+ *   sentence. The word at the kop's right names which of the two it is
+ *   without relying on the colour at all, so the distinction survives
+ *   greyscale.
  */
 function Refusal({
   title,
@@ -130,29 +154,60 @@ function Refusal({
 }) {
   return (
     <Shell>
-      <h1 className="lt-title">{title}</h1>
-      {incident ? (
-        <Interruption detail={detail}>{children}</Interruption>
-      ) : (
-        <>
-          <p className="lt-lede">{children}</p>
-          {detail ? <TechnicalDetail>{detail}</TechnicalDetail> : null}
-        </>
-      )}
-      {/* One way out, and it goes where the sentence just told the visitor to
-          go: a refusal that says "masuk dulu" and then offers only a link back
-          to the page that refused them is a loop. */}
-      <p className="text-[0.9375rem]">
-        <Link
-          href={signIn ? "/signin" : "/"}
-          className="underline underline-offset-4"
-        >
-          {signIn ? "Masuk dengan Google" : "Kembali ke aplikasi"}
-        </Link>
-      </p>
+      <section className="lt-slab" aria-labelledby={REFUSAL_HEADING}>
+        <div className="lt-kop" data-owes={incident ? "fault" : undefined}>
+          {/* A span rather than a heading: the h1 below is the top of this
+              document, and a 13px kop cannot be the rank above it. */}
+          <span>Daftar Izin Akses</span>
+          <span className="lt-kop-right">
+            {incident ? "gangguan" : "ditolak"}
+          </span>
+        </div>
+
+        <div className="lt-slab-body flex flex-col gap-5">
+          <h1 className="lt-title" id={REFUSAL_HEADING}>
+            {title}
+          </h1>
+          {incident ? (
+            <Interruption detail={detail}>{children}</Interruption>
+          ) : (
+            <>
+              <p className="lt-lede">{children}</p>
+              {detail ? <TechnicalDetail>{detail}</TechnicalDetail> : null}
+            </>
+          )}
+          {/* One way out, and it goes where the sentence just told the visitor
+              to go: a refusal that says "masuk dulu" and then offers only a
+              link back to the page that refused them is a loop.
+
+              A KEY RATHER THAN AN UNDERLINED WORD. It is the only thing this
+              screen asks the visitor to do, and the system has one shape for
+              that. The neutral key in the strip above is chrome; this is the
+              action, so it is the one that carries the tone. `self-start`
+              rather than a paragraph wrapper, which is what a key sitting in a
+              flex column takes everywhere else in the product: a control is
+              not a sentence and does not want a line box. */}
+          <Link
+            href={signIn ? "/signin" : "/"}
+            className="lt-btn self-start"
+            data-tone="primary"
+          >
+            {signIn ? "Masuk dengan Google" : "Kembali ke aplikasi"}
+          </Link>
+        </div>
+      </section>
     </Shell>
   );
 }
+
+/**
+ * The refusal's own heading id.
+ *
+ * A literal rather than `useId`: this is a server component, and at most one
+ * `Refusal` is ever rendered in a response, so there is nothing to collide
+ * with.
+ */
+const REFUSAL_HEADING = "penolakan-judul";
 
 export default async function AdminPage() {
   const result = await authorize();
@@ -251,15 +306,25 @@ export default async function AdminPage() {
   return (
     <Shell
       account={
-        <p className="text-[0.8125rem]" style={{ color: "var(--ink-2)" }}>
+        // `text-ink-2` and `text-ink` rather than two inline `style` objects.
+        // The utilities are generated from the same tokens `globals.css`
+        // declares, so an element that is later moved onto a sheet picks up
+        // the paper rebind instead of carrying the bench's near-white ink with
+        // it. An address is a figure, hence `.lt-figure` and the full ink.
+        <p className="text-[0.8125rem] text-ink-2">
           Masuk sebagai{" "}
-          <span className="lt-figure" style={{ color: "var(--ink)" }}>
-            {result.user.email}
-          </span>{" "}
-          ({ROLE_LABEL[result.user.role]}, {VIA_LABEL[result.user.via]})
+          <span className="lt-figure text-ink">{result.user.email}</span> (
+          {ROLE_LABEL[result.user.role]}, {VIA_LABEL[result.user.via]})
         </p>
       }
     >
+      {/* THE PAGE'S OWN HEADER, DELIBERATELY NOT A SLAB. Everything that is a
+          block on this screen is a slab with a kop, and this is not a block:
+          it names the page the two slabs below sit on. Wrapping it in one
+          would put a bar across the top of a title that has nothing to owe,
+          and would make the register and the form read as nested inside it.
+          `loading.tsx` draws the same header at the same measure so the real
+          page arrives into the shape already on screen. */}
       <div className="flex flex-col gap-1">
         <h1 className="lt-title">Daftar Izin Akses</h1>
         <p className="lt-lede">

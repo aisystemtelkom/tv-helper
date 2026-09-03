@@ -17,8 +17,19 @@
  *
  * THE KOP CARRIES THE FAULT, which is what makes this screen legible from
  * across the room and what stops the fault being a small mark somebody has to
- * hunt for. The sheet is the same one `signin.tsx` documents, including the
- * two classes that need help to read on paper.
+ * hunt for. IT IS NO LONGER A BAR OF RED, and that correction is the whole of
+ * what the glass bench changed here: `globals.css` draws a paper kop as a
+ * masthead of plain `--paper-ink` in every state and puts the status in a 4px
+ * rule down its leading edge, in the BENCH value of the hue, because the
+ * masthead is the one dark ground a sheet contains. A full-width saturated bar
+ * under light text is the gesture the client named; the leading rule is the
+ * loudest of the three status channels and costs the sheet no fill at all.
+ * Nothing in this file spells any of that out: `data-owes="fault"` is the
+ * whole of it.
+ *
+ * The sheet is the same one `signin/page.tsx` documents. Neither of the two
+ * classes that file names needs what it used to: `.lt-kotak` takes the recess
+ * from the token rebind, and `.lt-kop` is down to a single declaration, which
  *
  * `retry()` rather than `reset()`. Next passes both, and both are real, but
  * they answer different questions: `reset()` re-renders the boundary's
@@ -30,25 +41,30 @@
  * `reset` and `retry` side by side.
  */
 
-import type { CSSProperties } from "react";
 
 import { Btn, TechnicalDetail } from "@/components/operator/chrome";
 
 /**
- * What a kop costs on paper, in one place.
+ * What a kop costs on paper, in one place, and it is now ONE declaration
+ * rather than two.
  *
- * `.lt-paper` rebinds `--ink` and `--kop` to `--paper-ink`, so `.lt-kop` alone
- * paints ink on ink. `color` carries the bar itself and survives the fault
- * variant, which sets `color: var(--kop)`; rebinding `--ink` carries every
- * child that names the token, which is how `.lt-wordmark` stops needing a
- * style of its own. If `globals.css` ever gives `.lt-paper .lt-kop` a legend,
- * this constant goes.
+ * The `color: var(--paper)` that used to sit beside this is gone:
+ * `globals.css` gives `.lt-paper .lt-kop` a legend of its own and states in
+ * its own comment that the inline copy is what that rule makes redundant. An
+ * inline style restating a class is a second place to keep a colour in step.
+ *
+ * WHAT THE STYLESHEET DOES NOT DO IS REBIND `--ink` ON THE BAR. `.lt-paper`
+ * rebinds it to `--paper-ink`, which is also the masthead's own ground, so
+ * `.lt-wordmark` -- which paints `color: var(--ink)` -- is ink on ink at 1:1
+ * without this line. The bench rule `.lt-kop[data-owes] > *` happens to hand
+ * the same value to the children of a bar that REPORTS something, so on
+ * `error.tsx` this restates it; a bar that reports nothing has no rule to
+ * match it at all, and that is `not-found.tsx` and `loading.tsx`. It is
+ * written identically in all three so that a screen gaining or losing
+ * `data-owes` cannot make the wordmark disappear. `signin/page.tsx` carries
+ * the same constant. If `globals.css` ever adds `--ink: var(--paper)` to
+ * `.lt-paper .lt-kop`, all four go.
  */
-const KOP_ON_PAPER = {
-  color: "var(--paper)",
-  "--ink": "var(--paper)",
-} as CSSProperties;
-
 /**
  * Next's own source carries "Docs say this is an Error object, but we don't
  * guarantee that": whatever was thrown arrives here unchanged, so a thrown
@@ -81,14 +97,21 @@ export default function AppError({
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
       <div className="mb-12 flex w-full max-w-[30rem] flex-col gap-4">
         <div className="lt-paper overflow-hidden">
-          {/* The whole bar, not a mark beside a heading. `--kop`, `--ink` and
-              `--gap` all rebind on paper, so the legend is spelled out. */}
-          <div className="lt-kop" data-owes="fault" style={KOP_ON_PAPER}>
+          {/* The bar carries it, not a mark beside a heading that somebody has
+              to find. `data-owes` is the whole declaration: `globals.css` draws
+              the masthead, hangs the correction pen down its leading edge, and
+              rebinds the ink ladder so the wordmark is legible on it. Nothing
+              is spelled out here any more. */}
+          <div className="lt-kop" data-owes="fault">
             <span className="lt-wordmark">tv-validator</span>
             <span className="lt-kop-right">gagal</span>
           </div>
 
-          <div className="lt-slab-body flex flex-col gap-6 p-6">
+          {/* `.lt-paper-body`, not `.lt-slab-body` under a `p-6` that overrode
+              it. A sheet takes the sheet's own padding step, and the 3px the
+              slab body used to hold clear was room for a double-ruled kop that
+              no longer exists: a paper masthead carries no bottom border. */}
+          <div className="lt-paper-body flex flex-col gap-6">
             {/* An h1, not the shared `Title`: this is the top of the document
                 and `Title` renders an h2. */}
             <h1 className="lt-title">Halaman gagal ditampilkan.</h1>
@@ -105,7 +128,7 @@ export default function AppError({
         </div>
 
         {/* On the table, not on the sheet: the disclosure is drawn in the
-            graphite ground's ink and would be unreadable on paper. The escape
+            table's own ink and would be unreadable on paper. The escape
             hatch lives here too, quietly, because a retry that keeps failing
             needs somewhere else to go and this boundary also wraps pages that
             are not the app's root. */}
@@ -113,12 +136,18 @@ export default function AppError({
         {/* A plain anchor, and NOT `next/link`, on purpose. This screen is
             rendering because the React tree threw; asking the client router to
             perform the escape is asking the thing that just failed to carry
-            the operator out. A full document load needs none of it. */}
+            the operator out. A full document load needs none of it.
+
+            `text-ink-2`, not an inline `style`: `@theme inline` in
+            `globals.css` declares `--color-ink-2`, so the utility exists and
+            resolves the token at the element it lands on. It is `--ink-2`
+            rather than the `--ink-3` of `.lt-note` because this is a control
+            the operator is meant to find and press, which is the same
+            distinction `.lt-disclose > summary` is drawn on. */}
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/"
-          className="self-start text-[0.8125rem] underline underline-offset-2"
-          style={{ color: "var(--ink-2)" }}
+          className="self-start text-[0.8125rem] text-ink-2 underline underline-offset-2"
         >
           Kembali ke aplikasi
         </a>
