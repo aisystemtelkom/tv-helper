@@ -578,14 +578,30 @@
   --lip-h: 4px;
 
   /* THE STACKING ORDER, WRITTEN DOWN ONCE.
-     A portalled popup renders at the end of `body`, in the ROOT stacking
-     context, so it is compared against the sticky header's `z-20` and loses
-     unless it says otherwise. `.lt-hint-panel` set `position: relative` and no
-     z-index at all, so every Hint opened near the top of the page slid UNDER
-     the chrome: an explanation you cannot read is worse than no question mark,
-     because the operator has already spent the click.
      Ordered by how much a thing interrupts: chrome sits under transient
-     things, and a floating explanation sits over both. */
+     things, and a floating explanation sits over both.
+
+     THE Z-INDEX GOES ON THE POSITIONER, NEVER ON THE POPUP, and this comment
+     used to say the opposite. It read: "a portalled popup renders at the end
+     of `body`, in the ROOT stacking context, so it is compared against the
+     sticky header's `z-20`". The first half is true of the PORTAL; the popup
+     is two levels below it. Base UI positions a popover by giving
+     `Popover.Positioner` a `transform: translate(x, y)` (floating-ui's own
+     default), and a transform makes that element a STACKING CONTEXT of its
+     own, with `z-index: auto`. So the popup's own z-index only ever sorted it
+     against its siblings inside that box -- of which it is the only one -- and
+     the whole popover was compared against the header as an auto-z positioned
+     element, which loses to any positive z-index.
+
+     Measured in Chrome, on the account menu and on a Hint, before the fix:
+     positioner `position: absolute; z-index: auto; transform: matrix(1, 0, 0,
+     1, 1138, 56)`, popup `z-index: 60`, header `z-index: 20` -- and
+     `document.elementFromPoint` in the overlap answered `div.lt-rail`, the
+     header's own glass, not the panel. Raising the number on the popup could
+     never have worked, because it was not competing with anything.
+
+     `.lt-float` is the class that carries this, and it goes on the positioner.
+     See it, and the note on `.lt-hint-panel`. */
   --z-chrome: 20;
   --z-toast: 30;
   --z-float: 60;
@@ -1982,13 +1998,31 @@
     background: var(--wash);
   }
 
+  /* WHERE A FLOATING PANEL IS STACKED, and it is the POSITIONER that wears it.
+
+     `Popover.Positioner` carries a `transform` for its own placement, so it is
+     a stacking context and its z-index is the only one the sticky header ever
+     sees. A z-index on the panel inside is inert -- it sorts the panel against
+     nothing. This class exists so that fact is stated in one place instead of
+     being re-derived, wrongly, by the next person to meet a popover behind the
+     chrome. See `--z-float` for the measurement.
+
+     It goes on EVERY `Popover.Positioner` in the product. Three today: `Hint`
+     and `Sebab` in `chrome.tsx`, and the account menu in `operator-app.tsx`. */
+  .lt-float {
+    z-index: var(--z-float);
+  }
+
   /* GLASS, because it floats: a hint panel is over the work rather than in it,
      and it is one of the few blurred surfaces that is allowed to exist above a
-     scroll because only one is ever open. */
+     scroll because only one is ever open.
+
+     NO Z-INDEX HERE. It had one, it never did anything, and the panel spent
+     that whole time under the chrome anyway. `.lt-float` on the positioner is
+     what lifts it; putting a second number back here would only restore the
+     appearance of a fix. */
   .lt-hint-panel {
     position: relative;
-    /* See `--z-float`. Without this the panel loses to the sticky header. */
-    z-index: var(--z-float);
     max-width: 30rem;
     padding: 0.8rem 0.95rem;
     border: 1px solid var(--glass-edge);

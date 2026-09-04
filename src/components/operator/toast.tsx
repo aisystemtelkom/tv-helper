@@ -30,9 +30,19 @@
  *
  * NO DEPENDENCY, and no portal. The host renders inside the app's own tree at
  * a fixed position; a portal would buy escaping an ancestor's stacking
- * context, which nothing here has. `aria-live="polite"` on the region means a
- * screen reader is told without being interrupted, which is exactly the
- * register a toast is for.
+ * context, and THIS host has none -- measured, not assumed: its div is a
+ * direct child of `body`, whose only ancestor is `html`, and neither carries a
+ * transform, a filter, an opacity or an isolation. `aria-live="polite"` on the
+ * region means a screen reader is told without being interrupted, which is
+ * exactly the register a toast is for.
+ *
+ * THAT SENTENCE USED TO END "which nothing here has", MEANING THE WHOLE APP,
+ * AND THAT PART WAS FALSE. Base UI gives every `Popover.Positioner` a
+ * `transform` to place it, which makes it a stacking context with `z-index:
+ * auto`, so the account menu and both Hints sorted UNDER the sticky header no
+ * matter what z-index their panel carried. It is a claim about this file's own
+ * ancestors, so it is written that way now; `.lt-float` in globals.css is what
+ * fixes the popovers, and `--z-float` there carries the measurement.
  */
 
 import {

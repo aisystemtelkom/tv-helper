@@ -76,12 +76,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import type {
-  BrowserRun,
-  RunSource,
-  RunSummary,
-  StoredPage,
-} from "@/lib/ui/runtime";
+import type { BrowserRun, RunSource, StoredPage } from "@/lib/ui/runtime";
 
 import {
   Advisory,
@@ -92,7 +87,7 @@ import {
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
-import { Arsip, Berkas, Cari, Muat } from "./icons";
+import { Berkas, Cari, Muat } from "./icons";
 
 /**
  * What the shell knows about an ingest in flight.
@@ -860,215 +855,12 @@ function Process({
   );
 }
 
-const WAKTU = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/**
- * `listRuns` builds a run's label in `src/lib/browser/runtime.ts` (`labelFor`)
- * and builds it in English: "(no documents yet)", and "<name> +2 more" for a
- * bundle. That file is not this screen's to edit, and an English string in the
- * operator's own list of work is a defect either way, so the two shapes it
- * emits are translated here.
- *
- * THE REAL FIX IS IN `labelFor`. Delete this the moment it speaks Bahasa.
- */
-function runName(label: string): string {
-  if (label === "(no documents yet)") return "(belum ada dokumen)";
-  return label.replace(/ \+(\d+) more$/, " +$1 berkas lain");
-}
-
-/** The file name is shortened from the middle; the "+2 berkas lain" is not. */
-function shortenRunName(label: string): string {
-  const parts = /^(.*?)( \+\d+ berkas lain)$/.exec(label);
-  if (!parts) return shortenFileName(label, 30);
-  return `${shortenFileName(parts[1], 24)}${parts[2]}`;
-}
-
-/**
- * RIWAYAT: the order already saved on this device.
- *
- * IT IS THE SESSION MANAGER, and calling it that out loud is most of the fix.
- * It was headed "Order tersimpan" in a 19rem rail beside the drop target,
- * and an operator asked whether it was meant to be the session history, which
- * is the question you ask about something that has not said what it is. So it
- * says: one word, one icon, its own kop, at the bottom of the screen where
- * finding an old job belongs.
- *
- * BOTTOM OF MUAT AND NOWHERE ELSE. Beside the drop target it stood at equal
- * weight with "start today's order" for the whole of every session, and those
- * two are not equal: one of them is what the operator came here to do. On any
- * later phase it would be worse still, an invitation to abandon the work in
- * hand. The documents of the OPEN order are the thing that follows the
- * operator everywhere, and that is `DocumentsBar`, which is a different object
- * with a different job.
- *
- * SEARCHABLE AT EVERY ROW COUNT, INCLUDING NONE. The field used to appear
- * only at seven rows, and the argument for that threshold was a real one: a
- * filter over four items is furniture, costing a control, a label and a line
- * of vertical space to save an operator from reading four lines they can
- * already see. The operator has since asked for the field directly, and they
- * are the one who opens this list every day against a device that accumulates
- * orders for as long as nobody clears it.
- *
- * THE ARGUMENT AGAINST ANY THRESHOLD, INCLUDING A THRESHOLD OF ONE, is that
- * the control MOVES. A field that is absent through the first week of use and
- * appears one day is a worse thing to hand somebody than a field they do not
- * need yet, and the count it is gated on is not stable even within one visit:
- * `runs` is empty while storage is still being read, so a gate on "is there a
- * list at all" made the field pop in a beat after the screen drew, taking the
- * rows down with it. It is here whenever the riwayat is, and the empty state
- * below it still says in a sentence that there is nothing saved.
- *
- * THE PLACEHOLDER NAMES WHAT IT ACTUALLY MATCHES, which is the document names
- * and the date AS PRINTED, the only two things a row shows. A field that
- * silently fails on anything else is this project's own failure class in a
- * text input.
- */
-function Riwayat({
-  runs,
-  loading,
-  openId,
-  onOpenRun,
-  onStartNewRun,
-}: {
-  runs: RunSummary[];
-  loading: boolean;
-  openId: string | null;
-  onOpenRun: (id: string) => void;
-  onStartNewRun?: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const fieldId = useId();
-
-  // Newest first: these are day-to-day work items, and recency is how people
-  // actually find them.
-  const ordered = [...runs].sort((a, b) => b.createdAt - a.createdAt);
-  const needle = query.trim().toLowerCase();
-  const shown =
-    needle
-      ? ordered.filter((summary) =>
-          `${runName(summary.label)} ${WAKTU.format(summary.createdAt)}`
-            .toLowerCase()
-            .includes(needle),
-        )
-      : ordered;
-
-  return (
-    <section className="lt-slab" aria-labelledby="ingest-runs">
-      <div className="lt-kop">
-        <Arsip size={16} />
-        <h3 id="ingest-runs">Riwayat order</h3>
-        {/* THE COUNT FOLLOWS THE FILTER. A kop reading 14 over two visible
-            rows is a small wrong-and-quiet of its own: it reads as a list that
-            failed to draw the other twelve rather than as a filter doing its
-            job. */}
-        <span className="lt-kop-right lt-figure">
-          {loading
-            ? ""
-            : needle
-              ? `${shown.length} dari ${ordered.length}`
-              : `${ordered.length}`}
-        </span>
-      </div>
-
-      <div className="lt-slab-body flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <label htmlFor={fieldId} className="sr-only">
-            Cari order menurut nama berkas atau tanggal
-          </label>
-          <Cari size={16} />
-          <input
-            id={fieldId}
-            type="search"
-            className="lt-input w-full max-w-[28rem]"
-            placeholder="Cari nama berkas atau tanggal"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-
-        <div aria-live="polite">
-          {loading ? (
-            /* Not "belum ada order" while the list is still being read. A
-               returning operator used to be told, briefly but every single
-               time, that they had no saved work. */
-            <p className="lt-note">Memuat riwayat.</p>
-          ) : ordered.length === 0 ? (
-            <p className="lt-note">
-              Belum ada order tersimpan. Menaruh berkas PDF akan memulai
-              satu.
-            </p>
-          ) : shown.length === 0 ? (
-            <p className="lt-note">Tidak ada yang cocok dengan {query}.</p>
-          ) : (
-            /* A GRID RATHER THAN A COLUMN, because this is no longer in a
-               19rem rail. Three across on a wide screen is one screenful of
-               history instead of a scroll box holding four rows at a time. */
-            <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {shown.map((summary) => {
-                const open = summary.id === openId;
-                const name = runName(summary.label);
-                return (
-                  <li key={summary.id}>
-                    <button
-                      type="button"
-                      aria-current={open ? "true" : undefined}
-                      onClick={() => onOpenRun(summary.id)}
-                      data-on={open ? "true" : undefined}
-                      className="lt-btn w-full flex-col items-start gap-1 px-4 py-2 text-left"
-                    >
-                      <span
-                        className="lt-figure w-full truncate text-[0.875rem]"
-                        title={name}
-                      >
-                        {shortenRunName(name)}
-                      </span>
-                      {/* 13px, not 12: nothing in this product is set
-                          smaller, because the date is how one order of a
-                          customer's paperwork is told from another. */}
-                      <span className="text-ink-2 text-[0.8125rem] font-normal">
-                        {WAKTU.format(summary.createdAt)}
-                        {open ? ", sedang dibuka" : ""}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {onStartNewRun ? (
-          <div className="flex items-center gap-2">
-            <Btn onClick={onStartNewRun}>Mulai order lain</Btn>
-            {/* What happens to the order you walk away from: true on every
-                run, and the reassurance is worth having exactly once, at the
-                moment the hand is on this button. */}
-            <Hint label="Penjelasan: Mulai order lain">
-              Order yang sekarang tetap tersimpan di perangkat ini dan bisa
-              dibuka lagi dari riwayat. Tidak ada keputusan yang hilang.
-            </Hint>
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 export function IngestPanel({
   run,
   progress,
   busy,
   error,
   onFiles,
-  runs = [],
-  runsLoading = false,
-  onOpenRun,
   onStartNewRun,
   onProcess,
   searching = false,
@@ -1086,10 +878,11 @@ export function IngestPanel({
    */
   error: string | null;
   onFiles: (files: File[]) => void;
-  /** The runs list is omitted entirely when the shell does not supply it. */
-  runs?: RunSummary[];
-  runsLoading?: boolean;
-  onOpenRun?: (id: string) => void;
+  /**
+   * Closes the open order so the next drop starts a fresh one. Omitted, the
+   * key is not offered -- which is the state with no order open, where there
+   * is nothing to walk away from.
+   */
   onStartNewRun?: () => void;
   /** MOVE TWO. Omitted, the block is not offered at all. */
   onProcess?: () => void;
@@ -1124,12 +917,19 @@ export function IngestPanel({
         </Interruption>
       ) : null}
 
-      {/* ONE COLUMN NOW. The riwayat used to be a 19rem rail beside the drop
-          target, which put "find the job I started yesterday" and "start
-          today's" side by side at equal weight for the whole of every session.
-          They are not equal: one of them is what the operator came here to do.
-          The riwayat is below, under its own kop, where it is found when it is
-          wanted and is not competing when it is not. */}
+      {/* ONE BLOCK, AND THIS SCREEN IS NOW ONLY ABOUT THE ORDER IN HAND.
+
+          The riwayat has been beside this drop target and then under it, and
+          both places said the wrong thing. Beside it, "find the job I started
+          yesterday" and "start today's" stood at equal weight for the whole of
+          every session, and they are not equal: one of them is what the
+          operator came here to do. Under it was worse in a quieter way -- this
+          screen reads top to bottom as a sequence, so a block below the last
+          step reads as the step after it, and the thing after `Baca dengan AI`
+          is the lembar periksa, not a list of other people's orders.
+
+          It is `/riwayat` now, reached by name from the account menu. See
+          `src/components/operator/riwayat.tsx`. */}
       <section className="lt-slab">
         <div className="lt-kop">
           <Muat size={16} />
@@ -1219,18 +1019,41 @@ export function IngestPanel({
               applying its answer. Nothing was lost in moving the control out
               except the second copy: the locked reason rides on the key
               itself now, through `Btn`'s `reason`. */}
+
+          {/* THE ESCAPE FROM THE OPEN ORDER, AND IT STAYED WHEN THE RIWAYAT
+              LEFT.
+
+              The list of saved orders used to sit under this slab and carried
+              this key as a corner of itself. The list has moved to `/riwayat`,
+              because at the bottom of a screen that reads top to bottom it
+              looked like the next step; this key did NOT go with it, because
+              it is not about the saved orders at all. It acts on the order
+              open RIGHT HERE, and it is the only way to start a second one --
+              with an order open, the drop target above adds files TO it, which
+              is what its own label says. Moved to the page about other orders,
+              the one control that starts a fresh order would be somewhere an
+              operator loading documents has no reason to go.
+
+              LAST IN THE BLOCK, and quiet. Everything above it moves this
+              order forward; this abandons it, and an escape belongs after the
+              thing it is an escape from. */}
+          {run && onStartNewRun ? (
+            <div className="flex items-center gap-2">
+              <Btn onClick={onStartNewRun}>Mulai order lain</Btn>
+              {/* What happens to the order you walk away from: true on every
+                  run, and the reassurance is worth having exactly once, at the
+                  moment the hand is on this button. It names WHERE the riwayat
+                  is now, because it is no longer the next thing down the
+                  page. */}
+              <Hint label="Penjelasan: Mulai order lain">
+                Order yang sekarang tetap tersimpan di perangkat ini dan bisa
+                dibuka lagi lewat <b>Riwayat</b> di menu akun, pojok kanan
+                atas. Tidak ada keputusan yang hilang.
+              </Hint>
+            </div>
+          ) : null}
         </div>
       </section>
-
-      {onOpenRun ? (
-        <Riwayat
-          runs={runs}
-          loading={runsLoading}
-          openId={run?.id ?? null}
-          onOpenRun={onOpenRun}
-          onStartNewRun={run ? onStartNewRun : undefined}
-        />
-      ) : null}
     </div>
   );
 }

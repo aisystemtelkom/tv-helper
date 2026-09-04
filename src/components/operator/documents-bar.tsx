@@ -16,9 +16,12 @@
  *
  * IT IS A SEPARATE THING FROM THE RIWAYAT, which is the other half of the same
  * request. This bar is THIS order's documents and it follows the operator
- * through every phase. `Riwayat` is the orders saved on this device, it
- * lives at the bottom of Muat, and it appears nowhere else, so looking for an
- * old job cannot compete for attention with the job in hand.
+ * through every phase. `Riwayat` is the orders saved on this device; it is a
+ * page of its own at `/riwayat`, reached by name from the account menu and
+ * appearing on no phase at all, so looking for an old job cannot compete for
+ * attention with the job in hand. It used to sit at the bottom of Muat, where
+ * a screen that reads top to bottom made it look like the step after `Baca
+ * dengan AI`.
  *
  * CLOSED IS THE RESTING STATE. Open, it is a list of file names, and a list of
  * file names is exactly the kind of thing the density pass was told to get off

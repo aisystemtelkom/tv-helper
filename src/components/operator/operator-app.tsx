@@ -67,7 +67,8 @@ import {
   withoutCapture,
   withoutCapturesAfter,
 } from "@/lib/ui/runtime";
-import type { BrowserRun, RunSummary, SlotState } from "@/lib/ui/runtime";
+import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
+import { runFragment, runIdFromHash } from "@/lib/ui/run-address";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
 import type { ExtractedField } from "@/lib/ui/extract";
@@ -132,7 +133,10 @@ export type Account = {
  */
 function rememberRun(id: string | null): void {
   const url = new URL(window.location.href);
-  url.hash = id ? `run/${id}` : "";
+  // `runFragment` rather than a literal, because `/riwayat` links INTO this
+  // address and two spellings of it would agree on every id until the day the
+  // separator changed. See `src/lib/ui/run-address.ts`.
+  url.hash = id ? runFragment(id) : "";
   window.history.replaceState(null, "", url);
 }
 
@@ -313,11 +317,20 @@ function Workspace({
 }) {
   const runtime = useRuntime();
 
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  // Distinct from `runs.length === 0`. A returning operator was told "belum ada
-  // order", briefly but every single time, while the list was still being
-  // read, which on a slow device is the first thing they get to read.
-  const [runsLoaded, setRunsLoaded] = useState(false);
+  /*
+   * THE SHELL NO LONGER HOLDS THE LIST OF SAVED ORDERS.
+   *
+   * It used to keep `runs` and a `runsLoaded` flag, re-read them after every
+   * ingest and every removal, and hand them to the riwayat at the bottom of
+   * Muat. The riwayat is `/riwayat` now, a page of its own that reads
+   * `listRuns()` when it opens, so keeping a copy here would be a second
+   * answer to "what is on this device" that nothing renders and nothing can
+   * check -- and the reads that maintained it were IndexedDB round trips
+   * paid on every document a bundle carries.
+   *
+   * The ONE thing this shell still needs from storage on boot is the order the
+   * address bar points at, which is `loadRun`, below.
+   */
   const [run, setRun] = useState<BrowserRun | null>(null);
   const say = useSay();
   /*
@@ -364,12 +377,11 @@ function Workspace({
     let alive = true;
     void (async () => {
       try {
-        const list = await runtime.listRuns();
-        if (!alive) return;
-        setRuns(list);
-        setRunsLoaded(true);
-
-        const wanted = window.location.hash.replace(/^#run\//, "");
+        // THE ADDRESS BAR IS THE ONLY THING CONSULTED ON BOOT. The list of
+        // saved orders used to be read here as well, for the riwayat at the
+        // bottom of Muat; that screen is `/riwayat` now and reads it for
+        // itself.
+        const wanted = runIdFromHash(window.location.hash);
         if (!wanted) return;
         const loaded = await runtime.loadRun(wanted);
         if (!alive) return;
@@ -393,11 +405,14 @@ function Workspace({
         setPhase(landingPhase(loaded));
       } catch (problem) {
         if (!alive) return;
-        setRunsLoaded(true);
+        // Storage refused, rather than "that order is gone" -- which is the
+        // `!loaded` branch above and a different fact. Saying the order was
+        // deleted when the device merely could not be read would be this
+        // project's failure class pointed at the operator's own work.
         setFault({
           origin: "boot",
           sentence:
-            "Daftar order di perangkat ini tidak bisa dibaca, jadi order lama tidak muncul di bawah. Memuat dokumen baru tetap bisa dilakukan.",
+            "Penyimpanan di peramban ini tidak bisa dibaca, jadi order yang ditunjuk alamat halaman ini tidak bisa dibuka. Order Anda tidak hilang. Muat ulang halaman ini, atau mulai dengan memuat dokumen baru.",
           detail: messageOf(problem),
         });
       }
@@ -500,26 +515,18 @@ function Workspace({
     [commit, run],
   );
 
-  const openRun = async (id: string) => {
-    setFault(null);
-    setSearchNote(null);
-    const loaded = await runtime.loadRun(id);
-    if (!loaded) {
-      setFault({
-        origin: "load",
-        sentence:
-          "Order itu sudah tidak ada di penyimpanan peramban ini, mungkin dihapus dari tab lain. Daftar di bawah akan benar lagi setelah halaman ini dimuat ulang.",
-        detail: `run id: ${id}`,
-      });
-      return;
-    }
-    setRun(loaded);
-    setRounds([]);
-    setPending(new Set());
-    setFresh(new Set());
-    rememberRun(id);
-    setPhase(landingPhase(loaded));
-  };
+  /*
+   * OPENING A SAVED ORDER IS A NAVIGATION NOW, so there is no `openRun` here
+   * any more.
+   *
+   * It existed for the riwayat at the bottom of Muat, which sat inside this
+   * shell and could call it. The riwayat is `/riwayat`, and a row there is a
+   * link to `/#run/<id>` -- the address this shell already writes for itself
+   * and already reads on boot. That path does everything `openRun` did, in one
+   * copy rather than two: it loads the run, lands on the right phase, and
+   * carries its own sentence for an id that no longer exists. `runHref` in
+   * `src/lib/ui/run-address.ts` is the shared spelling.
+   */
 
   /**
    * Closes the open run without touching storage.
@@ -581,11 +588,9 @@ function Workspace({
       });
     } finally {
       setBusy(false);
-      try {
-        setRuns(await runtime.listRuns());
-      } catch {
-        /* the list is a convenience; never mask the removal's own error */
-      }
+      // Nothing to re-read. Removing a document changes the open order's LABEL
+      // in the riwayat, and the riwayat is a page of its own that reads
+      // `listRuns()` when it opens -- which is always after this.
     }
   };
 
@@ -652,16 +657,13 @@ function Workspace({
     } finally {
       setBusy(false);
       setProgress(null);
-      // Refreshed even when the ingest FAILED. Each page is persisted as it
-      // finishes, so a bundle that died on page 20 of 29 still left a run
-      // holding nineteen pages of OCR -- minutes of work the operator has
-      // already paid for. Listing it only on success made that run invisible
-      // until a reload, which reads as "nothing was saved".
-      try {
-        setRuns(await runtime.listRuns());
-      } catch {
-        /* the list is a convenience; never mask the ingest's own error */
-      }
+      // NOTHING IS RE-LISTED HERE, and the reason the old code did matters
+      // enough to keep: a bundle that died on page 20 of 29 still left a run
+      // holding nineteen pages of OCR, minutes of work the operator has
+      // already paid for, and the riwayat had to show it even though the
+      // ingest failed. That is still true and is now automatic -- `/riwayat`
+      // reads storage when it opens, and a partly-ingested run is in storage
+      // whatever happened here.
     }
   };
 
@@ -727,6 +729,31 @@ function Workspace({
             ? `AI selesai membaca. ${found} usulan menunggu keputusan Anda di lembar periksa.`
             : `AI selesai membaca. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
           lanjutanNote,
+      );
+      // AND A TOAST, because the note above is easy to be away from.
+      //
+      // This pass takes minutes, which is long enough to walk away from, and
+      // an operator who came back to a screen that had simply stopped spinning
+      // had to work out from the film strip whether it had finished or fallen
+      // over. It passes the test in `toast.tsx`: the same fact is written into
+      // `searchNote` right above, in prose, where it stays until the next
+      // round -- so an operator who misses this entirely is no worse off.
+      //
+      // IT NAMES THE COUNT RATHER THAN SAYING "SELESAI", because how many
+      // usulan came back is the one thing they would otherwise go looking for,
+      // and it is the number the note leads with too. The instructions ("buka
+      // lembar periksa", where the missing ones are settled) stay in the note:
+      // a sentence that tells somebody what to do next has failed if they miss
+      // it, which is the line between the two surfaces.
+      //
+      // FAILURE DOES NOT COME HERE. The catch below writes an `Interruption`,
+      // which sits in the sticky header and does not leave until it is dealt
+      // with. A pass that failed is a fault, and `toast.tsx` names a fault as
+      // the first thing that may never become a toast.
+      say(
+        found === 0
+          ? "AI selesai membaca. Tidak ada bagian yang ditemukan."
+          : `AI selesai membaca. ${found} usulan menunggu keputusan Anda.`,
       );
     } catch (problem) {
       setFault({
@@ -1085,7 +1112,7 @@ function Workspace({
             that named their documents was the screen they had already left.
             This bar is the answer to the question they were actually asking,
             and it is deliberately NOT the riwayat, which is a different list of
-            a different thing and lives at the bottom of Muat. */}
+            a different thing and lives on `/riwayat`. */}
         {run && run.sources.length > 0 ? (
           <DocumentsBar
             run={run}
@@ -1147,20 +1174,16 @@ function Workspace({
             onCancel={() => setEditing(null)}
           />
         ) : phase === "ingest" ? (
-          /* The resume list is the ingest screen's own, not the shell's. It
-             belongs beside the drop zone, where "start a new one" and "pick up
-             the one from this morning" are the same decision; the shell only
-             supplies what it alone knows, which is what has been read from
-             storage and how to close the open run. */
+          /* The list of SAVED orders is no longer handed down: it is
+             `/riwayat`, its own page, which reads storage for itself. What the
+             shell still supplies is the one thing only it knows -- how to
+             close the order that is open, so the next drop starts a new one. */
           <IngestPanel
             run={run}
             progress={progress}
             busy={busy}
             error={ingestError}
             onFiles={(files) => void ingest(files)}
-            runs={runs}
-            runsLoading={!runsLoaded}
-            onOpenRun={(id) => void openRun(id)}
             onStartNewRun={closeRun}
             onProcess={() => void search()}
             searching={searching}
@@ -1532,7 +1555,18 @@ function AccountControls({
       </Popover.Trigger>
 
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="end" sideOffset={8}>
+        {/* `.lt-float` ON THE POSITIONER, not on the panel. This menu opens
+            DOWNWARDS out of the application strip and straight over the sticky
+            header below it, so "Keluar" -- the row at the bottom, and the one
+            an operator on a shared machine needs in a hurry -- was the part
+            that ended up behind the chrome. See `--z-float` in globals.css for
+            why the panel's own z-index could never have lifted it. */}
+        <Popover.Positioner
+          className="lt-float"
+          side="bottom"
+          align="end"
+          sideOffset={8}
+        >
           <Popover.Popup
             className="lt-hint-panel"
             onPointerEnter={pointerIn}
@@ -1542,6 +1576,22 @@ function AccountControls({
           >
             <div className="flex w-[15rem] flex-col gap-1">
               <nav aria-label="Tautan aplikasi" className="flex flex-col">
+                {/* FIRST, because it is the only row here an operator opens
+                    daily. The other two are visited about once a month, which
+                    is the whole reason this menu exists rather than three
+                    links across the strip.
+
+                    IT IS THE WAY TO THE SAVED ORDERS now that they are not at
+                    the bottom of Muat. `Btn` is not used for any row in this
+                    menu: a key is a thing you press to make something happen,
+                    and these are destinations. */}
+                <Link
+                  href="/riwayat"
+                  className={row}
+                  onClick={() => change(false)}
+                >
+                  Riwayat
+                </Link>
                 {session?.isAdmin === false ? null : (
                   <Link
                     href="/admin"

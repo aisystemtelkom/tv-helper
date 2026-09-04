@@ -320,7 +320,16 @@ function Sebab({ reason, children }: { reason: string; children: ReactNode }) {
         {children}
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="top" align="center" sideOffset={8}>
+        {/* `.lt-float` ON THE POSITIONER. It is the element Base UI gives a
+            `transform`, which makes it a stacking context, so it is the only
+            z-index the sticky header is ever compared against. See the note on
+            `--z-float` in globals.css. */}
+        <Popover.Positioner
+          className="lt-float"
+          side="top"
+          align="center"
+          sideOffset={8}
+        >
           <Popover.Popup className="lt-hint-panel" id={id}>
             {reason}
           </Popover.Popup>
@@ -629,7 +638,15 @@ export function Hint({
         <Tanya />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="top" align="start" sideOffset={8}>
+        {/* `.lt-float` ON THE POSITIONER; see the twin above and `--z-float`.
+            A Hint in a kop near the top of the page opens UPWARDS into the
+            sticky header, which is the case that made this visible. */}
+        <Popover.Positioner
+          className="lt-float"
+          side="top"
+          align="start"
+          sideOffset={8}
+        >
           <Popover.Popup
             className="lt-hint-panel"
             onMouseEnter={enter}
