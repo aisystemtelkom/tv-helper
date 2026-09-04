@@ -1957,6 +1957,14 @@ async function main() {
   // here. The first make no model call at all, and the second walks forward
   // from its sibling's answer through `findContinuations`, which is its own
   // production path and its own question.
+  // Row name -> a key shaped like a template slot key: lowercase, no spaces,
+  // no punctuation the model might normalise away. "KB / ToP (1)" -> "kb_top_1".
+  const slugForRow = (row) =>
+    row
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
   const pooledEntries = slotsToRun.filter(
     (entry) => !entry.wholeDocument && !entry.continuationOf,
   );
@@ -1965,7 +1973,25 @@ async function main() {
   if (pooledEntries.length > 0) {
     const questions = pooledEntries.map((entry) => {
       const { label, hint } = askedAs(entry);
-      return { key: entry.slot, label, hint };
+      // A SLUG, NOT THE HUMAN ROW LABEL, and the difference cost a measurement.
+      //
+      // This passed `entry.slot` -- "KB / ToP (1)", with spaces, a slash and a
+      // parenthesised ordinal -- as the reply key. `locateSlots` drops any
+      // answer whose key it did not ask for, which is the right guard against a
+      // hallucinated key, and the model duly echoed "KB / ToP" without the
+      // ordinal. The answer was correct (page 19, lines 12-41) and this harness
+      // threw it away, then reported the slot as "the model found no match" and
+      // took the dependent continuation row down with it.
+      //
+      // That is what produced the only sub-12/12 page-selection score ever
+      // recorded here, and it was read as evidence that consolidating slots
+      // makes the model omit fields. It was evidence about this line. The
+      // cached replies show all three runs answering 7 of 7 with correct pages.
+      //
+      // Production never had the defect: `searchRound` and `/api/propose` key
+      // on `slot.key`, already a slug (`kbLanjutan.top`). The gate has to key
+      // the same way or it is not measuring production.
+      return { key: slugForRow(entry.slot), label, hint };
     });
     console.log(
       `Locating ${questions.length} field slot(s) in ONE call over ${pages.length} pages:\n` +
@@ -2105,7 +2131,7 @@ async function main() {
       if (pooledError) {
         error = pooledError;
       } else {
-        const outcome = pooledOutcomes.get(entry.slot);
+        const outcome = pooledOutcomes.get(slugForRow(entry.slot));
         if (!outcome) {
           error = new Error("the pooled search returned no outcome for this slot");
         } else if (!outcome.ok) {
