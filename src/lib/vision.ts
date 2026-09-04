@@ -4,13 +4,27 @@
  * The counterpart of `src/lib/model.ts`, and a SEPARATE file rather than an
  * addition to it because the two providers authenticate in genuinely different
  * ways and folding them together would blur the one thing that file exists to
- * state. Gemini takes an API key from the environment. Vision does not:
+ * state. Gemini takes an API key from the environment; this uses OAuth.
  *
- *     $ curl .../v1/images:annotate?key=<a valid Google API key>
+ * THE FIRST VERSION OF THIS COMMENT DREW THE WRONG CONCLUSION FROM A REAL
+ * MEASUREMENT, and the correction is kept because the wrong version would send
+ * the next reader off to mint a credential. Calling Vision with THIS PROJECT'S
+ * Gemini key does return:
+ *
  *     401 "API keys are not supported by this API. Expected OAuth2 access
  *         token or other authentication credentials that assert a principal."
  *
- * Measured, not assumed. So this uses Application Default Credentials, which
+ * but that is a fact about the KEY, not about the mechanism.
+ * `GOOGLE_GENERATIVE_AI_API_KEY` is a Gemini auth key (an `AQ.A...` value)
+ * which Vision does not recognise at all. A classic Cloud console key
+ * (`AIzaSy...`) gets `400 API_KEY_INVALID` from the same endpoint -- Vision
+ * VALIDATING a key rather than refusing the idea -- and Google documents the
+ * `?key=` form for it.
+ *
+ * So Vision does accept API keys; it does not accept the one this app already
+ * has. ADC remains the right choice, for a better reason than "no
+ * alternative": a second classic key is a credential to store, restrict,
+ * rotate and leak, where ADC is none. It is also already how this codebase
  * is already the established pattern in this codebase -- `src/lib/auth/
  * firestore.ts` reaches Firestore the same way, with no key file downloaded
  * and nothing reading a credential itself. On Cloud Run that is the runtime
@@ -22,24 +36,50 @@
  * ## WHERE THE DATA IS PROCESSED, which is a client question and not a
  * technical detail
  *
- * Cloud Vision publishes exactly two regional endpoints, and neither is in
+ * Cloud Vision publishes exactly two regional endpoints and neither is in
  * Asia. Probed directly rather than read off a page: `eu-vision.googleapis.com`
  * and `us-vision.googleapis.com` answer with a structured Vision API error,
- * which is an endpoint serving the API, while `asia-vision`,
- * `asia-southeast1-vision` and `asia-southeast2-vision` all return Google's
- * generic 404 HTML, which is no endpoint at all.
+ * while `asia-vision`, `asia-southeast1-vision` and `asia-southeast2-vision`
+ * all return Google's generic 404 HTML, which is no endpoint at all. Vision's
+ * live discovery document still advertises an `asia` location-id described as
+ * "East asia areas, like Japan, Taiwan"; it is a stale artefact of a feature
+ * deprecated in 2021, there is no host from which to reach it, and it names
+ * neither Indonesia nor anything reachable. Do not read it as an option.
  *
  * This deployment is in `asia-southeast2` (Jakarta) deliberately, for a state
- * telco, so that is worth stating plainly rather than burying: PAGE IMAGES
- * SENT FOR RECOGNITION ARE NOT PROCESSED IN INDONESIA. The default below is
- * the global endpoint, which Google routes at its discretion; `VISION_ENDPOINT`
- * pins it to the EU or the US if the client would rather have a named region
- * than an unnamed one.
+ * telco, so state it plainly: PAGE IMAGES SENT FOR RECOGNITION ARE NOT
+ * PROCESSED IN INDONESIA. The PDFs themselves still never leave the operator's
+ * machine and the service still runs in Jakarta; it is the picture of each
+ * page that goes out.
  *
- * This is not a NEW exposure -- the Gemini OCR path this replaces posts the
- * same page images to `generativelanguage.googleapis.com`, which is equally
- * not Jakarta -- but "no worse than before" is a thing to say out loud rather
- * than a reason to leave it unsaid.
+ * That is not a step backwards. The Gemini OCR path this replaces already
+ * sends the same page images to Google under terms allowing caching in any
+ * country where Google maintains facilities, and concedes a limited-period log
+ * of prompts and responses. Vision's online annotate operations are documented
+ * as processed in memory, not persisted to disk, and not used for training --
+ * materially stronger -- and its OCR endpoint appears on Google's contractual
+ * AI/ML Data Location list, so a REGIONAL pin is a contractual commitment
+ * rather than a routing preference.
+ *
+ * ## The regional pin is a PATH, not just a hostname
+ *
+ * Google documents exactly one form for regionalisation:
+ *
+ *     https://REGION-vision.googleapis.com/v1/projects/PROJECT/locations/REGION/images:annotate
+ *
+ * The bare `/v1/images:annotate` path ALSO RETURNS 200 from a regional host,
+ * and that is the trap. An earlier version of this file sent the bare path and
+ * told the reader `VISION_ENDPOINT` "pins processing to the EU or the US" -- a
+ * residency claim to a state telco that succeeds whether or not it is true, so
+ * nothing could ever falsify it. Measured: bare path on eu-vision 200,
+ * project-scoped path on eu-vision 200, project-scoped path on the GLOBAL host
+ * 400.
+ *
+ * So `VISION_LOCATION` is the switch, not `VISION_ENDPOINT`, and setting it
+ * builds the documented form. Unset means the global endpoint, which Google
+ * routes at its discretion with no location commitment. That is the honest
+ * default: it is what the client already has through Gemini, and moving off it
+ * is their decision rather than this file's.
  */
 
 import { GoogleAuth } from "google-auth-library";
@@ -53,6 +93,38 @@ import { GoogleAuth } from "google-auth-library";
  */
 export const VISION_ENDPOINT =
   process.env.VISION_ENDPOINT ?? "https://vision.googleapis.com";
+
+/**
+ * The region to pin recognition to: `"eu"`, `"us"`, or unset for global.
+ *
+ * Unset is the default and means no location commitment. Set it only with the
+ * client's answer in hand; the header says what it does and does not buy.
+ */
+export const VISION_LOCATION = process.env.VISION_LOCATION?.trim() || undefined;
+
+/**
+ * The URL for one annotate request.
+ *
+ * A function rather than a string concatenation at the call site, because the
+ * regional form needs the PROJECT in the path and the bare path returns 200
+ * from a regional host anyway -- so building the wrong one would produce a
+ * residency claim that cannot fail. See the header.
+ */
+export function annotateUrl(project: string | undefined): string {
+  if (!VISION_LOCATION) return `${VISION_ENDPOINT}/v1/images:annotate`;
+  if (!project) {
+    throw new Error(
+      `VISION_LOCATION=${VISION_LOCATION} pins recognition to a region, and ` +
+        "the documented regional form needs a project in the path. Set " +
+        "VISION_QUOTA_PROJECT or GOOGLE_CLOUD_PROJECT, or unset " +
+        "VISION_LOCATION to use the global endpoint.",
+    );
+  }
+  const host =
+    process.env.VISION_ENDPOINT ??
+    `https://${VISION_LOCATION}-vision.googleapis.com`;
+  return `${host}/v1/projects/${project}/locations/${VISION_LOCATION}/images:annotate`;
+}
 
 /**
  * USD per page, for the cost ledger.
@@ -196,8 +268,11 @@ export async function annotateImage(
     throw new VisionUnavailable(
       "Application Default Credentials produced no access token for Cloud " +
         "Vision. On Cloud Run the runtime service account needs access to " +
-        "vision.googleapis.com; locally run `gcloud auth application-default " +
-        "login`. Unlike the Gemini path, an API key will not work here.",
+        "vision.googleapis.com. Locally it takes TWO commands and the second " +
+        "is the one that bites: `gcloud auth application-default login`, then " +
+        "`gcloud auth application-default set-quota-project <project>`. A user " +
+        "ADC credential asserts no project, and Vision refuses it with a 403 " +
+        "naming gcloud's own shared client project as the consumer.",
     );
   }
 
@@ -208,7 +283,7 @@ export async function annotateImage(
 
   let response: Response;
   try {
-    response = await fetch(`${VISION_ENDPOINT}/v1/images:annotate`, {
+    response = await fetch(annotateUrl(project), {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,

@@ -40,7 +40,12 @@
  * the Gemini path's Rp 4,002.
  */
 
-import { groupWordsIntoLines, type Line, type Word } from "./geometry.ts";
+import {
+  assertLinesWellFormed,
+  groupWordsIntoLines,
+  type Line,
+  type Word,
+} from "./geometry.ts";
 import type { Box } from "./render.ts";
 import { pageGeometry, type ImageInput, type OcrReport } from "./gemini-ocr.ts";
 
@@ -292,6 +297,19 @@ export function linesFromVisionResponse(
   // `interpolatedLines` below is ever anything but 0, this mapping has started
   // inventing geometry and that number is how anybody would find out.
   for (const line of lines) line.origin = "measured";
+
+  // THE PRODUCER HALF OF THE CONTRACT, ASSERTED WHERE IT IS PRODUCED, which
+  // this module was missing and the other two engines have. `gemini-ocr.ts`
+  // calls this under exactly that comment and `ocr.ts` drops degenerate
+  // tesseract boxes for the same reason; Vision is the third producer and did
+  // neither. The dead `page.width` parameter was the tell -- it was accepted
+  // and never read, because the call that would consume it was absent.
+  //
+  // It checks what every consumer downstream assumes and nothing re-checks:
+  // contiguous numbering from zero, boxes inside the page, and top-to-bottom
+  // order. A page that fails it is a page whose citations would name different
+  // text than their rectangles cover.
+  assertLinesWellFormed(lines, page.width, page.height);
 
   const geometry = pageGeometry(lines, page.height);
 
