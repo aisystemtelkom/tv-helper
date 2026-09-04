@@ -46,8 +46,10 @@
  * together in one sticky bar, because at 1366x768 the old layout put the reason
  * at the top of a page taller than the viewport and the disabled button at the
  * bottom of it. A disabled control whose explanation is off screen reads as a
- * broken app. The two file slabs sit DIRECTLY above that bar, so the build
- * button and the two Simpan buttons it enables are in one viewport too.
+ * broken app. THE TWO FILE SLABS SIT BELOW THAT BAR, not above it: a screen
+ * read top to bottom cannot put the thing that makes a file above the file. The
+ * cost is that the build key and the two Simpan keys it enables are no longer
+ * in one viewport at 1366x768, which the comment on the slabs records in full.
  *
  * THAT BAR IS AN OVERLAY, SO IT PAYS FOR ITS OWN SPACE. `position: sticky`
  * keeps the bar in the flow and pulls it up to the viewport's bottom edge for
@@ -138,11 +140,10 @@ import { AO_TEMPLATE } from "@/lib/forms/template";
 import { deriveIdsFromFilenames } from "@/lib/pipeline/fields";
 import {
   resolveJenisOrder,
-  type JenisOrderOrigin,
   type JenisOrderPage,
 } from "@/lib/pipeline/jenis-order";
 import { cropToDisplayUrl, downloadBytes, revokeUrls } from "@/lib/ui/crops";
-import { fillableValues, noteForField } from "@/lib/ui/extract";
+import { fillableValues } from "@/lib/ui/extract";
 import type { ExtractedField } from "@/lib/ui/extract";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type {
@@ -175,7 +176,6 @@ import {
   STATUS_WORDS,
   StateWord,
   Title,
-  shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
 import { BukuKerja, Paket } from "./icons";
@@ -575,115 +575,56 @@ function FileSlab({
 
 /* -------------------------------------------------------------- the header */
 
-/**
- * ID EPIC and Quote as the source file NAMES spell them, and the name each one
- * was read out of.
+/*
+ * TWO THINGS STOOD HERE AND BOTH FED `Field`'S NOTE AND MARKER SLOTS, which no
+ * longer exist. Recorded so neither is re-derived one field at a time.
  *
- * `deriveIdsFromFilenames` answers over the whole bundle at once, so on its own
- * it cannot say which file supplied a value. Neither of its two patterns can
- * span a space, so asking it one file name at a time yields the same two values
- * plus the name that carried them. The alternative is a second copy of those
- * regexes here, and two copies of a pattern are two patterns.
+ * `deriveWithSources` attributed ID EPIC and Quote to the file name that
+ * carried each, by asking `deriveIdsFromFilenames` one name at a time. Only
+ * the sentence under the input ever read that attribution. The values
+ * themselves come straight from `deriveIdsFromFilenames` over the whole
+ * bundle, which is what it was always wrapping.
+ *
+ * `JENIS_SENTENCE` and `JENIS_MARKER` worded a jenis order's origin for the
+ * operator -- read off a label in the documents, printed but unreadable,
+ * contested between two documents, or absent -- because those four are
+ * different places to send somebody, and telling them "tidak ditemukan" when
+ * the answer is printed on the page sends them away from the one page that
+ * has it. `resolveJenisOrder` still answers with that `origin`; nothing reads
+ * it now.
+ *
+ * If provenance comes back it comes back for all six fields at once. The cost
+ * of not having it is in `Field`'s docblock.
  */
-type DerivedIds = {
-  idEpic: string;
-  idEpicFrom: string;
-  quote: string;
-  quoteFrom: string;
-};
-
-function deriveWithSources(names: string[]): DerivedIds {
-  const all = deriveIdsFromFilenames(names);
-  const from = (pick: (one: string) => string, value: string) =>
-    value ? (names.find((name) => pick(name) === value) ?? "") : "";
-  return {
-    idEpic: all.idEpic,
-    idEpicFrom: from(
-      (name) => deriveIdsFromFilenames([name]).idEpic,
-      all.idEpic,
-    ),
-    quote: all.quote,
-    quoteFrom: from((name) => deriveIdsFromFilenames([name]).quote, all.quote),
-  };
-}
 
 /**
- * How each origin is worded beside the field.
+ * One header field.
  *
- * `resolveJenisOrder` is PURE and reads the OCR pages the run already holds:
- * no request, no model call, nothing to spend, which is why this is filled in
- * automatically where `namaProyek` and `cc` are not. The other half of that
- * argument is that a wrong order code is VISIBLE: the codes are short, few and
- * printed on the form, so an operator catches a wrong one in a way they cannot
- * catch a wrong project name.
+ * EVERY FIELD SAYS "opsional" AND NOTHING ELSE, on the operator's instruction.
+ * What stood here was a status word per field ("dibaca dari nama berkas",
+ * "diisi sendiri", "(belum diisi)", "tidak tertulis") and a sentence under
+ * every input saying where the value came from, or why nothing filled it in.
  *
- * THE RESOLVER'S OWN `detail` IS NOT SHOWN AT ALL, and it used to sit behind a
- * `Detail teknis` disclosure right here. It is written for a developer reading
- * a CLI log, in English, and it ends in advice an operator cannot act on
- * ("pass --jenis-order to set it"). An operator asked for it to go, and they
- * are right: they are not the audience for a CLI flag, and a disclosure that
- * teaches nothing the first time it is opened is worse than no disclosure,
- * because it is still on screen forever. The useful half of it, where a value
- * was read, is what the sentences below say in the operator's own language.
- * `Detail teknis` is untouched everywhere it carries a real exception; this
- * was the one place in the product where it carried an explanation instead.
+ * WHAT THAT COST IS PROVENANCE, and it is recorded rather than argued, because
+ * the loss is real and reversing it is cheap. "Terbaca di <berkas>. Periksa
+ * dulu." named the document a value was read out of, which is the evidence
+ * idea this product exists for, and it is now visible NOWHERE on this path:
+ * `buildDeliverables` is handed `fieldKey`, `value` and `conflict` only, so
+ * `xlsx.ts`'s column E cell note -- which needs a `source` -- is never written
+ * in the browser either. `noteForField` in `src/lib/ui/extract.ts` still
+ * computes the sentence and is still tested; nothing renders it. A value read
+ * off a file name and a value the operator typed are now drawn identically, on
+ * the cover page of a document a validator signs.
  *
- * The four non-answering origins all ship "" and say why. None of them may
- * borrow the wording of another: `conflict` means two documents disagree and
- * the operator decides, `inferred` means the form HAS an answer printed that
- * we would not trust and they should go and read it, and `none` means nothing
- * was printed at all. Telling an operator "tidak ditemukan" when the answer is
- * on the page would send them away from the one place that has it.
- */
-const JENIS_SENTENCE: Record<JenisOrderOrigin, string> = {
-  flag: "Ditentukan saat aplikasi dijalankan, bukan dari dokumen.",
-  env: "Ditentukan saat aplikasi dijalankan, bukan dari dokumen.",
-  "order-request": "Diambil dari isian Jenis Order di permintaan order.",
-  documents: "Terbaca dari label Jenis Order di dokumen. Periksa dulu.",
-  inferred:
-    "Ada label Jenis Order, isinya tidak bisa dipastikan. Buka halamannya, baca sendiri, lalu isi di sini.",
-  conflict:
-    "Dokumen menyebut jenis order yang berbeda-beda. Anda yang menentukan.",
-  none: "Tidak ada dokumen yang mencantumkan Jenis Order. Isi sendiri.",
-};
-
-const JENIS_MARKER: Record<JenisOrderOrigin, string> = {
-  flag: "ditentukan saat dijalankan",
-  env: "ditentukan saat dijalankan",
-  "order-request": "diisi di permintaan order",
-  documents: "terbaca dari dokumen",
-  inferred: "tidak bisa dipastikan",
-  conflict: "dokumen tidak sepakat",
-  none: "tidak tertulis",
-};
-
-/**
- * One header field, and WHERE ITS VALUE CAME FROM, said beside it.
+ * SO THE AMBER WENT WITH IT. `--mark` beside a label meant "the app guessed
+ * this one, look at it", and a marker true of all six fields cannot mean that
+ * about any of them. An empty ID EPIC still marks, on the slab's kop and in
+ * the notice below the grid; a WRONG one read out of a file name no longer
+ * does.
  *
- * A value read out of a file name is a guess: it is right exactly when the
- * person who named the scan typed the right identifier, and nothing on this
- * screen can check that. A value the operator typed is a decision. Drawn the
- * same way, the guess borrows the decision's authority, and the cell it lands
- * in is on the cover page of a document a validator signs. So the guess wears
- * `--mark` (a decision is owed here: look at it) and names its file, and the
- * moment the operator changes it the marker stops claiming a source it no
- * longer has.
- *
- * The derived value is never thrown away. Clearing the field offers it back
- * with one press, because "I deleted the wrong one" must not mean retyping a
- * quote number off a scan.
- *
- * An empty field says `(belum diisi)`, never a lone dash: a blank that says
- * nothing and a blank that means something look identical otherwise.
- *
- * THERE IS NO `hint` SLOT ANY MORE, and what it held is worth recording so it
- * does not come back. Two of these fields carried a paragraph saying that an
- * automatic reading of them had once answered with the master agreement's
- * title, or with an email's own `Cc:` line, and shipped that into a signed
- * document. Every word of that is true and none of it is the operator's: they
- * are trying to finish an order, and what they need from a blank field is its
- * STATE, which is that it is theirs to fill. `note` says that in one line. The
- * recorded failures live in AGENTS.md, where their audience is.
+ * The derived value is still never thrown away. Clearing the field offers it
+ * back with one press, because "I deleted the wrong one" must not mean
+ * retyping a quote number off a scan.
  */
 function Field({
   id,
@@ -691,13 +632,7 @@ function Field({
   value,
   onChange,
   derived = "",
-  derivedFrom = "",
-  derivedMarker = "dibaca dari nama berkas",
-  originMarker,
-  derivedNote,
   derivedLabel = "Nama berkas",
-  fallback = "",
-  note,
   list,
 }: {
   id: string;
@@ -706,48 +641,15 @@ function Field({
   onChange: (value: string) => void;
   /** What the source file names yielded for this field, "" when nothing. */
   derived?: string;
-  /** The file name that yielded it. */
-  derivedFrom?: string;
   /**
-   * The three wordings that used to be hardcoded to "the source file names".
-   * A second source of derived values arrived (the jenis order read off the
-   * documents themselves), and the difference between "your file name said
-   * this" and "a page said this" is exactly what the operator needs to weigh,
-   * so it cannot be one sentence serving both.
+   * What to call the derived value's source in the way back to it. Two exist:
+   * the source file names, and the jenis order read off the documents
+   * themselves.
    */
-  derivedMarker?: string;
-  /**
-   * What to call the value's provenance while the operator has not touched it,
-   * INCLUDING when that value is empty. The computed marker below cannot do
-   * this: it collapses every empty field to "(belum diisi)", which is right
-   * for a field nobody tried to fill and wrong for one where something looked
-   * and reported back. "dokumen tidak sepakat" and "(belum diisi)" are both
-   * empty and mean entirely different things.
-   */
-  originMarker?: string;
-  derivedNote?: ReactNode;
   derivedLabel?: string;
-  /** The app's own starting value, for the one field that has one. */
-  fallback?: string;
-  /** Why this field is not filled in automatically, when that varies by run. */
-  note?: ReactNode;
   list?: string;
 }) {
-  const empty = value.trim() === "";
-  const fromFile = derived !== "" && value === derived;
   const changed = derived !== "" && value !== derived;
-
-  const marker = originMarker && value === derived
-    ? originMarker
-    : fromFile
-    ? derivedMarker
-    : changed
-      ? "diubah sendiri"
-      : empty
-        ? "(belum diisi)"
-        : fallback !== "" && value === fallback
-          ? "bawaan aplikasi"
-          : "diisi sendiri";
 
   return (
     <div className="flex flex-col gap-2">
@@ -759,12 +661,10 @@ function Field({
         <label className="lt-label lt-figure" htmlFor={id}>
           {label}
         </label>
-        {/* Amber, and only for a value the app guessed: a decision is owed
-            on it. `text-mark` sits in the utilities layer, so it wins over
-            `.lt-label`'s own colour without either one being restated. */}
-        <span className={fromFile ? "lt-label text-mark" : "lt-label"}>
-          {marker}
-        </span>
+        {/* NEVER `text-mark`. Amber means a decision is owed on THIS field, and
+            a word that is true of all six says nothing about any one of them.
+            See the docblock: the guess and the typed value now look alike. */}
+        <span className="lt-label">opsional</span>
       </div>
       <input
         id={id}
@@ -774,40 +674,16 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
       />
 
-      {/* Provenance, then the way back to it, then the reason there is none.
-          Only one of the three ever applies. These lines are set in `--ink-2`
-          rather than `.lt-note`'s `--ink-3`: each one is the sentence that
-          keeps an operator from trusting a guess or from reading a deliberate
-          blank as a broken feature, which is safety copy. */}
-      {fromFile ? (
-        // A div, not a p: these slots are typed `ReactNode`, and a block
-        // element inside a <p> is invalid HTML that React reports as a
-        // hydration error rather than as something merely looking wrong. The
-        // caller that proved it, a `Detail teknis` disclosure beside Jenis
-        // Order, is gone; the type has not narrowed, so neither has this.
-        <div className="text-[0.8125rem] text-ink-2">
-          {derivedNote ?? (derivedFrom ? (
-            <>
-              Terbaca di{" "}
-              <span className="lt-figure" title={derivedFrom}>
-                {shortenFileName(derivedFrom, 30)}
-              </span>
-              . Periksa dulu.
-            </>
-          ) : (
-            <>Terbaca di nama berkas sumber. Periksa dulu.</>
-          ))}
-        </div>
-      ) : changed ? (
+      {/* THE ONE THING UNDER AN INPUT THAT IS NOT A NOTE. It appears only after
+          the operator has edited a value the app derived, and the sentence is
+          what the button restores -- dropping it leaves a bare "Pakai lagi"
+          naming nothing. A control, so it stayed when the notes went. */}
+      {changed ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[0.8125rem] text-ink-2">
             {derivedLabel} memberi <span className="lt-figure">{derived}</span>.
           </p>
           <Btn onClick={() => onChange(derived)}>Pakai lagi</Btn>
-        </div>
-      ) : note ? (
-        <div className="text-[0.8125rem] text-ink-2">
-          {note}
         </div>
       ) : null}
     </div>
@@ -1170,7 +1046,7 @@ export function ExportPanel({
 }) {
   const runtime = useRuntime();
   const derived = useMemo(
-    () => deriveWithSources(run.sources.map((s) => s.name)),
+    () => deriveIdsFromFilenames(run.sources.map((s) => s.name)),
     [run.sources],
   );
 
@@ -1287,12 +1163,6 @@ export function ExportPanel({
     })();
     return () => abort.abort();
   }, [extracted, onExtracted, run]);
-
-  const notes = useMemo(() => {
-    const out = new Map<string, ReturnType<typeof noteForField>>();
-    for (const field of extracted ?? []) out.set(field.fieldKey, noteForField(field));
-    return out;
-  }, [extracted]);
 
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -1527,22 +1397,12 @@ export function ExportPanel({
               value={header.idEpic}
               onChange={(value) => set({ idEpic: value })}
               derived={derived.idEpic}
-              derivedFrom={derived.idEpicFrom}
-              note={
-                derived.idEpic
-                  ? undefined
-                  : "Nama berkas tidak memuat nomor LOP. Ketik sendiri."
-              }
             />
             <Field
               id="header-nama-proyek"
               label="Nama Proyek"
               value={header.namaProyek}
               onChange={(value) => set({ namaProyek: value })}
-              note={
-                notes.get("namaProyek")?.text ??
-                "Tidak pernah terisi otomatis. Isi sendiri."
-              }
             />
             <Field
               id="header-quote"
@@ -1550,28 +1410,18 @@ export function ExportPanel({
               value={header.quote}
               onChange={(value) => set({ quote: value })}
               derived={derived.quote}
-              derivedFrom={derived.quoteFrom}
-              note={
-                derived.quote
-                  ? undefined
-                  : "Nama berkas tidak memuat nomor quote. Ketik sendiri."
-              }
             />
             <Field
               id="header-cc"
               label="CC"
               value={header.cc}
               onChange={(value) => set({ cc: value })}
-              note={
-                notes.get("cc")?.text ?? "Nama pelanggan pada order ini. Isi sendiri."
-              }
             />
             <Field
               id="header-order"
               label="Order"
               value={header.order}
               onChange={(value) => set({ order: value })}
-              note={notes.get("order")?.text ?? "Boleh kosong."}
             />
             <Field
               id="header-jenis-order"
@@ -1579,19 +1429,8 @@ export function ExportPanel({
               value={header.jenisOrder}
               onChange={(value) => set({ jenisOrder: value })}
               derived={jenis.value}
-              originMarker={JENIS_MARKER[jenis.origin]}
-              derivedMarker={JENIS_MARKER[jenis.origin]}
               derivedLabel="Dokumen"
-              derivedNote={JENIS_SENTENCE[jenis.origin]}
               list="jenis-order"
-              /* Reached when the resolver answered "". Which of the three
-                 silences it is decides where the operator goes next:
-                 `conflict` sends them to two pages to choose between,
-                 `inferred` to one page to read, and `none` nowhere, because
-                 nothing is printed. The same table serves both slots: the
-                 sentence is about where the value came from, which is the one
-                 thing the operator weighs, whether or not there is a value. */
-              note={JENIS_SENTENCE[jenis.origin]}
             />
             {/* A datalist, not a select: AO, MO and DO are the ones met so far
                 and more exist, so a closed list would lock the operator out of
@@ -1699,115 +1538,6 @@ export function ExportPanel({
           </details>
         </div>
       </Slab>
-
-      {/* ------------------------------------------------------ the two files
-          The object this screen is for. They sit directly above the action bar
-          so the build button and the two Simpan buttons it enables are in one
-          viewport at 1366x768. */}
-      <section aria-labelledby="berkas-hasil" className="flex flex-col gap-4">
-        <h3 className="sr-only" id="berkas-hasil">
-          Berkas hasil
-        </h3>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <FileSlab
-            id="berkas-docx"
-            kind="Dokumen validasi"
-            icon={<Paket size={40} />}
-            name={built ? built.names.docx : names.docx}
-            size={built ? fileSize(built.docx) : null}
-            disabled={!built || stale}
-            done={handedOver.docx}
-            reason={saveReason}
-            onSave={() => {
-              if (!built) return;
-              downloadBytes(built.names.docx, built.docx, DOCX_TYPE);
-              setHandedOver((prev) => ({ ...prev, docx: true }));
-            }}
-          >
-            <p className="text-[0.8125rem] text-ink-2">
-              Berisi{" "}
-              <span className="lt-figure">{tally.capturesShipping}</span>{" "}
-              potongan bukti.
-            </p>
-          </FileSlab>
-
-          <FileSlab
-            id="berkas-xlsx"
-            kind="Buku kerja EPIC"
-            icon={<BukuKerja size={40} />}
-            name={built ? built.names.xlsx : names.xlsx}
-            size={built ? fileSize(built.xlsx) : null}
-            disabled={!built || stale}
-            done={handedOver.xlsx}
-            reason={saveReason}
-            onSave={() => {
-              if (!built) return;
-              downloadBytes(built.names.xlsx, built.xlsx, XLSX_TYPE);
-              setHandedOver((prev) => ({ ...prev, xlsx: true }));
-            }}
-          >
-            {/* What the operator opens the file and finds. The argument for why
-                an empty cell is the honest output reads the same on every
-                order, so it hides. */}
-            <p className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
-              <span className="text-ink-2">
-                Kolom E kosong di seluruh baris.
-              </span>
-              {/* The middle sentence used to explain our storage model ("a run
-                  in this browser holds pages and zones, not text values"),
-                  which is a fact about the app rather than about the order.
-                  What replaces it says the same thing the operator can act on:
-                  the tool collects pictures, so the values are theirs to
-                  type. The last sentence is the argument the product exists to
-                  make and does not move. */}
-              <Hint label="Kenapa kolom E kosong">
-                Isinya sama pada setiap order:{" "}
-                <span className="lt-figure">
-                  {AO_TEMPLATE.xlsxRows.length}
-                </span>{" "}
-                baris. Alat ini mengumpulkan potongan bukti, bukan nilai teks,
-                jadi kolom E terbit kosong dan Anda isi sendiri. Sel kosong
-                adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
-                dicegah alat ini.
-              </Hint>
-            </p>
-          </FileSlab>
-        </div>
-
-        {/* The one remedy for a download nobody can confirm arrived. It is an
-            interruption wearing a calm voice, so it stays on screen, and it is
-            said once for both files rather than once per slab.
-
-            IT LOST ITS FIRST SENTENCE. "Berkas sudah diserahkan ke peramban
-            ini" describes what our code did, in our words, to somebody who
-            wants a file in a folder; the state word at the kop already says
-            "sudah diserahkan". What survives is the half an operator can act
-            on, which is the half this paragraph was kept for. */}
-        {handedOver.docx || handedOver.xlsx ? (
-          <p className="text-[0.8125rem] text-ink-2">
-            Kalau berkasnya tidak muncul di folder unduhan, izinkan unduhan lalu
-            tekan Simpan lagi.
-          </p>
-        ) : null}
-      </section>
-
-      {/* THE SPACE THE ACTION BAR OCCUPIES, RESERVED IN THE FLOW.
-          The bar below is `position: sticky`, which keeps it in the flow and
-          pulls it up to the viewport's bottom edge for as long as its own
-          place is below that edge. While it is pulled up it is an OPAQUE
-          overlay across the bottom of the page, and it releases only in the
-          last few dozen pixels of the scroll: the page's own bottom padding
-          plus the gap above the bar, and nothing else. Measured in a browser at
-          1366x768 with a 260px bar, that left the last section of this screen
-          clear of it over 88px of an 1144px scroll and underneath it
-          everywhere else, which one wheel notch skips straight past.
-          Reserving the bar's own measured height here gives the page somewhere
-          to be scrolled clear to. It is a sibling and not padding on a wrapper
-          around the bar, because a wrapper would become the bar's containing
-          block and a sticky box cannot leave that: the bar would stop sticking
-          altogether. */}
-      <div aria-hidden="true" style={{ height: barHeight }} />
 
       {/* ------------------------------------------------ the action bar
           Sticky at the bottom, so the verdict, the blocking items and the
@@ -2015,6 +1745,135 @@ export function ExportPanel({
           ) : null}
         </div>
       </div>
+
+      {/* ------------------------------------------------------ the two files
+          The object this screen is for, and they now sit BELOW the bar that
+          makes them. This screen is read top to bottom, so the action that
+          produces a file cannot come after the file: the download plates used
+          to be the first thing under the inventory and the build key the last
+          thing on the page, which reads as two unrelated screens rather than
+          as one sequence.
+
+          WHAT THAT TRADE COSTS is the one thing the old order bought. The two
+          slabs sat directly above the bar so the build key and the two Simpan
+          keys it enables were in one viewport at 1366x768; they no longer are,
+          and an operator who presses Buat kedua berkas now scrolls down to
+          save. Nothing is hidden by it: the bar is sticky and these slabs are
+          the only content below it, so it can never cover them -- it releases
+          exactly as they scroll into view.
+
+          THEY ARE NEVER AN EMPTY HEADING AT THE FOOT OF THE PAGE. Both slabs
+          render before anything is built, carrying the name the file will take
+          and "belum dibuat" at the kop, with Simpan down and its reason on the
+          key. */}
+      <section aria-labelledby="berkas-hasil" className="flex flex-col gap-4">
+        <h3 className="sr-only" id="berkas-hasil">
+          Berkas hasil
+        </h3>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <FileSlab
+            id="berkas-docx"
+            kind="Dokumen validasi"
+            icon={<Paket size={40} />}
+            name={built ? built.names.docx : names.docx}
+            size={built ? fileSize(built.docx) : null}
+            disabled={!built || stale}
+            done={handedOver.docx}
+            reason={saveReason}
+            onSave={() => {
+              if (!built) return;
+              downloadBytes(built.names.docx, built.docx, DOCX_TYPE);
+              setHandedOver((prev) => ({ ...prev, docx: true }));
+            }}
+          >
+            <p className="text-[0.8125rem] text-ink-2">
+              Berisi{" "}
+              <span className="lt-figure">{tally.capturesShipping}</span>{" "}
+              potongan bukti.
+            </p>
+          </FileSlab>
+
+          <FileSlab
+            id="berkas-xlsx"
+            kind="Buku kerja EPIC"
+            icon={<BukuKerja size={40} />}
+            name={built ? built.names.xlsx : names.xlsx}
+            size={built ? fileSize(built.xlsx) : null}
+            disabled={!built || stale}
+            done={handedOver.xlsx}
+            reason={saveReason}
+            onSave={() => {
+              if (!built) return;
+              downloadBytes(built.names.xlsx, built.xlsx, XLSX_TYPE);
+              setHandedOver((prev) => ({ ...prev, xlsx: true }));
+            }}
+          >
+            {/* What the operator opens the file and finds. The argument for why
+                an empty cell is the honest output reads the same on every
+                order, so it hides. */}
+            <p className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
+              <span className="text-ink-2">
+                Kolom E kosong di seluruh baris.
+              </span>
+              {/* The middle sentence used to explain our storage model ("a run
+                  in this browser holds pages and zones, not text values"),
+                  which is a fact about the app rather than about the order.
+                  What replaces it says the same thing the operator can act on:
+                  the tool collects pictures, so the values are theirs to
+                  type. The last sentence is the argument the product exists to
+                  make and does not move. */}
+              <Hint label="Kenapa kolom E kosong">
+                Isinya sama pada setiap order:{" "}
+                <span className="lt-figure">
+                  {AO_TEMPLATE.xlsxRows.length}
+                </span>{" "}
+                baris. Alat ini mengumpulkan potongan bukti, bukan nilai teks,
+                jadi kolom E terbit kosong dan Anda isi sendiri. Sel kosong
+                adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
+                dicegah alat ini.
+              </Hint>
+            </p>
+          </FileSlab>
+        </div>
+
+        {/* The one remedy for a download nobody can confirm arrived. It is an
+            interruption wearing a calm voice, so it stays on screen, and it is
+            said once for both files rather than once per slab.
+
+            IT LOST ITS FIRST SENTENCE. "Berkas sudah diserahkan ke peramban
+            ini" describes what our code did, in our words, to somebody who
+            wants a file in a folder; the state word at the kop already says
+            "sudah diserahkan". What survives is the half an operator can act
+            on, which is the half this paragraph was kept for. */}
+        {handedOver.docx || handedOver.xlsx ? (
+          <p className="text-[0.8125rem] text-ink-2">
+            Kalau berkasnya tidak muncul di folder unduhan, izinkan unduhan lalu
+            tekan Simpan lagi.
+          </p>
+        ) : null}
+      </section>
+
+      {/* THE SPACE THE ACTION BAR OCCUPIES, RESERVED IN THE FLOW.
+          The bar above is `position: sticky`, which keeps it in the flow and
+          pulls it up to the viewport's bottom edge for as long as its own
+          place is below that edge. While it is pulled up it is an OPAQUE
+          overlay across the bottom of the page. Measured in a browser at
+          1366x768 with a 260px bar, the slack that released it was the page's
+          own bottom padding plus the gap above the bar, which is less than one
+          wheel notch, so the section sitting directly above it was underneath
+          it in practice.
+
+          THE TWO FILE SLABS NOW SUPPLY MOST OF THAT SLACK, because they sit
+          after the bar: it releases with their whole height still to scroll,
+          and the inventory's last row comes clear of it well before the end.
+          The reserve is kept anyway and moved to the very end, where it is
+          trailing space; before the bar it would draw a gap between the
+          inventory and the rail. It is a sibling and not padding on a wrapper
+          around the bar, because a wrapper would become the bar's containing
+          block and a sticky box cannot leave that: the bar would stop sticking
+          altogether. */}
+      <div aria-hidden="true" style={{ height: barHeight }} />
     </div>
   );
 }
