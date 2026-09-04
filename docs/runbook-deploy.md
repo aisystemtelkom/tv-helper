@@ -224,6 +224,28 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA" --role=roles/datastore.user
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor
+
+# ONLY NEEDED WITH OCR_ENGINE=vision, and it fails in a way worth naming.
+# Cloud Vision defines no IAM role of its own for images:annotate; what a
+# caller needs is an authenticated principal plus serviceusage.services.use.
+# Neither role above includes it, so a deployment following this runbook
+# would 403 on EVERY PAGE -- while the currently deployed revision works,
+# because it runs as the default compute account, which holds roles/editor.
+# That is the shape that ships green: nothing local catches it, since a
+# developer's own ADC carries their own permissions.
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$SA" --role=roles/serviceusage.serviceUsageConsumer
+
+gcloud services enable vision.googleapis.com
+```
+
+Verify the Vision permission rather than trusting the role name, the same way
+this runbook already treats Firestore:
+
+```bash
+gcloud projects test-iam-permissions "$PROJECT_ID" \
+  --permissions=serviceusage.services.use \
+  --impersonate-service-account="$SA"
 ```
 
 Firestore is reached through this account and Application Default Credentials.
