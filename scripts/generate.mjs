@@ -210,7 +210,6 @@ import {
   orderRequestFieldValues,
   readOrderRequestBuffer,
 } from "../src/lib/pipeline/order-request.ts";
-import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 import { verifyCitedValues } from "../src/lib/pipeline/verify.ts";
 import { DEFAULT_DPI, renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { cropToPng } from "../src/lib/export/crop.ts";
@@ -221,7 +220,6 @@ import { buildXlsx } from "../src/lib/export/xlsx.ts";
 // script and test in this repo uses.
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-const TESSERACT_ASSETS = join(repoRoot, "public", "tesseract");
 const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-generate-ocr-cache.json");
 const FORCE_FRESH = process.env.GENERATE_FORCE === "1";
 
@@ -253,16 +251,12 @@ const VERIFY_VALUES = process.env.GENERATE_VERIFY !== "0";
  * while the operator believed they were measuring the model -- a silent
  * answer to a question nobody asked.
  */
-const OCR_ENGINE = process.env.OCR_ENGINE ?? "tesseract";
-if (
-  OCR_ENGINE !== "tesseract" &&
-  OCR_ENGINE !== "gemini" &&
-  OCR_ENGINE !== "vision"
-) {
+const OCR_ENGINE = process.env.OCR_ENGINE ?? "vision";
+if (OCR_ENGINE !== "vision" && OCR_ENGINE !== "gemini") {
   throw new Error(
     `OCR_ENGINE=${OCR_ENGINE} is not an engine. Use "vision" (Cloud Vision, ` +
-      `per-word boxes, $1.50/1000 pages), "gemini" (a vision model per page) ` +
-      `or "tesseract" (local, no credential).`,
+      `per-word boxes, the default) or "gemini" (a vision model per page). ` +
+      "tesseract was removed: this tool reads scans on Google infrastructure.",
   );
 }
 
@@ -286,11 +280,9 @@ if (
 const OCR_ENGINE_TAG =
   OCR_ENGINE === "gemini"
     ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
-    : OCR_ENGINE === "vision"
-      ? // Vision has no prompt, but it very much has a CONVERSION, and the
-        // cache is only hazard-free for a fixed one. See VISION_MAPPING_VERSION.
-        `vision:${VISION_MAPPING_VERSION}`
-      : "tesseract";
+    : // Vision has no prompt, but it has a CONVERSION, and the cache is only
+      // hazard-free for a fixed one. See VISION_MAPPING_VERSION.
+      `vision:${VISION_MAPPING_VERSION}`;
 
 /**
  * How many pages this script reads at once. Engine-dependent by default, and
@@ -314,7 +306,7 @@ const OCR_ENGINE_TAG =
  * Whatever the number, pages are APPENDED in page order; see `ocrEveryPage`.
  */
 const OCR_CONCURRENCY = Number(
-  process.env.OCR_CONCURRENCY ?? (OCR_ENGINE === "tesseract" ? 1 : 4),
+  process.env.OCR_CONCURRENCY ?? 4,
 );
 if (!Number.isInteger(OCR_CONCURRENCY) || OCR_CONCURRENCY < 1) {
   throw new Error(
@@ -1155,15 +1147,7 @@ async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
             const lines =
               OCR_ENGINE === "gemini"
                 ? await ocrPageWithModel(rendered, source.name, pageInDoc)
-                : OCR_ENGINE === "vision"
-                ? await ocrPageWithVisionEngine(rendered, source.name, pageInDoc)
-                : await ocrToLines(rendered, "ind", {
-                    langPath: TESSERACT_ASSETS,
-                    gzip: true,
-                    // Without this tesseract.js decompresses the vendored
-                    // .traineddata.gz into process.cwd() and leaves it there.
-                    cacheMethod: "none",
-                  });
+                : await ocrPageWithVisionEngine(rendered, source.name, pageInDoc);
             ready.set(pageInDoc, {
               key,
               entry: { width: rendered.width, height: rendered.height, lines },

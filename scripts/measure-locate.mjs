@@ -140,7 +140,6 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 const { default: JSZip } = await import("jszip");
 import { renderPageUpright } from "../src/lib/pipeline/render.ts";
-import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 import {
   MAX_UNCOVERED_INK_RUN_SHARE,
   MIN_INK_COVERAGE,
@@ -150,6 +149,13 @@ import {
   pageToPng,
   OCR_PROMPT_VERSION,
 } from "../src/lib/pipeline/gemini-ocr.ts";
+import {
+  VISION_FEATURE,
+  VISION_LANGUAGE_HINTS,
+  VISION_MAPPING_VERSION,
+  ocrPageWithVision,
+} from "../src/lib/pipeline/vision-ocr.ts";
+import { annotateImage } from "../src/lib/vision.ts";
 import {
   locateSlots,
   CROP_PADDING_PX,
@@ -165,7 +171,6 @@ import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS_DIR = join(REPO_ROOT, "documents");
-const TESSERACT_ASSETS = join(REPO_ROOT, "public", "tesseract");
 
 /**
  * `documents/` is gitignored real client material (task-11 finding 5), so
@@ -286,8 +291,12 @@ const OCR_MAX_OUTPUT_TOKENS = Number(
  * before, which is what makes a before/after pair on the same machine mean
  * something.
  */
-const OCR_ENGINE = process.env.OCR_ENGINE ?? "tesseract";
-if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
+const OCR_ENGINE = process.env.OCR_ENGINE ?? "vision";
+if (
+  OCR_ENGINE !== "tesseract" &&
+  OCR_ENGINE !== "gemini" &&
+  OCR_ENGINE !== "vision"
+) {
   console.error(`OCR_ENGINE must be "tesseract" or "gemini", got "${OCR_ENGINE}"`);
   process.exit(1);
 }
@@ -304,7 +313,9 @@ if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
 const OCR_ENGINE_TAG =
   OCR_ENGINE === "gemini"
     ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
-    : "tesseract";
+    : // Vision has no prompt, but it has a CONVERSION, and the cache is only
+      // hazard-free for a fixed one. See VISION_MAPPING_VERSION.
+      `vision:${VISION_MAPPING_VERSION}`;
 
 /**
  * The model that reads the twelve human-authored crops into ground truth, and
@@ -632,22 +643,30 @@ function makeCachedAsk(slotName, modelCache) {
  * block/segment/interpolated/dropped counts the design's guardrails are read
  * from.
  */
-async function ocrRendered(rendered, modelId = OCR_MODEL_ID) {
-  if (OCR_ENGINE === "gemini") {
+async function ocrRendered(rendered, modelId = OCR_MODEL_ID, engine = OCR_ENGINE) {
+  if (engine === "vision") {
+    const image = await pageToPng(rendered);
+    return await ocrPageWithVision(
+      image,
+      { width: rendered.width, height: rendered.height },
+      (img) =>
+        annotateImage(img, {
+          feature: VISION_FEATURE,
+          languageHints: VISION_LANGUAGE_HINTS,
+        }),
+    );
+  }
+  if (engine === "gemini") {
     const image = await pageToPng(rendered);
     return await ocrPageWithGemini(image, (prompt, image_, schema) =>
       askImage(prompt, image_, schema, modelId),
     );
   }
-  const lines = await ocrToLines(rendered, "ind", {
-    langPath: TESSERACT_ASSETS,
-    gzip: true,
-    // See scripts/test-pipeline.mjs's own note on this: without it, tesseract.js
-    // decompresses the vendored .traineddata.gz once and caches the result in
-    // process.cwd(), which would otherwise leave a stray file behind here.
-    cacheMethod: "none",
-  });
-  return { lines, report: null };
+  throw new Error(
+    `OCR_ENGINE=${engine} reached ocrRendered, which only knows "vision" and ` +
+      '"gemini". tesseract was removed: this tool reads scans on Google ' +
+      "infrastructure.",
+  );
 }
 
 /**
@@ -983,9 +1002,15 @@ async function ocrCropCached(imageName, cropCache) {
   // finishReason=RECITATION, deterministically, through six retries and a 30s
   // backoff. Ground truth that a candidate can refuse to produce is not
   // ground truth.
+  // PINNED TO THE GEMINI REFERENCE, engine and model both, whatever
+  // OCR_ENGINE is measuring. The twelve crops are the yardstick: letting them
+  // switch engines alongside the candidate would move the ruler and the thing
+  // being measured at the same time, and every recorded score in AGENTS.md
+  // would silently stop being comparable.
   const { lines, report } = await ocrRendered(
     { data, width, height },
     GROUND_TRUTH_MODEL_ID,
+    "gemini",
   );
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   console.log(

@@ -100,8 +100,9 @@ export const config = {
    * Negative matcher. Without one, proxy runs on every request including
    * `_next/static`, `_next/image` and everything in `public/`, which would put
    * an auth redirect in front of the CSS and -- the reason this project cares --
-   * in front of the vendored tesseract wasm and `ind.traineddata` under
-   * `/tesseract/`. Those are fetched by the render/OCR Web Worker, and a
+   * in front of anything under `public/`. (This used to also exempt the
+   * vendored tesseract assets under `/tesseract/`; that engine and its
+   * assets were removed when scans moved to Cloud Vision.)
    * redirect to an HTML sign-in page arriving where a wasm binary was expected
    * is an OCR failure with no obvious cause.
    *
@@ -142,6 +143,6 @@ export const config = {
    * allowed to decide whether that route is protected. It is not; the guard is.
    */
   matcher: [
-    "/((?!api/auth|api/health|signin|privacy|_next/static|_next/image|favicon.ico|tesseract/).*)",
+    "/((?!api/auth|api/health|signin|privacy|_next/static|_next/image|favicon.ico).*)",
   ],
 };

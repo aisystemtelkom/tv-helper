@@ -12,13 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Vendored OCR worker/core/wasm-glue JS, written by `pnpm vendor:ocr`
-    // (which runs at prebuild) -- regenerated build output, not source.
-    // Mirrors the reason already recorded in .gitignore for this directory.
-    "public/tesseract/**",
     // Git worktrees live inside the repo at .claude/worktrees/<name>/, so a
-    // worktree that has been built carries its own .next/ and public/tesseract/
-    // that the globs above do not match -- they are anchored at the repo root.
+    // worktree that has been built carries its own .next/ that the globs above
+    // do not match -- they are anchored at the repo root.
     // Without this, `pnpm lint` from the main checkout walks another
     // worktree's build output and reports its errors as this tree's.
     ".claude/**",

@@ -2,31 +2,32 @@
  * Tests for the browser runtime: the parts of it that can be reached without
  * a browser.
  *
- * Three groups, and the first two exist because of a specific recorded bug.
+ * Two groups, and the first exists because of a specific recorded bug.
  *
- * 1. RUNTIME DETECTION. `src/lib/pipeline/ocr.ts` used to read
+ * 1. RUNTIME DETECTION. `detectRuntime` used to read
  *    `typeof window === "undefined"` as "I am in Node". A browser Web Worker
  *    has no `window` either, and a Web Worker is exactly where this project
- *    now runs OCR, so on the face of it the vendored tesseract asset paths
- *    were skipped there and tesseract.js kept its own jsdelivr defaults for
- *    the worker script, the wasm core and the language data -- an unapproved
- *    third party in the browser's request path, shipping while looking
- *    correct, because OCR still works when the CDN answers. Measured against
- *    the built worker chunk, Turbopack folds that check for a browser target
- *    and the branch never survives to run, so the old code was correct by
- *    bundler constant-folding rather than by construction. These tests pin
- *    the construction. `node --test` cannot conjure a real Web Worker, which
- *    is why `detectRuntime` and `ocrAssetsFor` take the global scope as an
- *    argument at all: the decision is checkable against a synthetic one
- *    instead of going unchecked.
+ *    does its page work, so the Node-only branches it guarded reached for a
+ *    BARE `process` -- which a worker need not define, and an undefined
+ *    identifier throws rather than evaluating to undefined.
  *
- * 2. ASSET PATHS ARE ABSOLUTE. tesseract.js only resolves a relative path to
- *    an absolute URL when `document` exists, and inside a worker it hands the
- *    raw string to a Blob-URL worker whose body is `importScripts(path)`. A
- *    blob: URL has an opaque path, so a root-relative specifier cannot be
- *    resolved against it at all. The test below asserts that fact directly.
+ *    Measured against the built worker chunk, Turbopack folds that check for a
+ *    browser target and the wrong branch never survives to run, so the old code
+ *    was correct by bundler constant-folding rather than by construction. These
+ *    tests pin the construction. `node --test` cannot conjure a real Web
+ *    Worker, which is why `detectRuntime` takes the global scope as an argument
+ *    at all: the decision is checkable against a synthetic one instead of going
+ *    unchecked.
  *
- * 3. THE RUN MODEL. Ingest order, per-page progress, and the additive append
+ *    THIS GROUP USED TO HAVE A SECOND HALF, about vendored tesseract asset
+ *    paths having to be absolute because a blob: URL cannot resolve a
+ *    root-relative specifier. Those tests are gone with the engine: scans are
+ *    read by Cloud Vision on the server now, nothing is vendored into
+ *    `public/`, and the browser fetches no OCR assets at all. `detectRuntime`
+ *    itself survives in `src/lib/pipeline/runtime.ts` because `gemini-ocr.ts`
+ *    still needs to know which runtime is encoding a PNG.
+ *
+ * 2. THE RUN MODEL. Ingest order, per-page progress, and the additive append
  *    that the dokumen tambahan loop stands on. IndexedDB and the Web Worker
  *    are absent here, so what is under test is the logic those two carry
  *    rather than the wiring; that split is why `ingest.ts` takes pdf.js and
@@ -38,11 +39,7 @@ import test from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
 import type { PDFPageProxy } from "pdfjs-dist";
 
-import {
-  detectRuntime,
-  ocrAssetsFor,
-  type RuntimeScope,
-} from "../pipeline/ocr.ts";
+import { detectRuntime, type RuntimeScope } from "../pipeline/runtime.ts";
 import type { CanvasFactory } from "../pipeline/render.ts";
 import { ingestPdf, type IngestedPage, type PdfDocumentLike } from "./ingest.ts";
 import {
@@ -113,58 +110,9 @@ test("detectRuntime called with no argument reports this process as Node", () =>
 // 2. Vendored OCR assets
 // ---------------------------------------------------------------------------
 
-test("a Web Worker is given the vendored asset paths, not tesseract's CDN", () => {
-  const assets = ocrAssetsFor(workerScope);
 
-  // The regression in one line: an empty object here means tesseract.js keeps
-  // its own defaults, and its own defaults are cdn.jsdelivr.net.
-  assert.notDeepEqual(assets, {});
 
-  assert.equal(
-    assets.workerPath,
-    "https://tv-helper.example/tesseract/worker.min.js",
-  );
-  assert.equal(assets.corePath, "https://tv-helper.example/tesseract/");
-  assert.equal(assets.langPath, "https://tv-helper.example/tesseract/");
 
-  for (const value of Object.values(assets)) {
-    assert.doesNotMatch(
-      String(value),
-      /cdn|jsdelivr|unpkg/i,
-      "OCR assets must be served by this app and nothing else",
-    );
-  }
-});
-
-test("the worker's asset paths are absolute, because a blob: URL cannot resolve a relative one", () => {
-  const assets = ocrAssetsFor(workerScope);
-
-  // tesseract.js spawns its worker from a Blob URL whose whole body is
-  // `importScripts("<workerPath>")`, and it skips its own path resolution
-  // inside a worker. This is what a root-relative path would be asked to do
-  // there, and it throws:
-  assert.throws(
-    () => new URL("/tesseract/worker.min.js", "blob:https://tv-helper.example/abc"),
-    /Invalid URL/,
-  );
-
-  // An absolute one needs no base at all.
-  assert.equal(
-    new URL(assets.workerPath!).href,
-    "https://tv-helper.example/tesseract/worker.min.js",
-  );
-});
-
-test("Node gets no asset paths, so its callers' local paths still win", () => {
-  assert.deepEqual(ocrAssetsFor(realNodeScope), {});
-});
-
-test("an opaque origin falls back to a relative path rather than 'null/...'", () => {
-  // A sandboxed context serialises its origin as the literal string "null".
-  const assets = ocrAssetsFor({ importScripts: () => {}, location: { origin: "null" } });
-  assert.equal(assets.workerPath, "/tesseract/worker.min.js");
-  assert.equal(assets.langPath, "/tesseract/");
-});
 
 // ---------------------------------------------------------------------------
 // 3a. CanvasFactory accepts an OffscreenCanvas context

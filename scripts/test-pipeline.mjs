@@ -154,164 +154,10 @@ test("padBox clamps a negative pad to a zero-size box instead of going negative"
   });
 });
 
-import { ocrToLines } from "../src/lib/pipeline/ocr.ts";
 
-test("ocrToLines reads rendered text back with plausible boxes", async () => {
-  const canvas = createCanvas(600, 200);
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 600, 200);
-  ctx.fillStyle = "black";
-  ctx.font = "48px sans-serif";
-  ctx.fillText("PERJANJIAN", 20, 80);
-  ctx.fillText("KERJASAMA", 20, 150);
 
-  const rendered = {
-    data: ctx.getImageData(0, 0, 600, 200).data,
-    width: 600,
-    height: 200,
-  };
 
-  // Explicit local paths, because BROWSER_ASSETS in ocr.ts is only applied
-  // when `typeof window !== "undefined"`. An empty assets object under Node
-  // would leave tesseract.js on its CDN defaults, which is exactly the
-  // third-party fetch this project forbids -- and would make this test
-  // silently depend on network access. `pnpm vendor:ocr` must have already
-  // populated public/tesseract for this to read anything.
-  //
-  // cacheMethod: "none" because tesseract.js otherwise decompresses
-  // eng.traineddata.gz once and writes the ~5MB result to process.cwd() as
-  // eng.traineddata, then reads THAT on every later run. Without disabling
-  // it, a second test run passes from that stray cache even if the vendored
-  // langPath is broken or missing, which defeats the point of this test.
-  const lines = await ocrToLines(rendered, "eng", {
-    langPath: "./public/tesseract",
-    gzip: true,
-    cacheMethod: "none",
-  });
 
-  assert.ok(lines.length >= 2, `expected 2+ lines, got ${lines.length}`);
-  const text = lines.map((l) => l.text).join(" ").toUpperCase();
-  assert.ok(text.includes("PERJANJIAN"), `missing word in: ${text}`);
-  // Boxes must be inside the image, or every downstream crop is wrong.
-  for (const line of lines) {
-    assert.ok(line.box.x >= 0 && line.box.x + line.box.w <= 600);
-    assert.ok(line.box.y >= 0 && line.box.y + line.box.h <= 200);
-  }
-});
-
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { ocrToWords } from "../src/lib/pipeline/ocr.ts";
-
-test("ocrToWords times out with an actionable error instead of hanging when worker init cannot complete", async () => {
-  // tesseract.js@7.0.0's own createWorker() swallows a loadLanguage failure
-  // in a bare `.catch(() => {})` deep inside its init chain, so a bad
-  // langPath does not reject -- it hangs forever with no error and no
-  // exception. Reproduce that exact failure mode against a fresh, empty temp
-  // directory rather than public/tesseract: a test that empties or mutates
-  // the real vendored assets is fragile and could leave the repo broken if
-  // it failed partway through.
-  const dir = await mkdtemp(join(tmpdir(), "ocr-bad-langpath-"));
-  const rendered = {
-    data: new Uint8ClampedArray(4 * 4 * 4),
-    width: 4,
-    height: 4,
-  };
-
-  try {
-    await assert.rejects(
-      () =>
-        ocrToWords(rendered, "eng", {
-          langPath: dir,
-          gzip: true,
-          // Without this, a stray decompressed cache from an earlier test
-          // run (see the cacheMethod note above) could satisfy the load
-          // from process.cwd() and this bad langPath would never be
-          // consulted at all, silently defeating the test.
-          cacheMethod: "none",
-          initTimeoutMs: 300,
-        }),
-      (err) => {
-        assert.ok(err instanceof Error);
-        // Actionable, not a bare "timeout": names the configured timeout,
-        // that OCR assets/langPath are the likely cause, and the fix.
-        assert.match(err.message, /300ms/);
-        assert.match(err.message, /langPath/);
-        assert.match(err.message, /pnpm vendor:ocr/);
-        return true;
-      },
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("a timed-out init does not close a concurrent, healthy call's worker channel", async () => {
-  // Regression test for a real bug: the leak guard above diffs
-  // process._getActiveHandles() before/after ONE createWorker() call to
-  // find the handle that call spawned. Without serialising worker init
-  // (see initQueue/serialize in ocr.ts), a second call's worker can spawn
-  // its own MessagePort while a first call's diff window is still open --
-  // so a timing-out first call sees the second call's healthy handle as
-  // "new" and closes it, hanging the second call forever even though
-  // nothing was wrong with it.
-  //
-  // This is deterministic, not a timing race: ocrToWords() is called
-  // synchronously here, back to back, with no await between the two calls.
-  // ocr.ts's module-level init queue is a plain promise chain updated
-  // synchronously on each call, so which call enters the queue first is
-  // fixed by JS's single-threaded execution order, not by how fast either
-  // worker actually spawns. The bad call is queued first and always
-  // finishes (by timing out) before the good call's own init begins.
-  const badDir = await mkdtemp(join(tmpdir(), "ocr-concurrent-bad-langpath-"));
-
-  const tinyImage = { data: new Uint8ClampedArray(4 * 4 * 4), width: 4, height: 4 };
-
-  const canvas = createCanvas(300, 100);
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 300, 100);
-  ctx.fillStyle = "black";
-  ctx.font = "32px sans-serif";
-  ctx.fillText("HELLO", 10, 60);
-  const goodRendered = {
-    data: ctx.getImageData(0, 0, 300, 100).data,
-    width: 300,
-    height: 100,
-  };
-
-  try {
-    const badCall = ocrToWords(tinyImage, "eng", {
-      langPath: badDir,
-      gzip: true,
-      cacheMethod: "none",
-      initTimeoutMs: 50,
-    });
-    // Fired immediately, with no await in between: this call's init is
-    // queued directly behind the bad call's, not run concurrently with it.
-    const goodCall = ocrToWords(goodRendered, "eng", {
-      langPath: "./public/tesseract",
-      gzip: true,
-      cacheMethod: "none",
-    });
-
-    const [badResult, goodResult] = await Promise.allSettled([badCall, goodCall]);
-
-    assert.equal(badResult.status, "rejected");
-    assert.match(badResult.reason.message, /did not settle within 50ms/);
-
-    // The regression this guards against: if the bad call's timeout closed
-    // the good call's MessagePort instead of its own, this would either
-    // fail (goodResult rejected) or never get here at all (the process
-    // would hang, per the original report).
-    assert.equal(goodResult.status, "fulfilled");
-    assert.ok(goodResult.value.length > 0, "expected the healthy call to recognize at least one word");
-  } finally {
-    await rm(badDir, { recursive: true, force: true });
-  }
-});
 
 import { classifyPages, buildClassifyPrompt } from "../src/lib/pipeline/classify.ts";
 
@@ -1864,7 +1710,6 @@ test("locateSlot orders the evidence text by line number, whatever order page.li
 // The compile-time half of this suite: type claims node cannot check, verified
 // by `npx tsc --noEmit -p tsconfig.json`. Imported here so `pnpm test` runs its
 // assertions too and the file cannot rot unnoticed.
-import "./test-pipeline-types.ts";
 // ---------------------------------------------------------------------------
 // Document-agnostic search, and the dokumen tambahan loop's headless
 // foundation. See docs/superpowers/specs/

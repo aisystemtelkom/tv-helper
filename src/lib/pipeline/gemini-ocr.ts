@@ -43,11 +43,10 @@ import { z } from "zod";
 import { encodePng } from "../export/png.ts";
 import { assertLinesWellFormed, groupWordsIntoLines, type Line, type Word } from "./geometry.ts";
 import { extractJson } from "./json.ts";
-// `detectRuntime` lives in `ocr.ts` today only because that is where it was
-// written. It is engine-agnostic and survives tesseract's removal; the plan
-// hoists it to `src/lib/runtime-scope.ts` when `ocr.ts` goes, and `png.ts`
-// repoints at it then too. Importing it from here is deliberately temporary.
-import { detectRuntime } from "./ocr.ts";
+// `detectRuntime` moved to its own module when the tesseract engine was
+// removed. It was never engine-specific; it lived there because that is
+// where it was first needed.
+import { detectRuntime } from "./runtime.ts";
 import type { Box, RenderedPage } from "./render.ts";
 
 /**

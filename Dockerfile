@@ -9,7 +9,7 @@
 # See docs/runbook-deploy.md. Building the wrong architecture produces an image
 # that pushes fine and then fails to start on Cloud Run.
 
-# Debian slim rather than alpine: pdfjs-dist, exceljs and tesseract.js are all
+# Debian slim rather than alpine: pdfjs-dist and exceljs are both
 # JS/wasm, but Next ships a native SWC binary per platform and glibc is the
 # combination upstream tests. Alpine saves ~40MB and buys a musl variant matrix
 # on every future dependency.
@@ -33,8 +33,10 @@ RUN pnpm install --frozen-lockfile
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# `prebuild` runs `pnpm vendor:ocr`, which copies the tesseract worker, wasm
-# core and the ind/eng traineddata out of node_modules into public/tesseract.
+# There is no asset-vendoring step any more. `prebuild` used to run
+# `pnpm vendor:ocr` to copy the tesseract worker, wasm core and traineddata
+# into public/tesseract; scans are read by Cloud Vision now and none of it
+# ships.
 # That is why public/ is populated inside the image rather than shipped in the
 # build context -- .dockerignore excludes it, and vendor:ocr regenerates it.
 #
@@ -163,32 +165,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 # breaks OCR in production only, silently, while `next dev` serves it from disk
 # and looks perfect.
 #
-# ASSERT THE WHOLE OCR CORE SET, NOT ONE VARIANT. tesseract.js picks its wasm
-# core at RUNTIME from the browser's CPU features, so a laptop with relaxed-SIMD
-# asks for `tesseract-core-relaxedsimd-lstm.wasm` and one without asks for the
-# plain `tesseract-core-lstm.wasm`. Checking only the variant this build machine
-# happens to favour would pass while an operator's browser 404s -- production
-# only, inside a Web Worker, with the page still looking perfectly healthy.
-# These are the three OEM 1 (LSTM_ONLY) cores `vendor:ocr` ships; the non-LSTM
-# ones are not loaded by this app.
-#
-# `.js` and `.wasm` are both required: tesseract.js fetches the `.wasm.js`
-# loader, which then fetches the `.wasm` beside it.
 RUN set -eu; \
     node -e "require('next/dist/server/next')"; \
     test -d ./.next/static; \
-    for f in worker.min.js ind.traineddata.gz eng.traineddata.gz \
-             tesseract-core-lstm.wasm tesseract-core-lstm.wasm.js \
-             tesseract-core-simd-lstm.wasm tesseract-core-simd-lstm.wasm.js \
-             tesseract-core-relaxedsimd-lstm.wasm \
-             tesseract-core-relaxedsimd-lstm.wasm.js; do \
-      test -s "./public/tesseract/$f" \
-        || { echo "Dockerfile: public/tesseract/$f is missing or empty." >&2; \
-             echo "OCR would 404 in the browser for anyone whose CPU selects" >&2; \
-             echo "that core. Check scripts/vendor-ocr.mjs and the public/" >&2; \
-             echo "COPY above." >&2; exit 1; }; \
-    done; \
-    echo "standalone tree loads; static and all vendored OCR assets present"
+    test -d ./public; \
+    echo "standalone tree loads; static and public present"
+
 
 USER nextjs
 EXPOSE 8080
