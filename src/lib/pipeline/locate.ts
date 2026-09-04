@@ -530,7 +530,30 @@ export async function locateSlot(
   const reply = Reply.parse(
     extractJson(await ask(buildLocatePrompt(slotLabel, hint, pages))),
   );
+  return resolveAnswer(reply, pages);
+}
 
+/**
+ * One model answer -> one `LocateResult`, or `null` for "not in these pages".
+ *
+ * EXTRACTED SO THE ONE-SLOT AND MANY-SLOT PATHS CANNOT DRIFT. Everything below
+ * is repair work on a reply that has already found the right block: the
+ * off-the-end clamp, the running-footer trim, the box, the transcript that has
+ * to agree with the box, and the confidence downgrade when the clamp fired.
+ * Each of those exists because of a specific measured failure, and a second
+ * copy of them behind `locateSlots` would be a second place for one of them to
+ * be quietly dropped. The multiplicity is the whole hazard `SlotDef.crops`
+ * taught this project, one level up.
+ */
+function resolveAnswer(
+  reply: {
+    pageIndex: number | null;
+    from: number | null;
+    to: number | null;
+    confidence: "high" | "low";
+  },
+  pages: OcrPage[],
+): LocateResult {
   if (reply.pageIndex === null || reply.from === null || reply.to === null) {
     return null;
   }
@@ -598,4 +621,294 @@ export async function locateSlot(
     // `Proposal.confidence` in src/app/api/propose/handler.ts.
     confidence: clamped ? "low" : reply.confidence,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Many slots, one call.
+// ---------------------------------------------------------------------------
+
+/**
+ * A slot, reduced to the three things a prompt needs to ask about it.
+ *
+ * `key` rather than `label` is the reply's identity, and that is not a
+ * preference. Two slots in `AO_TEMPLATE` are both labelled `TTD Pejabat` and
+ * two more are both `Nomor`; labels are unique only after a section title is
+ * prefixed. A reply keyed by label would silently merge two slots' answers,
+ * which is the shape this project is organised against -- a deliverable that
+ * looks complete carrying evidence for the wrong row.
+ */
+export type SlotQuestion = {
+  key: string;
+  label: string;
+  hint: string;
+};
+
+/**
+ * What one slot got out of a consolidated call.
+ *
+ * A DISCRIMINATED RESULT RATHER THAN A THROW, because the whole point of
+ * consolidating is that seven questions share one call and one bad answer must
+ * not cost the other six. `locateSlot`'s contract is "throw on a malformed
+ * answer", which is right when the call answered exactly one question and
+ * wrong here: the failure has to be attributable to its own slot and survivable
+ * by the rest. This is the same trade `citationOutcome` makes in `fields.ts`,
+ * where one uncitable value must not blank the others.
+ */
+export type SlotOutcome =
+  | { ok: true; result: LocateResult }
+  | { ok: false; reason: string };
+
+const PoolReply = z.object({
+  answers: z.array(
+    z.object({
+      key: z.string(),
+      pageIndex: z.number().int().min(0).nullable(),
+      from: z.number().int().min(0).nullable(),
+      to: z.number().int().min(0).nullable(),
+      confidence: z.enum(["high", "low"]),
+    }),
+  ),
+});
+
+/**
+ * One prompt that asks about every slot sharing a pool.
+ *
+ * ## Why this exists: `locate` scales as slots x pages, and nothing else does
+ *
+ * Every fillable `layout: "table"` slot in `AO_TEMPLATE` carries
+ * `docType: "KB"`, so all seven are searched over the same pool and each of
+ * the seven calls re-uploaded the same listing. Measured on the 29-page sample
+ * bundle: 160.7k input tokens for locate, of which about 138k was six
+ * redundant copies. That is the largest remaining line on a run's bill, and it
+ * is the only stage whose cost multiplies by the slot count as well as by the
+ * page count -- which is what makes it the thing that fails to scale when an
+ * order arrives with sixty pages instead of twenty-nine.
+ *
+ * ## The ordering is load-bearing and was measured the hard way
+ *
+ * THE QUESTIONS COME BEFORE THE LISTING. The cheaper-looking route to the same
+ * saving was to leave seven calls in place and reorder each prompt so the
+ * listing led, earning Gemini's ~90% prefix discount. That works, exactly as
+ * advertised (`cached=20393` on six of seven calls), and it cost `KB / Nomor`
+ * deterministically: three arrangements were sampled three times each and every
+ * one that put the question below the pages turned an intermittent failure into
+ * a certain one. See "## The prefix-cache experiment" in this file's header.
+ *
+ * Consolidating gets a LARGER saving -- six listings not sent at all, rather
+ * than six sent at a tenth of the price -- while keeping the ordering the
+ * measurement demands. That is the whole argument for this shape.
+ *
+ * The instruction wording below is copied from `buildLocatePrompt` rather than
+ * rewritten, down to the sentence order, because that wording is a measured
+ * asset (it moved the gate from 6/12 to 9/12 under the old rule) and this
+ * change is meant to alter WHO IS ASKED, not what is asked.
+ */
+export function buildPoolLocatePrompt(
+  slots: readonly SlotQuestion[],
+  pages: OcrPage[],
+): string {
+  const listing = pages
+    .map(
+      (p, position) =>
+        `--- page ${position} ---\n` +
+        p.lines.map((l) => `${l.i}: ${l.text}`).join("\n"),
+    )
+    .join("\n\n");
+
+  const fields = slots
+    .map(
+      (slot) =>
+        `- key: ${slot.key}\n` +
+        `  field: "${slot.label}"\n` +
+        `  what it means: ${slot.hint}`,
+    )
+    .join("\n");
+
+  return [
+    `Find the section of this document that answers each of the ${slots.length} fields below.`,
+    "",
+    "FIELDS",
+    fields,
+    "",
+    "The pages below are OCR text with every line numbered. For each field,",
+    "choose the whole labelled block or section that contains that field, not",
+    "the single line that states it. The result is cropped out and pasted into",
+    "a validation document as evidence, so it must carry enough surrounding",
+    "context for a reviewer to see what they are looking at without opening",
+    "the source.",
+    "",
+    "Include the section heading or label line, every line of that block, and",
+    "stop at the natural boundary: the next heading, the next unrelated",
+    "section, or the end of the page. When the field sits inside a table or a",
+    "numbered clause, return the whole table or clause. Prefer taking a few",
+    "lines too many over cutting the block short. Do not run on into an",
+    "unrelated section.",
+    "",
+    "The fields are independent. Two fields may land on the same page, and one",
+    "field's answer says nothing about where another one sits.",
+    "",
+    "Pages are numbered by their position in this list: the first page shown",
+    "is page 0, the second is page 1, and so on, regardless of where each",
+    "page sits in the original document.",
+    "",
+    'Reply with JSON only: {"answers":[{"key":"<one of the keys above>",',
+    '"pageIndex":0,"from":7,"to":8,"confidence":"high"}]}',
+    "(pageIndex is that position number, not a document page number.)",
+    "Give one entry per field, using the key exactly as written above. If no",
+    'page contains a field, reply {"key":"...","pageIndex":null,"from":null,',
+    '"to":null,"confidence":"low"} for it.',
+    "",
+    listing,
+  ].join("\n");
+}
+
+/**
+ * Every slot sharing one pool, in one model call.
+ *
+ * Returns an outcome per REQUESTED key, always, whatever the reply contained.
+ * That total-ness is the contract the callers depend on: `searchRound` and
+ * `/api/propose` both have to say something about every slot they were asked
+ * to fill, and "the model did not mention it" has to arrive as a reason rather
+ * than as a silently missing map entry.
+ *
+ * Three ways a reply can be wrong, each handled per entry:
+ *
+ *  - AN ANSWER FOR A KEY NOBODY ASKED FOR is dropped. `fields.ts` does the
+ *    same with `keys.includes(v.fieldKey)`, and for the same reason: a
+ *    hallucinated key that reached a caller would name a slot that this pool
+ *    was never searched for.
+ *  - A REQUESTED KEY THE REPLY NEVER MENTIONS becomes "the model found no
+ *    match", which is exactly what a single-slot `null` answer already means.
+ *  - A DUPLICATE KEY keeps the first entry. Deterministic beats clever: the
+ *    alternative is picking by confidence, which invites the model's own
+ *    self-report to arbitrate a bug in its output.
+ *
+ * A malformed range, or a `pageIndex` naming no page in the pool, fails THAT
+ * SLOT and no other -- `resolveAnswer` throws and the throw is caught per
+ * entry. Under one-call-per-slot that isolation was free; here it is code, and
+ * it is the property most worth keeping.
+ */
+/**
+ * How many slots one locate call may be asked about. THE ACCURACY/COST DIAL,
+ * and it defaults to 1 -- one slot per call, the shipped behaviour -- because
+ * every value above 1 measured worse.
+ *
+ * Grouping slots that share a pool is the largest cost saving available to
+ * this pipeline on paper: all seven fillable table slots in `AO_TEMPLATE`
+ * carry `docType: "KB"`, so seven calls re-upload the same ~23k-token listing,
+ * 160.7k input tokens a run of which ~138k is redundant. Measured on the gate,
+ * three samples per arm, against the human-authored crops:
+ *
+ *   | slots per call | locate calls | totals      | page selection |
+ *   | 1 (SHIPPED)    | 7            | 11, 9, 11   | 12/12 every run |
+ *   | 3              | 3            | 9, 10, 10   | 12/12 every run |
+ *   | 7 (all at once)| 1            | 8, 10, 9    | 10/12 in one run |
+ *
+ * THE FAILURE IS OMISSION AND TRUNCATION, NOT A WRONG ANSWER. Asked all seven
+ * at once the model returned 382 output tokens and simply left `KB / ToP (1)`
+ * out of the reply, which then cost the continuation row that walks forward
+ * from it -- two failures from one silence. `KB / Detail` and `KB / Nomor`
+ * came back short in every multi-slot run, and `KB / Nomor` goes from failing
+ * 1 run in 3 to failing 3 in 3 the moment it stops being asked on its own.
+ * That is the same slot, and the same too-tight [9,12]-for-[2,12] answer, that
+ * the prefix-cache experiment broke; see this file's header.
+ *
+ * So the saving is real, it is large, and it is not free, and the default
+ * takes accuracy. Raise this only with `pnpm measure:locate` run three times
+ * and the set of totals compared -- a single run cannot see a difference this
+ * size, because the score's own spread is two slots wide.
+ */
+export const MAX_SLOTS_PER_LOCATE_CALL = Math.max(
+  1,
+  Number(process.env.LOCATE_SLOTS_PER_CALL ?? 1),
+);
+
+export async function locateSlots(
+  slots: readonly SlotQuestion[],
+  pages: OcrPage[],
+  ask: Ask,
+  // Explicit rather than read straight off the module constant, so a test can
+  // drive the pooled path without reaching into `process.env` at import time
+  // -- and so a caller that has its own reason to group differently has to say
+  // so at the call site rather than by setting a variable somewhere else.
+  slotsPerCall: number = MAX_SLOTS_PER_LOCATE_CALL,
+): Promise<Map<string, SlotOutcome>> {
+  const out = new Map<string, SlotOutcome>();
+  if (slots.length === 0) return out;
+
+  // CHUNKED, because asking everything at once measurably degrades the
+  // answers. All seven of this template's slots in ONE call scored 8/12,
+  // 10/12 and 9/12 against the one-call-per-slot baseline's 11/12, 9/12,
+  // 11/12 -- and the failure was not a wrong answer but a MISSING one: the
+  // reply simply omitted `KB / ToP (1)`, in 382 output tokens for seven
+  // questions, which then cost the continuation row that walks forward from
+  // it. `KB / Detail` and `KB / Nomor` came back truncated in every run.
+  //
+  // So the saving is taken in chunks rather than all at once: the listing is
+  // sent ceil(slots / N) times instead of once per slot, which is most of the
+  // saving, while each call is asked few enough questions to answer them all.
+  // N is env-tunable because it is the accuracy/cost dial this whole change
+  // turns on, and its value is a measurement rather than a guess -- re-run
+  // `pnpm measure:locate` three times before moving it.
+  // AT ONE SLOT PER CALL THIS DELEGATES TO `locateSlot`, so the default path
+  // sends the ORIGINAL prompt rather than a one-question pool prompt. That
+  // distinction is the whole reason the default is safe: `buildLocatePrompt`'s
+  // wording is a measured asset and the shipped 11/9/11 was measured through
+  // it, so a "pool prompt that happens to carry one slot" would be a quiet
+  // prompt change wearing the default's clothes.
+  if (slotsPerCall <= 1) {
+    for (const slot of slots) {
+      try {
+        out.set(slot.key, {
+          ok: true,
+          result: await locateSlot(slot.label, slot.hint, pages, ask),
+        });
+      } catch (error) {
+        out.set(slot.key, {
+          ok: false,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return out;
+  }
+
+  if (slots.length > slotsPerCall) {
+    for (let i = 0; i < slots.length; i += slotsPerCall) {
+      const chunk = slots.slice(i, i + slotsPerCall);
+      const part = await locateSlots(chunk, pages, ask, slotsPerCall);
+      for (const [key, outcome] of part) out.set(key, outcome);
+    }
+    return out;
+  }
+
+  const reply = PoolReply.parse(
+    extractJson(await ask(buildPoolLocatePrompt(slots, pages))),
+  );
+
+  const wanted = new Set(slots.map((s) => s.key));
+  const seen = new Map<string, (typeof reply.answers)[number]>();
+  for (const answer of reply.answers) {
+    if (!wanted.has(answer.key)) continue;
+    if (seen.has(answer.key)) continue;
+    seen.set(answer.key, answer);
+  }
+
+  for (const slot of slots) {
+    const answer = seen.get(slot.key);
+    if (!answer) {
+      out.set(slot.key, { ok: false, reason: "the model found no match" });
+      continue;
+    }
+    try {
+      out.set(slot.key, { ok: true, result: resolveAnswer(answer, pages) });
+    } catch (error) {
+      out.set(slot.key, {
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return out;
 }

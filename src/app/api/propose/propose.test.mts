@@ -81,6 +81,68 @@ function wirePage(index: number, sourceId: string, text: string): WirePage {
   };
 }
 
+/**
+ * The keys one consolidated locate prompt is asking about, read back off it.
+ *
+ * The route no longer makes one call per slot, so "which slots reached the
+ * model" is no longer a call count -- it is the contents of a prompt. Every
+ * double below answers BY KEY through this, which means a prompt that stopped
+ * naming its slots, or named the wrong ones, fails these tests instead of
+ * quietly answering the wrong thing.
+ *
+ * It THROWS rather than returning an empty list, so a non-locate prompt that
+ * reaches a locate double is loud. A double that answered `{"answers":[]}` to
+ * a prompt it did not understand would report every slot "the model found no
+ * match", which reads exactly like a document that does not contain them.
+ */
+function askedKeys(prompt: string): string[] {
+  return [...prompt.matchAll(/^- key: (.+)$/gm)].map((m) => m[1].trim());
+}
+
+/**
+ * A locate answer in WHICHEVER SHAPE THE PROMPT ASKED FOR.
+ *
+ * `locateSlots` sends two different prompts depending on
+ * `MAX_SLOTS_PER_LOCATE_CALL`: the original single-slot `buildLocatePrompt` at
+ * the shipped default of 1, and `buildPoolLocatePrompt` above it. A double
+ * that spoke only one of them would pin the dial rather than the behaviour,
+ * and every test here is about behaviour that must hold at either setting --
+ * so this answers whatever it was handed.
+ *
+ * A pool prompt lists its keys as `- key: <name>` lines; a single-slot prompt
+ * names no keys at all, and its answer carries no key field.
+ */
+function poolAnswer(
+  prompt: string,
+  answerFor: (key: string) => {
+    pageIndex: number | null;
+    from: number | null;
+    to: number | null;
+    confidence?: "high" | "low";
+  },
+): string {
+  const keys = askedKeys(prompt);
+
+  if (keys.length === 0) {
+    // The single-slot prompt. It never names a key, so the answer is keyed by
+    // whichever slot the caller is currently asking about -- which `answerFor`
+    // is free to ignore, exactly as it ignores the key in the pooled case
+    // when it answers uniformly.
+    const label = /answers the field "([^"]+)"/.exec(prompt)?.[1] ?? "";
+    return JSON.stringify({ confidence: "high", ...answerFor(label) });
+  }
+
+  return JSON.stringify({
+    answers: keys.map((key) => ({
+      confidence: "high",
+      ...answerFor(key),
+      // Last, so an `answerFor` cannot answer under a key it was not asked
+      // about: that is the model's mistake to make, not a double's.
+      key,
+    })),
+  });
+}
+
 /** A capture's zone, as the browser sends one it already holds evidence for. */
 const ZONE_ON_PAGE_0 = {
   pageIndex: 0,
@@ -360,11 +422,11 @@ const TEMPLATE: Template = {
   fieldHints: {},
 };
 
-/** A model that names the second page offered, whatever it is asked. */
+/** A model that names the second page offered, for every slot it is asked. */
 const answersSecondPage = async (prompt: string): Promise<string> =>
   prompt.includes("segmenting")
     ? '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}'
-    : '{"pageIndex":1,"from":0,"to":1,"confidence":"high"}';
+    : poolAnswer(prompt, () => ({ pageIndex: 1, from: 0, to: 1 }));
 
 test("a zone's pageIndex is the run-global page, not the page's own number", async () => {
   // Two documents. The answer names pool position 1, which is run-global
@@ -418,7 +480,12 @@ test("a slot the search cannot find is reported outstanding, not dropped", async
   const notFound = async (prompt: string): Promise<string> =>
     prompt.includes("segmenting")
       ? '{"spans":[{"docType":"KB","fromPage":0,"toPage":0}]}'
-      : '{"pageIndex":null,"from":null,"to":null,"confidence":"low"}';
+      : poolAnswer(prompt, () => ({
+          pageIndex: null,
+          from: null,
+          to: null,
+          confidence: "low",
+        }));
 
   const result = await proposeZones(
     { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
@@ -433,20 +500,238 @@ test("a slot the search cannot find is reported outstanding, not dropped", async
   );
 });
 
-test("one slot's failure costs that slot, not the run", async () => {
-  const garbage = async (prompt: string): Promise<string> =>
-    prompt.includes("segmenting")
-      ? '{"spans":[{"docType":"KB","fromPage":0,"toPage":0}]}'
-      : "not json at all";
+/* --------------------------------------------- one call per POOL, not per slot */
 
+/**
+ * Four slots over two pools, which is the shape the consolidation is about.
+ *
+ * `kb.nomor`, `kb.ttd` and `kbLanjutan.ttd` all carry `docType: "KB"`, so they
+ * rank the same pages and share one call -- ACROSS SECTIONS, which is the part
+ * a per-section loop could never see. `ba.nomor` carries a different docType
+ * and so gets its own.
+ *
+ * TWO SLOTS IN THE SAME POOL SHARE A LABEL, deliberately: `AO_TEMPLATE` has two
+ * `TTD Pejabat` and two `Nomor`, and a consolidated reply keyed by LABEL would
+ * merge their answers into one and ship a picture of one row's evidence against
+ * the other. The reply is keyed by `slot.key`, which is unique.
+ */
+const TWO_POOL_TEMPLATE: Template = {
+  id: "t",
+  label: "T",
+  sections: [
+    {
+      title: "KB",
+      layout: "table",
+      slots: [
+        {
+          key: "kb.nomor",
+          label: "Nomor",
+          docType: "KB",
+          hint: "the agreement number",
+          fillable: true,
+        },
+        {
+          key: "kb.ttd",
+          label: "TTD Pejabat",
+          docType: "KB",
+          hint: "the signature block of the agreement",
+          fillable: true,
+        },
+      ],
+    },
+    {
+      title: "KB (lanjutan)",
+      layout: "table",
+      slots: [
+        {
+          key: "kbLanjutan.ttd",
+          label: "TTD Pejabat",
+          docType: "KB",
+          hint: "the signature block on the continuation page",
+          fillable: true,
+        },
+      ],
+    },
+    {
+      title: "BA Permintaan",
+      layout: "table",
+      slots: [
+        {
+          key: "ba.nomor",
+          label: "Nomor",
+          docType: "BAPermintaan",
+          hint: "the number of the berita acara permintaan",
+          fillable: true,
+        },
+      ],
+    },
+  ],
+  xlsxRows: [],
+  fieldHints: {},
+};
+
+const TWO_PAGES = [wirePage(0, "a", "alpha"), wirePage(1, "a", "beta")];
+
+test("slots that share a pool share ONE call, and the prompt names exactly them", async () => {
+  // THE SAVING, PINNED AS A PROPERTY OF THE PROMPT RATHER THAN AS A CALL COUNT.
+  // Every fillable table slot in the production template carries
+  // `docType: "KB"`, so one call per slot re-uploaded the same ~23k-token page
+  // listing seven times: 160.7k input tokens a run, about 138k of it redundant.
+  // What must stay true is not "few calls" but "one call per pool, asking about
+  // exactly the slots that pool is for" -- a prompt that named a slot from
+  // another pool would be answering a question over pages that were never
+  // ranked for it.
+  const locatePrompts: string[] = [];
+  const answersEverything = async (prompt: string): Promise<string> => {
+    if (prompt.includes("segmenting")) {
+      return '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}';
+    }
+    if (prompt.includes("--- next page ---")) {
+      return '{"continues":false,"from":null,"to":null,"confidence":"high"}';
+    }
+    locatePrompts.push(prompt);
+    return poolAnswer(prompt, () => ({ pageIndex: 0, from: 0, to: 1 }));
+  };
+
+  // Driven with the dial RAISED, because grouping is what this test is about
+  // and the shipped default is one slot per call. See
+  // MAX_SLOTS_PER_LOCATE_CALL: every multi-slot setting measured worse on the
+  // gate, so the saving ships switched off -- but the route must still behave
+  // when somebody switches it on, which is what this pins.
   const result = await proposeZones(
-    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
-    garbage,
-    TEMPLATE,
+    {
+      runId: "r",
+      pages: TWO_PAGES,
+      wanted: ["kb.nomor", "kb.ttd", "kbLanjutan.ttd", "ba.nomor"],
+    },
+    answersEverything,
+    TWO_POOL_TEMPLATE,
+    9,
   );
 
-  assert.equal(result.proposals.length, 0);
-  assert.match(result.outstanding[0].reason, /search failed/);
+  assert.equal(locatePrompts.length, 2, "four slots, two pools, two calls");
+  assert.deepEqual(
+    locatePrompts.map((prompt) => askedKeys(prompt).sort()),
+    [["kb.nomor", "kb.ttd", "kbLanjutan.ttd"], ["ba.nomor"]],
+  );
+  // A prompt must never mix pools, whatever the dial says: pages ranked for
+  // one document type would be answering a question asked about another.
+  for (const prompt of locatePrompts) {
+    const keys = askedKeys(prompt);
+    const pools = new Set(keys.map((k) => (k.startsWith("ba.") ? "ba" : "kb")));
+    assert.equal(pools.size, 1, `one prompt named two pools: ${keys.join(", ")}`);
+  }
+
+  // And every slot still comes back with its own zone: sharing a call must not
+  // cost a slot its answer.
+  assert.deepEqual(
+    result.proposals.map((p) => p.key).sort(),
+    ["ba.nomor", "kb.nomor", "kb.ttd", "kbLanjutan.ttd"],
+  );
+  assert.deepEqual(result.outstanding, []);
+});
+
+test("one bad ANSWER costs one slot, and a key the reply skips is still reported", async () => {
+  // The property one call per slot had for free and this one has to rebuild.
+  // The reply below is wrong in the two ways a consolidated reply can be wrong
+  // about a single slot: `kb.nomor` names a page position the pool does not
+  // have, and `kb.ttd` is simply not mentioned. Neither may cost
+  // `kbLanjutan.ttd`, which was answered correctly by the same reply -- and
+  // neither may vanish: a slot in neither list is a slot the review screen
+  // never mentions again.
+  const oneBadOneMissing = async (prompt: string): Promise<string> => {
+    if (prompt.includes("segmenting")) {
+      return '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}';
+    }
+    if (prompt.includes("--- next page ---")) {
+      return '{"continues":false,"from":null,"to":null,"confidence":"high"}';
+    }
+    assert.deepEqual(
+      askedKeys(prompt).sort(),
+      ["kb.nomor", "kb.ttd", "kbLanjutan.ttd"],
+      "all three KB slots must be asked in the one call",
+    );
+    return JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: 9, from: 0, to: 1, confidence: "high" },
+        {
+          key: "kbLanjutan.ttd",
+          pageIndex: 0,
+          from: 0,
+          to: 1,
+          confidence: "high",
+        },
+      ],
+    });
+  };
+
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: TWO_PAGES,
+      wanted: ["kb.nomor", "kb.ttd", "kbLanjutan.ttd"],
+    },
+    oneBadOneMissing,
+    TWO_POOL_TEMPLATE,
+    9,
+  );
+
+  assert.deepEqual(
+    result.proposals.map((p) => p.key),
+    ["kbLanjutan.ttd"],
+  );
+  const why = new Map(result.outstanding.map((o) => [o.key, o.reason]));
+  assert.deepEqual([...why.keys()].sort(), ["kb.nomor", "kb.ttd"]);
+  // Both read as a failed search rather than as "not in these pages", which is
+  // reserved for a model that answered null. An omitted key is silence, not a
+  // verdict -- see MAX_SLOTS_PER_LOCATE_CALL, where omission is the measured
+  // failure mode of asking about several slots at once. The diagnosis still
+  // survives inside the reason, and it has to: a page the pool does not have
+  // and a question that was never answered need different fixes.
+  assert.match(why.get("kb.nomor") ?? "", /^search failed: .*pageIndex 9/);
+  assert.match(why.get("kb.ttd") ?? "", /^search failed: .*found no match/);
+});
+
+test("a failed CALL names every slot in that pool, and costs no other pool", async () => {
+  // Consolidating gives this one away and it cannot be rebuilt: there is one
+  // call and it either answered or it did not. What must not happen is the
+  // pool's slots falling out of both lists -- so every one of them is named
+  // with the reason, and the pools that answered are untouched. The run is not
+  // failed over it: by this point the request has spent real work on slots that
+  // succeeded, and the operator finishes the document by hand anyway.
+  const kbPoolIsGarbage = async (prompt: string): Promise<string> => {
+    if (prompt.includes("segmenting")) {
+      return '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}';
+    }
+    if (prompt.includes("--- next page ---")) {
+      return '{"continues":false,"from":null,"to":null,"confidence":"high"}';
+    }
+    if (askedKeys(prompt).includes("kb.nomor")) return "not json at all";
+    return poolAnswer(prompt, () => ({ pageIndex: 0, from: 0, to: 1 }));
+  };
+
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: TWO_PAGES,
+      wanted: ["kb.nomor", "kb.ttd", "kbLanjutan.ttd", "ba.nomor"],
+    },
+    kbPoolIsGarbage,
+    TWO_POOL_TEMPLATE,
+    9,
+  );
+
+  assert.deepEqual(
+    result.proposals.map((p) => p.key),
+    ["ba.nomor"],
+  );
+  assert.deepEqual(
+    result.outstanding.map((o) => o.key).sort(),
+    ["kb.nomor", "kb.ttd", "kbLanjutan.ttd"],
+  );
+  for (const entry of result.outstanding) {
+    assert.match(entry.reason, /search failed/, entry.key);
+  }
 });
 
 test("a model that cannot be reached is a 503, NOT a run full of 'not found'", async () => {
@@ -496,6 +781,50 @@ test("a model that cannot be reached is a 503, NOT a run full of 'not found'", a
   );
 });
 
+test("a provider that fails only at LOCATE is still a 503, at every dial", async () => {
+  // THE TEST ABOVE PASSES FOR A REASON THAT IS NOT THE ONE IT NAMES, and this
+  // is the half it does not reach. Its double refuses every prompt, so the
+  // 503 is raised by `classifyByDocType` and the search is never entered. Here
+  // classification SUCCEEDS and only the locate call cannot reach the provider,
+  // which is the ordinary shape of a provider going down mid-request.
+  //
+  // Measured on the shipped dial before this was fixed: the request resolved
+  // 200 with `outstanding: [{ reason: "the model could not be reached" }]`.
+  // `locateSlots` catches per slot when it is asked about one slot at a time,
+  // so the `AskFailed` tag never reached the route's own catch -- and
+  // "outstanding" means SEARCHED AND NOT FOUND, which drives the dokumen
+  // tambahan loop. The operator would go looking for documents to fill a slot
+  // nothing had ever read. That is the precise defect `AskFailed` exists for,
+  // rebuilt one layer down by consolidation.
+  const classifiesThenDies = async (prompt: string): Promise<string> => {
+    if (prompt.includes("segmenting")) {
+      return '{"spans":[{"docType":"KB","fromPage":0,"toPage":0}]}';
+    }
+    throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set.");
+  };
+
+  // Both settings of the accuracy/cost dial: at 1 the failure is swallowed by
+  // `locateSlots` and has to be noticed, above 1 it is thrown straight out.
+  // Neither may be reported as a document that lacks the slot.
+  for (const slotsPerCall of [1, 9]) {
+    await assert.rejects(
+      () =>
+        proposeZones(
+          {
+            runId: "r",
+            pages: [wirePage(0, "a", "alpha")],
+            wanted: ["kbLanjutan.top"],
+          },
+          classifiesThenDies,
+          TEMPLATE,
+          slotsPerCall,
+        ),
+      /could not be reached/,
+      `slotsPerCall=${slotsPerCall}`,
+    );
+  }
+});
+
 test("a classify failure does not cost the run its search", async () => {
   // Classification only ranks the pool. A document that will not classify
   // loses its head start and nothing else; failing the request would cost the
@@ -503,7 +832,7 @@ test("a classify failure does not cost the run its search", async () => {
   const classifyBroken = async (prompt: string): Promise<string> =>
     prompt.includes("segmenting")
       ? "{ this is not json"
-      : '{"pageIndex":0,"from":0,"to":1,"confidence":"high"}';
+      : poolAnswer(prompt, () => ({ pageIndex: 0, from: 0, to: 1 }));
 
   const result = await proposeZones(
     { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: ["kbLanjutan.top"] },
@@ -569,8 +898,8 @@ const classifiesSpOnly = async (prompt: string): Promise<string> => {
     });
   }
   throw new Error(
-    "a whole-page slot must not reach locateSlot: asking the model to find a " +
-      "page inside that page is the defect this test pins",
+    "a whole-page slot must not reach the locate call: asking the model to " +
+      "find a page inside that page is the defect this test pins",
   );
 };
 
@@ -612,7 +941,7 @@ test("a whole-page slot with no page of its type is outstanding, not an arbitrar
     if (prompt.includes("segmenting")) {
       return '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}';
     }
-    throw new Error("must not reach locateSlot");
+    throw new Error("must not reach the locate call");
   };
 
   const result = await proposeZones(
@@ -663,7 +992,7 @@ test("re-searching only the second SP slot does not hand it the first one's page
  * Three prompts reach it and they are told apart by their own wording:
  * `classifyPages` says "segmenting", `buildContinuationPrompt` ends with the
  * next page's listing under `--- next page ---`, and anything else is
- * `locateSlot`.
+ * `locateSlots`.
  */
 const walksTheWholeDocument = async (prompt: string): Promise<string> => {
   if (prompt.includes("segmenting")) {
@@ -672,7 +1001,7 @@ const walksTheWholeDocument = async (prompt: string): Promise<string> => {
   if (prompt.includes("--- next page ---")) {
     return '{"continues":true,"from":0,"to":1,"confidence":"high"}';
   }
-  return '{"pageIndex":0,"from":0,"to":1,"confidence":"high"}';
+  return poolAnswer(prompt, () => ({ pageIndex: 0, from: 0, to: 1 }));
 };
 
 /**

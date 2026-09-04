@@ -382,7 +382,10 @@ test("classifyPages rejects an empty spans array", async () => {
 
 import {
   locateSlot,
+  locateSlots,
+  MAX_SLOTS_PER_LOCATE_CALL,
   buildLocatePrompt,
+  buildPoolLocatePrompt,
   clampRangeToPage,
   CROP_PADDING_PX,
   trimRunningFooter,
@@ -431,6 +434,249 @@ test("locateSlot returns null when the model finds nothing", async () => {
   const ask = async () => '{"pageIndex":null,"from":null,"to":null,"confidence":"low"}';
   assert.equal(await locateSlot("MOM", "meeting minutes", [kbPage], ask), null);
 });
+
+// ---------------------------------------------------------------------------
+// locateSlots: every slot sharing a pool, in one call.
+//
+// The saving is arithmetic (six 23k listings not sent), so what these tests
+// protect is the thing consolidation PUTS AT RISK: under one call per slot, a
+// bad answer could only ever cost its own slot, and that isolation was free.
+// Here it is code. Most of what follows drives a deliberately broken reply and
+// asserts that the other six slots came through it intact.
+// ---------------------------------------------------------------------------
+
+const poolSlots = [
+  { key: "kb.nomor", label: "KB / Nomor", hint: "the contract number" },
+  { key: "kb.tanggal", label: "KB / Tanggal", hint: "the signing date" },
+];
+
+test("buildPoolLocatePrompt asks every field BEFORE the pages", () => {
+  const prompt = buildPoolLocatePrompt(poolSlots, [kbPage]);
+
+  // Both keys and both hints are present and identifiable.
+  assert.ok(prompt.includes("kb.nomor"));
+  assert.ok(prompt.includes("kb.tanggal"));
+  assert.ok(prompt.includes("the contract number"));
+  assert.ok(prompt.includes("the signing date"));
+
+  // THE ORDERING ASSERTION, and it is the load-bearing one in this file.
+  // Three arrangements that put the question below the listing were measured
+  // on the gate and every one turned `KB / Nomor` from an intermittent failure
+  // into a certain one. Consolidation exists partly BECAUSE it keeps the
+  // questions first, so a refactor that quietly moves the listing up is a
+  // measured regression and must fail here rather than on a bill.
+  assert.ok(
+    prompt.indexOf("kb.tanggal") < prompt.indexOf("--- page 0 ---"),
+    "the fields must be asked before the pages are listed",
+  );
+});
+
+test("buildPoolLocatePrompt numbers pages by position, not by document index", () => {
+  // Same measured defect `buildLocatePrompt` guards: a pool whose first page
+  // is labelled anything but 0 gets answered one position off.
+  const prompt = buildPoolLocatePrompt(poolSlots, [ocrPage(23, ["a"]), ocrPage(24, ["b"])]);
+  assert.ok(prompt.includes("--- page 0 ---"));
+  assert.ok(prompt.includes("--- page 1 ---"));
+  assert.ok(!prompt.includes("--- page 23 ---"));
+});
+
+test("locateSlots answers every requested key from one reply", async () => {
+  let calls = 0;
+  const ask = async () => {
+    calls += 1;
+    return JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: 0, from: 1, to: 1, confidence: "high" },
+        { key: "kb.tanggal", pageIndex: 0, from: 2, to: 2, confidence: "high" },
+      ],
+    });
+  };
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+
+  assert.equal(calls, 1, "two slots must cost one call, not two");
+  assert.equal(out.size, 2);
+  assert.equal(out.get("kb.nomor").ok, true);
+  assert.deepEqual(out.get("kb.nomor").result.zone.lineRange, [1, 1]);
+  assert.ok(out.get("kb.tanggal").result.text.includes("Pada hari ini Jumat"));
+});
+
+test("locateSlots reports a requested key the reply never mentions", async () => {
+  const ask = async () =>
+    JSON.stringify({
+      answers: [{ key: "kb.nomor", pageIndex: 0, from: 1, to: 1, confidence: "high" }],
+    });
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+
+  // Total-ness is the contract: both callers have to say something about every
+  // slot they asked about, so a silently missing map entry is not an option.
+  assert.equal(out.size, 2);
+  assert.equal(out.get("kb.nomor").ok, true);
+  assert.equal(out.get("kb.tanggal").ok, false);
+  assert.match(out.get("kb.tanggal").reason, /found no match/);
+});
+
+test("locateSlots drops an answer for a key nobody asked for", async () => {
+  const ask = async () =>
+    JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: 0, from: 1, to: 1, confidence: "high" },
+        { key: "kb.invented", pageIndex: 0, from: 0, to: 0, confidence: "high" },
+        { key: "kb.tanggal", pageIndex: 0, from: 2, to: 2, confidence: "high" },
+      ],
+    });
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+
+  // A hallucinated key reaching a caller would name a slot this pool was never
+  // searched for -- the same guard `extractFields` applies with
+  // `keys.includes(v.fieldKey)`.
+  assert.equal(out.size, 2);
+  assert.ok(!out.has("kb.invented"));
+  assert.equal(out.get("kb.tanggal").ok, true);
+});
+
+test("locateSlots keeps the first of a duplicated key", async () => {
+  const ask = async () =>
+    JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: 0, from: 1, to: 1, confidence: "high" },
+        { key: "kb.nomor", pageIndex: 0, from: 0, to: 2, confidence: "high" },
+        { key: "kb.tanggal", pageIndex: 0, from: 2, to: 2, confidence: "high" },
+      ],
+    });
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+  assert.deepEqual(out.get("kb.nomor").result.zone.lineRange, [1, 1]);
+});
+
+test("ONE BAD ANSWER COSTS ONE SLOT, not the whole pool", async () => {
+  // The property one-call-per-slot gave away for free, and the single biggest
+  // risk in consolidating. `pageIndex: 9` names no page in a one-page pool.
+  const ask = async () =>
+    JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: 9, from: 1, to: 1, confidence: "high" },
+        { key: "kb.tanggal", pageIndex: 0, from: 2, to: 2, confidence: "high" },
+      ],
+    });
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+
+  assert.equal(out.get("kb.nomor").ok, false);
+  assert.match(out.get("kb.nomor").reason, /not a position/);
+  assert.equal(out.get("kb.tanggal").ok, true, "the good slot must survive the bad one");
+  assert.deepEqual(out.get("kb.tanggal").result.zone.lineRange, [2, 2]);
+});
+
+test("locateSlots passes a null answer through as not-found", async () => {
+  const ask = async () =>
+    JSON.stringify({
+      answers: [
+        { key: "kb.nomor", pageIndex: null, from: null, to: null, confidence: "low" },
+        { key: "kb.tanggal", pageIndex: 0, from: 2, to: 2, confidence: "high" },
+      ],
+    });
+
+  const out = await locateSlots(poolSlots, [kbPage], ask, 9);
+
+  // `ok: true` with a null result is "the model answered, and the answer is
+  // that it is not here" -- which is a different fact from "the model never
+  // mentioned this key", even though both end as an outstanding slot.
+  assert.equal(out.get("kb.nomor").ok, true);
+  assert.equal(out.get("kb.nomor").result, null);
+  assert.equal(out.get("kb.tanggal").ok, true);
+});
+
+test("locateSlots makes no call at all for an empty slot list", async () => {
+  let calls = 0;
+  const ask = async () => {
+    calls += 1;
+    return "{}";
+  };
+  const out = await locateSlots([], [kbPage], ask, 9);
+  assert.equal(calls, 0, "a round with nothing left to search must not bill a call");
+  assert.equal(out.size, 0);
+});
+
+test("locateSlots defaults to ONE slot per call, using the single-slot prompt", async () => {
+  // THE DEFAULT IS THE MEASURED ONE AND THIS IS THE TEST THAT SAYS SO.
+  // Grouping slots into one call is the largest cost saving on paper and it
+  // measured WORSE on the gate every way it was tried: three slots per call
+  // scored 9/10/10 and all seven at once 8/10/9, against one-per-call's
+  // 11/9/11. The seven-at-once run also dropped page selection to 10/12 for
+  // the first time in any arm, because the reply silently omitted a field.
+  //
+  // Two things have to hold for the default to be genuinely the old
+  // behaviour, and both are asserted: one call per slot, and the ORIGINAL
+  // prompt rather than a pool prompt carrying a single question. The second is
+  // easy to lose in a refactor and would be a silent prompt change, which is
+  // the thing this file's header forbids most loudly.
+  assert.equal(MAX_SLOTS_PER_LOCATE_CALL, 1);
+
+  const prompts = [];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return '{"pageIndex":0,"from":1,"to":1,"confidence":"high"}';
+  };
+
+  const out = await locateSlots(poolSlots, [kbPage], ask);
+
+  assert.equal(prompts.length, 2, "two slots, two calls, at the default");
+  for (const prompt of prompts) {
+    assert.ok(
+      !prompt.includes("FIELDS"),
+      "the default must send buildLocatePrompt, not a one-question pool prompt",
+    );
+  }
+  assert.equal(out.get("kb.nomor").ok, true);
+  assert.equal(out.get("kb.tanggal").ok, true);
+});
+
+test("a slot that throws at the default costs only itself", async () => {
+  // The isolation the pooled path had to rebuild by hand is also asserted on
+  // the default path, because both are live: the default is what ships and the
+  // pooled path is one env var away.
+  const ask = async (prompt) =>
+    prompt.includes("the contract number")
+      ? "not json at all"
+      : '{"pageIndex":0,"from":2,"to":2,"confidence":"high"}';
+
+  const out = await locateSlots(poolSlots, [kbPage], ask);
+
+  assert.equal(out.get("kb.nomor").ok, false);
+  assert.equal(out.get("kb.tanggal").ok, true);
+  assert.deepEqual(out.get("kb.tanggal").result.zone.lineRange, [2, 2]);
+});
+
+test("locateSlots applies the same footer trim and clamp as locateSlot", async () => {
+  // resolveAnswer is shared, and this is the assertion that says so. A second
+  // copy of the clamp/trim/box logic behind the pool path is the drift this
+  // test exists to catch: `to: 99` runs off a 3-line page and must come back
+  // clamped, with the confidence downgraded exactly as the single-slot path
+  // downgrades it.
+  const single = await locateSlot(
+    "Tanggal",
+    "the signing date",
+    [kbPage],
+    async () => '{"pageIndex":0,"from":1,"to":99,"confidence":"high"}',
+  );
+  const pooled = await locateSlots(
+    [poolSlots[1]],
+    [kbPage],
+    async () =>
+      JSON.stringify({
+        answers: [{ key: "kb.tanggal", pageIndex: 0, from: 1, to: 99, confidence: "high" }],
+      }),
+    9,
+  );
+
+  assert.deepEqual(pooled.get("kb.tanggal").result.zone.lineRange, single.zone.lineRange);
+  assert.equal(pooled.get("kb.tanggal").result.confidence, single.confidence);
+  assert.equal(single.confidence, "low", "the clamp must downgrade confidence");
+});
+
 
 // ---------------------------------------------------------------------------
 // clampRangeToPage: the "no evidence" defect on a slot that WAS found.
@@ -1744,9 +1990,9 @@ test("searchRound offers a table slot every page, not just its docType's", async
     template: TINY_TEMPLATE,
     byType,
     pages,
-    locate: async (slot, pool) => {
-      seen.set(slot.key, pool.map((p) => p.index));
-      return null;
+    locatePool: async (questions, pool) => {
+      for (const q of questions) seen.set(q.key, pool.map((p) => p.index));
+      return new Map(questions.map((q) => [q.key, { ok: true, result: null }]));
     },
   });
 
@@ -1763,10 +2009,18 @@ test("searchRound reports outstanding slots as structured data, with reasons", a
     template: TINY_TEMPLATE,
     byType,
     pages,
-    locate: async (slot) => {
-      if (slot.key === "field.one") throw new Error("model exhausted its retries");
-      return null;
-    },
+    // Per-slot outcomes out of ONE call: `field.one` failed on its own answer
+    // while `field.two` came back a legitimate no-match. That both survive the
+    // same call is the isolation consolidation had to rebuild by hand.
+    locatePool: async (questions) =>
+      new Map(
+        questions.map((q) => [
+          q.key,
+          q.key === "field.one"
+            ? { ok: false, reason: "model exhausted its retries" }
+            : { ok: true, result: null },
+        ]),
+      ),
   });
 
   assert.deepEqual(zones, []);
@@ -1813,14 +2067,16 @@ test("searchRound skips slots an earlier round already satisfied", async () => {
     byType,
     pages,
     satisfied: new Set(["field.one", "whole.1"]),
-    locate: async (slot) => {
-      asked.push(slot.key);
-      return foundZone(0);
+    locatePool: async (questions) => {
+      for (const q of questions) asked.push(q.key);
+      return new Map(questions.map((q) => [q.key, { ok: true, result: foundZone(0) }]));
     },
   });
 
-  // The satisfied field slot costs no model call at all. That is the point:
-  // a second document is searched only for what is still missing.
+  // The satisfied field slot is never even ASKED ABOUT. Under one call per
+  // slot this was "costs no model call"; consolidated, the pool call still
+  // happens for the slots that remain, so what has to hold is that the
+  // satisfied key is absent from the questions.
   assert.deepEqual(asked, ["field.two"]);
   assert.equal(zones.some((z) => z.key === "field.one"), false);
 
@@ -2103,9 +2359,14 @@ test("two rounds are additive end to end: round 2 fills only what round 1 missed
     byType,
     pages: round1Pages,
     satisfied: satisfiedSlotKeys(template, zones),
-    locate: async (slot) => {
-      asked.push(`r1:${slot.key}`);
-      return slot.key === "field.one" ? foundZone(1) : null;
+    locatePool: async (questions) => {
+      for (const q of questions) asked.push(`r1:${q.key}`);
+      return new Map(
+        questions.map((q) => [
+          q.key,
+          { ok: true, result: q.key === "field.one" ? foundZone(1) : null },
+        ]),
+      );
     },
   });
   for (const [key, reason] of r1.reasons) reasons.set(key, reason);
@@ -2127,9 +2388,9 @@ test("two rounds are additive end to end: round 2 fills only what round 1 missed
     byType,
     pages: round2Pages,
     satisfied: satisfiedSlotKeys(template, zones),
-    locate: async (slot) => {
-      asked.push(`r2:${slot.key}`);
-      return foundZone(2);
+    locatePool: async (questions) => {
+      for (const q of questions) asked.push(`r2:${q.key}`);
+      return new Map(questions.map((q) => [q.key, { ok: true, result: foundZone(2) }]));
     },
   });
   for (const [key, reason] of r2.reasons) reasons.set(key, reason);

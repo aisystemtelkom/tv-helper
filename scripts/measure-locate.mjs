@@ -151,7 +151,7 @@ import {
   OCR_PROMPT_VERSION,
 } from "../src/lib/pipeline/gemini-ocr.ts";
 import {
-  locateSlot,
+  locateSlots,
   CROP_PADDING_PX,
   FOOTER_GAP_MULTIPLE,
   MAX_FOOTER_LINES,
@@ -1944,9 +1944,56 @@ async function main() {
   }
   console.log("Crop OCR complete.\n");
 
+  // ---- the plain field slots, in ONE call, exactly as production now asks ----
+  //
+  // THE GATE HAS TO ASK THE WAY PRODUCTION ASKS, or it stops being a gate.
+  // `searchRound` and `/api/propose` group every slot sharing a pool into a
+  // single `locateSlots` call; a harness still calling `locateSlot` per row
+  // would score a code path nothing ships, and would do it while printing the
+  // same familiar totals -- which is the wrong-and-quiet shape aimed at the
+  // instrument rather than at the product.
+  //
+  // The whole-document rows and the continuation row are deliberately NOT in
+  // here. The first make no model call at all, and the second walks forward
+  // from its sibling's answer through `findContinuations`, which is its own
+  // production path and its own question.
+  const pooledEntries = slotsToRun.filter(
+    (entry) => !entry.wholeDocument && !entry.continuationOf,
+  );
+  let pooledOutcomes = new Map();
+  let pooledError = null;
+  if (pooledEntries.length > 0) {
+    const questions = pooledEntries.map((entry) => {
+      const { label, hint } = askedAs(entry);
+      return { key: entry.slot, label, hint };
+    });
+    console.log(
+      `Locating ${questions.length} field slot(s) in ONE call over ${pages.length} pages:\n` +
+        questions.map((q) => `  - ${q.key} (asked as "${q.label}")`).join("\n"),
+    );
+    // One cache entry for the pooled prompt, under a fixed name rather than a
+    // slot's. The prompt hash still carries every question, so a changed slot
+    // list misses by construction.
+    const pooledAsk = makeCachedAsk("__pool__", modelCache);
+    try {
+      pooledOutcomes = await locateSlots(questions, pages, pooledAsk);
+    } catch (err) {
+      // A CALL-LEVEL FAILURE COSTS EVERY POOLED ROW, and the gate says so
+      // rather than hiding it: production falls back to per-slot calls here,
+      // but the harness deliberately does not, because a gate that silently
+      // measured the fallback would report the old path's accuracy under the
+      // new path's name.
+      pooledError = err;
+    }
+  }
+  console.log();
+
   const results = [];
   for (const entry of slotsToRun) {
-    const { label, hint } = askedAs(entry);
+    // `hint` is not read here: the pooled call above built its own questions
+    // from `askedAs`, and the continuation branch takes the hint from the
+    // template rather than from this row.
+    const { label } = askedAs(entry);
     console.log(`Locating "${entry.slot}" (asked as "${label}")...`);
     const cachedAsk = makeCachedAsk(entry.slot, modelCache);
 
@@ -2052,15 +2099,25 @@ async function main() {
         }
       }
     } else {
-      try {
-        result = await locateSlot(label, hint, pages, cachedAsk);
-      } catch (err) {
-        error = err;
+      // Answered ALREADY, in the single pooled call above. Reading it back
+      // here rather than asking per row is the whole point: production groups
+      // these seven questions into one call, so the gate must too.
+      if (pooledError) {
+        error = pooledError;
+      } else {
+        const outcome = pooledOutcomes.get(entry.slot);
+        if (!outcome) {
+          error = new Error("the pooled search returned no outcome for this slot");
+        } else if (!outcome.ok) {
+          error = new Error(outcome.reason);
+        } else {
+          result = outcome.result;
+        }
       }
     }
 
     const verdict = error
-      ? { pass: false, detail: `locateSlot threw: ${error.message}` }
+      ? { pass: false, detail: `locate failed: ${error.message}` }
       : evaluate(entry, result, pages, cropEntries);
 
     results.push({ entry, result, verdict });

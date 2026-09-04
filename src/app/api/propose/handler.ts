@@ -8,7 +8,7 @@
  * "where in these pages is each of these slots?".
  *
  * WHAT LEAVES THE DEVICE, EXACTLY. OCR LINE TEXT AND ITS BOXES. Not the PDF,
- * not a page image, not a crop: `classifyPages` and `locateSlot` build TEXT
+ * not a page image, not a crop: `classifyPages` and `locateSlots` build TEXT
  * prompts, and this route never touches pixels. That is the whole point of
  * doing the render and the OCR in the tab. Anything added here that sends an
  * image would move this project's data boundary, so do not add one without
@@ -39,7 +39,14 @@ import {
   findContinuations,
   runningFurniture,
 } from "../../../lib/pipeline/continuation.ts";
-import { locateSlot, type OcrPage, type Zone } from "../../../lib/pipeline/locate.ts";
+import {
+  MAX_SLOTS_PER_LOCATE_CALL,
+  locateSlots,
+  type OcrPage,
+  type SlotOutcome,
+  type SlotQuestion,
+  type Zone,
+} from "../../../lib/pipeline/locate.ts";
 // The wire contract, the provider-failure tag and the classify pass are
 // SHARED WITH `/api/extract` and live in one copy under `src/lib/api/`. They
 // are re-exported below under the names this route's callers and tests
@@ -123,8 +130,9 @@ export function rankedPoolForSlot(
   }
 
   return [...head, ...tail].map((page) => ({
-    // Carried through unchanged: `locateSlot` maps the model's pool POSITION
-    // back to this number, which is what lands in `Zone.pageIndex`.
+    // Carried through unchanged: the locate reply names a POSITION in this
+    // pool, which is mapped back to this number, which is what lands in
+    // `Zone.pageIndex`.
     index: page.index,
     width: page.width,
     height: page.height,
@@ -407,8 +415,73 @@ async function walkContinuations(
 /**
  * The search itself.
  *
- * ONE MODEL CALL PER TEMPLATE SLOT, not per capture, and NONE AT ALL for a
- * `layout: "images"` section -- see `wholePageProposals`.
+ * ONE LOCATE CALL PER POOL -- not per capture and not per slot -- and NONE AT
+ * ALL for a `layout: "images"` section, which is answered deterministically by
+ * `wholePageProposals` before anything reaches the model.
+ *
+ * HOW MANY MODEL CALLS THAT IS, IS NOT THIS FILE'S DECISION. `locateSlots`
+ * splits a pool by `MAX_SLOTS_PER_LOCATE_CALL`, which SHIPS AT 1 because every
+ * multi-slot setting measured worse on the gate, so a pool of seven slots is
+ * still seven model calls today and the wording above is about the call this
+ * route makes, not about the bill. What the grouping does is make the saving
+ * one env var away instead of one restructure away: raise the dial and those
+ * seven questions become one prompt without another line changing here.
+ *
+ * ## Why the loop is over POOLS and not over slots
+ *
+ * A slot's pool is a function of `slot.docType` alone (`rankedPoolForSlot`
+ * ranks by it and never filters), so every slot carrying the same docType is
+ * searched over a byte-identical page listing. Every fillable `layout: "table"`
+ * slot in `AO_TEMPLATE` carries `docType: "KB"`, so one call per slot sent that
+ * listing seven times: measured on the 29-page sample bundle, 160.7k input
+ * tokens for locate, of which about 138k was six redundant copies. Grouped,
+ * and with the dial above raised, that is one call and ~23k.
+ *
+ * It matters more as bundles grow, which is what makes it worth a restructure
+ * rather than a micro-optimisation: `locate` is the only stage whose cost
+ * scales with SLOTS TIMES PAGES rather than with pages alone, so it is the line
+ * that fails first when an order arrives with sixty pages instead of
+ * twenty-nine. The cheaper-looking alternative -- keep seven calls and reorder
+ * each prompt so the listing leads, earning Gemini's ~90% prefix discount -- was
+ * measured and REVERTED: it works as advertised on cost and turns `KB / Nomor`
+ * from an intermittent gate failure into a certain one. See "## The
+ * prefix-cache experiment" in `src/lib/pipeline/locate.ts`'s header.
+ *
+ * The grouping is deliberately across SECTIONS, not within one: `kb.nomor` and
+ * `kbLanjutan.detail` live in different sections, share a docType, and so share
+ * a call. A per-section loop could never see that.
+ *
+ * ## What consolidating gives away, and where each piece is rebuilt
+ *
+ * The per-slot loop bought three properties for free. Each had to be paid for
+ * in code, and the third was nearly lost silently:
+ *
+ *  - A BAD ANSWER COSTS ONE SLOT. `locateSlots` rebuilds this: a malformed
+ *    range, or a `pageIndex` naming no page in the pool, fails that entry and
+ *    no other, and arrives as `{ok: false, reason}` rather than as a throw.
+ *  - A FAILED CALL COSTS ONE SLOT. This one cannot be rebuilt, because a pooled
+ *    call either answered or it did not. A call-level failure marks EVERY slot
+ *    in that pool outstanding, by name and with the reason -- never silently
+ *    dropped, and never costing another pool or a whole-page capture.
+ *  - A PROVIDER FAILURE STOPS THE REQUEST. It used to, because `locateSlot`
+ *    threw and the `catch` here re-raised `AskFailed`. It NO LONGER DOES BY
+ *    ITSELF: `locateSlots` catches per slot at `slotsPerCall <= 1`, so the tag
+ *    `guardAsk` raises is swallowed and comes back as
+ *    `{ok: false, reason: "the model could not be reached"}` -- which this loop
+ *    would push as OUTSTANDING. Measured on the shipped dial before the fix
+ *    below: a request whose classify succeeded and whose locate could not reach
+ *    the provider answered 200 with every slot "outstanding", which means
+ *    SEARCHED AND NOT FOUND, drives the dokumen tambahan loop, and would send
+ *    the operator hunting for documents to fill slots nothing ever looked at.
+ *    That is the exact defect `AskFailed` was written for, rebuilt one layer
+ *    down. `watchedAsk` below restores it, the same way `walkContinuations`
+ *    already watches `findContinuations` for the same reason.
+ *
+ * `scripts/generate.mjs` additionally falls back to one call per slot when the
+ * pool call throws. That is right for a headless run which has already spent
+ * minutes of OCR and cannot ask anybody anything; it is deliberately NOT done
+ * here, where the operator is standing in front of the screen, the pages are
+ * already on the device, and pressing Proses again is one click.
  *
  * A LANJUTAN IS NOT SEARCHED FOR HERE. Every slot is wanted as exactly one
  * capture now (`seedSlots` seeds one, `SlotDef.crops` is dead), and the rest of
@@ -423,6 +496,12 @@ export async function proposeZones(
   body: ProposeBody,
   rawAsk: Ask,
   template: Template = AO_TEMPLATE,
+  // How many slots one locate call may carry. Defaults to the measured
+  // shipped value (1, see MAX_SLOTS_PER_LOCATE_CALL) and is a parameter only
+  // so a test can drive BOTH settings end to end: the grouping is one env var
+  // away from being live, so "the route still behaves when it is raised" is a
+  // property worth a test rather than a hope.
+  slotsPerCall: number = MAX_SLOTS_PER_LOCATE_CALL,
 ): Promise<ProposeResult> {
   assertRunGlobalIndexes(body.pages);
 
@@ -492,11 +571,21 @@ export async function proposeZones(
     );
   }
 
+  // Every table slot still wanting a zone, grouped under the pool it would
+  // have searched on its own. The docType IS the group identity because the
+  // pool is a function of nothing else; `null` is a real group -- a slot with
+  // no preference gets an unranked pool -- and the sentinel below keeps it from
+  // colliding with a docType literally named "null".
+  const NO_DOC_TYPE = "(no docType)";
+  const byPool = new Map<string, { slot: SlotDef; captureKeys: string[] }[]>();
+
   for (const [slotKey, captureKeys] of wantedBySlot) {
     const entry = defs.get(slotKey);
     const slot = entry?.slot;
-    // Already answered above, deterministically. Sending it on to `locateSlot`
-    // is the defect `wholePageProposals` exists to stop.
+    // Already answered above, deterministically. Sending it on to the model is
+    // the defect `wholePageProposals` exists to stop, and it must be stopped
+    // HERE rather than by the model declining: asking for a region inside a
+    // page that IS the capture returns a plausible-looking fragment every time.
     if (entry?.section.layout === "images") continue;
     if (!slot || !slot.fillable) {
       for (const key of captureKeys) {
@@ -510,51 +599,144 @@ export async function proposeZones(
       continue;
     }
 
-    const pool = rankedPoolForSlot(slot, body.pages, byType);
+    const poolKey = slot.docType ?? NO_DOC_TYPE;
+    const group = byPool.get(poolKey);
+    if (group) group.push({ slot, captureKeys });
+    else byPool.set(poolKey, [{ slot, captureKeys }]);
+  }
 
-    let found;
+  // A PROVIDER FAILURE MUST NOT ARRIVE HERE AS AN OUTCOME. `locateSlots`
+  // catches per slot at the shipped `slotsPerCall` of 1, so the `AskFailed`
+  // that `guardAsk` raises no longer reaches this function's own `catch`: it
+  // comes back as `{ok: false}` and would be pushed as outstanding. See the
+  // header for the measured 200-OK-full-of-outstanding that produced. Watched
+  // rather than re-tagged, because the failure has to be recognised wherever
+  // the layer below decides to swallow it.
+  let providerFailure: unknown;
+  const watchedAsk: Ask = async (prompt) => {
+    // Already down. The remaining slots of this pool would each buy the same
+    // failure, and this function is about to throw it either way.
+    if (providerFailure) throw providerFailure;
     try {
-      found = await locateSlot(slot.label, slot.hint, pool, ask);
+      return await ask(prompt);
     } catch (error) {
-      // The model was never reached. Reporting this slot "outstanding" would
-      // tell the operator it is not in the bundle, which nobody has checked.
+      if (error instanceof AskFailed) providerFailure ??= error;
+      throw error;
+    }
+  };
+
+  for (const group of byPool.values()) {
+    // Every slot in the group ranks the same pool, so it is built once from
+    // whichever of them is first. `body.pages` is known non-empty by here, and
+    // ranking never drops a page, so this pool always has something in it.
+    const pool = rankedPoolForSlot(group[0].slot, body.pages, byType);
+
+    // ASKED WITH `slot.label`, NOT WITH A SECTION-PREFIXED ONE, and that is a
+    // deliberate difference from `scripts/generate.mjs`. Changing what the
+    // model is asked is a prompt change, and AGENTS.md's rule is that a prompt
+    // change is not made without re-running the measurement gate. The reply is
+    // keyed by `slot.key`, which is unique, so two slots sharing a label ("TTD
+    // Pejabat" appears twice in `AO_TEMPLATE`) still cannot have their answers
+    // merged.
+    const questions: SlotQuestion[] = group.map(({ slot }) => ({
+      key: slot.key,
+      label: slot.label,
+      hint: slot.hint,
+    }));
+
+    let outcomes: Map<string, SlotOutcome>;
+    try {
+      outcomes = await locateSlots(questions, pool, watchedAsk, slotsPerCall);
+    } catch (error) {
+      // The model was never reached. Reporting these slots "outstanding" would
+      // tell the operator they are not in the bundle, which nobody has checked.
+      // Both spellings: thrown straight out of the pooled path, or caught by
+      // `locateSlots` and seen only by `watchedAsk`.
       if (error instanceof AskFailed) throw error;
-      // One slot's failure costs that slot, not the run. By this point the
-      // request may have spent a dozen calls on slots that succeeded, and the
-      // operator finishes the document by hand anyway.
+      if (providerFailure) throw providerFailure;
+      // The call itself failed -- an unparseable reply, a schema the answer
+      // does not fit. Under one call per slot that cost one slot; with one call
+      // per pool it costs the pool, so EVERY slot in it is named with the
+      // reason rather than quietly left out of both lists. Other pools, and
+      // every whole-page capture, are untouched.
       const cause = error instanceof Error ? error.message : String(error);
-      for (const key of captureKeys) {
-        outstanding.push({ key, reason: `search failed: ${cause}` });
+      for (const { captureKeys } of group) {
+        for (const key of captureKeys) {
+          outstanding.push({ key, reason: `search failed: ${cause}` });
+        }
       }
       continue;
     }
+    // A returned map is not evidence the provider answered: at one slot per
+    // call every failure is caught below and returned as an outcome.
+    if (providerFailure) throw providerFailure;
 
-    if (!found) {
-      for (const key of captureKeys) {
-        outstanding.push({ key, reason: "searched every page, not found" });
+    for (const { slot, captureKeys } of group) {
+      const outcome = outcomes.get(slot.key);
+      // `locateSlots` promises an outcome for every key it was handed. A short
+      // answer is a bug there rather than a fact about the document, so it is
+      // reported by name: a slot that fell out of both lists is a slot the
+      // review screen never mentions again.
+      if (!outcome) {
+        for (const key of captureKeys) {
+          outstanding.push({
+            key,
+            reason: "the search returned no outcome for this slot",
+          });
+        }
+        continue;
       }
-      continue;
-    }
 
-    const [first, ...rest] = captureKeys;
-    proposals.push({
-      key: first,
-      zone: found.zone,
-      text: found.text,
-      confidence: found.confidence,
-    });
-    // As above: normally empty. A leftover `<key>#2` from an older run is not
-    // something a whole-bundle search can answer -- a lanjutan is defined by
-    // the capture it follows -- so it is reported and then walked forward
-    // from below like any other capture.
-    for (const key of rest) {
-      outstanding.push({
-        key,
-        reason:
-          "a lanjutan is found by working forward from the capture before it, " +
-          "not by searching the bundle; it is checked once the first capture " +
-          "is in place",
+      // THE SEARCH FAILED FOR THIS SLOT, WHICH IS NOT THE SAME NEWS AS "NOT IN
+      // THESE PAGES", and the wording keeps them apart. A model that looked and
+      // found nothing answers null, which arrives as `ok: true` with a null
+      // result and is reported below as "searched every page, not found". An
+      // `ok: false` is one of: a reply this slot's answer could not be resolved
+      // from (a `pageIndex` naming no page in the pool, a reversed range), or a
+      // pooled reply that never mentioned this key at all -- and the second is
+      // a failure too, not a considered no. `MAX_SLOTS_PER_LOCATE_CALL` records
+      // the measurement: asked about seven slots at once the model answers in
+      // 382 output tokens and OMITS one, which is silence rather than a verdict.
+      // `locateSlots`' own reason is kept inside the prefix so the diagnosis
+      // survives to the run log.
+      //
+      // This slot's alone, either way. The rest of the pool was answered by the
+      // same reply and is untouched.
+      if (!outcome.ok) {
+        for (const key of captureKeys) {
+          outstanding.push({ key, reason: `search failed: ${outcome.reason}` });
+        }
+        continue;
+      }
+
+      const found = outcome.result;
+      if (!found) {
+        for (const key of captureKeys) {
+          outstanding.push({ key, reason: "searched every page, not found" });
+        }
+        continue;
+      }
+
+      const [first, ...rest] = captureKeys;
+      proposals.push({
+        key: first,
+        zone: found.zone,
+        text: found.text,
+        confidence: found.confidence,
       });
+      // As above: normally empty. A leftover `<key>#2` from an older run is not
+      // something a whole-bundle search can answer -- a lanjutan is defined by
+      // the capture it follows -- so it is reported and then walked forward
+      // from below like any other capture.
+      for (const key of rest) {
+        outstanding.push({
+          key,
+          reason:
+            "a lanjutan is found by working forward from the capture before it, " +
+            "not by searching the bundle; it is checked once the first capture " +
+            "is in place",
+        });
+      }
     }
   }
 

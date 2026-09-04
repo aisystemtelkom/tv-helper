@@ -185,7 +185,7 @@ export {
   remapCitedPageIndex,
   withFieldHints,
 };
-import { locateSlot } from "../src/lib/pipeline/locate.ts";
+import { locateSlot, locateSlots } from "../src/lib/pipeline/locate.ts";
 // Detection only. `findContinuations` in that module also proposes the
 // continuation's extent with a cheap next-page call; this script deliberately
 // does not import it. See `continuationChecks` for the measured reason.
@@ -1517,6 +1517,58 @@ export function unmappedFieldValues(template, values) {
 }
 
 /**
+ * One call for the whole pool, falling back to one call per slot if it fails.
+ *
+ * ## Why the fallback exists at all
+ *
+ * Consolidating seven questions into one call gives away a property that one
+ * call per slot had for free: a failure could only ever cost the slot that
+ * caused it. `searchRound`'s own comment made the argument -- by the time
+ * locate runs, the pass has spent minutes of OCR and tens of thousands of
+ * tokens, and throwing away six good crops because the seventh question was
+ * unlucky is the wrong trade.
+ *
+ * `locateSlots` already rebuilds that isolation for a bad ANSWER: a malformed
+ * range or an invented page fails its own entry and no other. What it cannot
+ * rebuild is a failure of the CALL -- a 503, a timeout, an unparseable reply --
+ * because there is one call and it either answered or it did not. That is what
+ * this handles: on a call-level failure the pool is re-asked slot by slot, at
+ * the old cost, which is exactly the price that was being paid before.
+ *
+ * So the cost profile is: the cheap path when it works, the old path when it
+ * does not, and never worse than the old path. The fallback is expected to be
+ * rare -- `ask` already retries transients with backoff before it throws.
+ *
+ * IT DOES NOT FALL BACK ON A BAD ANSWER, only on a throw. A reply that came
+ * back and answered five of seven is a real answer about those five; re-asking
+ * all seven individually would spend six calls to re-derive what is already
+ * known and would let the two genuinely-absent slots cost a call each to say
+ * so again.
+ */
+async function locatePoolWithFallback(questions, pool, ask, log) {
+  try {
+    return await locateSlots(questions, pool, ask);
+  } catch (error) {
+    log(
+      `  the one-call pool search failed (${error.message}); falling back to ` +
+        `${questions.length} individual call(s), which costs what this run ` +
+        "used to cost and no more",
+    );
+  }
+
+  const out = new Map();
+  for (const question of questions) {
+    try {
+      const result = await locateSlot(question.label, question.hint, pool, ask);
+      out.set(question.key, { ok: true, result });
+    } catch (error) {
+      out.set(question.key, { ok: false, reason: error.message });
+    }
+  }
+  return out;
+}
+
+/**
  * One search round: every unsatisfied slot, searched across every page this
  * round supplies.
  *
@@ -1530,13 +1582,16 @@ export async function searchRound({
   byType,
   pages,
   satisfied = new Set(),
-  locate,
+  locatePool,
   log = () => {},
 }) {
   /** @type {{ key: string, pageIndex: number, box: object, lineRange: number[] }[]} */
   const zones = [];
   /** @type {Map<string, string>} slot key -> why it came back empty */
   const reasons = new Map();
+  /** Every unsatisfied fillable TABLE slot, across all sections, so they can
+   *  be grouped by pool below rather than searched one at a time. */
+  const tableSlots = [];
 
   for (const section of template.sections) {
     // `s.fillable` alone, not `s.fillable && s.docType`: docType is a ranking
@@ -1618,32 +1673,94 @@ export async function searchRound({
       continue;
     }
 
+    // NOT SEARCHED HERE. Table slots are collected across every section first
+    // and then searched by POOL, because slots that share a pool share a
+    // model call -- see the loop below `sections` for why that is the whole
+    // point. Collecting rather than searching in place is what lets
+    // `kb.nomor` (section "KB") and `kbLanjutan.detail` (section
+    // "KB (lanjutan)") land in the same call: they carry the same docType and
+    // so the same pool, and a per-section loop could never see that.
     for (const slot of fillable) {
       if (satisfied.has(slot.key)) continue;
+      tableSlots.push({ section, slot });
+    }
+  }
 
-      const pool = rankedPoolForDocTypes([slot.docType], byType, pages);
-      if (pool.length === 0) {
+  // ---- table slots, grouped by the pool they would each have searched ----
+  //
+  // THE SAVING IS THE WHOLE REASON THIS IS NOT A LOOP OVER SLOTS. Every
+  // fillable table slot in AO_TEMPLATE carries `docType: "KB"`, so all seven
+  // searched the same 29 pages and each call re-uploaded the same ~23k-token
+  // listing: 160.7k input tokens a run, of which about 138k was six redundant
+  // copies. Grouped, it is one call and ~23k.
+  //
+  // It matters more as documents grow, which is why it is worth the
+  // restructure: `locate` is the only stage whose cost scales with SLOTS TIMES
+  // PAGES rather than with pages alone, so it is the line that fails first
+  // when an order arrives with sixty pages instead of twenty-nine.
+  const byPool = new Map();
+  for (const entry of tableSlots) {
+    // The pool is a function of `slot.docType` alone (see
+    // `rankedPoolForDocTypes`), so the docType IS the group identity. `null`
+    // is a real group -- a slot with no preference gets an unranked pool --
+    // and must not collide with a docType literally named "null".
+    const poolKey = entry.slot.docType ?? "(no docType)";
+    const group = byPool.get(poolKey);
+    if (group) group.push(entry);
+    else byPool.set(poolKey, [entry]);
+  }
+
+  for (const [, group] of byPool) {
+    const { slot: first } = group[0];
+    const pool = rankedPoolForDocTypes([first.docType], byType, pages);
+    if (pool.length === 0) {
+      for (const { slot } of group) {
         reasons.set(slot.key, "no pages were supplied to search");
+      }
+      continue;
+    }
+
+    const questions = group.map(({ section, slot }) => ({
+      key: slot.key,
+      label: slotSearchLabel(section, slot),
+      hint: slot.hint,
+    }));
+
+    log(
+      `  ${questions.length} slot(s) in one call over ${pool.length} pages: ` +
+        questions.map((q) => q.key).join(", "),
+    );
+
+    // ONE POOL'S FAILURE COSTS THAT POOL, not the run, and the caller is
+    // expected to have already tried per-slot as a fallback -- see
+    // `locatePoolWithFallback`. The original per-slot argument is unchanged
+    // and is now carried one level up: by this point the pass has spent
+    // minutes of OCR and tens of thousands of tokens on work that succeeded,
+    // and the deliverable is a document the operator finishes by hand anyway.
+    let outcomes;
+    try {
+      outcomes = await locatePool(questions, pool, group);
+    } catch (error) {
+      log(`  pool search FAILED -- ${error.message}`);
+      for (const { slot } of group) reasons.set(slot.key, error.message);
+      continue;
+    }
+
+    for (const { slot } of group) {
+      const outcome = outcomes.get(slot.key);
+      // A caller that answers short is a bug in the caller, not a silent
+      // absence: every requested key gets an outcome or the slot is reported
+      // missing by name.
+      if (!outcome) {
+        reasons.set(slot.key, "the search returned no outcome for this slot");
         continue;
       }
-
-      log(`  ${slot.key}: locating in ${pool.length} pages...`);
-
-      // One slot's failure costs that slot, not the run. By this point the
-      // pass has spent minutes of OCR and tens of thousands of tokens on the
-      // slots that already succeeded, and the deliverable is a document the
-      // operator finishes by hand anyway -- throwing away nine good crops
-      // because the tenth call exhausted its retries is the wrong trade. The
-      // slot is named in the outstanding report instead.
-      let found;
-      try {
-        found = await locate(slot, pool, section);
-      } catch (error) {
-        log(`  ${slot.key}: FAILED -- ${error.message}`);
-        reasons.set(slot.key, error.message);
+      if (!outcome.ok) {
+        log(`  ${slot.key}: ${outcome.reason}`);
+        reasons.set(slot.key, outcome.reason);
         continue;
       }
-
+      const found = outcome.result;
       if (!found) {
         reasons.set(slot.key, "the model found no match");
         continue;
@@ -2000,8 +2117,8 @@ async function main() {
       byType,
       pages: roundPages,
       satisfied,
-      locate: (slot, pool, section) =>
-        locateSlot(slotSearchLabel(section, slot), slot.hint, pool, ask),
+      locatePool: (questions, pool) =>
+        locatePoolWithFallback(questions, pool, ask, (line) => console.log(line)),
       log: (line) => console.log(line),
     });
     for (const [key, reason] of round.reasons) reasons.set(key, reason);
