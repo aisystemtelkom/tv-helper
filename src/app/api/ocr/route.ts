@@ -32,6 +32,12 @@ import {
   OCR_MAX_OUTPUT_TOKENS,
 } from "@/lib/model";
 import {
+  VISION_FEATURE,
+  VISION_LANGUAGE_HINTS,
+  ocrPageWithVision,
+} from "@/lib/pipeline/vision-ocr";
+import { VisionUnavailable, annotateImage } from "@/lib/vision";
+import {
   ocrPageWithGemini,
   type AskImage,
   type ImageInput,
@@ -224,6 +230,38 @@ async function askImage(
 }
 
 /**
+ * Width and height out of a PNG's IHDR, without decoding the image.
+ *
+ * Vision reports no page size of its own, and `linesFromVisionResponse` needs
+ * one to express vertical coverage as a share. Decoding a 2480x3507 RGBA page
+ * again purely to read two integers would cost ~35MB and several hundred
+ * milliseconds per page; the IHDR chunk carries both as big-endian uint32 at a
+ * fixed offset, so this reads them directly.
+ *
+ * Byte 0-7 is the PNG signature, 8-11 the IHDR length, 12-15 the type, then
+ * width at 16 and height at 20. `readPng` in the handler has already refused
+ * anything that is not a PNG, so the offsets are safe by the time this runs.
+ */
+function pngDimensions(png: Uint8Array): { width: number; height: number } {
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+/**
+ * Which engine reads a page here, matching the two scripts.
+ *
+ * DEFAULTS TO VISION, because that is what the rest of this repo now does and
+ * a route that quietly stayed on the old engine would make every local test of
+ * "the new version" a test of the old one. That very nearly happened: the
+ * scripts were migrated first and this file was missed, so `pnpm dev` would
+ * have served Gemini OCR while every measurement said Vision.
+ *
+ * "gemini" is kept reachable for an A/B on the deployed service without a
+ * redeploy of different code.
+ */
+const OCR_ENGINE = process.env.OCR_ENGINE ?? "vision";
+
+/**
  * The recognition step the handler injects.
  *
  * Cost is visible in the server log rather than a month later on an invoice,
@@ -244,7 +282,22 @@ async function recognize(png: Uint8Array) {
   let lines = "-";
   let interpolated = "-";
   try {
-    const result = await ocrPageWithGemini(image, ask);
+    const result =
+      OCR_ENGINE === "gemini"
+        ? await ocrPageWithGemini(image, ask)
+        : await ocrPageWithVision(
+            image,
+            // Vision needs the page's own dimensions to report coverage. The
+            // handler already decoded the PNG to validate it, so this reads
+            // them back off the encoded bytes rather than re-decoding: bytes
+            // 16-23 of an IHDR chunk are width and height, big-endian.
+            pngDimensions(png),
+            (img) =>
+              annotateImage(img, {
+                feature: VISION_FEATURE,
+                languageHints: VISION_LANGUAGE_HINTS,
+              }),
+          );
     lines = String(result.lines.length);
     interpolated = String(result.report.interpolatedLines);
     return result;
@@ -252,6 +305,16 @@ async function recognize(png: Uint8Array) {
     // Never reached the model: unwrap so the 503 names the real provider error
     // rather than the wrapper.
     if (error instanceof ModelUnreachable) throw error.reason;
+    // Vision's own refusals split the same way. A 4xx is a verdict about this
+    // image and is unusable; anything else is the service being unreachable,
+    // which promises the run is unchanged and is worth a retry.
+    if (error instanceof VisionUnavailable) {
+      const status = error.status;
+      if (typeof status === "number" && status >= 400 && status < 500) {
+        throw new OcrUnusable(error);
+      }
+      throw error;
+    }
     // Already classified as "the reply cannot be used".
     if (error instanceof OcrUnusable) throw error;
     // Everything that is left is `linesFromGeminiReply` refusing the reply --
@@ -261,7 +324,8 @@ async function recognize(png: Uint8Array) {
     throw new OcrUnusable(error);
   } finally {
     console.log(
-      `[ocr] ${MODEL_ID} call=${calls} in=${stats.in} out=${stats.out} ` +
+      `[ocr] ${OCR_ENGINE === "gemini" ? MODEL_ID : "cloud-vision"} ` +
+        `call=${calls} in=${stats.in} out=${stats.out} ` +
         `(thoughts=${stats.thoughts}) total=${stats.total} ` +
         `finish=${stats.finish} lines=${lines} interpolated=${interpolated} ` +
         `${((Date.now() - startedAt) / 1000).toFixed(1)}s ` +
