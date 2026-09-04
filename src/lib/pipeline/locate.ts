@@ -787,6 +787,33 @@ export function buildPoolLocatePrompt(
  * SLOT and no other -- `resolveAnswer` throws and the throw is caught per
  * entry. Under one-call-per-slot that isolation was free; here it is code, and
  * it is the property most worth keeping.
+ *
+ * ## THE HAZARD EVERY CALLER INHERITS: this swallows "the model was unreachable"
+ *
+ * At one slot per call every throw is caught and returned as
+ * `{ok: false, reason}`, and that INCLUDES a provider failure. A caller that
+ * treats every `ok: false` as "this slot is not in the bundle" will therefore
+ * report a whole run of searched-and-not-found slots when the truth is that
+ * nothing was searched at all -- a 200 describing an outage as a verdict about
+ * the documents, which is this project's named failure class exactly.
+ *
+ * It was measured, not imagined: `/api/propose` shipped that behaviour for the
+ * length of one afternoon and returned
+ * `[{"key":"kbLanjutan.top","reason":"the model could not be reached"}]` as an
+ * ordinary outstanding list instead of a 503.
+ *
+ * THIS MODULE CANNOT FIX IT ITSELF, and that is a boundary decision rather
+ * than an omission: `AskFailed` lives in `src/lib/api/wire.ts`, pipeline code
+ * takes an injected `Ask` and must not know who serves it. So the guard belongs
+ * at the caller, and the pattern to copy is `walkContinuations`': wrap the ask,
+ * record a provider failure when you see one, and re-throw it after
+ * `locateSlots` returns as well as when it throws -- a returned map is not
+ * evidence the provider answered. `/api/propose` does exactly that.
+ *
+ * `scripts/generate.mjs` deliberately does not, and is correct not to: it is a
+ * CLI with no 503 to return, its `ask` already retries transients to
+ * exhaustion, and naming the slot in the outstanding report with the provider's
+ * own message is the most useful thing it can do.
  */
 /**
  * How many slots one locate call may be asked about. THE ACCURACY/COST DIAL,
