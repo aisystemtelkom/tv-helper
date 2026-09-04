@@ -139,6 +139,44 @@ function boxFromVertices(vertices: readonly Vertex[] | undefined): Box | null {
 type MappedWord = Word & { blockIndex: number };
 
 /**
+ * Whether this word ENDS its token, so the next word must start a new one.
+ *
+ * THE RULE IS "ONLY AN ABSENT BREAK GLUES", and it is stated that way round on
+ * purpose. Vision reports a `detectedBreak` on the last symbol of a word
+ * whenever anything separates it from the next -- a space, the end of a line,
+ * a hyphenated split. It reports NOTHING between a token and the punctuation
+ * stuck to it, which is the one case that should join.
+ *
+ * The inverse phrasing was tried and was wrong: treating only SPACE-ish breaks
+ * as separators left LINE_BREAK gluing the end of one visual line to the start
+ * of the next, producing a single "word" whose box spanned two rows. A test
+ * caught it, which is the whole reason the fixtures carry real break types.
+ *
+ * HYPHEN ends a token here too. A word split across a line break is two
+ * fragments in two places on the page, and this pipeline's unit is a
+ * rectangle: joining them would produce one box covering both lines and every
+ * line between.
+ */
+function endsToken(word: {
+  symbols?: unknown;
+  property?: { detectedBreak?: { type?: unknown } };
+}): boolean {
+  const symbols = Array.isArray(word?.symbols) ? word.symbols : [];
+  const last = symbols[symbols.length - 1] as
+    | { property?: { detectedBreak?: { type?: unknown } } }
+    | undefined;
+  const type =
+    last?.property?.detectedBreak?.type ?? word?.property?.detectedBreak?.type;
+  if (typeof type !== "string" || type === "UNKNOWN") return false;
+  return true;
+}
+
+/** Do two boxes share any vertical extent? */
+function overlapsVertically(a: Box, b: Box): boolean {
+  return a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
  * Every word in the response, in reading order, with a real box each.
  *
  * Reading order is Vision's own: it emits blocks top-to-bottom in its detected
@@ -155,6 +193,9 @@ export function wordsFromVisionResponse(response: unknown): {
   const words: MappedWord[] = [];
   let blocks = 0;
   let dropped = 0;
+  // Whether the PREVIOUS word ended with whitespace. Starts true so the first
+  // word of the page is never glued to nothing.
+  let pendingSpace = true;
 
   const annotation = (response as { fullTextAnnotation?: unknown } | null)
     ?.fullTextAnnotation as { pages?: unknown } | undefined;
@@ -184,7 +225,39 @@ export function wordsFromVisionResponse(response: unknown): {
             dropped += 1;
             continue;
           }
-          words.push({ text, box, blockIndex });
+
+          // GLUED TO THE PREVIOUS WORD when Vision reported no space between
+          // them, so a token and its punctuation arrive as one word with one
+          // box. `groupWordsIntoLines` joins whatever it is given with single
+          // spaces -- it was written for tesseract, which segments on
+          // whitespace -- so the joining decision has to be made here, where
+          // the break information exists.
+          const previous = words[words.length - 1];
+          if (
+            previous &&
+            !pendingSpace &&
+            previous.blockIndex === blockIndex &&
+            // BELT AND BRACES over the break information. Two fragments that
+            // do not share any vertical extent are on different visual lines
+            // whatever the breaks say, and merging them would produce one box
+            // covering both rows and everything between.
+            overlapsVertically(previous.box, box)
+          ) {
+            previous.text += text;
+            previous.box = {
+              x: Math.min(previous.box.x, box.x),
+              y: Math.min(previous.box.y, box.y),
+              w:
+                Math.max(previous.box.x + previous.box.w, box.x + box.w) -
+                Math.min(previous.box.x, box.x),
+              h:
+                Math.max(previous.box.y + previous.box.h, box.y + box.h) -
+                Math.min(previous.box.y, box.y),
+            };
+          } else {
+            words.push({ text, box, blockIndex });
+          }
+          pendingSpace = endsToken(word);
         }
       }
     }

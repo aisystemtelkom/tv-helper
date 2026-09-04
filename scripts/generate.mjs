@@ -128,9 +128,11 @@ import {
 // weeks. See src/lib/cost.ts.
 import {
   STAGES,
+  VISION_LEDGER_MODEL,
   emptyLedger,
   formatLedger,
   record as recordSpend,
+  recordPages,
 } from "../src/lib/cost.ts";
 import { createReplyCache, fingerprintFor } from "./reply-cache.mjs";
 import { classifyPages } from "../src/lib/pipeline/classify.ts";
@@ -186,6 +188,17 @@ export {
   withFieldHints,
 };
 import { locateSlot, locateSlots } from "../src/lib/pipeline/locate.ts";
+import {
+  VISION_FEATURE,
+  VISION_LANGUAGE_HINTS,
+  VISION_MAPPING_VERSION,
+  ocrPageWithVision,
+} from "../src/lib/pipeline/vision-ocr.ts";
+import {
+  VISION_PAGE_PRICE_USD,
+  annotateImage,
+  isTransientVisionError,
+} from "../src/lib/vision.ts";
 // Detection only. `findContinuations` in that module also proposes the
 // continuation's extent with a cheap next-page call; this script deliberately
 // does not import it. See `continuationChecks` for the measured reason.
@@ -241,9 +254,15 @@ const VERIFY_VALUES = process.env.GENERATE_VERIFY !== "0";
  * answer to a question nobody asked.
  */
 const OCR_ENGINE = process.env.OCR_ENGINE ?? "tesseract";
-if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
+if (
+  OCR_ENGINE !== "tesseract" &&
+  OCR_ENGINE !== "gemini" &&
+  OCR_ENGINE !== "vision"
+) {
   throw new Error(
-    `OCR_ENGINE=${OCR_ENGINE} is not an engine. Use "tesseract" (default) or "gemini".`,
+    `OCR_ENGINE=${OCR_ENGINE} is not an engine. Use "vision" (Cloud Vision, ` +
+      `per-word boxes, $1.50/1000 pages), "gemini" (a vision model per page) ` +
+      `or "tesseract" (local, no credential).`,
   );
 }
 
@@ -267,7 +286,11 @@ if (OCR_ENGINE !== "tesseract" && OCR_ENGINE !== "gemini") {
 const OCR_ENGINE_TAG =
   OCR_ENGINE === "gemini"
     ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
-    : "tesseract";
+    : OCR_ENGINE === "vision"
+      ? // Vision has no prompt, but it very much has a CONVERSION, and the
+        // cache is only hazard-free for a fixed one. See VISION_MAPPING_VERSION.
+        `vision:${VISION_MAPPING_VERSION}`
+      : "tesseract";
 
 /**
  * How many pages this script reads at once. Engine-dependent by default, and
@@ -291,7 +314,7 @@ const OCR_ENGINE_TAG =
  * Whatever the number, pages are APPENDED in page order; see `ocrEveryPage`.
  */
 const OCR_CONCURRENCY = Number(
-  process.env.OCR_CONCURRENCY ?? (OCR_ENGINE === "gemini" ? 4 : 1),
+  process.env.OCR_CONCURRENCY ?? (OCR_ENGINE === "tesseract" ? 1 : 4),
 );
 if (!Number.isInteger(OCR_CONCURRENCY) || OCR_CONCURRENCY < 1) {
   throw new Error(
@@ -850,6 +873,96 @@ async function saveCache(cache) {
 // ---------------------------------------------------------------------------
 
 /**
+ * One page through the Cloud Vision path.
+ *
+ * Reuses `ocrPageCompletely` -- the PNG encode, the ink row profile and the
+ * completeness check are all engine-agnostic and cost nothing -- but with
+ * `attempts: 1`. That ladder re-sends an IDENTICAL image up to three times,
+ * which is a recovery strategy against a generative model whose own sampling
+ * can make the second read differ. Vision is a deterministic recogniser: a
+ * short read is a short read, and asking again spends a second page charge to
+ * be told the same thing.
+ *
+ * Transport failures ARE retried, one level down, around the annotate call
+ * itself -- see `isTransientVisionError`, which is deliberately narrower than
+ * the Gemini path's because an INVALID_ARGUMENT or a PERMISSION_DENIED will be
+ * the same verdict every time.
+ */
+async function ocrPageWithVisionEngine(rendered, sourceName, pageInDoc) {
+  pagesChecked += 1;
+  const label = `${sourceName} page ${pageInDoc}`;
+  const { lines, report, image } = await ocrPageCompletely(
+    rendered,
+    (png) =>
+      ocrPageWithVision(
+        png,
+        { width: rendered.width, height: rendered.height },
+        (img) =>
+          withVisionRetries(() =>
+            annotateImage(img, {
+              feature: VISION_FEATURE,
+              languageHints: VISION_LANGUAGE_HINTS,
+            }),
+          ),
+      ),
+    { label, attempts: 1 },
+  );
+
+  // Billed per PAGE, not per token, which is the whole reason this stage is
+  // cheaper. The ledger carries it as a page charge so a run still prints one
+  // cost table rather than two accounting systems.
+  recordPages(ledger, "ocr", VISION_LEDGER_MODEL, 1, VISION_PAGE_PRICE_USD);
+  cost.calls += 1;
+
+  console.log(
+    `    [generate ocr] ${label}: ` +
+      `${(image.bytes.length / 1024 / 1024).toFixed(2)}MB png, ` +
+      `${report.blocks} blocks -> ${report.segments} words -> ${report.lines} lines ` +
+      `(interpolated=${report.interpolatedLines}, dropped=${report.droppedEntries}, ` +
+      `chars=${report.transcribedChars}, cover=${report.verticalCoverage.toFixed(3)})`,
+  );
+  if (report.degraded) {
+    console.warn(
+      `    [generate ocr] DEGRADED page: ${report.reasons.join("; ")}`,
+    );
+  }
+
+  // `lines` alone, matching `ocrPageWithModel`. The caller stores this
+  // directly as the page's `lines`, so returning the {lines, report} pair
+  // instead lands an object where an array belongs and fails one stage later
+  // at `p.lines.slice`, with 29 pages already paid for.
+  return lines;
+}
+
+/**
+ * Transport-only retries for a deterministic recogniser.
+ *
+ * Six attempts with the same backoff `withRetries` uses, but gated on
+ * `isTransientVisionError` rather than the Gemini predicate: a refusal about
+ * THIS image is a verdict, and re-sending it is a second charge for the same
+ * answer.
+ */
+async function withVisionRetries(attempt) {
+  const attempts = 6;
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await attempt();
+    } catch (err) {
+      lastError = err;
+      if (!isTransientVisionError(err) || i === attempts - 1) throw err;
+      const backoffMs = Math.min(5000 * 2 ** i, 60_000);
+      console.log(
+        `    [vision] transient (${err.status ?? err.name}), retrying in ` +
+          `${backoffMs}ms: ${err.message}`,
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  throw lastError;
+}
+
+/**
  * One page through the Gemini OCR path: encode, ask, convert, report.
  *
  * The conversion itself lives in `src/lib/pipeline/gemini-ocr.ts` and is
@@ -1042,6 +1155,8 @@ async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
             const lines =
               OCR_ENGINE === "gemini"
                 ? await ocrPageWithModel(rendered, source.name, pageInDoc)
+                : OCR_ENGINE === "vision"
+                ? await ocrPageWithVisionEngine(rendered, source.name, pageInDoc)
                 : await ocrToLines(rendered, "ind", {
                     langPath: TESSERACT_ASSETS,
                     gzip: true,

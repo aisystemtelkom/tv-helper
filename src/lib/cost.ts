@@ -138,6 +138,15 @@ export const BATCH_PRICE_FACTOR = 0.5;
 export const CACHED_INPUT_FACTOR = 0.1;
 
 /**
+ * What a Cloud Vision OCR stage is called in the ledger's model column.
+ *
+ * Not a model id, and deliberately not shaped like one: it is a recogniser
+ * with no version this pipeline chooses, and an entry in `PRICES` would imply
+ * a per-token rate it does not have.
+ */
+export const VISION_LEDGER_MODEL = "cloud-vision";
+
+/**
  * Tokens spent, by the stage that spent them.
  *
  * `thoughts` is a SUBSET of `output`, not an addition to it: the provider
@@ -166,10 +175,31 @@ export type StageTally = {
    * silently cached nothing. `cacheReadTokens` says which happened.
    */
   cachedInput: number;
+  /**
+   * Pages billed at a flat per-page rate, by an engine that does not charge by
+   * token at all.
+   *
+   * Cloud Vision bills $1.50 per 1,000 pages. Folding that into the token
+   * columns would be a lie whichever way it was folded, and leaving it out
+   * would understate a run while the table still looked complete -- the exact
+   * failure this module exists to prevent. A stage may carry pages, tokens, or
+   * both, and `formatLedger` prints whichever it has.
+   */
+  pages: number;
+  /** What those pages cost in USD, priced by the caller that knows the rate. */
+  pageCostUsd: number;
 };
 
 export function emptyTally(): StageTally {
-  return { calls: 0, input: 0, output: 0, thoughts: 0, cachedInput: 0 };
+  return {
+    calls: 0,
+    input: 0,
+    output: 0,
+    thoughts: 0,
+    cachedInput: 0,
+    pages: 0,
+    pageCostUsd: 0,
+  };
 }
 
 export function addToTally(
@@ -179,6 +209,8 @@ export function addToTally(
     output?: number;
     thoughts?: number;
     cachedInput?: number;
+    pages?: number;
+    pageCostUsd?: number;
   },
 ): void {
   tally.calls += 1;
@@ -186,6 +218,8 @@ export function addToTally(
   tally.output += call.output ?? 0;
   tally.thoughts += call.thoughts ?? 0;
   tally.cachedInput += call.cachedInput ?? 0;
+  tally.pages += call.pages ?? 0;
+  tally.pageCostUsd += call.pageCostUsd ?? 0;
 }
 
 /**
@@ -236,6 +270,24 @@ export function emptyLedger(batch = false): CostLedger {
   };
 }
 
+/**
+ * Record a flat per-page charge, for an engine billed by the page.
+ *
+ * `usdPerPage` is passed in rather than looked up here, because the provider
+ * boundary that knows the rate is the honest place to keep it -- the same
+ * reason `PRICES` sits beside the model ids rather than in the callers.
+ */
+export function recordPages(
+  ledger: CostLedger,
+  stage: Stage,
+  modelId: string,
+  pages: number,
+  usdPerPage: number,
+): void {
+  addToTally(ledger.stages[stage], { pages, pageCostUsd: pages * usdPerPage });
+  ledger.models[stage] = modelId;
+}
+
 export function record(
   ledger: CostLedger,
   stage: Stage,
@@ -245,6 +297,8 @@ export function record(
     output?: number;
     thoughts?: number;
     cachedInput?: number;
+    pages?: number;
+    pageCostUsd?: number;
   },
 ): void {
   addToTally(ledger.stages[stage], call);
@@ -265,6 +319,17 @@ export function usdForTally(
   batch = false,
 ): number | null {
   if (!modelId) return tally.calls === 0 ? 0 : null;
+
+  // A PAGE-PRICED STAGE IS PRICED, and must not fall through to the unknown-
+  // model path below. Cloud Vision has no entry in PRICES because it has no
+  // per-token rate to put there; its cost arrives already in dollars from the
+  // one place that knows the rate. Returning null here would print the
+  // cheapest stage in the run as "unpriced" and silently drop it from the
+  // total, which is this module's own named failure aimed at itself.
+  if (tally.pages > 0 && tally.input === 0 && tally.output === 0) {
+    return tally.pageCostUsd * (batch ? BATCH_PRICE_FACTOR : 1);
+  }
+
   const price = PRICES[modelId];
   if (!price) return null;
 
@@ -395,8 +460,21 @@ export function formatLedger(
       "  " +
         pad(row.stage, 13) +
         padStart(String(row.tally.calls), 6) +
-        padStart(compactTokens(row.tally.input), 9) +
-        padStart(compactTokens(row.tally.output), 9) +
+        // A PAGE-PRICED STAGE PRINTS ITS PAGES, not two zeroes. Cloud Vision
+        // spends no tokens at all, and a row of "0  0" beside a real dollar
+        // figure reads as a bug in the ledger rather than as a different unit.
+        padStart(
+          row.tally.pages > 0 && row.tally.input === 0
+            ? `${row.tally.pages}pg`
+            : compactTokens(row.tally.input),
+          9,
+        ) +
+        padStart(
+          row.tally.pages > 0 && row.tally.output === 0
+            ? "-"
+            : compactTokens(row.tally.output),
+          9,
+        ) +
         padStart(row.cost === null ? "unpriced" : usd(row.cost), 11) +
         padStart(share, 7) +
         `  ${row.model}`,
@@ -410,6 +488,8 @@ export function formatLedger(
       output: acc.output + row.tally.output,
       thoughts: acc.thoughts + row.tally.thoughts,
       cachedInput: acc.cachedInput + row.tally.cachedInput,
+      pages: acc.pages + row.tally.pages,
+      pageCostUsd: acc.pageCostUsd + row.tally.pageCostUsd,
     }),
     emptyTally(),
   );

@@ -50,7 +50,7 @@ test("an unknown model does not price as free", () => {
   // THE LOAD-BEARING ASSERTION. Pointing MODEL_ID at something new is exactly
   // when somebody is asking what a run costs, and a zero would answer
   // "nothing" in precisely that moment.
-  const tally = { calls: 3, input: 100_000, output: 10_000, thoughts: 0, cachedInput: 0 };
+  const tally = { calls: 3, input: 100_000, output: 10_000, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 };
   assert.equal(usdForTally("gemini-99-imaginary", tally), null);
   assert.equal(usdForTally(undefined, tally), null);
 });
@@ -63,13 +63,13 @@ test("a stage that made no call prices as zero rather than unknown", () => {
 });
 
 test("prices are per million tokens", () => {
-  const tally = { calls: 1, input: 1_000_000, output: 1_000_000, thoughts: 0, cachedInput: 0 };
+  const tally = { calls: 1, input: 1_000_000, output: 1_000_000, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 };
   const cost = usdForTally("gemini-3.5-flash", tally);
   assert.equal(cost, 1.5 + 9.0);
 });
 
 test("the batch factor halves the bill and only the batch flag turns it on", () => {
-  const tally = { calls: 1, input: 1_000_000, output: 0, thoughts: 0, cachedInput: 0 };
+  const tally = { calls: 1, input: 1_000_000, output: 0, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 };
   assert.equal(usdForTally("gemini-3.5-flash", tally, false), 1.5);
   assert.equal(usdForTally("gemini-3.5-flash", tally, true), 1.5 * BATCH_PRICE_FACTOR);
   assert.equal(BATCH_PRICE_FACTOR, 0.5);
@@ -81,8 +81,8 @@ test("thought tokens are a subset of output and are not billed twice", () => {
   // figure this module prints would be overstated by the thinking budget --
   // and the number would still look plausible, which is why this is a test
   // rather than a comment.
-  const withThoughts = { calls: 1, input: 0, output: 10_000, thoughts: 9_000, cachedInput: 0 };
-  const withoutThoughts = { calls: 1, input: 0, output: 10_000, thoughts: 0, cachedInput: 0 };
+  const withThoughts = { calls: 1, input: 0, output: 10_000, thoughts: 9_000, cachedInput: 0, pages: 0, pageCostUsd: 0 };
+  const withoutThoughts = { calls: 1, input: 0, output: 10_000, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 };
   assert.equal(
     usdForTally("gemini-3.5-flash", withThoughts),
     usdForTally("gemini-3.5-flash", withoutThoughts),
@@ -171,7 +171,7 @@ test("addToTally counts a call even when the provider reported no usage", () => 
   // missing usage field turns into an invisible stage.
   const tally = emptyTally();
   addToTally(tally, {});
-  assert.deepEqual(tally, { calls: 1, input: 0, output: 0, thoughts: 0, cachedInput: 0 });
+  assert.deepEqual(tally, { calls: 1, input: 0, output: 0, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 });
 });
 
 test("every stage in STAGES has a tally in a fresh ledger", () => {
@@ -182,7 +182,7 @@ test("every stage in STAGES has a tally in a fresh ledger", () => {
   for (const stage of STAGES) {
     assert.deepEqual(
       ledger.stages[stage],
-      { calls: 0, input: 0, output: 0, thoughts: 0, cachedInput: 0 },
+      { calls: 0, input: 0, output: 0, thoughts: 0, cachedInput: 0, pages: 0, pageCostUsd: 0 },
       `${stage} has no row in a fresh ledger`,
     );
   }
@@ -199,6 +199,8 @@ test("a cached input token is discounted, not added", () => {
     output: 0,
     thoughts: 0,
     cachedInput: 500_000,
+    pages: 0,
+    pageCostUsd: 0,
   };
   const expected = ((500_000 + 500_000 * 0.1) * 1.5) / 1_000_000;
   assert.equal(usdForTally("gemini-3.5-flash", tally), expected);
@@ -214,6 +216,8 @@ test("a cacheRead larger than the input total cannot produce a negative bill", (
     output: 0,
     thoughts: 0,
     cachedInput: 999_999,
+    pages: 0,
+    pageCostUsd: 0,
   };
   const cost = usdForTally("gemini-3.5-flash", tally);
   assert.ok(cost !== null && cost > 0, `expected a positive cost, got ${cost}`);

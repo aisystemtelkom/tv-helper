@@ -24,10 +24,30 @@ import {
 
 const PAGE = { width: 2480, height: 3507 };
 
-/** A word at a given box, as Vision spells one. */
-function word(text: string, x: number, y: number, w: number, h: number) {
+/**
+ * A word at a given box, as Vision spells one.
+ *
+ * `break` defaults to SPACE because that is what Vision reports between
+ * ordinary words. Pass "" for a word Vision reported with NO trailing space --
+ * which is what it does between a token and its adjacent punctuation, and the
+ * case that shipped two blank cells before `hasTrailingSpace` existed.
+ */
+function word(
+  text: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  brk: string = "SPACE",
+) {
+  const symbols = [...text].map((c) => ({ text: c }));
+  if (brk && symbols.length > 0) {
+    (symbols[symbols.length - 1] as Record<string, unknown>).property = {
+      detectedBreak: { type: brk },
+    };
+  }
   return {
-    symbols: [...text].map((c) => ({ text: c })),
+    symbols,
     boundingBox: {
       vertices: [
         { x, y },
@@ -260,4 +280,51 @@ test("wordsFromVisionResponse is exported and returns boxes, for the gate", () =
   assert.equal(blocks, 1);
   assert.equal(dropped, 0);
   assert.deepEqual(words[0].box, { x: 10, y: 20, w: 30, h: 40 });
+});
+
+test("PUNCTUATION IS GLUED to its token, because Vision segments it separately", () => {
+  // THE DEFECT THIS EXISTS TO STOP, measured on the real bundle rather than
+  // imagined. Vision returns "(", "08115810308" and ")" as three words, and
+  // joining every word with a space produced "M.Arief ( 08115810308 )". The
+  // crop-level verification pass then compared that against a crop read of the
+  // same region, found them different, and blanked the cell. Two good values
+  // -- `alamat` and `picContacts` -- shipped empty that way.
+  const res = response([
+    word("M.Arief", 100, 200, 200, 30),
+    word("(", 310, 200, 12, 30, ""),
+    word("08115810308", 325, 200, 250, 30, ""),
+    word(")", 580, 200, 12, 30, "SPACE"),
+    word("Agung", 620, 200, 120, 30),
+  ]);
+
+  const { lines } = linesFromVisionResponse(res, PAGE);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, "M.Arief (08115810308) Agung");
+});
+
+test("a glued run keeps a box that covers ALL of its parts", () => {
+  // The merged word's box is the union, not the first fragment's. A crop cut
+  // from the first fragment alone would show "(" and nothing else.
+  const res = response([
+    word("RT", 100, 200, 40, 30, ""),
+    word("/", 145, 200, 10, 30, ""),
+    word("RW", 160, 200, 40, 30, "SPACE"),
+  ]);
+  const { lines } = linesFromVisionResponse(res, PAGE);
+  assert.equal(lines[0].text, "RT/RW");
+  assert.equal(lines[0].box.x, 100);
+  assert.equal(lines[0].box.x + lines[0].box.w, 200);
+});
+
+test("a break that ends a LINE does not glue across the line", () => {
+  // HYPHEN and LINE_BREAK both end a visual line. Treating them as "no space"
+  // would glue a line's ending to the next line's start; treating them as a
+  // space would be wrong too. Geometry decides line membership, so all these
+  // must do is not merge across rows.
+  const res = response([
+    word("first", 100, 200, 120, 30, "LINE_BREAK"),
+    word("second", 100, 300, 140, 30, "SPACE"),
+  ]);
+  const { lines } = linesFromVisionResponse(res, PAGE);
+  assert.deepEqual(lines.map((l) => l.text), ["first", "second"]);
 });
