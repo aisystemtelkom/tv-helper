@@ -83,6 +83,60 @@ the xlsx row list together, because they are two views of one order. It is a
 order, the sections that ship empty, and the two-part KB table split all match
 the sample as it stands.
 
+### `AO_TEMPLATE` IS A STARTING SUGGESTION, NOT THE FORM
+
+**The section list is now per-ORDER.** This file used to describe the template
+as the form every run is measured against, and that stopped being true: the two
+sample bundles share **two headings out of about a dozen**, so a transcription
+of one order's packet is a good starting point for the next and nothing more.
+An order renames a judul, drops one, reorders the packet, and adds one the form
+does not name.
+
+- The edits are a **DIFF, not a copy of the form**:
+  `TemplateOverlay` in `src/lib/forms/overlay.ts`, stored on the run.
+  `resolveTemplate(AO_TEMPLATE, overlay)` is the one pure resolver, and it
+  returns the base **by identity** for a run that edited nothing -- so every
+  run made before overlays existed behaves byte for byte as it did, and a fix
+  to a hint reaches an old order instead of being frozen out of it.
+- **AN OVERLAY CANNOT CARRY A PROMPT.** `assertOverlay` refuses `ask`, `hint`,
+  `docType`, `layout`, `fillable` and `pageOrdinal` **at any depth**. That is
+  the fence, and it is structural rather than a convention: the measurement
+  gate is the only thing that can tell a prompt gain from a prompt regression,
+  and an operator renaming a heading on a Tuesday cannot run it.
+- **An added judul is always whole-page captures.** `AddedSection` has no
+  `layout` field at all. A `layout: "table"` bagian would be a slot the model
+  is asked to locate inside a page, and nothing an operator can supply is what
+  such a slot needs: a hint written to beat a look-alike anywhere in the
+  bundle, and a gate run proving it does.
+- `resolveTemplate` **does not read `overlay.proposed`**. A heading the model
+  suggested is structurally unable to reach the docx exporter until a person
+  moves it into `added`. There is no code path from a proposal to a
+  deliverable.
+
+### `SlotDef.hint` IS NOW `SlotDef.ask.hint`, AND IT IS FROZEN
+
+Every prompt builder composes its question out of `SectionDef.ask.title` and
+`SlotDef.ask.hint`/`ask.label` -- `buildLocatePrompt` and
+`buildPoolLocatePrompt` (`src/lib/pipeline/locate.ts`),
+`buildContinuationPrompt` (`src/lib/pipeline/continuation.ts`),
+`slotSearchLabel` (`scripts/generate.mjs`) and `askedAs`
+(`scripts/measure-locate.mjs`). `SlotDef.label` and `SectionDef.title` are what
+the operator sees and the docx prints, and they are overlay-editable.
+
+**RENAMING A BAGIAN THEREFORE CANNOT MOVE A PROMPT, and that is a compiler
+property rather than a rule to remember.** Before the split, four prompt
+builders read `label` and `hint` as sibling strings on one type, so a rename
+would silently have rewritten two live prompts and the gate's own question --
+with nothing in the way but a sentence in this file that the person doing the
+renaming cannot read and could not act on if they did. Now a builder handed a
+`SlotDef` no longer finds a `hint` on it, and one handed a `SlotAsk` cannot see
+the editable name at all.
+
+`SlotDef.catatan` is the third string and the reason the split is liveable: it
+says what a bagian is **to the operator**, in Bahasa, and may be reworded
+freely because no measurement depends on it. `ask.hint` is a prompt and cannot
+do that job.
+
 ### `pnpm generate` routes on `section.layout`, and that is load-bearing
 
 A `layout: "images"` section is a **whole-page capture**: a human filling the
@@ -106,6 +160,52 @@ into bugs:
   reply is not a pure function of its input, and a stale verdict served
   silently is worse than paying again. `GENERATE_FORCE=1` bypasses the OCR
   cache. **The gate harness caches the opposite way round; see below.**
+
+### The four flags that give `pnpm generate` the per-order form
+
+Default behaviour is byte-identical without them.
+
+- **`--sections <overlay.json>`** applies a `TemplateOverlay`, validated by
+  **the same `assertOverlay` the route runs** (one copy: a second validator is
+  a copy that can silently disagree, and the two would agree on every overlay
+  anybody tested). `resolveTemplate` runs ONCE and the result replaces every
+  `AO_TEMPLATE` reference in the run.
+- **`--sections` and `--template` ARE REFUSED TOGETHER, at argument-parsing
+  time.** `--template` patches the operator's own stripped Form Validasi, and
+  `buildPatches` pairs its placeholders with the form's sections **BY
+  POSITION**: a section list that differs from the one the template was
+  stripped from puts every crop after the first difference under the wrong
+  heading, in a document that opens cleanly. Refused at parse time rather than
+  at export because `buildPatches` throws only after the whole run's OCR and
+  model spend, which is what the early `loadDocxTemplate` read exists to
+  prevent. Do not relax any of `buildPatches`' five checks.
+- **`--no-ai <file.pdf>`** fences one document off from the model, matching the
+  browser's **tanpa AI**. It is rendered, OCR'd and appended to the global page
+  list like any other -- so its pages can be cited and cropped by an added
+  judul that names them -- and it is excluded from classify and from every
+  search pool, `locate` and `extract` alike. The filter is on the page's own
+  `searchable` flag and **never on `lines.length`**: an empty page and a fenced
+  page are different facts and one of them is a decision somebody made.
+- **`--discover-sections`** runs the discovery stage over every searchable
+  document and writes `<ID EPIC>_SECTIONS.json`. **IT ADDS NOTHING TO THE
+  DOCX**, following the precedent this file records for continuations: the
+  detection half only, because a headless run has no operator to reject a crop
+  and a model-invented heading printed into a packet nobody reviews is the
+  failure this project exists to prevent. The answers land in that file's
+  `proposed` array, which `resolveTemplate` never reads, so **feeding the file
+  straight back changes nothing** and the run says so out loud. The round trip
+  IS the review: a human edits it and passes it back as `--sections`.
+
+**An added judul carrying `pages: [...]`** is filled deterministically with
+whole-page captures, no model call, exactly as `layout: "images"` is. **Without
+`pages` it ships as an empty heading and the run log prints a `MANUAL (n)`
+block**, deliberately distinct from `OUTSTANDING (n)`. That distinction is not
+cosmetic: everything in the outstanding list means "we looked and found
+nothing", and both its consumers act on that -- the log tells the operator to
+supply a dokumen tambahan, and a resumed run reads it to know what to search.
+An added judul was NEVER SEARCHED, so reporting it as not found is the same lie
+the route's `outOfScope` bucket exists to avoid. The UI's word for it is
+**belum digambar**.
 
 ## ONLY THE OCR STAGE SENDS IMAGES
 
@@ -160,6 +260,16 @@ wrong about media resolution is that a total cannot say which stage spent it.
 An unknown model id prices as `unpriced`, never as free, and the table's date
 is printed with every figure. Add a model to `PRICES` when you point
 `MODEL_ID` or `OCR_MODEL_ID` at it.
+
+`Stage` is a CLOSED UNION, so a new call site has to declare which row it
+belongs in and cannot land in an "other" bucket nobody reads. **`sections` is
+the newest row** -- judul discovery, one call per berkas, billed per berkas
+rather than per run and gated by `RunSource.sectionsAskedFor`. It is its own
+row rather than folded into `classify` although the two eat the same diet: "what
+did asking for judul cost" and "did the cost gate work" are questions a merged
+row could not answer. **It is not in the measured table below**, which is a
+real run's printed output from before the stage existed;
+`pnpm generate --discover-sections` prints its own.
 
 ## The measurement gate
 
@@ -243,9 +353,36 @@ contains every line of the ground-truth crop, with overshoot capped
 one that runs the full page when the crop does not. Before quoting a total from
 the harness, check which rule it is actually applying.
 
-**Never re-tune the locate prompt or a slot `hint` without re-running the
+**Never re-tune the locate prompt or a slot `ask.hint` without re-running the
 gate.** It is the only thing that tells a gain from a regression, and the whole
 failure class here is a change that looks better and is worse.
+
+### THE RECORDED COLUMN MEASURES THE BASE FORM ONLY, AND ALWAYS WILL
+
+`pnpm measure:locate` scores twelve human-authored crops out of one sample
+DOKUMEN VALIDASI against `AO_TEMPLATE`, and **it reads no overlay, ever**. That
+is deliberate rather than a gap: the twelve crops are the yardstick, so letting
+a per-order edit move the question would move the ruler and the thing measured
+at once.
+
+**So no number here is ever a statement about an EDITED form**, and there is no
+way to make one: an order's judul list is that order's, its added judul are
+whole-page captures the model was never asked about, and its renames cannot
+reach a prompt by construction (see `SlotAsk`). What the gate measures is the
+one thing an operator's edits cannot move, which is why the fence around
+`ask` exists at all.
+
+**AND THE GATE IS OWED A RUN.** The `hint` to `ask.hint` rename is a
+prompt-builder change, so this file's own rule applies to it. Its byte-identity
+was verified **deterministically over all 24 `AO_TEMPLATE` slots** -- every
+`ask.label` and `ask.title` is seeded verbatim from the `label` and `title`
+beside it, and `scripts/test-pipeline.mjs` pins that they still agree, so every
+prompt the builders compose is the same string it was. That is a proof about
+the STRINGS and it is not a gate run. **`pnpm measure:locate` has NOT been
+re-run since the split**, because it needs real client documents out of
+`documents/` and live model calls. It is owed, three samples, and the current
+column stands unverified against the renamed builders until somebody pays for
+it.
 
 ### The gate harness's three caches
 
@@ -531,6 +668,24 @@ READ, and both halves of that sentence are load-bearing.
   which is what "Bukan ini" on a lanjutan passes (`withoutCapture` in
   `src/lib/browser/captures.ts` hands the keys back for exactly that call).
   Not an append-only rule: removal is legitimate, it just has to say so.
+- **`SectionLossError` IS THE FOURTH NET, AND IT GUARDS A NAME RATHER THAN A
+  PICTURE.** `putRun` runs four nets, not three. Once an order can add a judul,
+  `run.overlay` carries something no template declares and no crop stands in
+  for: a heading a person typed, or a usulan a person accepted, with a title
+  that came off a scan in front of them. A write rebuilt from a fresh
+  `emptyOverlay` -- a migration, a "reset this order", a helper that forgets to
+  spread `added` -- arrives at the correct revision, carrying every page and
+  every capture, and simply short one name. So a write that discards an
+  AUTHORED node is refused unless it names the ids in `putRun`'s
+  **`removingSections`** option, which is the section-level twin of `removing`.
+  `discardedAuthorship` is the storage layer's OWN function, and every edit in
+  `src/lib/browser/sections.ts` computes the opt-in by calling it rather than
+  hand-listing ids: deriving the opt-in from the guard that will judge it is
+  what makes it impossible for the two to disagree.
+- **`overlay.proposed` IS NOT AUTHORSHIP.** A usulan nobody has ruled on costs
+  a model call to make again, not a person's decision, so dropping one is
+  allowed with no opt-in -- the same line `CaptureLossError` draws one level
+  down between a capture carrying a zone and one that does not.
 - **The tests use `fake-indexeddb`** (devDependency, test-only, never in the
   browser bundle): `node --test` has no IndexedDB, and a hand-rolled Map models
   neither the transaction nor the auto-commit that make the revision check
@@ -708,6 +863,30 @@ tests assert on these strings.
 The packet's own names are NOT translations to invent: `BA Permintaan`, `KB
 (lanjutan)`, `Jangka Waktu`, `TTD Pejabat`, `Nama Proyek` are transcribed from
 the sample and must keep matching it.
+
+**Four words the per-order section list added. The full glossary is
+`docs/ui-bahasa.md`; these four are the ones a change is likeliest to get
+wrong.**
+
+- **judul** -- one heading of the DOKUMEN VALIDASI *together with everything
+  filed beneath it*. NEVER "bagian", which is one cell needing evidence: `KB`
+  is a judul and `Nomor` is a bagian inside it. The word was needed the day a
+  section became something an order could rename, move, hide and add.
+- **dibaca AI** -- the default for every berkas, and a berkas nobody has
+  decided anything about wears it. Its key is petrol and never amber: no
+  decision is owed there.
+- **tanpa AI** -- the model may not propose out of this berkas. NEVER "gagal",
+  "dilewati" or "tidak ditemukan". **The berkas IS still read**: every halaman
+  is rendered, recognised, counted and drawn as a denah, and the operator can
+  still cut a potongan out of it by hand and cite its baris. What stops is the
+  model proposing. `--no-ai` is the same fence on the headless path.
+- **belum digambar** -- a bagian under a judul the OPERATOR added. Nothing will
+  ever search it (`isSearchable` is false for every bagian under an added
+  judul), so it is not **tidak ditemukan**, which is fixed to mean SEARCHED AND
+  NOT FOUND. Reporting it that way told the operator, on every reading pass for
+  ever, that the tool had hunted for something nobody asked it about -- in the
+  one place they go to decide whether to fetch another document. `pnpm
+  generate`'s `MANUAL (n)` block is the same distinction in English.
 
 **Two hues in the whole product.** `--mark` (amber) means "a decision is owed
 here" and nothing else, ever. `--gap` (red) means a fault or a refusal and is
@@ -958,11 +1137,19 @@ instead of the request that actually needs the credential.
 src/lib/model.ts               the provider boundary: model ids, cost, credential
                                MODEL_ID reasons, OCR_MODEL_ID reads scans
 src/lib/cost.ts                the price table and the per-stage cost ledger
-src/lib/forms/template.ts      AO_TEMPLATE: docx section list + xlsx row list
+src/lib/forms/template.ts      AO_TEMPLATE: docx section list + xlsx row list.
+                               A STARTING SUGGESTION, not the form; SlotAsk is
+                               the frozen half a prompt sees
+src/lib/forms/overlay.ts       TemplateOverlay: one order's diff against that
+                               base, assertOverlay (the fence), resolveTemplate
 src/lib/pipeline/render.ts     pdf.js, /Rotate, 300 DPI, injected canvas
-src/lib/pipeline/ocr.ts        tesseract worker, words with pixel boxes
+src/lib/pipeline/vision-ocr.ts Cloud Vision words -> this pipeline's lines
+src/lib/pipeline/gemini-ocr.ts the page-completeness guard, and the Gemini
+                               vision engine behind OCR_ENGINE=gemini
 src/lib/pipeline/geometry.ts   words -> numbered lines, union, pad, line range -> box
 src/lib/pipeline/classify.ts   doc-type spans from OCR text
+src/lib/pipeline/sections.ts   what judul does this berkas contain (usulan only,
+                               text-only, no gate row)
 src/lib/pipeline/locate.ts     slot -> line range -> box
 src/lib/pipeline/fields.ts     xlsx values with validated citations; reconcile
 src/lib/pipeline/abbrev.ts     do two spellings denote one thing (see gotchas)
@@ -974,13 +1161,16 @@ src/lib/export/xlsx.ts         the EPIC order-config sheet (exceljs)
 
 src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
                                under browser/ is private to it
-src/lib/browser/types.ts       BrowserRun, StoredPage, SlotState (+ rev)
+src/lib/browser/types.ts       BrowserRun, StoredPage, SlotState (+ rev),
+                               RunSource.ai (dibaca AI / tanpa AI)
+src/lib/browser/sections.ts    one operator gesture on the judul list, as a value
 src/lib/browser/ingest.ts      the render+OCR page loop, dependencies injected
 src/lib/browser/intake.ts      what counts as the same document, and the
                                screening a hand-over goes through
 src/lib/browser/pipeline.worker.ts  that loop, in a Web Worker
 src/lib/browser/worker-client.ts    the page's side of it
 src/lib/storage/runs.ts        IndexedDB: runs, pages, PDF bytes; the rev check
+                               and the three loss nets (pages, captures, judul)
 src/lib/storage/indexeddb.ts   the chat scaffolding's separate key/value DB
 
 src/app/globals.css            THE DESIGN SYSTEM: tokens, materials, marks
@@ -996,9 +1186,12 @@ src/lib/ui/slots.ts, evidence.ts, export.ts, snap.ts, crops.ts
 src/components/operator/       the operator screens themselves
 src/lib/auth/                  Auth.js, the Firestore allowlist, the gates
 
-scripts/generate.mjs           pnpm generate: the whole pipeline, one command
-scripts/measure-locate.mjs     pnpm measure:locate: the gate, real documents
-scripts/vendor-ocr.mjs         pnpm vendor:ocr: wasm + traineddata into public/
+scripts/generate.mjs           pnpm generate: the whole pipeline, one command.
+                               --sections applies an overlay, --no-ai fences a
+                               berkas, --discover-sections detects and never
+                               crops
+scripts/measure-locate.mjs     pnpm measure:locate: the gate, real documents,
+                               the BASE form only and never an overlay
 scripts/smoke.mjs              pnpm smoke: reachability, text, streaming, vision, cost
 scripts/reply-cache.mjs        opt-in on-disk model-reply cache, scripts only
 scripts/compare-ocr.mjs        diff two gate transcripts' per-page OCR tables
@@ -1006,6 +1199,10 @@ scripts/probe-completeness.mjs pnpm probe:pages: every page of one PDF through
                                the real render + Vision + completeness check,
                                reporting EVERY page that would stop an ingest
                                rather than only the first one the app can see
+scripts/probe-sections.mjs     pnpm probe:sections: discovery over a whole
+                               bundle, every span with its cited title lines
+                               printed for a person to READ. It stands in for
+                               the gate row discovery does not have
 scripts/test-pipeline.mjs      the pipeline unit suite
 scripts/test-converters.mjs    xlsx/docx extraction
 
@@ -1033,6 +1230,29 @@ alongside the code they cover -- `src/lib/auth/auth.test.mts`,
 
 Recorded so nobody reads a design statement as a description of the code.
 
+- **JUDUL DISCOVERY EXISTS AND SHIPS WITH NO GATE ROW. Said plainly, because a
+  stage with no number attracts one.** `src/lib/pipeline/sections.ts` asks one
+  document at a time what judul it contains, text-only, `Ask = (prompt) =>
+  Promise<string>` like `classify.ts`, so "classify, locate and extract are
+  provably text-only" extends to it unchanged. Every entry is checked and never
+  trusted -- a reversed span, a page the berkas does not have, a lineless first
+  page, two spans claiming one page, and above all **a title that is not a
+  substring of the lines it cites** all land in `unusable` with a reason
+  instead of reaching a person. An invented heading is a fabricated section
+  title in a document a validator signs, and nothing downstream could catch
+  one.
+
+  **There is deliberately no gate number for it**, and there is no honest way
+  to produce one today: three runs of an identical LOCATE prompt scored 11, 9
+  and 11, so a one-run total for a brand new stage would be a measurement error
+  dressed as evidence, and there is no human-authored ground truth for "what
+  judul does this bundle contain" -- the two sample packets are one person's
+  answer for one order each. What it has instead is that **every judul and
+  every potongan is accepted individually by a person**, and
+  **`pnpm probe:sections`**, which runs discovery over a whole bundle and
+  prints every span with its page range and its cited title lines for a human
+  to READ. Do not quote a count from one run of that as a result either; its
+  own header says so.
 - **There is no vision fallback for signature blocks. It is DESIGNED, NOT
   BUILT.** The 2026-08-30 design specifies sending the page image alongside the
   numbered lines for `TTD Pejabat`, a signature and stamp block with little OCR
@@ -1106,7 +1326,12 @@ Recorded so nobody reads a design statement as a description of the code.
 
 - **`pnpm generate` writes its three output files unreviewed.** The design's
   "the app never emits an unreviewed zone" describes the UI's target, not this
-  command.
+  command. `--discover-sections` writes a fourth,
+  `<ID EPIC>_SECTIONS.json`, and it is the one file here that is NOT a
+  deliverable: everything in it sits in `proposed`, which `resolveTemplate`
+  never reads, so it is an INPUT to a human and then to the next run. That is
+  the shape every model answer would have to take before this command could be
+  trusted to emit one.
 - **The "dokumen tambahan" loop is built twice, in two places, and neither is
   complete.** In `generate.mjs`: it searches every supplied document for every
   slot, reports the outstanding ones by name and reason in an `OUTSTANDING (n)`

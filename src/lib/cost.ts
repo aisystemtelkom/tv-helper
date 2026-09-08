@@ -230,11 +230,31 @@ export function addToTally(
  * nobody reads. The whole value of this module is the split; a stage label
  * typo that silently creates a fourteenth row would destroy it.
  */
-export type Stage = "ocr" | "classify" | "locate" | "extract" | "verify" | "continuation";
+export type Stage =
+  | "ocr"
+  | "classify"
+  /**
+   * JUDUL DISCOVERY: one call per source document, asking what headings it
+   * contains. See `src/lib/pipeline/sections.ts`.
+   *
+   * ITS OWN ROW RATHER THAN FOLDED INTO `classify`, although the two eat the
+   * same diet (the first `HEAD_CHARS` of each page). They answer different
+   * questions, they are billed per BERKAS rather than per run, and only this
+   * one is gated by `RunSource.sectionsAskedFor` -- so "what did asking for
+   * judul cost" and "did the cost gate work" are both questions a merged row
+   * could not answer. This module exists because a total cannot say which
+   * stage spent the money.
+   */
+  | "sections"
+  | "locate"
+  | "extract"
+  | "verify"
+  | "continuation";
 
 export const STAGES: readonly Stage[] = [
   "ocr",
   "classify",
+  "sections",
   "locate",
   "extract",
   "verify",
@@ -260,6 +280,7 @@ export function emptyLedger(batch = false): CostLedger {
     stages: {
       ocr: emptyTally(),
       classify: emptyTally(),
+      sections: emptyTally(),
       locate: emptyTally(),
       extract: emptyTally(),
       verify: emptyTally(),

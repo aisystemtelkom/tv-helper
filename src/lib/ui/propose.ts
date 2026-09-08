@@ -9,6 +9,12 @@
  * `buildProposeRequest` and `applyProposals` are pure so `ui.test.mts` can
  * drive them. Only `requestProposals` touches the network, and it touches
  * exactly one host: this app.
+ *
+ * IT CARRIES A SECOND QUESTION NOW, and it is not a search. `discover` asks
+ * what JUDUL each berkas contains, and the answer comes back as usulan filed in
+ * `overlay.proposed` by `applyDiscoveries`. Nothing there can reach a
+ * deliverable: `resolveTemplate` does not read that array, so a heading the
+ * model named exists only as a decision waiting for a person.
  */
 
 import { captureOrdinalOf, withDiscoveredCaptures } from "./runtime.ts";
@@ -17,9 +23,10 @@ import { continuationChecked } from "../browser/captures.ts";
 // From the leaf modules rather than from `../browser/runtime.ts`, for the
 // reason `captures.ts` is imported that way above: this module is pure and is
 // driven by `node --test`, which has neither IndexedDB nor a Web Worker.
+import { applySectionEdit } from "../browser/sections.ts";
 import { aiExcludedSources } from "../browser/sources.ts";
 import { isSearchable } from "../forms/overlay.ts";
-import type { TemplateOverlay } from "../forms/overlay.ts";
+import type { ProposedSection, TemplateOverlay } from "../forms/overlay.ts";
 import type { Template } from "../forms/template.ts";
 
 type Zone = NonNullable<SlotState["zone"]>;
@@ -61,6 +68,33 @@ export type ProposeRequest = {
    * the answer would come back `outOfScope` on every reading pass.
    */
   overlay: TemplateOverlay;
+  /**
+   * The berkas to ASK WHAT JUDUL THEY CONTAIN. See `discoverIds`.
+   *
+   * ALWAYS PRESENT AND OFTEN EMPTY, which is the steady state rather than an
+   * edge case: discovery is gated per berkas by `RunSource.sectionsAskedFor`,
+   * so a second press of Baca dengan AI on an unchanged order sends nothing
+   * here and pays for nothing.
+   */
+  discover: string[];
+};
+
+/**
+ * What judul discovery read out of ONE berkas.
+ *
+ * A HAND-WRITTEN MIRROR of `DiscoveredSections` in
+ * `src/app/api/propose/handler.ts`, for the same reason `ProposeResponse` below
+ * is one: this is the browser's side of a JSON wire, and importing the route's
+ * module would drag the route's imports into the client bundle.
+ */
+export type DiscoveredSections = {
+  sourceId: string;
+  /** Ready to file. The route mints the ids. */
+  sections: ProposedSection[];
+  /** What the model named and the route refused, with why. */
+  unusable: { title: string; reason: string }[];
+  /** One English sentence for the log. Never rendered to the operator. */
+  note: string;
 };
 
 /**
@@ -114,6 +148,15 @@ export type ProposeResponse = {
    */
   outOfScope: { key: string; reason: string }[];
   continuations: ContinuationAnswer[];
+  /**
+   * One entry per id sent in `discover`, in the order they were asked.
+   *
+   * REQUIRED, not optional, for the reason `outOfScope` is: a `?` here would
+   * let a route that stopped sending it read as a route that asked and found
+   * nothing. `applyDiscoveries` still tolerates it being absent at RUNTIME,
+   * which is a different thing -- a tab open across a deploy.
+   */
+  sections: DiscoveredSections[];
 };
 
 /**
@@ -224,6 +267,47 @@ export function capturesToWalk(
 }
 
 /**
+ * THE BERKAS WORTH ASKING FOR JUDUL, and the two rules that decide.
+ *
+ * ONE MODEL CALL PER ID, so this list is a bill and not a filter over something
+ * already paid for.
+ *
+ * `ai === false` IS DROPPED, and it is the same fence `buildProposeRequest`
+ * puts on the pages themselves: the operator marked that berkas "tanpa AI", the
+ * sentence on screen says the model does not look inside it, and a usulan
+ * quoting its heading would break that promise in the most visible way
+ * available -- a heading, in the document's own voice, out of the one file they
+ * fenced off. Read `=== false` rather than `!== true`, because absent means
+ * DIBACA AI: every order stored before the choice existed must keep being read.
+ *
+ * `sectionsAskedFor` IS DROPPED, AND THAT IS THE COST GATE. It records that the
+ * QUESTION WAS PUT, never that the answer was useful, so a berkas that yielded
+ * nothing is not asked again: paying a second time buys the same sentence. It
+ * is set by `record-proposals` when the answer is filed, which is why
+ * `applyDiscoveries` files EVERY answered berkas including the empty ones.
+ *
+ * `again` IS "Cari judul lagi", NAMED PER BERKAS, and it lifts only the second
+ * rule. A person who has read one berkas's usulan and wants a different answer
+ * may spend that call again -- and only that one, because the button they
+ * pressed sits under one berkas's list and re-reading the other four would be a
+ * bill they did not ask for. NOTHING LIFTS THE FENCE: an id named here that
+ * belongs to a berkas marked tanpa AI is still not asked.
+ */
+export function discoverIds(
+  run: BrowserRun,
+  options: { again?: readonly string[] } = {},
+): string[] {
+  const again = new Set(options.again ?? []);
+  return run.sources
+    .filter(
+      (source) =>
+        source.ai !== false &&
+        (again.has(source.id) || source.sectionsAskedFor !== true),
+    )
+    .map((source) => source.id);
+}
+
+/**
  * The request body.
  *
  * `index` IS THE POSITION IN `run.pages`, deliberately re-derived here with
@@ -263,6 +347,11 @@ export function capturesToWalk(
 export function buildProposeRequest(
   run: BrowserRun,
   template: Template,
+  /**
+   * `again` names the berkas whose judul question is to be put a SECOND time
+   * ("Cari judul lagi"). It reaches `discoverIds` and nothing else.
+   */
+  options: { again?: readonly string[] } = {},
 ): ProposeRequest {
   const fenced = aiExcludedSources(run);
 
@@ -282,6 +371,7 @@ export function buildProposeRequest(
     wanted: wantedKeys(run, template),
     captures: capturesToWalk(run, template),
     overlay: run.overlay,
+    discover: discoverIds(run, options),
   };
 }
 
@@ -415,6 +505,74 @@ export function applyContinuations(
 }
 
 /**
+ * The judul half of the answer, filed as usulan for a person to rule on.
+ *
+ * ## `applySectionEdit`, not `editSections`
+ *
+ * `record-proposals` is the landed edit for exactly this, and its ENGINE is
+ * pure: `applySectionEdit` takes a run and an edit and returns a run, and
+ * `editSections` is the storage call wrapped around it. This module is pure and
+ * is driven by `node --test`, and the run this is folded into is already the
+ * freshly re-read one the caller is about to `saveRun` -- the same object
+ * `applyProposals` and `applyContinuations` have just returned. Going through
+ * storage here instead would write the run three times for one answer, and the
+ * second write would be refused as stale by the first.
+ *
+ * ## EVERY ANSWERED BERKAS IS FILED, INCLUDING THE EMPTY ONES
+ *
+ * `record-proposals` is what sets `RunSource.sectionsAskedFor`, and that flag
+ * records THAT THE QUESTION WAS PUT rather than that the answer was useful. A
+ * berkas whose answer was "no headings here" and which was therefore skipped
+ * would be asked again on every press of Baca dengan AI, for ever, at one model
+ * call each. So an empty `sections` array is filed exactly like a full one.
+ *
+ * ## A BERKAS THE ORDER NO LONGER HOLDS IS SKIPPED, NOT THROWN OVER
+ *
+ * A pass takes minutes and the operator can remove a document while it runs.
+ * `recordProposals` refuses an answer filed against a berkas the run does not
+ * have -- correctly, since its `cite` points into pages that are gone -- and
+ * letting that throw here would discard the PROPOSALS half of the same answer,
+ * which is minutes of work about documents that are still there.
+ *
+ * ## NEITHER OPT-IN MAY BE NEEDED, AND THAT IS ASSERTED RATHER THAN ASSUMED
+ *
+ * `record-proposals` passes `run.slots` through by reference and touches only
+ * `overlay.proposed` and one source's flag, so `putRun`'s `removing` and
+ * `removingSections` are both empty by construction -- which is what lets the
+ * caller save this with a plain `saveRun`. If that ever stops being true the
+ * throw below is loud, at the point of the change, instead of a
+ * `CaptureLossError` in front of an operator.
+ */
+export function applyDiscoveries(
+  run: BrowserRun,
+  answers: readonly DiscoveredSections[],
+): BrowserRun {
+  const held = new Set(run.sources.map((source) => source.id));
+  let next = run;
+
+  for (const answer of answers) {
+    if (!held.has(answer.sourceId)) continue;
+    const result = applySectionEdit(next, {
+      tag: "record-proposals",
+      sourceId: answer.sourceId,
+      sections: answer.sections,
+    });
+    if (result.removing.length > 0 || result.removingSections.length > 0) {
+      throw new Error(
+        "recording usulan judul asked to drop stored work " +
+          `(${result.removing.length} potongan, ${result.removingSections.length} ` +
+          "nama), which this fold cannot express: the caller saves with a plain " +
+          "saveRun and storage would refuse it. Route this through " +
+          "editSections instead.",
+      );
+    }
+    next = result.run;
+  }
+
+  return next;
+}
+
+/**
  * One round's whole answer, in the order the two halves depend on.
  *
  * `applyProposals` first, because a continuation the route found by walking a
@@ -430,9 +588,17 @@ export function applyResponse(
   run: BrowserRun,
   response: ProposeResponse,
 ): BrowserRun {
-  return applyContinuations(
-    applyProposals(run, response),
-    response.continuations ?? [],
+  // The judul half LAST, and it is independent of the two before it: it writes
+  // `overlay.proposed` and one flag per berkas, and never touches `run.slots`.
+  // Last rather than first only so a throw from it cannot cost the search's
+  // answer -- and `?? []` so a tab open across a deploy leaves the usulan alone
+  // rather than failing the whole fold.
+  return applyDiscoveries(
+    applyContinuations(
+      applyProposals(run, response),
+      response.continuations ?? [],
+    ),
+    response.sections ?? [],
   );
 }
 
@@ -446,11 +612,13 @@ export async function requestProposals(
   run: BrowserRun,
   template: Template,
   signal?: AbortSignal,
+  /** `again` names the berkas to re-ask ("Cari judul lagi"). See `discoverIds`. */
+  options: { again?: readonly string[] } = {},
 ): Promise<ProposeResponse> {
   const response = await fetch("/api/propose", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildProposeRequest(run, template)),
+    body: JSON.stringify(buildProposeRequest(run, template, options)),
     signal,
   });
 

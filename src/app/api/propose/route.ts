@@ -33,9 +33,10 @@ import {
 } from "./handler.ts";
 
 /**
- * A bundle is classified once per source document and then searched once per
- * wanted slot, so this is many sequential calls, not one. The ceiling is for
- * the slow end of a full first pass over a fresh bundle.
+ * A bundle is classified once per source document, asked for its judul once per
+ * source document, and then searched once per wanted slot, so this is many
+ * sequential calls, not one. The ceiling is for the slow end of a full first
+ * pass over a fresh bundle.
  */
 export const maxDuration = 300;
 
@@ -114,7 +115,8 @@ async function search(body: ProposeBody): Promise<ProposeResult> {
   } finally {
     console.log(
       `[propose] cost ${MODEL_ID} run=${body.runId} pages=${body.pages.length} ` +
-        `slots=${body.wanted.length} calls=${calls - startedCalls} ` +
+        `slots=${body.wanted.length} discover=${body.discover?.length ?? 0} ` +
+        `calls=${calls - startedCalls} ` +
         `in=${promptTokens - startedIn} out=${outputTokens - startedOut} ` +
         `(thoughts=${thoughtTokens - startedThoughts}) ` +
         `total=${totalTokens - startedTotal} ` +

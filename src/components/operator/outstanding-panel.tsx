@@ -75,6 +75,14 @@
  * AND ONE THING THAT IS NOT A BLANK AT ALL: a potongan stored under a key this
  * order's form does not declare. See `Stray`.
  *
+ * AND ONE SLAB THAT IS NOT ABOUT BLANKS AT ALL: the USULAN JUDUL, above
+ * everything, in its own block. Every list below is about a bagian THE FORM
+ * ALREADY DECLARES and the tool could not fill; a usulan is a JUDUL the form
+ * does not have, which the AI read off a berkas and which does not exist in
+ * this order until a person accepts it. It stands above the "nothing left"
+ * branch too, because an order can owe no blanks at all and still owe four of
+ * these. See `UsulanJudul`.
+ *
  * WHAT MOVED OUT rather than being deleted, all of it still counted here:
  *
  * - THE PER-ROW `Denah`. The sheet's own index rail draws a plan of every
@@ -92,7 +100,7 @@
  *   the record.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   Dialog,
@@ -102,6 +110,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { isSearchable } from "@/lib/forms/overlay";
+import type { NodeId, ProposedSection } from "@/lib/forms/overlay";
 import type { Template } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
 import { wantedKeys } from "@/lib/ui/propose";
@@ -109,6 +118,7 @@ import { slotKeyOf } from "@/lib/ui/runtime";
 import type {
   BrowserRun,
   RefusedDocument,
+  SectionEdit,
   SlotState,
   Zone,
 } from "@/lib/ui/runtime";
@@ -126,7 +136,8 @@ import {
   TechnicalDetail,
   shortenFileName,
 } from "./chrome";
-import { Cari, Klip, Kosongkan, Potongan } from "./icons";
+import { Denah } from "./denah";
+import { Cari, Klip, Kosongkan, Otak, Potongan } from "./icons";
 import {
   Antrean,
   DocumentDrop,
@@ -135,6 +146,7 @@ import {
   type IngestProgress,
   type QueuedDocument,
 } from "./ingest-panel";
+import type { SectionEditor } from "./judul";
 
 /**
  * One document read during THIS SESSION.
@@ -503,6 +515,28 @@ type PanelProps = {
    */
   onSearch?: () => void;
   searching?: boolean;
+  /**
+   * ONE GESTURE ON THIS ORDER'S FORM, handed over as a value, exactly as
+   * `judul.tsx` hands its own. It is what "Terima", "Bukan ini" and "Ganti
+   * namanya" compose.
+   *
+   * OPTIONAL, and without it the usulan are still LISTED with their berkas,
+   * their halaman and their baris -- they just cannot be ruled on here. That is
+   * the same degraded shape `onSearch` takes, and it is the honest one: a
+   * usulan the operator cannot see at all is a decision owed that nothing on
+   * screen mentions, which is worse than one they have to rule on elsewhere.
+   */
+  onSectionEdit?: SectionEditor;
+  /**
+   * "Cari judul lagi": put the judul question to one berkas a second time.
+   *
+   * A SEPARATE PROP RATHER THAN A `SectionEdit`, because it is not an edit to
+   * the form. It clears that berkas's `sectionsAskedFor` -- the cost gate that
+   * stops a second press of Baca dengan AI paying for the same answer -- and
+   * then reads again, which is a run write plus a network round trip and
+   * belongs to the shell that owns both.
+   */
+  onDiscoverAgain?: (sourceId: string) => void;
 };
 
 /**
@@ -533,6 +567,8 @@ function Panel({
   onDiscard,
   onSearch,
   searching = false,
+  onSectionEdit,
+  onDiscoverAgain,
 }: PanelProps) {
   /**
    * THIS ORDER'S FORM. Every list on this block is built from it, and reading
@@ -683,6 +719,29 @@ function Panel({
   if (run.pages.length === 0) return null;
 
   /**
+   * THE USULAN JUDUL STAND ABOVE THE BLANKS, and above the "nothing left"
+   * branch too.
+   *
+   * They are a different question from the rest of this block. Everything below
+   * is about a bagian the form already declares and the tool could not fill; a
+   * usulan is a JUDUL the form does not have at all, which the AI read off a
+   * berkas and which does not exist in this order until a person says so. An
+   * order can perfectly well owe no blanks and still owe four of these, so it
+   * cannot live inside the branch that reports the work finished.
+   */
+  const usulan = (
+    <UsulanJudul
+      run={run}
+      // The judul edits are run writes like any other, so they are held while a
+      // document is being read for the same reason every control here is.
+      busy={busy}
+      searching={searching}
+      onEdit={onSectionEdit}
+      onDiscoverAgain={onDiscoverAgain}
+    />
+  );
+
+  /**
    * NOTHING IS OUTSTANDING: one slab that says so, or nothing at all.
    *
    * This block is read on arrival at Periksa, every visit, for the whole life
@@ -701,9 +760,13 @@ function Panel({
   if (blanks.length === 0 && strays.length === 0) {
     const nothingPending =
       emptied.length === 0 && rounds.length === 0 && !busy && fault === null;
-    if (nothingPending) return null;
+    // A usulan owes a decision whatever the bagian list says, so it keeps this
+    // block alive on its own.
+    if (nothingPending) return usulan;
 
     return (
+      <>
+      {usulan}
       <section aria-labelledby="tambahan-head" className="lt-slab">
         <div className="lt-kop" data-owes={fault ? "fault" : "done"}>
           <h2 id="tambahan-head">Tidak ada yang tersisa</h2>
@@ -731,10 +794,13 @@ function Panel({
 
         {dialog}
       </section>
+      </>
     );
   }
 
   return (
+    <>
+    {usulan}
     <section aria-labelledby="tambahan-head" className="lt-slab">
       {/* THE KOP IS THIS BLOCK'S STATUS CHANNEL. An amber tint over the bar and
           a 4px amber rule down its leading edge mean it owes the operator a
@@ -884,6 +950,513 @@ function Panel({
 
       {dialog}
     </section>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Usulan judul: what the AI thinks a berkas is made of.
+ * ------------------------------------------------------------------ */
+
+/**
+ * THE JUDUL THE AI READ OFF A BERKAS, AS USULAN A PERSON RULES ON.
+ *
+ * The operator's own request: *"Kalo di-scan AI, AI bisa bikinin section-nya
+ * sendiri, tapi user harusnya juga bisa rename setiap slot."* So the AI names
+ * headings and a person decides, every time, one at a time.
+ *
+ * ## A USULAN IS NOT A JUDUL, AND THE CODE SAYS SO RATHER THAN THIS COMMENT
+ *
+ * These rows live in `overlay.proposed`, and `resolveTemplate` does not read
+ * that array at all. Nothing here is in the packet, in the xlsx, or on the
+ * outstanding list; there is no code path from a heading the model invented to
+ * a deliverable that does not pass through "Terima". That is why this block can
+ * afford to show what a model said in the DOCUMENT'S OWN MONO VOICE: the title
+ * is a transcription (`src/lib/pipeline/sections.ts` refuses one that is not
+ * literally in the lines it cites), and it is a quotation right up to the point
+ * where a person adopts it.
+ *
+ * ## WHY IT IS ITS OWN SLAB AND NOT A FIFTH KIND OF BLANK
+ *
+ * Everything else on this screen is about a bagian THE FORM ALREADY DECLARES
+ * that has no evidence. This is about a judul the form does not have at all.
+ * The five reason words below (`belum dicari`, `tidak ditemukan`, ...) all
+ * describe a search for something known to be wanted, and none of them can be
+ * said about a heading nobody has agreed exists yet. Filing these among the
+ * blanks would also count them in the kop's debt figure, which is the number
+ * an operator reads as "how much work is left on the packet".
+ *
+ * ## THREE ANSWERS, AND THE THIRD IS THE ONE THE OPERATOR ASKED FOR
+ *
+ * Terima adopts it. Bukan ini ends it. Ganti namanya keeps it a usulan and
+ * changes its words, which is exactly the case the request names: the AI is
+ * right that there is a judul here and wrong about what to call it. It is
+ * written as a re-record of that berkas's usulan rather than as a new edit
+ * shape, because `record-proposals` REPLACES one berkas's entries by design --
+ * so renaming is the same write that filing them was, with one title changed,
+ * and no second spelling of a name exists anywhere to disagree with the first.
+ */
+function UsulanJudul({
+  run,
+  busy,
+  searching,
+  onEdit,
+  onDiscoverAgain,
+}: {
+  run: BrowserRun;
+  busy: boolean;
+  searching: boolean;
+  onEdit?: SectionEditor;
+  onDiscoverAgain?: (sourceId: string) => void;
+}) {
+  /** Which usulan is having its name typed, and which is being written. */
+  const [renaming, setRenaming] = useState<NodeId | null>(null);
+  const [working, setWorking] = useState<NodeId | null>(null);
+
+  const proposed = run.overlay.proposed;
+
+  const groups = run.sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    asked: source.sectionsAskedFor === true,
+    usulan: proposed.filter((entry) => entry.fromSourceId === source.id),
+  }));
+
+  /**
+   * USULAN WHOSE BERKAS THIS ORDER NO LONGER HOLDS.
+   *
+   * Listed rather than dropped, and offered ONLY "Bukan ini". A usulan carries
+   * `fromPages` as POSITIONS in `run.pages`, and removing a berkas renumbers
+   * that array -- so accepting one of these would take whole-page potongan of
+   * whatever now sits at those positions, under a heading read out of a
+   * document that is gone. Hiding them instead would leave a decision owed that
+   * nothing on screen mentions.
+   */
+  const held = new Set(run.sources.map((source) => source.id));
+  const orphans = proposed.filter((entry) => !held.has(entry.fromSourceId));
+
+  const live = groups.filter((group) => group.usulan.length > 0 || group.asked);
+  if (live.length === 0 && orphans.length === 0) return null;
+
+  const hold = busy
+    ? LOADING_HOLD
+    : searching
+      ? "Tunggu pembacaan AI selesai."
+      : undefined;
+
+  const edit = (id: NodeId, next: SectionEdit) => {
+    if (!onEdit) return;
+    setWorking(id);
+    setRenaming(null);
+    void onEdit(next).finally(() => setWorking(null));
+  };
+
+  /**
+   * A RENAME IS A RE-RECORD OF THAT BERKAS'S USULAN, one title changed.
+   *
+   * `record-proposals` replaces a berkas's entries wholesale by design, so this
+   * is the same write that filed them. The alternative -- a `rename-proposal`
+   * edit -- would put a second home for a usulan's title in the overlay, and
+   * every two-homed name in this codebase has ended up disagreeing with itself.
+   */
+  const rename = (sourceId: string, id: NodeId, title: string) =>
+    edit(id, {
+      tag: "record-proposals",
+      sourceId,
+      sections: proposed
+        .filter((entry) => entry.fromSourceId === sourceId)
+        .map((entry) => (entry.id === id ? { ...entry, title } : entry)),
+    });
+
+  return (
+    <section aria-labelledby="usulan-head" className="lt-slab">
+      {/* AMBER ONLY WHILE SOMETHING IS ACTUALLY OWED. A berkas that was asked
+          and yielded nothing leaves this block standing with a count of zero,
+          and marking that as a decision owed is how amber stops being read. */}
+      <div
+        className="lt-kop"
+        data-owes={proposed.length > 0 ? "decision" : "done"}
+      >
+        <h2 id="usulan-head">Usulan judul dari AI</h2>
+        {proposed.length > 0 ? (
+          <span className="lt-figure lt-kop-right">{proposed.length}</span>
+        ) : null}
+      </div>
+
+      <div className="lt-slab-body flex flex-col gap-4">
+        <p aria-live="polite" className="sr-only">
+          {proposed.length} usulan judul menunggu keputusan Anda.
+        </p>
+
+        {live.map((group) => (
+          <BerkasUsulan
+            key={group.id}
+            run={run}
+            group={group}
+            hold={hold}
+            working={working}
+            renaming={renaming}
+            onRename={setRenaming}
+            canEdit={onEdit !== undefined}
+            onEdit={edit}
+            onSubmitName={rename}
+            onDiscoverAgain={onDiscoverAgain}
+          />
+        ))}
+
+        {orphans.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <Notice tone="stop">
+              <span className="flex flex-wrap items-baseline gap-2">
+                <span className="lt-figure">{orphans.length}</span>
+                <span>
+                  usulan berasal dari berkas yang sudah tidak ada di order ini,
+                  jadi halamannya tidak bisa diambil lagi.
+                </span>
+              </span>
+            </Notice>
+            <ul className="border-line flex flex-col border-t">
+              {orphans.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-2"
+                >
+                  <Mark status="outstanding" title="berkasnya sudah tidak ada" />
+                  <span className="lt-figure font-bold">{entry.title}</span>
+                  <span className="ms-auto">
+                    <Btn
+                      tone="reject"
+                      disabled={hold !== undefined || !onEdit}
+                      reason={hold ?? "Keputusan usulan belum bisa diambil di layar ini."}
+                      onClick={() =>
+                        edit(entry.id, { tag: "reject-proposal", id: entry.id })
+                      }
+                    >
+                      Bukan ini
+                    </Btn>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {onEdit ? null : (
+          /* The degraded shape, said out loud rather than left as three keys
+             that do nothing. It is a deployment fault, not an operator's, so it
+             names what is missing in their terms and stops there. */
+          <Note>
+            Usulan di atas belum bisa diputuskan di layar ini. Judul bisa
+            ditambahkan sendiri lewat Tambah judul di lembar periksa.
+          </Note>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** One berkas's usulan, under the one sentence that says how many there are. */
+function BerkasUsulan({
+  run,
+  group,
+  hold,
+  working,
+  renaming,
+  onRename,
+  canEdit,
+  onEdit,
+  onSubmitName,
+  onDiscoverAgain,
+}: {
+  run: BrowserRun;
+  group: { id: string; name: string; asked: boolean; usulan: ProposedSection[] };
+  hold: string | undefined;
+  working: NodeId | null;
+  renaming: NodeId | null;
+  onRename: (id: NodeId | null) => void;
+  canEdit: boolean;
+  onEdit: (id: NodeId, edit: SectionEdit) => void;
+  onSubmitName: (sourceId: string, id: NodeId, title: string) => void;
+  onDiscoverAgain?: (sourceId: string) => void;
+}) {
+  /**
+   * HALAMAN NOBODY PROPOSED A JUDUL FOR.
+   *
+   * Counted only once the question has actually been PUT to this berkas.
+   * Before that, "tidak diusulkan" would describe a search nothing ran -- the
+   * same distinction `outOfScope` draws against "tidak ditemukan" one level
+   * down, and the same reason that word is fenced in `docs/ui-bahasa.md`.
+   *
+   * A page under a judul the operator has already ACCEPTED counts as proposed:
+   * the usulan is gone from `proposed` by then, and reporting its pages as
+   * unclaimed would grow this figure every time they said yes.
+   */
+  const claimed = new Set<number>();
+  for (const entry of group.usulan) {
+    for (const page of entry.fromPages) claimed.add(page);
+  }
+  for (const added of run.overlay.added) {
+    if (added.fromSourceId !== group.id) continue;
+    for (const page of added.pages ?? []) claimed.add(page);
+  }
+  const unclaimed = run.pages.reduce(
+    (count, page, position) =>
+      page.sourceId === group.id && !claimed.has(position) ? count + 1 : count,
+    0,
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex flex-wrap items-center gap-2 text-sm">
+        {group.usulan.length > 0 ? (
+          <>
+            AI menemukan <span className="lt-figure">{group.usulan.length}</span>{" "}
+            judul di berkas
+          </>
+        ) : (
+          <>AI tidak menemukan judul di berkas</>
+        )}
+        <span className="lt-kotak" title={group.name}>
+          {shortenFileName(group.name, 30)}
+        </span>
+      </p>
+
+      {group.usulan.length > 0 ? (
+        <ul
+          aria-label={`Usulan judul dari ${group.name}`}
+          className="border-line flex flex-col border-t"
+        >
+          {group.usulan.map((entry) => (
+            <UsulanRow
+              key={entry.id}
+              run={run}
+              sourceId={group.id}
+              entry={entry}
+              hold={hold}
+              busy={working === entry.id}
+              canEdit={canEdit}
+              renaming={renaming === entry.id}
+              onRename={onRename}
+              onEdit={onEdit}
+              onSubmitName={onSubmitName}
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-4">
+        {group.asked && unclaimed > 0 ? (
+          <span className="text-ink-2 flex flex-wrap items-center gap-2 text-[0.8125rem]">
+            <span className="lt-figure">{unclaimed}</span>
+            halaman tidak diusulkan jadi judul mana pun.
+          </span>
+        ) : null}
+
+        {onDiscoverAgain && group.asked ? (
+          <>
+            <Btn
+              disabled={hold !== undefined}
+              reason={hold}
+              onClick={() => onDiscoverAgain(group.id)}
+            >
+              {/* The brain, because this is the AI reading again, and the same
+                  glyph it wears wherever else it reads. */}
+              <Otak />
+              Cari judul lagi
+            </Btn>
+            {/* STATED AS A REPEAT OF A SEARCH, not as a free action. It is
+                another model call over the whole berkas, and it REPLACES the
+                usulan on screen -- which matters most to the operator who has
+                just renamed one and not yet accepted it. */}
+            <Hint label="Yang terjadi kalau dicari lagi">
+              AI membaca berkas ini sekali lagi. Usulan yang sekarang diganti
+              dengan hasil baru, termasuk nama yang sudah Anda ubah. Judul yang
+              sudah Anda terima tidak ikut berubah.
+            </Hint>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** One usulan, one line, three answers. */
+function UsulanRow({
+  run,
+  sourceId,
+  entry,
+  hold,
+  busy,
+  canEdit,
+  renaming,
+  onRename,
+  onEdit,
+  onSubmitName,
+}: {
+  run: BrowserRun;
+  sourceId: string;
+  entry: ProposedSection;
+  hold: string | undefined;
+  busy: boolean;
+  canEdit: boolean;
+  renaming: boolean;
+  onRename: (id: NodeId | null) => void;
+  onEdit: (id: NodeId, edit: SectionEdit) => void;
+  onSubmitName: (sourceId: string, id: NodeId, title: string) => void;
+}) {
+  const resolved = resolvePage(run, entry.cite.pageIndex);
+  const first = run.pages[entry.fromPages[0]];
+  const held = hold ?? (busy ? "Keputusan ini sedang disimpan." : undefined);
+  const stopped = held !== undefined || !canEdit;
+  const why = held ?? "Keputusan usulan belum bisa diambil di layar ini.";
+
+  return (
+    <li className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-2">
+      {/* AMBER: a decision is owed here, which is the only thing amber means. */}
+      <Mark status="proposed" title="usulan judul" />
+
+      {/* The page plan, so "is this the right page" is answered with a picture
+          rather than with a better-typeset number. Decorative because the row
+          names the berkas and the halaman in words beside it. */}
+      <Denah
+        page={first}
+        size="sm"
+        label={`Halaman pertama usulan ${entry.title}`}
+        decorative
+      />
+
+      {/* Mono: the title is transcribed from the document, and the pipeline
+          refuses one that is not literally in the lines it cites. */}
+      <span className="lt-figure font-bold">{entry.title}</span>
+
+      <span className="lt-kotak">{entry.fromPages.length} halaman</span>
+
+      {/* Berkas, halaman, baris: where this heading was read, so the operator
+          can go and look at it. Not `Cite` from chrome.tsx, which also prints
+          "ukuran di halaman" -- there is no potongan here yet, so there is no
+          size to state and inventing one would be a measurement of nothing. */}
+      {resolved ? (
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="lt-label">dari</span>
+          <span className="lt-kotak" title={resolved.sourceName}>
+            {shortenFileName(resolved.sourceName, 24)}
+          </span>
+          <span className="lt-kotak">
+            hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
+          </span>
+          <span className="lt-kotak">
+            baris {entry.cite.lineRange[0]}-{entry.cite.lineRange[1]}
+          </span>
+        </span>
+      ) : (
+        <span className="text-gap text-[0.8125rem]">
+          Halamannya sudah tidak ada di order ini.
+        </span>
+      )}
+
+      {renaming ? (
+        <NamaUsulan
+          initial={entry.title}
+          disabled={held !== undefined}
+          onCancel={() => onRename(null)}
+          onSubmit={(title) => onSubmitName(sourceId, entry.id, title)}
+        />
+      ) : (
+        <span className="ms-auto flex flex-wrap gap-2">
+          <Btn
+            tone="primary"
+            disabled={stopped}
+            reason={why}
+            onClick={() => onEdit(entry.id, { tag: "accept-proposal", id: entry.id })}
+          >
+            Terima
+          </Btn>
+          <Btn
+            disabled={stopped}
+            reason={why}
+            onClick={() => onRename(entry.id)}
+          >
+            Ganti namanya
+          </Btn>
+          <Btn
+            tone="reject"
+            disabled={stopped}
+            reason={why}
+            onClick={() => onEdit(entry.id, { tag: "reject-proposal", id: entry.id })}
+          >
+            Bukan ini
+          </Btn>
+        </span>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The name, typed in flow, seeded with what the AI transcribed.
+ *
+ * MONO, from `.lt-input` itself, for the reason `judul.tsx` gives at length: a
+ * renamed judul is still a quotation, of a different order's paperwork, so the
+ * title is in the document's voice before and after and the chrome around it
+ * stays sans. The app never invents a name -- the field opens holding what is
+ * there.
+ */
+function NamaUsulan({
+  initial,
+  disabled,
+  onSubmit,
+  onCancel,
+}: {
+  initial: string;
+  disabled: boolean;
+  onSubmit: (title: string) => void;
+  onCancel: () => void;
+}) {
+  const id = useId();
+  const [value, setValue] = useState(initial);
+  const blank = value.trim().length === 0;
+
+  return (
+    <form
+      className="ms-auto flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!blank && !disabled) onSubmit(value);
+      }}
+    >
+      <label className="lt-label" htmlFor={id}>
+        Judul
+      </label>
+      <input
+        id={id}
+        className="lt-input w-full max-w-[28rem]"
+        value={value}
+        disabled={disabled}
+        autoFocus
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          // Escape leaves without saving: the same promise "Batal" makes,
+          // available to the hand already on the keyboard.
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+      <Btn
+        type="submit"
+        tone="primary"
+        disabled={blank || disabled}
+        reason={
+          blank
+            ? "Judul tanpa kata tercetak sebagai ruang kosong di DOKUMEN VALIDASI."
+            : LOADING_HOLD
+        }
+      >
+        Simpan nama
+      </Btn>
+      <Btn onClick={onCancel}>Batal</Btn>
+    </form>
   );
 }
 

@@ -1130,14 +1130,20 @@ function Workspace({
    * to leave this screen, and the operator may well want to add a document and
    * run another round before reviewing anything.
    */
-  const search = async () => {
+  const search = async (options: { again?: readonly string[] } = {}) => {
     if (!run) return;
     setSearching(true);
     setSearchStartedAt(Date.now());
     setSearchNote(null);
     setFault(null);
     try {
-      const response = await requestProposals(run, template);
+      // `again` NAMES THE BERKAS TO RE-ASK FOR JUDUL, and nothing else about
+      // this pass changes. It is "Cari judul lagi" on the usulan head: the
+      // judul question is gated per berkas by `RunSource.sectionsAskedFor` so
+      // that pressing Baca dengan AI twice does not pay for the same answer,
+      // and this is the one thing that lifts that gate -- for the one berkas
+      // whose list the operator pressed it under.
+      const response = await requestProposals(run, template, undefined, options);
       const found = response.proposals.length;
       const missed = response.outstanding.length;
       // Lanjutan usulan, counted separately because they are a different kind
@@ -1164,13 +1170,29 @@ function Workspace({
         lanjutan === 0
           ? ""
           : ` ${lanjutan} potongan lanjutan juga ditemukan: blok yang terpotong di bawah halaman dan bersambung ke halaman berikutnya, dan itu pun menunggu keputusan Anda.`;
+      // JUDUL ARE COUNTED APART FROM BAGIAN, for the reason lanjutan are:
+      // they are a different kind of answer. `found` counts evidence for a
+      // bagian the form already declares; these are HEADINGS the form does not
+      // have at all, which do not exist in this order until the operator says
+      // so. Folded into one figure, a pass that located nothing would still
+      // report a number, and the number would send them looking for potongan
+      // that are not there.
+      const judul = (response.sections ?? []).reduce(
+        (sum, answer) => sum + answer.sections.length,
+        0,
+      );
+      const judulNote =
+        judul === 0
+          ? ""
+          : ` AI juga mengusulkan ${judul} judul baru, dan itu menunggu keputusan Anda di kepala lembar periksa.`;
       setSearchNote(
         (found === 0
           ? `AI selesai membaca. Tidak ada bagian yang bisa ditemukan di dokumen ini. Buka lembar periksa untuk memutuskan tiap bagian, atau tambahkan dokumen lain lalu baca lagi.`
           : missed === 0
             ? `AI selesai membaca. ${found} usulan menunggu keputusan Anda di lembar periksa.`
             : `AI selesai membaca. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
-          lanjutanNote,
+          lanjutanNote +
+          judulNote,
       );
       // AND A TOAST, because the note above is easy to be away from.
       //
@@ -1625,6 +1647,13 @@ function Workspace({
         onDiscard={(index) => discardOrphan(index)}
         onSearch={() => void search()}
         searching={searching}
+        /* THE JUDUL THE AI PROPOSED, AND THE ONLY THING THAT CAN RULE ON THEM.
+           `editSections` rather than `commit`, for the reason it exists: a
+           usulan is answered from a screen the operator may have been looking
+           at for minutes while an ingest wrote pages underneath it, and an edit
+           carries no revision so it is applied to what is STORED. */
+        onSectionEdit={editSections}
+        onDiscoverAgain={(sourceId) => void search({ again: [sourceId] })}
         onUnfillAll={(indexes) =>
           commit(
             {

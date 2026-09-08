@@ -3508,3 +3508,300 @@ test("parseArgs takes --template and finds its manifest beside it", () => {
     /--template needs a docx/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Headless parity for a per-order section list: --sections, --no-ai,
+// --discover-sections and the MANUAL block. See docs/superpowers/specs/
+// 2026-09-08-per-order-sections-design.md section 10.3.
+// ---------------------------------------------------------------------------
+
+import {
+  assertOverlay,
+  emptyOverlay,
+  resolveTemplate,
+} from "../src/lib/forms/overlay.ts";
+import {
+  manualSlots,
+  proposalsFrom,
+  sectionsOverlayFile,
+} from "./generate.mjs";
+
+/** TINY_TEMPLATE plus one judul this order added, with the pages it names. */
+function withAddedJudul(pages) {
+  const added = {
+    id: "u:extra",
+    title: "Lampiran Denah",
+    origin: "human",
+    slots: [
+      { id: "u:extra.p1", label: "Halaman 1" },
+      { id: "u:extra.p2", label: "Halaman 2" },
+    ],
+  };
+  if (pages !== undefined) added.pages = pages;
+  const overlay = { ...emptyOverlay(TINY_TEMPLATE), added: [added] };
+  // The same guard the route and --sections run. If a test's overlay would be
+  // refused on the wire, the test is asserting something the product cannot
+  // reach.
+  assertOverlay(overlay);
+  return {
+    overlay,
+    template: resolveTemplate(TINY_TEMPLATE, overlay),
+    addedPages: pages === undefined ? new Map() : new Map([[added.id, pages]]),
+  };
+}
+
+test("searchRound fills an added judul from the pages it names, with no model call", async () => {
+  const { template, addedPages } = withAddedJudul([2, 1]);
+  const asked = [];
+
+  const { zones } = await searchRound({
+    template,
+    byType: new Map([["KB", [0]]]),
+    pages: [0, 1, 2].map((i) => fakePage(i)),
+    addedPages,
+    locatePool: async (questions) => {
+      for (const q of questions) asked.push(q.key);
+      return new Map(questions.map((q) => [q.key, { ok: true, result: null }]));
+    },
+  });
+
+  // THE DECLARED ORDER, not page order: capture 1 is the judul's first page,
+  // whatever number that is. Reading them back sorted would hide exactly the
+  // mix-up this asserts against.
+  assert.deepEqual(
+    zones
+      .filter((zone) => zone.key.startsWith("u:extra"))
+      .map((zone) => [zone.key, zone.pageIndex, zone.lineRange]),
+    [
+      ["u:extra.p1", 2, [0, 0]],
+      ["u:extra.p2", 1, [0, 0]],
+    ],
+  );
+  // The model was never asked about the added judul. `isSearchable` is false
+  // for every bagian under one, and this is that rule on the headless path.
+  assert.deepEqual(asked.sort(), ["field.one", "field.two"]);
+});
+
+test("an added judul naming no pages is MANUAL, and never reported as not found", async () => {
+  const { template, addedPages } = withAddedJudul(undefined);
+
+  const { zones, reasons } = await searchRound({
+    template,
+    byType: new Map(),
+    pages: [0, 1].map((i) => fakePage(i)),
+    addedPages,
+    locatePool: async (questions) =>
+      new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+  });
+
+  assert.deepEqual(
+    zones.filter((zone) => zone.key.startsWith("u:extra")),
+    [],
+  );
+  // Not even a reason: a reason is an answer, and nothing asked.
+  assert.equal(reasons.has("u:extra.p1"), false);
+
+  const manual = manualSlots(template, zones, addedPages);
+  assert.deepEqual(
+    manual.map((entry) => entry.key),
+    ["u:extra.p1", "u:extra.p2"],
+  );
+
+  // AND IT IS NOT OUTSTANDING. "searched, not found" would tell the operator
+  // to fetch a dokumen tambahan for a heading nobody hunted for.
+  const never = new Set(manual.map((entry) => entry.key));
+  const outstanding = outstandingSlots(template, zones, reasons, never);
+  assert.equal(
+    outstanding.some((entry) => entry.key.startsWith("u:extra")),
+    false,
+  );
+  // Without the opt-out it WOULD be, which is what makes the argument
+  // concrete rather than a claim about intent.
+  assert.equal(
+    outstandingSlots(template, zones, reasons).some((entry) =>
+      entry.key.startsWith("u:extra"),
+    ),
+    true,
+  );
+});
+
+test("an added judul naming a page the run does not hold says so, and is outstanding", async () => {
+  const { template, addedPages } = withAddedJudul([9, 0]);
+
+  const { zones, reasons } = await searchRound({
+    template,
+    byType: new Map(),
+    pages: [0, 1].map((i) => fakePage(i)),
+    addedPages,
+    locatePool: async (questions) =>
+      new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+  });
+
+  assert.match(reasons.get("u:extra.p1"), /run page 9/);
+  // Its sibling still lands: one bad index in the file does not cost the judul
+  // the page that was right.
+  assert.deepEqual(
+    zones.filter((zone) => zone.key === "u:extra.p2").map((z) => z.pageIndex),
+    [0],
+  );
+  // A judul that named pages is NOT manual: it was filled deterministically,
+  // so a failure here is a reason somebody has to read and fix in the file.
+  assert.deepEqual(manualSlots(template, zones, addedPages), []);
+});
+
+test("searchRound never offers a fenced page to the model, or takes one whole", async () => {
+  const pages = [fakePage(0), { ...fakePage(1), searchable: false }];
+  let offered;
+
+  const { zones, reasons } = await searchRound({
+    template: TINY_TEMPLATE,
+    // The fenced page is the only one classified as the whole-page slot's own
+    // document type. Nothing else in this suite would notice it being taken.
+    byType: new Map([
+      ["KB", [0]],
+      ["BAPermintaan", [1]],
+    ]),
+    pages,
+    locatePool: async (questions, pool) => {
+      offered = pool.map((page) => page.index);
+      return new Map(questions.map((q) => [q.key, { ok: true, result: null }]));
+    },
+  });
+
+  assert.deepEqual(offered, [0]);
+  assert.deepEqual(zones, []);
+  assert.match(reasons.get("whole.1"), /no BAPermintaan page 0/);
+});
+
+test("proposalsFrom carries the stage's own run-global pages and citation", () => {
+  // The shape `discoverSections` returns: pages already mapped back to the
+  // caller's true indexes, one cite per judul, refusals reported separately.
+  const discovery = {
+    sections: [
+      {
+        title: "PERJANJIAN KERJASAMA BERLANGGANAN",
+        pages: [3, 4, 5],
+        cite: { pageIndex: 3, lineRange: [0, 1] },
+      },
+    ],
+    unusable: [{ title: "LAMPIRAN", reason: "names page 40" }],
+    note: "1 judul proposed across 6 page(s); 1 refused",
+  };
+
+  let minted = 0;
+  const proposed = proposalsFrom(
+    "bundle.pdf",
+    discovery,
+    () => `u:test-${(minted += 1)}`,
+  );
+
+  assert.deepEqual(proposed, [
+    {
+      id: "u:test-1",
+      title: "PERJANJIAN KERJASAMA BERLANGGANAN",
+      fromSourceId: "bundle.pdf",
+      fromPages: [3, 4, 5],
+      cite: { pageIndex: 3, lineRange: [0, 1] },
+    },
+  ]);
+  // A COPY, not the stage's array. `acceptProposal` spreads `fromPages` into
+  // an AddedSection, and two runs sharing one array is a mutation nobody
+  // would look for.
+  assert.notEqual(proposed[0].fromPages, discovery.sections[0].pages);
+
+  // And what comes out is something the wire guard accepts, which is the only
+  // thing that makes the round trip real: this goes into a file a person
+  // passes back with --sections.
+  assert.doesNotThrow(() =>
+    assertOverlay({ ...emptyOverlay(AO_TEMPLATE), proposed }),
+  );
+});
+
+test("the discovery file is an overlay that changes nothing until a human edits it", () => {
+  const file = sectionsOverlayFile(AO_TEMPLATE, [
+    {
+      id: "u:one",
+      title: "LAMPIRAN",
+      fromSourceId: "bundle.pdf",
+      fromPages: [3, 4],
+      cite: { pageIndex: 3, lineRange: [0, 1] },
+    },
+  ]);
+
+  // It goes back in through --sections, so it has to survive the same guard.
+  // `readme` is not part of the type and is tolerated: the fence refuses
+  // fenced KEYS, not unknown ones.
+  assert.doesNotThrow(() => assertOverlay(file));
+  assert.ok(Array.isArray(file.readme) && file.readme.length > 0);
+
+  // AND IT RESOLVES TO THE BASE BY IDENTITY. This is the strongest available
+  // statement that a model-invented judul cannot reach a deliverable: not
+  // "it is filtered out downstream" but "the resolver never looked at it".
+  assert.equal(resolveTemplate(AO_TEMPLATE, file), AO_TEMPLATE);
+});
+
+test("parseArgs refuses --sections beside --template, and says why", () => {
+  assert.equal(parseArgs(["package.json"]).sectionsPath, undefined);
+  assert.equal(parseArgs(["package.json"]).discover, false);
+  assert.ok(
+    parseArgs([
+      "package.json",
+      "--sections",
+      "package.json",
+    ]).sectionsPath.endsWith("package.json"),
+  );
+  assert.equal(parseArgs(["package.json", "--discover-sections"]).discover, true);
+
+  // Refused at PARSE TIME, not at the export: buildPatches throws only after
+  // the whole run's OCR and model spend.
+  assert.throws(
+    () =>
+      parseArgs([
+        "package.json",
+        "--sections",
+        "package.json",
+        "--template",
+        "package.json",
+      ]),
+    /--sections and --template cannot be combined[\s\S]*BY POSITION/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--sections"]),
+    /--sections needs a JSON file/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--sections", "nope.json"]),
+    /no such file/,
+  );
+});
+
+test("parseArgs puts --no-ai in the round it is written in, and refuses a file given both ways", () => {
+  const { rounds, noAi } = parseArgs([
+    "package.json",
+    "--no-ai",
+    "tsconfig.json",
+    "--tambahan",
+    "README.md",
+    "--no-ai",
+    "AGENTS.md",
+  ]);
+
+  // Round membership decides page ORDER, and a page number typed into an
+  // overlay's "pages" is what a silent reordering would break.
+  assert.deepEqual(
+    rounds.map((r) => r.length),
+    [2, 2],
+  );
+  assert.ok(rounds[0][1].endsWith("tsconfig.json"));
+  assert.ok(rounds[1][1].endsWith("AGENTS.md"));
+  assert.equal(noAi.length, 2);
+
+  assert.throws(
+    () => parseArgs(["package.json", "--no-ai", "package.json"]),
+    /also supplied as a document to search/,
+  );
+  assert.throws(
+    () => parseArgs(["package.json", "--no-ai"]),
+    /--no-ai needs a PDF/,
+  );
+});

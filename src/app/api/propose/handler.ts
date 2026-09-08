@@ -32,6 +32,7 @@ import {
   assertOverlay,
   emptyOverlay,
   resolveTemplate,
+  type ProposedSection,
   type TemplateOverlay,
 } from "../../../lib/forms/overlay.ts";
 import {
@@ -46,6 +47,11 @@ import {
   findContinuations,
   runningFurniture,
 } from "../../../lib/pipeline/continuation.ts";
+import {
+  discoverSections,
+  type DiscoveryPage,
+  type UnusableSection,
+} from "../../../lib/pipeline/sections.ts";
 import {
   MAX_SLOTS_PER_LOCATE_CALL,
   locateSlots,
@@ -98,6 +104,60 @@ export type ProposeBody = {
    * TypeError beside a half-billed run.
    */
   overlay?: TemplateOverlay;
+  /**
+   * `RunSource.id`s to ASK WHAT JUDUL THEY CONTAIN. One model call each.
+   *
+   * ABSENT OR EMPTY MEANS ASK NOTHING, which keeps a client that predates this
+   * field -- and a run whose berkas have all been asked about already -- sending
+   * byte for byte the request this route has always taken.
+   *
+   * THE CLIENT DECIDES WHICH IDS GO IN, and the two rules it applies live in
+   * `discoverIds` in `src/lib/ui/propose.ts`: never a berkas the operator
+   * marked "tanpa AI" (`RunSource.ai === false`), and never one already
+   * carrying `sectionsAskedFor`, which is the cost gate that stops a second
+   * press of Baca dengan AI paying for the same answer.
+   *
+   * THIS ROUTE ENFORCES THE FIRST ANYWAY. A fenced berkas's pages arrive
+   * `searchable: false` and are filtered out before discovery is offered any,
+   * so an id naming one buys an honest "no pages" note instead of a usulan read
+   * out of the one document the operator said the model must not look inside. A
+   * route whose correctness rests on the caller having read a paragraph is a
+   * route that breaks that promise the first time a script, an older tab or a
+   * future screen forgets it.
+   *
+   * It deliberately does NOT enforce the second. `sectionsAskedFor` is stored
+   * on the device and never sent here, and "Cari judul lagi" exists precisely
+   * so a person can spend that call again on purpose.
+   */
+  discover?: string[];
+};
+
+/**
+ * What one berkas was asked, and what came back.
+ *
+ * ONE ENTRY PER ID IN `discover`, ALWAYS, including a berkas that yielded
+ * nothing and a berkas that had no readable page at all. The client sets
+ * `sectionsAskedFor` off this list (`record-proposals`), and that flag records
+ * THAT THE QUESTION WAS PUT rather than that the answer was useful -- so an id
+ * that quietly fell out of the answer would be asked again on every press, for
+ * ever, at one model call a time.
+ */
+export type DiscoveredSections = {
+  sourceId: string;
+  /**
+   * Ready to file: ids are minted here so the client hands the array straight
+   * to `record-proposals` rather than assembling an overlay shape of its own.
+   *
+   * A `ProposedSection` IS NOT A JUDUL. `resolveTemplate` does not read
+   * `overlay.proposed`, so nothing in this array can reach the docx exporter,
+   * the xlsx, or the outstanding list until a person moves it into
+   * `overlay.added` by accepting it.
+   */
+  sections: ProposedSection[];
+  /** Entries the model named that could not be checked, and why. */
+  unusable: UnusableSection[];
+  /** One English sentence for the run log; see `SectionDiscovery.note`. */
+  note: string;
 };
 
 export type Proposal = {
@@ -157,6 +217,14 @@ export type ProposeResult = {
   outOfScope: { key: string; reason: string }[];
   /** One entry per capture walked forward, found or not. */
   continuations: ContinuationAnswer[];
+  /**
+   * ONE ENTRY PER ID IN `body.discover`, in the order they were asked.
+   *
+   * Empty when nothing was asked, which is the ordinary case: discovery is
+   * gated per berkas and a run whose documents have all been asked about pays
+   * for nothing here.
+   */
+  sections: DiscoveredSections[];
 };
 
 /**
@@ -515,6 +583,124 @@ async function walkContinuations(
 }
 
 /**
+ * A fresh `ProposedSection.id`.
+ *
+ * `u:`-prefixed because that is the one prefix no declared id uses, and
+ * injectable so a test can pin what a usulan is called. See `NodeId` in
+ * `../../../lib/forms/overlay.ts`.
+ */
+export type MintProposalId = () => string;
+
+const defaultMintProposalId: MintProposalId = () => `u:${crypto.randomUUID()}`;
+
+/**
+ * WHAT JUDUL DOES EACH OF THESE BERKAS CONTAIN, as usulan a person rules on.
+ *
+ * ## Why this is a phase of `/api/propose` and not a route of its own
+ *
+ * `route.ts` is ~151 lines of authorization gate, per-call cost logging and
+ * `maxDuration`, every line of which a second route would copy -- and a second
+ * gate is a second gate to get wrong. It also asks the same question of the
+ * same material the search already has in its hands: the run's OCR line text,
+ * already validated by `assertWirePages`, already filtered by `searchable`.
+ *
+ * ## ONE CALL PER BERKAS, AND THE BERKAS IS THE UNIT ON PURPOSE
+ *
+ * A judul is a run of consecutive pages of ONE document. A span crossing a file
+ * boundary is never a legitimate answer -- the last page of a merged contract
+ * scan is not continued by the first page of a separate SPLITBA scan, however
+ * adjacent their run-global numbers are -- so pooling two documents into one
+ * prompt would offer the model an answer it must never give. It is the same
+ * grouping `classifyByDocType` and `walkContinuations` both make, for the same
+ * reason.
+ *
+ * ## A FENCED BERKAS IS ANSWERED, NOT SEARCHED
+ *
+ * Its pages are not in `pages` at all (the caller filtered on
+ * `searchable !== false` before this runs), so it gets an entry saying so and
+ * costs nothing. Dropping it from the answer instead would leave the client
+ * asking again on every press: `sectionsAskedFor` is set off this list.
+ *
+ * ## A BAD REPLY COSTS ONE BERKAS, A PROVIDER FAILURE COSTS THE REQUEST
+ *
+ * The same split every other stage here makes, and the reason is the same one
+ * `AskFailed` exists for. A reply that will not parse is a fact about one
+ * answer and is reported as a note; a provider that could not be reached must
+ * not come back as "this berkas has no judul", because that reads as an answer
+ * nobody actually got.
+ */
+async function discoverJudul(
+  wanted: readonly string[],
+  pages: WirePage[],
+  ask: Ask,
+  mintId: MintProposalId,
+): Promise<DiscoveredSections[]> {
+  if (wanted.length === 0) return [];
+
+  const bySource = new Map<string, DiscoveryPage[]>();
+  for (const page of pages) {
+    const list = bySource.get(page.sourceId) ?? [];
+    // `page.index` IS THE RUN-GLOBAL POSITION (`assertRunGlobalIndexes` has
+    // already established it), which is what a `ProposedSection.fromPages`
+    // entry means and what `acceptProposal` indexes `run.pages` with.
+    // `discoverSections` renumbers locally from 0 for the prompt and maps back
+    // to this number itself.
+    list.push({ index: page.index, lines: page.lines });
+    bySource.set(page.sourceId, list);
+  }
+
+  const answers: DiscoveredSections[] = [];
+  // DE-DUPLICATED, because a repeated id would be two model calls for one
+  // answer and then two `record-proposals` edits, the second of which replaces
+  // the first. Cheap to refuse here; invisible if it is not.
+  for (const sourceId of new Set(wanted)) {
+    const own = bySource.get(sourceId) ?? [];
+    if (own.length === 0) {
+      answers.push({
+        sourceId,
+        sections: [],
+        unusable: [],
+        note:
+          "this berkas has no page the model may read, so nothing was asked " +
+          "about it (it may be marked tanpa AI, or no longer be in this order)",
+      });
+      continue;
+    }
+
+    try {
+      const found = await discoverSections(own, ask);
+      answers.push({
+        sourceId,
+        sections: found.sections.map((section) => ({
+          id: mintId(),
+          title: section.title,
+          fromSourceId: sourceId,
+          fromPages: section.pages,
+          cite: section.cite,
+        })),
+        unusable: found.unusable,
+        note: found.note,
+      });
+    } catch (error) {
+      // Never reached the model: fatal for the request, not a berkas that
+      // merely would not answer. Reporting it as an empty judul list would say
+      // "this document has no headings" about a call that never happened.
+      if (error instanceof AskFailed) throw error;
+      answers.push({
+        sourceId,
+        sections: [],
+        unusable: [],
+        note: `judul discovery failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    }
+  }
+
+  return answers;
+}
+
+/**
  * The search itself.
  *
  * ONE LOCATE CALL PER POOL -- not per capture and not per slot -- and NONE AT
@@ -613,6 +799,9 @@ export async function proposeZones(
   // away from being live, so "the route still behaves when it is raised" is a
   // property worth a test rather than a hope.
   slotsPerCall: number = MAX_SLOTS_PER_LOCATE_CALL,
+  // Injected for the same reason `applySectionEdit` takes a `mintId`: a test
+  // that cannot name the usulan it just made cannot assert anything about it.
+  mintId: MintProposalId = defaultMintProposalId,
 ): Promise<ProposeResult> {
   // OVER THE FULL ARRAY, and before anything is filtered out of it. `index`
   // must be the page's position in `run.pages` because that is the number that
@@ -670,14 +859,34 @@ export async function proposeZones(
   // about pages nothing looked at and would send the operator hunting for a
   // document they are already holding; inventing a third reason would collapse
   // one of the distinctions `outOfScope` exists to keep.
+  // JUDUL DISCOVERY RUNS FIRST, AND OUTSIDE EVERY EARLY RETURN BELOW.
+  //
+  // It is not part of the search and must not be gated on it. A run whose every
+  // bagian is already confirmed has `wanted: []` and would take the second
+  // early return; a run holding one berkas that is entirely unreadable takes
+  // the first. In both, "what judul does this document contain" is still a
+  // question worth asking and still one the operator pressed a key to ask, and
+  // folding it behind either gate would make the answer depend on how much of
+  // the FORM happened to be filled in.
+  //
+  // Offered `searchable` rather than `body.pages`, so a berkas the operator
+  // marked tanpa AI reaches no prompt here either.
+  const sections = await discoverJudul(
+    body.discover ?? [],
+    searchable,
+    ask,
+    mintId,
+  );
+
   if (body.pages.length === 0 || searchable.length === 0) {
-    return { proposals, outstanding, outOfScope, continuations: [] };
+    return { proposals, outstanding, outOfScope, continuations: [], sections };
   }
   if (body.wanted.length === 0) {
     return {
       proposals,
       outstanding,
       outOfScope,
+      sections,
       continuations: await walkContinuations(
         body.captures ?? [],
         searchable,
@@ -956,7 +1165,7 @@ export async function proposeZones(
     defs,
   );
 
-  return { proposals, outstanding, outOfScope, continuations };
+  return { proposals, outstanding, outOfScope, continuations, sections };
 }
 
 export type ProposeDeps = {
@@ -1002,6 +1211,18 @@ export function parseProposeBody(value: unknown): ProposeBody {
   // gate lets anything spend the credential on it.
   assertWirePages(body.pages as WirePage[]);
   assertCaptures(body.captures);
+  // ONE MODEL CALL PER ENTRY, so the list is checked before any of them is
+  // made. Absent is legitimate and means ask nothing; a malformed one would
+  // otherwise reach `discoverJudul`, where `new Set("abc")` walks a string's
+  // characters and buys three calls about three berkas that do not exist.
+  if (body.discover !== undefined) {
+    if (!Array.isArray(body.discover)) {
+      throw new Error("discover must be an array of source ids");
+    }
+    if (!body.discover.every((id) => typeof id === "string" && id !== "")) {
+      throw new Error("discover must be an array of source ids");
+    }
+  }
   // THE FORM, SHAPE-CHECKED FOR THE SAME REASON THE PAGES ARE. An overlay is a
   // blob stored on a device and posted back, and `resolveTemplate` walks it
   // patch by patch: a malformed one would arrive as a TypeError inside

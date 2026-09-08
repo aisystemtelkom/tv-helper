@@ -12,9 +12,10 @@
     "smoke": "node scripts/smoke.mjs",
     "generate": "node scripts/generate.mjs",
     "make:docx-template": "node scripts/make-docx-template.mjs",
-    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs scripts/test-docx-template.mjs src/lib/model.test.mts src/lib/cost.test.mts src/lib/forms/overlay.test.mts src/lib/pipeline/continuation.test.mts src/lib/pipeline/gemini-ocr.test.mts src/lib/pipeline/vision-ocr.test.mts src/lib/pipeline/verify.test.mts src/lib/pipeline/order-request.test.mts src/lib/auth/auth.test.mts src/lib/auth/gcs.test.mts src/lib/browser/browser.test.mts src/lib/browser/persistence.test.mts src/lib/browser/sections.test.mts src/lib/ui/ui.test.mts src/lib/ui/wiring.test.mts src/app/api/propose/propose.test.mts src/app/api/extract/extract.test.mts src/app/api/ocr/ocr.test.mts",
+    "test": "node --test scripts/test-converters.mjs scripts/test-pipeline.mjs scripts/test-docx-template.mjs src/lib/model.test.mts src/lib/cost.test.mts src/lib/forms/overlay.test.mts src/lib/pipeline/continuation.test.mts src/lib/pipeline/gemini-ocr.test.mts src/lib/pipeline/vision-ocr.test.mts src/lib/pipeline/verify.test.mts src/lib/pipeline/sections.test.mts src/lib/pipeline/order-request.test.mts src/lib/auth/auth.test.mts src/lib/auth/gcs.test.mts src/lib/browser/browser.test.mts src/lib/browser/persistence.test.mts src/lib/browser/sections.test.mts src/lib/ui/ui.test.mts src/lib/ui/wiring.test.mts src/app/api/propose/propose.test.mts src/app/api/extract/extract.test.mts src/app/api/ocr/ocr.test.mts",
     "measure:locate": "node scripts/measure-locate.mjs",
-    "probe:pages": "node scripts/probe-completeness.mjs"
+    "probe:pages": "node scripts/probe-completeness.mjs",
+    "probe:sections": "node scripts/probe-sections.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "4.0.56",

@@ -5,13 +5,22 @@
  * and no browser involved.
  *
  *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]...
- *                 [--out dir] [--jenis-order MO]
+ *                 [--no-ai fenced.pdf]... [--sections overlay.json]
+ *                 [--discover-sections] [--out dir] [--jenis-order MO]
  *
  * Everything it knows about the target document comes from
- * `src/lib/forms/template.ts`. This file is wiring, not policy -- with one
- * exception it should not grow a second of: the header's JENIS ORDER cell,
- * which is resolved here because it is a property of the ORDER rather than of
- * the template (see the JENIS ORDER section).
+ * `src/lib/forms/template.ts` -- as the STARTING SUGGESTION, not as the form.
+ * `AO_TEMPLATE` is one order's transcribed section list, and the second sample
+ * bundle shares two headings with it out of about a dozen, so `--sections`
+ * takes a `TemplateOverlay` (`src/lib/forms/overlay.ts`) and this run is
+ * searched, cropped and exported against the RESOLVED form instead. That is
+ * the headless half of what the operator does on screen: rename a judul, drop
+ * one, reorder them, add one this order has and the form does not.
+ *
+ * This file is wiring, not policy -- with one exception it should not grow a
+ * second of: the header's JENIS ORDER cell, which is resolved here because it
+ * is a property of the ORDER rather than of the template (see the JENIS ORDER
+ * section).
  *
  * Five things here are load-bearing and easy to "simplify" back into bugs:
  *
@@ -60,6 +69,16 @@
  *    half of `src/lib/pipeline/continuation.ts`. The two paths therefore
  *    produce different docx files from the same bundle on purpose.
  *
+ * 6. `--discover-sections` IS THE SAME TRADE, ONE LEVEL UP. It runs the
+ *    section-discovery stage over every searchable document and writes
+ *    `<ID EPIC>_SECTIONS.json`. IT ADDS NOTHING TO THE DOCX. A heading the
+ *    model read off a scan is a `ProposedSection`, and `resolveTemplate` does
+ *    not read `overlay.proposed` at all -- so on this path, exactly as in the
+ *    browser, a model-invented judul is structurally unable to reach a
+ *    deliverable until a person moves it into `added`. Here that person is
+ *    whoever edits the JSON and passes it back as `--sections`. The round trip
+ *    IS the review.
+ *
  * OCR runs on one of two engines, chosen by `OCR_ENGINE` (default
  * "tesseract"; "gemini" sends each rendered page to the model as an image).
  * The flag exists so a run on one engine can be diffed crop-by-crop against a
@@ -90,7 +109,7 @@
  * `pnpm measure:locate` measures where a zone landed.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -108,6 +127,18 @@ import { repoRoot } from "./env.mjs";
 import { generateObject, generateText, jsonSchema } from "ai";
 
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
+// THE SAME GUARD AND THE SAME RESOLVER `/api/propose` RUNS, imported rather
+// than re-implemented. A second validator is a copy that can silently
+// disagree, and the two would agree on every overlay anybody happened to test:
+// the fence that stops an overlay carrying a prompt is only a fence while
+// there is one of it. Same argument as `NEVER_EXTRACTED` moving out of this
+// script and into `src/lib/pipeline/extract.ts`.
+import {
+  assertOverlay,
+  emptyOverlay,
+  fingerprintOf,
+  resolveTemplate,
+} from "../src/lib/forms/overlay.ts";
 import {
   MAX_OUTPUT_TOKENS,
   MODEL_ID,
@@ -220,7 +251,10 @@ import { buildXlsx } from "../src/lib/export/xlsx.ts";
 // script and test in this repo uses.
 const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-const OCR_CACHE_PATH = join(tmpdir(), "tv-helper-generate-ocr-cache.json");
+export const OCR_CACHE_PATH = join(
+  tmpdir(),
+  "tv-helper-generate-ocr-cache.json",
+);
 const FORCE_FRESH = process.env.GENERATE_FORCE === "1";
 
 /**
@@ -277,12 +311,26 @@ if (OCR_ENGINE !== "vision" && OCR_ENGINE !== "gemini") {
  * prompt by a word invalidates every entry by construction rather than by
  * somebody remembering to. `GENERATE_FORCE=1` still bypasses the lot.
  */
-const OCR_ENGINE_TAG =
+export const OCR_ENGINE_TAG =
   OCR_ENGINE === "gemini"
     ? `gemini:${OCR_MODEL_ID}:${OCR_PROMPT_VERSION}`
     : // Vision has no prompt, but it has a CONVERSION, and the cache is only
       // hazard-free for a fixed one. See VISION_MAPPING_VERSION.
       `vision:${VISION_MAPPING_VERSION}`;
+
+/**
+ * The one place the cache key is spelled.
+ *
+ * Exported because `scripts/probe-sections.mjs` reads and writes THIS cache:
+ * a probe that re-OCR'd a 151-page bundle on every run would cost a page
+ * charge per page to answer a question about the section stage, and a probe
+ * with a key of its own would answer it against text this script never saw.
+ * One spelling, so the two cannot drift into caching the same pixels under two
+ * names.
+ */
+export function ocrCacheKey(hash, pageInDoc) {
+  return `${hash}:${DEFAULT_DPI}:${pageInDoc}:${OCR_ENGINE_TAG}`;
+}
 
 /**
  * How many pages this script reads at once. Engine-dependent by default, and
@@ -654,12 +702,39 @@ async function askImage(prompt, image, schema, label = "ocr") {
 // ---------------------------------------------------------------------------
 
 const USAGE = `Usage: pnpm generate <bundle.pdf> [more.pdf ...] [--tambahan <extra.pdf>]...
+                    [--no-ai <fenced.pdf>]... [--sections <overlay.json>]
+                    [--discover-sections]
                     [--out <dir>] [--jenis-order <AO|MO|DO|...>]
                     [--request <order-request.xlsx>] [--service <SID|n>]
                     [--template <Form_Validasi.template.docx>]
 
 Writes <ID EPIC>_DOKUMEN_VALIDASI.docx, <ID EPIC>_ORDER_Config.xlsx and
 <ID EPIC>_OUTSTANDING.json into <dir> (default: out/, which is gitignored).
+
+--sections applies a TemplateOverlay to the form before anything is searched:
+a renamed judul, a dropped one, a different order, a judul this order has and
+the form does not. It is validated by the same assertOverlay the browser's
+route runs, so an overlay can never carry a prompt, a hint, a docType, a
+layout or a fillable flag -- those are what the measurement gate scores, and
+an operator editing a heading must not be able to move a number the gate is
+watching. An added judul carrying "pages": [n, ...] is filled with whole-page
+captures deterministically, no model call, exactly as a layout: "images"
+section is. One without "pages" ships as an empty heading and is listed in the
+run log's MANUAL block, because NOTHING SEARCHED FOR IT and reporting it as
+not found would be a lie.
+
+--discover-sections asks the model what sections each searchable document
+contains and writes <ID EPIC>_SECTIONS.json. IT ADDS NOTHING TO THE DOCX. The
+answers land in that file's "proposed" array, which resolveTemplate never
+reads: a heading a model invented cannot reach a packet until a person moves
+it into "added" and gives it pages. Read the file, edit it, pass it back with
+--sections. That round trip is the review this command otherwise has no
+operator to perform.
+
+--no-ai fences one document off from the model. It is rendered, OCR'd and
+appended to the global page list exactly like any other, so its pages can be
+cited and cropped by an added judul that names them -- what stops is
+classification and every search pool. It joins the round it is written in.
 
 --template patches the operator's own stripped Form Validasi instead of
 building a document from scratch, and it is the better of the two outputs by a
@@ -722,6 +797,18 @@ export function parseArgs(argv) {
   let requestPath;
   let service;
   let templatePath;
+  let sectionsPath;
+  let discover = false;
+  /**
+   * The documents the model may not read, BY PATH rather than by position.
+   *
+   * A parallel list rather than a field on the round entry, so `rounds` stays
+   * the flat `string[][]` every other reader (and its test) already expects. A
+   * fence is a property of the DOCUMENT, not of the round it arrived in, which
+   * is why naming a path twice with different intentions is refused below
+   * instead of resolved silently.
+   */
+  const noAi = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -757,10 +844,28 @@ export function parseArgs(argv) {
         throw new Error("--jenis-order needs a value");
       }
       jenisOrder = value.trim();
+    } else if (arg === "--sections") {
+      const value = argv[++i];
+      if (!value) throw new Error("--sections needs a JSON file");
+      sectionsPath = resolve(value);
+    } else if (arg === "--discover-sections") {
+      discover = true;
     } else if (arg === "--tambahan") {
       const value = argv[++i];
       if (!value) throw new Error("--tambahan needs a PDF");
       rounds.push([resolve(value)]);
+    } else if (arg === "--no-ai") {
+      const value = argv[++i];
+      if (!value) throw new Error("--no-ai needs a PDF");
+      // THE ROUND IT IS WRITTEN IN, not always round 1. A round's pages are
+      // appended to the run's global page list in the order the rounds run, so
+      // moving a fenced document to the front would renumber every page after
+      // it relative to the order it was typed in -- and a page number typed
+      // into an overlay's "pages" is exactly what that renumbering would
+      // silently break.
+      const path = resolve(value);
+      rounds[rounds.length - 1].push(path);
+      noAi.push(path);
     } else if (arg.startsWith("--")) {
       throw new Error(`unknown option ${arg}`);
     } else {
@@ -776,6 +881,22 @@ export function parseArgs(argv) {
   }
   if (requestPath !== undefined && !existsSync(requestPath)) {
     throw new Error(`no such file: ${requestPath}`);
+  }
+  // BEFORE the --template file checks, because this is a refusal about what
+  // was ASKED FOR and those are about what is on disk. Ordered the other way,
+  // an operator who wanted both would first be sent to build a manifest and
+  // only then told that the combination is refused however good the manifest
+  // is -- a fix that cannot help, offered before the reason it cannot.
+  if (sectionsPath !== undefined && templatePath !== undefined) {
+    throw new Error(
+      "--sections and --template cannot be combined. --template patches the\n" +
+        "operator's own stripped Form Validasi, and its placeholders are paired with\n" +
+        "the form's sections BY POSITION (buildPatches in src/lib/export/docx.ts).\n" +
+        "A section list that differs from the one the template was stripped from puts\n" +
+        "every crop after the first difference under the wrong heading, in a document\n" +
+        "that opens cleanly. Drop --template to build the document from scratch with\n" +
+        "these sections, or drop --sections to fill this template as it stands.",
+    );
   }
   // Both halves checked HERE rather than at the export, which is thousands of
   // model tokens and several minutes downstream. A run that is going to fail
@@ -797,7 +918,38 @@ export function parseArgs(argv) {
   if (service !== undefined && requestPath === undefined) {
     throw new Error("--service needs --request");
   }
-  return { rounds, outDir, jenisOrder, requestPath, service, templatePath };
+
+  if (sectionsPath !== undefined && !existsSync(sectionsPath)) {
+    throw new Error(`no such file: ${sectionsPath}`);
+  }
+  // One path, two intentions. Nothing downstream can honour both -- a source
+  // is either classified and searched or it is not -- and picking one would be
+  // picking silently.
+  const supplied = rounds.flat();
+  const countIn = (list, path) =>
+    list.reduce((n, candidate) => n + (candidate === path ? 1 : 0), 0);
+  const searchedToo = [...new Set(noAi)].filter(
+    (path) => countIn(supplied, path) > countIn(noAi, path),
+  );
+  if (searchedToo.length > 0) {
+    throw new Error(
+      `--no-ai names ${searchedToo.join(", ")}, which is also supplied as a ` +
+        "document to search. A berkas is either read by the model or fenced " +
+        "off from it; give the file once.",
+    );
+  }
+
+  return {
+    rounds,
+    outDir,
+    jenisOrder,
+    requestPath,
+    service,
+    templatePath,
+    sectionsPath,
+    discover,
+    noAi,
+  };
 }
 
 /**
@@ -833,6 +985,39 @@ async function loadDocxTemplate(templatePath) {
     );
   }
   return { docx, manifest };
+}
+
+/**
+ * Reads `--sections` and hands back a validated `TemplateOverlay`.
+ *
+ * READ BEFORE A SINGLE PAGE IS RENDERED, for the reason the docx template and
+ * the order request are: a malformed overlay is a five-second fix, and finding
+ * out about it after twenty minutes of OCR costs the whole run.
+ *
+ * `assertOverlay` is imported, never re-implemented. It is the wire guard the
+ * browser's route runs on a request body, and it is stricter than the type: it
+ * refuses an overlay carrying `ask`, `hint`, `docType`, `layout`, `fillable`
+ * or `pageOrdinal` AT ANY DEPTH. That fence is the whole reason a per-order
+ * section list is safe to ship -- the prompt is what `pnpm measure:locate`
+ * scores, and nothing an operator (or a hand-written JSON file) can say may
+ * move it.
+ */
+async function loadSectionsOverlay(sectionsPath) {
+  if (sectionsPath === undefined) return undefined;
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(sectionsPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `${sectionsPath} is not readable JSON: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  // Throws `OverlayError`, whose message names the exact path in the document
+  // that is wrong. Left to propagate rather than wrapped: a wrapper would put
+  // this file's name in front of a sentence that already says where to look.
+  assertOverlay(parsed);
+  return parsed;
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,6 +1294,13 @@ async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
             width: done.entry.width,
             height: done.entry.height,
             lines: done.entry.lines,
+            // MAY THE MODEL BE OFFERED THIS PAGE. Named exactly as
+            // `WirePage.searchable` is, and carried per PAGE rather than read
+            // off the source at every call site, so a filter can never be
+            // written against `lines.length` by accident: an empty page and a
+            // fenced page are different things and only one of them is a
+            // decision somebody made.
+            searchable: source.ai !== false,
           };
           pages.push(page);
           added.push(page);
@@ -1130,7 +1322,7 @@ async function ocrEveryPage(sources, sourceIndexes, cache, pages) {
         nextToStart += 1;
         pagesTotal += 1;
 
-        const key = `${source.hash}:${DEFAULT_DPI}:${pageInDoc}:${OCR_ENGINE_TAG}`;
+        const key = ocrCacheKey(source.hash, pageInDoc);
         const cached = FORCE_FRESH ? undefined : cache[key];
 
         if (cached) {
@@ -1202,6 +1394,15 @@ const HEAD_LINES = 12;
 async function classifyEverything(sources, sourceIndexes, pages, byType) {
   for (const sourceIndex of sourceIndexes) {
     const source = sources[sourceIndex];
+    // A FENCED BERKAS IS NOT CLASSIFIED, and skipping it here is what makes
+    // the fence hold in the pools as well: `byType` is what ranks a search
+    // pool, so a document with no spans contributes no preferred pages. That
+    // is belt to `searchRound`'s braces, which filters on the page's own
+    // `searchable` flag rather than trusting this absence.
+    if (source.ai === false) {
+      console.log(`  ${source.name}: fenced (--no-ai), not classified`);
+      continue;
+    }
     const own = pages.filter((p) => p.source === sourceIndex);
     const heads = own.map((p, position) => ({
       index: position,
@@ -1381,13 +1582,23 @@ export function inTemplateOrder(zones, template) {
  * operator answers no to. A validation document with an unexplained empty
  * cell is indistinguishable from one where the evidence does not exist.
  */
-export function outstandingSlots(template, zones, reasons = new Map()) {
+export function outstandingSlots(
+  template,
+  zones,
+  reasons = new Map(),
+  neverSearched = new Set(),
+) {
   const found = new Set(zones.map((zone) => zone.key));
 
   const outstanding = [];
   for (const { section, slot } of templateSlots(template)) {
     if (!slot.fillable) continue;
     if (found.has(slot.key)) continue;
+    // A bagian under an added judul that named no pages is not outstanding, it
+    // is MANUAL: nothing searched for it and nothing ever will. See
+    // `manualSlots`, which produces exactly this set and reports it under its
+    // own heading.
+    if (neverSearched.has(slot.key)) continue;
     // `found` and `required` are gone from this entry along with
     // `SlotDef.crops`. They existed to say "1 of 2 captures found", which was
     // a sentence about a count the FORM declared -- the very assertion the
@@ -1404,6 +1615,57 @@ export function outstandingSlots(template, zones, reasons = new Map()) {
     });
   }
   return outstanding;
+}
+
+/**
+ * Every bagian this run will ship blank BECAUSE NOTHING SEARCHED FOR IT.
+ *
+ * ## Why it is not the outstanding list
+ *
+ * `outstandingSlots` means "we looked and found nothing", and every consumer
+ * of it acts on that: the run log tells the operator to supply a dokumen
+ * tambahan, and the report is what a resumed run reads to know what to search
+ * next time. Neither is true of a judul this order ADDED. `isSearchable` is
+ * false for every bagian under one -- the model is never asked, so there is no
+ * negative answer to report -- and telling the operator to fetch another
+ * document would send them after evidence for a heading nobody hunted for.
+ *
+ * That distinction is not this script's invention. `/api/propose` keeps an
+ * `outOfScope` bucket for the same reason, and the operator UI has a word for
+ * it that is deliberately NOT "tidak ditemukan" (searched and not found):
+ * **belum digambar**, the bagian nobody has drawn yet. `MANUAL (n)` in the run
+ * log is that word, in English, in the one place a headless run can say it.
+ *
+ * ## And an added judul that DID name pages is not here
+ *
+ * `--sections` fills those deterministically, so they either carry a capture
+ * or they carry a reason -- a page index the run does not hold, a lineless
+ * page -- and a reason belongs in the outstanding list, where somebody will
+ * read it and fix the file.
+ */
+export function manualSlots(template, zones, addedPages = new Map()) {
+  const found = new Set(zones.map((zone) => zone.key));
+
+  const manual = [];
+  for (const { section, slot } of templateSlots(template)) {
+    if (!section.added) continue;
+    if (addedPages.has(section.id)) continue;
+    if (!slot.fillable) continue;
+    if (found.has(slot.key)) continue;
+    manual.push({
+      kind: "manual",
+      key: slot.key,
+      label: slot.label,
+      section: section.title,
+      origin: section.added.origin,
+      reason:
+        `"${section.title}" is a judul this order added, and no search covers ` +
+        "one: nothing was asked and nothing was found. Give the judul a " +
+        '"pages": [n, ...] list in the --sections overlay to have this page ' +
+        "captured whole, or capture it by hand in the operator UI.",
+    });
+  }
+  return manual;
 }
 
 /**
@@ -1692,12 +1954,33 @@ export async function searchRound({
   pages,
   satisfied = new Set(),
   locatePool,
+  addedPages = new Map(),
   log = () => {},
 }) {
   /** @type {{ key: string, pageIndex: number, box: object, lineRange: number[] }[]} */
   const zones = [];
   /** @type {Map<string, string>} slot key -> why it came back empty */
   const reasons = new Map();
+
+  /**
+   * The pages the MODEL may be offered, and the ones it may not.
+   *
+   * FILTERED ON THE FLAG, NEVER ON `lines.length`. A page with no OCR lines
+   * and a page the operator fenced off are different facts, and the second one
+   * is a decision somebody made and a sentence they were shown. Reading one as
+   * the other is how a fence stops meaning anything the day a scan comes back
+   * empty. Same rule, same words, as `proposeZones` in
+   * `src/app/api/propose/handler.ts`.
+   *
+   * `pagesByIndex(pages)` -- EVERY page, fenced ones included -- stays
+   * available for the added-judul branch below, which takes the pages an
+   * overlay NAMED. That is not a search: nobody asked the model anything, and
+   * the whole point of the fence is that such a berkas can still be cited and
+   * cropped by hand.
+   */
+  const searchablePages = pages.filter((page) => page.searchable !== false);
+  const searchableByIndex = pagesByIndex(searchablePages);
+  const byIndex = pagesByIndex(pages);
   /** Every unsatisfied fillable TABLE slot, across all sections, so they can
    *  be grouped by pool below rather than searched one at a time. */
   const tableSlots = [];
@@ -1707,6 +1990,98 @@ export async function searchRound({
     // preference now, and a slot without one is a slot with no preference,
     // not a slot to skip.
     const fillable = section.slots.filter((s) => s.fillable);
+
+    // ---- a judul THIS ORDER added, filled from the pages it names ----
+    //
+    // An added judul is always `layout: "images"` (`AddedSection` has no
+    // `layout` field at all, and `resolveAdded` is the line that makes that
+    // absence mean something), so it lands here rather than in the search. But
+    // it is NOT the branch below: that one asks classification which page is
+    // the Surat Penunjukan, and there is no doc type to ask about here. The
+    // overlay says which pages, or nothing does.
+    if (section.added) {
+      const declared = addedPages.get(section.id);
+      if (declared === undefined) {
+        // NOT A FAILURE, AND NOT REPORTED AS ONE. Nobody searched for this and
+        // nobody was ever going to: `isSearchable` is false for every bagian
+        // under an added judul. `manualSlots` collects these for the run log's
+        // MANUAL block, which is deliberately not OUTSTANDING -- reporting a
+        // judul nobody looked for as "searched, not found" is the same lie the
+        // route's `outOfScope` bucket exists to avoid, and it would tell the
+        // operator to go and fetch a document that would not help.
+        continue;
+      }
+
+      for (const slot of section.slots) {
+        if (!slot.fillable || satisfied.has(slot.key)) continue;
+        // The DECLARED ordinal, never a running counter. `SlotDef.pageOrdinal`
+        // exists precisely so that removing one bagian cannot slide the next
+        // one onto a page a confirmed capture is already holding; see its doc
+        // comment in src/lib/forms/template.ts for the two-headings-over-one-
+        // picture failure a counter produces.
+        const ordinal = slot.pageOrdinal;
+        if (!Number.isInteger(ordinal)) {
+          reasons.set(
+            slot.key,
+            "this bagian carries no pageOrdinal, so there is no way to say " +
+              "which of the judul's pages it is",
+          );
+          continue;
+        }
+        const pageIndex = declared[ordinal];
+        if (pageIndex === undefined) {
+          reasons.set(
+            slot.key,
+            `the judul names ${declared.length} page(s) and this is page ` +
+              `${ordinal + 1} of it`,
+          );
+          continue;
+        }
+        const page = byIndex[pageIndex];
+        if (!page) {
+          reasons.set(
+            slot.key,
+            `it names run page ${pageIndex}, which this round does not hold ` +
+              `(a page index in an overlay is a position in the run's global ` +
+              `page list, not a page number inside its own berkas)`,
+          );
+          continue;
+        }
+        // A LINELESS PAGE IS REFUSED, never patched over, matching
+        // `wholePageZone` in src/lib/browser/sections.ts. `lineRange` is two
+        // required numbers, so the only value available for a page with no
+        // lines is [0, 0] -- a citation naming line 0 of a page that has no
+        // line 0, printed under a picture in a packet a validator signs.
+        const last = page.lines.length - 1;
+        if (last < 0) {
+          reasons.set(
+            slot.key,
+            `run page ${pageIndex} (${sourceLabel(page)}) has no OCR lines, ` +
+              "so a whole-page capture of it would cite a line it does not have",
+          );
+          continue;
+        }
+        if (page.lines[last].i !== last) {
+          throw new Error(
+            `page ${page.index} (${sourceLabel(page)}) has its last line ` +
+              `numbered ${page.lines[last].i}, not ${last}: a whole-page ` +
+              "citation is written from the array length",
+          );
+        }
+
+        log(
+          `  ${slot.key}: whole page ${page.index} (${sourceLabel(page)}), ` +
+            `named by the judul "${section.title}", no model call`,
+        );
+        zones.push({
+          key: slot.key,
+          pageIndex: page.index,
+          box: { x: 0, y: 0, w: page.width, h: page.height },
+          lineRange: [0, last],
+        });
+      }
+      continue;
+    }
 
     if (section.layout === "images") {
       // Whole-page captures. No model call is made here at all -- see this
@@ -1722,7 +2097,6 @@ export async function searchRound({
       // type is precisely the plausible-wrong-evidence failure this project
       // is most afraid of. A slot with no candidate is reported outstanding
       // instead, which is what hands it to the tambahan loop.
-      const byIndex = pagesByIndex(pages);
       const taken = new Map();
       for (const slot of fillable) {
         if (satisfied.has(slot.key)) continue;
@@ -1732,16 +2106,28 @@ export async function searchRound({
         const candidates = poolForDocTypes(
           slot.docType ? [slot.docType] : [],
           byType,
-          byIndex,
+          // The SEARCHABLE pages. `byType` already holds no fenced page, since
+          // a fenced berkas is never classified, so this is belt and braces --
+          // and it is the belt that survives somebody classifying differently
+          // one day.
+          searchableByIndex,
         ).filter(Boolean);
         const position = taken.get(slot.docType) ?? 0;
         const page = candidates[position];
 
         if (!page) {
+          const fencedOff = pages.length - searchablePages.length;
           reasons.set(
             slot.key,
             slot.docType
-              ? `no ${slot.docType} page ${position} among the ${pages.length} pages searched`
+              ? `no ${slot.docType} page ${position} among the ` +
+                `${searchablePages.length} pages searched` +
+                // Named, because "0 pages searched" and "0 pages supplied"
+                // read identically and only one of them is a decision the
+                // operator made on the command line.
+                (fencedOff > 0
+                  ? ` (${fencedOff} more are fenced off from the model, --no-ai)`
+                  : "")
               : "whole-page slot with no document type to identify its page",
           );
           continue;
@@ -1821,10 +2207,21 @@ export async function searchRound({
 
   for (const [, group] of byPool) {
     const { slot: first } = group[0];
-    const pool = rankedPoolForDocTypes([first.docType], byType, pages);
+    // `searchablePages`, not `pages`. `rankedPoolForDocTypes` RANKS and never
+    // drops -- that is its whole contract, and the reason it exists -- so a
+    // fenced page handed to it would come back in the pool's tail and be
+    // offered to the model, which is exactly what --no-ai promises will not
+    // happen. The fence has to be applied to the candidate list.
+    const pool = rankedPoolForDocTypes([first.docType], byType, searchablePages);
     if (pool.length === 0) {
       for (const { slot } of group) {
-        reasons.set(slot.key, "no pages were supplied to search");
+        reasons.set(
+          slot.key,
+          pages.length === 0
+            ? "no pages were supplied to search"
+            : `no searchable pages: all ${pages.length} page(s) this round ` +
+              "holds are fenced off from the model (--no-ai)",
+        );
       }
       continue;
     }
@@ -2016,6 +2413,198 @@ export async function extractTextFields(
 }
 
 // ---------------------------------------------------------------------------
+// Section discovery: what judul does this bundle actually contain?
+//
+// THE DETECTION HALF ONLY, and the argument is the one `continuationChecks`
+// already makes one level down. The stage can read a document's own headings
+// off its OCR text; what it cannot do is decide that a heading belongs in this
+// order's packet. In the browser that decision is a person pressing Terima on
+// one usulan at a time. Here there is nobody, so the answers are written to
+// `<ID EPIC>_SECTIONS.json` as `overlay.proposed` -- an array `resolveTemplate`
+// does not read AT ALL -- and the only way one becomes a heading in a
+// deliverable is a human editing that file and passing it back as --sections.
+//
+// A model-invented heading printed into a packet nobody reviews is precisely
+// the failure this project exists to prevent, and it is worse than a wrong
+// crop: a wrong crop under a right heading is visibly wrong to the validator
+// reading it, while a plausible heading over a plausible page reads as work
+// somebody did.
+// ---------------------------------------------------------------------------
+
+/**
+ * The contract this script expects of `src/lib/pipeline/sections.ts`.
+ *
+ * Imported lazily, INSIDE the flag, for one reason: `pnpm generate` must load
+ * and run byte-identically without it. A static import of a module that is not
+ * there is `ERR_MODULE_NOT_FOUND` at load time, which would take down every
+ * default run to add an optional flag.
+ *
+ * The shape is checked rather than trusted, and the check names the module,
+ * because this adapter and that module are written by different hands: a
+ * discovery stage that returned page numbers local to one document, or spans
+ * without their cited lines, would produce a SECTIONS.json full of plausible
+ * page ranges pointing at the wrong pages. That file is meant to be read by a
+ * person and fed back as instructions, so a wrong number in it survives every
+ * later guard.
+ */
+export async function loadDiscoverSections() {
+  // Not `module`: eslint's next plugin refuses that name outright, because in
+  // a bundled context it shadows the CommonJS one.
+  let stage;
+  try {
+    stage = await import("../src/lib/pipeline/sections.ts");
+  } catch (error) {
+    throw new Error(
+      "--discover-sections needs src/lib/pipeline/sections.ts, which this " +
+        `tree does not have: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (typeof stage.discoverSections !== "function") {
+    throw new Error(
+      "src/lib/pipeline/sections.ts does not export `discoverSections`. This " +
+        "script expects `discoverSections(pages, ask)`, where `pages` are one " +
+        "document's pages as {index, lines:[{i, text}]} carrying their " +
+        "RUN-GLOBAL index, and the reply is {sections:[{title, pages, cite}], " +
+        "unusable:[{title, reason}], note} with those global indexes mapped " +
+        "back.",
+    );
+  }
+  return stage.discoverSections;
+}
+
+/**
+ * One document's discovery answer, as `ProposedSection`s for the overlay file.
+ *
+ * A MAPPING AND NOTHING MORE, and the absence of a second validation here is
+ * deliberate. `discoverSections` already refuses a reversed span, a page the
+ * berkas does not have, a lineless first page, a title cited to lines that do
+ * not contain it, and two spans claiming one page -- each with its reason, in
+ * `unusable`. Re-checking any of that here would be a second judge of the same
+ * evidence, and the two would agree on everything anybody tested; the repo has
+ * paid for that shape before (see `NEVER_EXTRACTED` moving out of this file).
+ * What this owes instead is to carry `unusable` and `note` where a person will
+ * read them, which `discoverEverything` does.
+ *
+ * `mintId` is injected so a test can pin what the ids are.
+ */
+export function proposalsFrom(
+  sourceName,
+  discovery,
+  mintId = () => `u:${randomUUID()}`,
+) {
+  return discovery.sections.map((section) => ({
+    // `u:`-prefixed, exactly as the browser mints them: no id the form
+    // declares starts with it, so a proposal can never collide with a section
+    // the template already owns.
+    id: mintId(),
+    title: section.title,
+    // There is no `RunSource.id` on this path, so the FILE NAME stands in. It
+    // is what a person reading the JSON needs, and nothing machine-side
+    // resolves it: `recordProposals`' `fromSourceId` check is the browser's,
+    // and a file written here never goes through it.
+    fromSourceId: sourceName,
+    // RUN-GLOBAL, because `discoverSections` mapped them back before returning
+    // and because that is what `ProposedSection.fromPages` means everywhere
+    // else -- `acceptProposal` indexes `run.pages` with them. A page number
+    // inside its own berkas here would crop every page of the second document
+    // out of the first, quietly, because the first document reviews correctly.
+    fromPages: [...section.pages],
+    cite: section.cite,
+  }));
+}
+
+/**
+ * Discovery over every SEARCHABLE document, as `ProposedSection`s.
+ *
+ * A fenced berkas (--no-ai) is skipped and said out loud. That is the whole
+ * content of the fence: the pages are read, counted and available to cite, and
+ * the model is not asked anything about them.
+ */
+async function discoverEverything(sources, pages, ask, log) {
+  const discoverSections = await loadDiscoverSections();
+  /** @type {object[]} */
+  const proposed = [];
+  const skipped = [];
+
+  for (const [sourceIndex, source] of sources.entries()) {
+    if (source.ai === false) {
+      skipped.push(source.name);
+      log(`  ${source.name}: fenced (--no-ai), not asked`);
+      continue;
+    }
+    const own = pages.filter((page) => page.source === sourceIndex);
+    if (own.length === 0) continue;
+
+    const discovery = await discoverSections(own, ask);
+    // `note` IS PRINTED ALWAYS, INCLUDING WHEN THE LIST IS EMPTY, because the
+    // stage writes it for exactly that case: "the berkas has no headings",
+    // "the model named none" and "the model named four and every one was a
+    // fabrication" are three different facts behind one empty array, and only
+    // this sentence tells them apart.
+    log(`  ${source.name}: ${discovery.note}`);
+    for (const entry of discovery.unusable) {
+      log(`    refused "${entry.title}": ${entry.reason}`);
+    }
+
+    for (const section of discovery.sections) {
+      const first = pages[section.cite.pageIndex];
+      const last = pages[section.pages[section.pages.length - 1]];
+      log(
+        `    "${section.title}" -- run pages ${section.pages[0]}-` +
+          `${section.pages[section.pages.length - 1]} (${source.name} pages ` +
+          // 1-based, because `pageInDoc` is 0-based and a PDF reader is not.
+          `${first.pageInDoc + 1}-${last.pageInDoc + 1}), title on lines ` +
+          `${section.cite.lineRange.join("-")}`,
+      );
+    }
+    proposed.push(...proposalsFrom(source.name, discovery));
+  }
+
+  return { proposed, skipped };
+}
+
+/**
+ * The discovery answers as a file that `--sections` will accept unchanged.
+ *
+ * IT RESOLVES TO THE BASE FORM UNTIL A HUMAN EDITS IT, and that is the design
+ * rather than an oversight: everything here is in `proposed`, which
+ * `resolveTemplate` never reads. Feeding this file straight back changes
+ * nothing, and `main` says so out loud when it sees one -- because "nothing
+ * happened" is the one outcome a person could mistake for a failure.
+ *
+ * `readme` is not part of `TemplateOverlay`. `assertOverlay` tolerates it (it
+ * refuses fenced KEYS, not unknown ones) and `resolveTemplate` ignores it, and
+ * it is here because the alternative is a JSON file whose instructions live in
+ * a document the reader would have to know to look for.
+ */
+export function sectionsOverlayFile(base, proposed) {
+  return {
+    // `readme` first so it is the first thing in the file a person opens.
+    readme: [
+      "Discovered by `pnpm generate --discover-sections`. NOTHING HERE IS IN",
+      "THE PACKET YET: every entry is in `proposed`, and the resolver never",
+      "reads that array, so passing this file back with --sections changes",
+      "nothing at all.",
+      "To have one captured: move the entry into `added`, give it an `origin`",
+      '("llm" if you are standing behind what the model read, "human" if you',
+      "retyped it), and give it one `slots` entry per page of `pages`, each",
+      "with its own `id` and `label`. The pages are captured whole, in the",
+      "order they are listed, with no model call.",
+      "You may also rename a judul the form declares (`sections`), rename a",
+      "bagian (`slots`), drop either with `removed: true`, and reorder the",
+      "packet with `order`. You may NOT write a prompt: `ask`, `hint`,",
+      "`docType`, `layout`, `fillable` and `pageOrdinal` are refused at any",
+      "depth, because those are what `pnpm measure:locate` scores.",
+    ],
+    // The empty overlay the module itself builds, so the version number and
+    // the fingerprint are never a second spelling of what `overlay.ts` says
+    // they are. Only `proposed` is filled in.
+    ...emptyOverlay(base),
+    proposed,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // JENIS ORDER lives in src/lib/pipeline/jenis-order.ts.
 //
 // It moved there so the OPERATOR UI can call it: everything it does is pure,
@@ -2038,7 +2627,7 @@ function sourceLabel(page) {
  * the indexes it added. Append-only for the same reason `pages` is: a zone
  * remembers `pages[i].source`, so a later round must not renumber sources.
  */
-async function openSources(paths, sources) {
+async function openSources(paths, sources, fenced = new Set()) {
   const added = [];
   for (const path of paths) {
     const bytes = new Uint8Array(await readFile(path));
@@ -2046,8 +2635,18 @@ async function openSources(paths, sources) {
     // pdf.js takes ownership of the buffer it is given, so hash first.
     const doc = await getDocument({ data: bytes }).promise;
     added.push(sources.length);
-    sources.push({ path, name: basename(path), hash, doc });
-    console.log(`${basename(path)}: ${doc.numPages} pages`);
+    // `ai` mirrors `RunSource.ai` in src/lib/browser/types.ts, including its
+    // polarity: absent or true means the model may read this berkas, which is
+    // the default for every document nobody has decided anything about.
+    const ai = !fenced.has(path);
+    sources.push({ path, name: basename(path), hash, doc, ai });
+    console.log(
+      `${basename(path)}: ${doc.numPages} pages` +
+        // Said on the line that opens the file, not only in a summary. Every
+        // count downstream (pages classified, pages in a pool) is smaller
+        // because of this, and a reader comparing two runs needs to know why.
+        (ai ? "" : " -- FENCED (--no-ai): read, never searched"),
+    );
   }
   return added;
 }
@@ -2060,6 +2659,9 @@ async function main() {
     requestPath,
     service,
     templatePath,
+    sectionsPath,
+    discover,
+    noAi,
   } = parseArgs(process.argv.slice(2));
 
   // Read here, before a single page is rendered, for the same reason the order
@@ -2069,6 +2671,44 @@ async function main() {
   // checks the correspondence itself; this only proves the two files exist and
   // parse.
   const docxTemplate = await loadDocxTemplate(templatePath);
+
+  // -------------------------------------------------------------------------
+  // THE FORM THIS ORDER IS ACTUALLY SEARCHED AGAINST.
+  //
+  // Resolved ONCE, here, and passed down. `AO_TEMPLATE` below this line would
+  // be a second answer to "what does this run's form look like" -- the two
+  // would agree on every run nobody edited, which is exactly how a
+  // disagreement stays hidden until it matters.
+  // -------------------------------------------------------------------------
+  const overlay = await loadSectionsOverlay(sectionsPath);
+  const template = resolveTemplate(AO_TEMPLATE, overlay);
+  /**
+   * Which pages each added judul names, by section id.
+   *
+   * READ OFF THE OVERLAY, NOT THE RESOLVED FORM, because `resolveAdded` does
+   * not carry `pages` onto the `SectionDef`: a `SectionDef` is the shape the
+   * exporters and the search take, and a page list is neither of those. It is
+   * an instruction to THIS script about where the captures come from.
+   */
+  const addedPages = new Map(
+    (overlay?.added ?? [])
+      .filter((section) => section.pages !== undefined)
+      .map((section) => [section.id, section.pages]),
+  );
+
+  /**
+   * The bagian nothing will ever search for, computed once against no zones.
+   *
+   * STABLE FOR THE WHOLE RUN, which is why it is not recomputed per round:
+   * `searchRound` skips these sections outright, so no round can fill one and
+   * the membership cannot change. It exists to keep them OUT of the
+   * outstanding list, which means "we looked and found nothing".
+   */
+  const neverSearched = new Set(
+    manualSlots(template, [], addedPages).map((entry) => entry.key),
+  );
+
+  const fenced = new Set(noAi);
 
   console.log(`Model:  ${MODEL_TARGET}`);
   // Which of the two document paths this run takes, said out loud. The
@@ -2086,6 +2726,71 @@ async function main() {
   // themselves do not say.
   console.log(`OCR:    ${OCR_ENGINE} (cache tag ${OCR_ENGINE_TAG})`);
   console.log(`OCR cache: ${OCR_CACHE_PATH}${FORCE_FRESH ? " (bypassed)" : ""}`);
+
+  // -------------------------------------------------------------------------
+  // Which form, said out loud on every run.
+  //
+  // The deliverables do not say which section list produced them, and two runs
+  // of the same bundle against two overlays produce two different packets that
+  // both open cleanly. This is the only line that distinguishes them.
+  // -------------------------------------------------------------------------
+  if (overlay) {
+    const added = template.sections.filter((section) => section.added);
+    console.log(
+      `form:   ${AO_TEMPLATE.id} + ${basename(sectionsPath)} -> ` +
+        `${template.sections.length} judul ` +
+        `(${AO_TEMPLATE.sections.length} in the form, ${added.length} added)`,
+    );
+    // DRIFT IS A WARNING, NEVER A REFUSAL. The fingerprint records the base's
+    // shape when the overlay was written; refusing to resolve on a mismatch
+    // would strand every overlay behind any change to the compile-time form,
+    // and the resolver is already safe because it looks every patch up by
+    // name. What a mismatch costs is a patch naming a node the form no longer
+    // has, which resolves to nothing and is silent -- hence the line.
+    if (overlay.baseFingerprint !== fingerprintOf(AO_TEMPLATE)) {
+      console.warn(
+        `        WARNING: this overlay was written against a different ` +
+          `shape of "${AO_TEMPLATE.id}" (fingerprint ${overlay.baseFingerprint}, ` +
+          `now ${fingerprintOf(AO_TEMPLATE)}). Any patch naming a judul or ` +
+          "bagian the form has since renamed or dropped resolves to nothing, " +
+          "quietly.",
+      );
+    }
+    // The one outcome a reader could mistake for a bug. An overlay straight
+    // out of --discover-sections is all `proposed`, and `resolveTemplate` does
+    // not read that array: the run is correct, complete, and identical to one
+    // with no overlay at all.
+    if (overlay.proposed.length > 0) {
+      console.log(
+        `        ${overlay.proposed.length} usulan in this overlay are ` +
+          "PROPOSALS and change nothing: the resolver never reads " +
+          '`proposed`. Move an entry into `added` with a "pages" list to have ' +
+          "it captured.",
+      );
+    }
+  } else {
+    console.log(`form:   ${AO_TEMPLATE.id}, as the code declares it (no --sections)`);
+  }
+  if (discover) {
+    // CHECKED BEFORE THE RUN SPENDS ANYTHING. `record` in src/lib/cost.ts
+    // indexes `ledger.stages[stage]`, so a stage the ledger does not declare
+    // is a TypeError on the first discovery call -- after the whole bundle's
+    // OCR. Refused here, by name, rather than misattributed to a stage that
+    // does exist: a cost table that quietly folds a new stage into an old row
+    // is the thing the per-stage table was built to stop.
+    if (!STAGES.includes("sections")) {
+      throw new Error(
+        "--discover-sections has no row in the cost ledger: src/lib/cost.ts's " +
+          `STAGES is [${STAGES.join(", ")}] and does not declare "sections". ` +
+          "Add it there (with its price row) before running discovery, so the " +
+          "stage that spends the money is the stage the table names.",
+      );
+    }
+    console.log(
+      "sections: discovery ON. It writes <ID EPIC>_SECTIONS.json and adds " +
+        "NOTHING to the docx.",
+    );
+  }
   console.log();
 
   // -------------------------------------------------------------------------
@@ -2194,7 +2899,7 @@ async function main() {
     );
     console.log("=".repeat(72));
 
-    const sourceIndexes = await openSources(paths, sources);
+    const sourceIndexes = await openSources(paths, sources, fenced);
     console.log();
 
     console.log("OCR (cached pages are skipped)...");
@@ -2212,7 +2917,7 @@ async function main() {
     // outstanding slots alone -- which is both what the operator asked for
     // ("search it for only the outstanding slots") and what keeps the cost of
     // a fourth document proportional to what it can still answer.
-    const satisfied = satisfiedSlotKeys(AO_TEMPLATE, zones);
+    const satisfied = satisfiedSlotKeys(template, zones);
     if (satisfied.size > 0) {
       console.log(
         `Skipping ${satisfied.size} slot(s) an earlier round already filled.`,
@@ -2221,18 +2926,19 @@ async function main() {
 
     console.log("Planning zones...");
     const round = await searchRound({
-      template: AO_TEMPLATE,
+      template,
       byType,
       pages: roundPages,
       satisfied,
       locatePool: (questions, pool) =>
         locatePoolWithFallback(questions, pool, ask, (line) => console.log(line)),
+      addedPages,
       log: (line) => console.log(line),
     });
     for (const [key, reason] of round.reasons) reasons.set(key, reason);
     zones = mergeZones(zones, round.zones);
 
-    const after = outstandingSlots(AO_TEMPLATE, zones, reasons);
+    const after = outstandingSlots(template, zones, reasons, neverSearched);
     roundReports.push({
       round: roundIndex + 1,
       documents: paths.map((p) => basename(p)),
@@ -2248,7 +2954,34 @@ async function main() {
 
   // Rounds can interleave, so put the zones back into template order before
   // cutting -- see inTemplateOrder for what depends on it.
-  zones = inTemplateOrder(zones, AO_TEMPLATE);
+  zones = inTemplateOrder(zones, template);
+
+  // -------------------------------------------------------------------------
+  // What sections does this bundle actually contain? Detection only.
+  //
+  // AFTER the rounds, because it wants every page the run holds, and BEFORE
+  // the crops so its cost lands next to the rest of the run's in the log. It
+  // adds nothing to `zones` and nothing to the docx: see the block above
+  // `loadDiscoverSections` for why a headless run gets the detection half.
+  // -------------------------------------------------------------------------
+  let discovered = null;
+  if (discover) {
+    console.log("Discovering the judul in each berkas (nothing is cropped)...");
+    discovered = await discoverEverything(
+      sources,
+      pages,
+      askFor("sections"),
+      (line) => console.log(line),
+    );
+    console.log(
+      `  ${discovered.proposed.length} usulan across ` +
+        `${sources.length - discovered.skipped.length} berkas` +
+        (discovered.skipped.length > 0
+          ? `, ${discovered.skipped.length} fenced off (--no-ai)`
+          : "") +
+        ".\n",
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Does any capture run off the bottom of its page?
@@ -2279,7 +3012,7 @@ async function main() {
     ]),
   );
   const checks = continuationChecks(
-    AO_TEMPLATE,
+    template,
     zones,
     pages,
     (zone, section, _slot, page) =>
@@ -2337,9 +3070,14 @@ async function main() {
   let extractionError;
   try {
     values = await extractTextFields(
-      AO_TEMPLATE,
+      template,
       byType,
-      pages,
+      // THE SEARCHABLE PAGES, for the reason `searchRound` filters its pools:
+      // "the AI does not look inside that berkas" has to be true of the text
+      // hunt as well as of the crop hunt, or the fence means only half of what
+      // the operator was told. A fenced document's pages are still in `pages`,
+      // still cited by an added judul, still cropped.
+      pages.filter((page) => page.searchable !== false),
       askFor("extract"),
       answeredByRequest,
     );
@@ -2490,10 +3228,10 @@ async function main() {
   // because that is where the misreading happens: `layanan = "..." [request
   // C3]` and a workbook with no layanan row read identically until now. See
   // `unmappedFieldValues`.
-  const unmapped = unmappedFieldValues(AO_TEMPLATE, values);
+  const unmapped = unmappedFieldValues(template, values);
   for (const entry of unmapped) {
     console.warn(
-      `  ${entry.key} NOT IN THE WORKBOOK -- the "${AO_TEMPLATE.id}" form has ` +
+      `  ${entry.key} NOT IN THE WORKBOOK -- the "${template.id}" form has ` +
         "no xlsx row for it; the value above goes nowhere",
     );
   }
@@ -2541,9 +3279,21 @@ async function main() {
   const docxPath = join(outDir, `${stem}_DOKUMEN_VALIDASI.docx`);
   const xlsxPath = join(outDir, `${stem}_ORDER_Config.xlsx`);
   const reportPath = join(outDir, `${stem}_OUTSTANDING.json`);
+  const sectionsReportPath = join(outDir, `${stem}_SECTIONS.json`);
 
-  await writeFile(docxPath, await buildDocx(AO_TEMPLATE, header, filled, docxTemplate));
-  await writeFile(xlsxPath, await buildXlsx(AO_TEMPLATE, values));
+  await writeFile(docxPath, await buildDocx(template, header, filled, docxTemplate));
+  await writeFile(xlsxPath, await buildXlsx(template, values));
+
+  // Written beside the deliverables, and named in the summary, because it is
+  // an input to the NEXT run rather than an output of this one: a person edits
+  // it and passes it back as --sections.
+  if (discovered) {
+    await writeFile(
+      sectionsReportPath,
+      `${JSON.stringify(sectionsOverlayFile(AO_TEMPLATE, discovered.proposed), null, 2)}\n`,
+      "utf8",
+    );
+  }
 
   // The structured outstanding report. Section 4 of the corrections note
   // wants "not found" to be a decision the operator makes on the record
@@ -2551,13 +3301,55 @@ async function main() {
   // a later UI reads to ask "is there a dokumen tambahan for these?", and
   // what a resumed run reads to know which zones it already has.
   const unmappedKeys = new Set(unmapped.map((entry) => entry.key));
-  const slotsOutstanding = outstandingSlots(AO_TEMPLATE, zones, reasons);
-  const fieldsOutstanding = outstandingFields(AO_TEMPLATE, values).map((field) =>
+  const slotsOutstanding = outstandingSlots(
+    template,
+    zones,
+    reasons,
+    neverSearched,
+  );
+  const manual = manualSlots(template, zones, addedPages);
+  const fieldsOutstanding = outstandingFields(template, values).map((field) =>
     extractionError ? { ...field, reason: extractionError } : field,
   );
   const report = {
-    template: AO_TEMPLATE.id,
+    template: template.id,
     generatedAt: new Date().toISOString(),
+    // WHICH FORM PRODUCED THIS PACKET. Two runs of one bundle against two
+    // overlays write two different documents that both open cleanly, and
+    // nothing inside either says which section list it was built from.
+    form: {
+      base: AO_TEMPLATE.id,
+      overlay: sectionsPath ? basename(sectionsPath) : null,
+      // Recorded even when it matches, so a reader can see that it was
+      // checked. A mismatch is a warning at the top of the run, never a
+      // refusal; see the banner.
+      baseFingerprint: fingerprintOf(AO_TEMPLATE),
+      overlayFingerprint: overlay ? overlay.baseFingerprint : null,
+      sections: template.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        layout: section.layout,
+        added: section.added ? section.added.origin : null,
+        // Present only on an added judul, and null rather than absent so the
+        // difference between "named no pages" and "is not an added judul" is
+        // legible in the file rather than inferred from a missing key.
+        pages: section.added ? (addedPages.get(section.id) ?? null) : null,
+      })),
+    },
+    // The discovery answers, if they were asked for. The FULL overlay file is
+    // written separately (`<ID EPIC>_SECTIONS.json`); this is the count and
+    // the pointer, so a reader of the outstanding report knows it exists.
+    discovery: discovered
+      ? {
+          file: basename(sectionsReportPath),
+          proposed: discovered.proposed.length,
+          fenced: discovered.skipped,
+          note:
+            "usulan only. resolveTemplate does not read `proposed`, so nothing " +
+            "here is in the docx. Move an entry into `added` with a `pages` " +
+            "list and pass the file back with --sections.",
+        }
+      : null,
     // On the record even when it WAS resolved, because "AO" in the header is
     // no longer self-explanatory: it now means one of four different things
     // depending on who supplied it, and only this line says which.
@@ -2643,6 +3435,13 @@ async function main() {
       // line is a gap nobody acts on.
       ...unmapped,
     ],
+    // ITS OWN ARRAY, NEVER FOLDED INTO `outstanding`. Everything in that list
+    // means "we looked and found nothing", and both its consumers act on that:
+    // the log tells the operator to supply another document, and a resumed run
+    // reads it to know what to search next time. Neither is true of a bagian
+    // under a judul this order added -- nothing searched for it and nothing
+    // will. See `manualSlots`.
+    manual,
   };
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
@@ -2650,6 +3449,7 @@ async function main() {
   console.log(`docx: ${docxPath}`);
   console.log(`xlsx: ${xlsxPath}`);
   console.log(`outstanding: ${reportPath}`);
+  if (discovered) console.log(`sections: ${sectionsReportPath}`);
   console.log();
   console.log("Page numbers cited above and in the xlsx comments are this run's");
   console.log("global page numbers:");
@@ -2686,6 +3486,43 @@ async function main() {
     console.log("for these alone; zones already found are kept.");
   } else {
     console.log("Nothing outstanding: every backed slot and field was filled.");
+  }
+
+  // MANUAL IS NOT OUTSTANDING, and printing it under its own heading is the
+  // whole point. "Outstanding" ends with "supply another document", which is
+  // advice that cannot help here: no document would be searched for these,
+  // because nothing searches for a judul this order added. The operator UI
+  // calls this **belum digambar** and keeps it out of "tidak ditemukan" for
+  // exactly the same reason.
+  if (manual.length > 0) {
+    console.log();
+    console.log(
+      `MANUAL (${manual.length}) -- a judul this order added, which NOTHING ` +
+        "SEARCHED FOR. Not a failure and not a gap in the documents: no " +
+        "search covers an added judul, so there is no negative answer to " +
+        "report. Each ships as an empty row under its heading:",
+    );
+    for (const item of manual) {
+      console.log(
+        `  - [manual] ${item.key} (${item.label}) in "${item.section}": ` +
+          `${item.reason}`,
+      );
+    }
+    console.log(
+      'Give the judul a "pages": [n, ...] list in the --sections overlay to ' +
+        "have those pages captured whole, with no model call.",
+    );
+  }
+
+  if (discovered && discovered.proposed.length > 0) {
+    console.log();
+    console.log(
+      `SECTIONS (${discovered.proposed.length}) -- usulan written to ` +
+        `${basename(sectionsReportPath)}. NONE OF THEM IS IN THE DOCX: they ` +
+        "are proposals, and the resolver never reads `proposed`. Read the " +
+        "file, move the ones you stand behind into `added` with their pages, " +
+        "and pass it back with --sections.",
+    );
   }
 
   // Printed unconditionally, including the zeros, and the denominator is
@@ -2751,7 +3588,7 @@ async function main() {
  * mistake and it was the one presented as a crash.
  */
 const USAGE_ERRORS =
-  /^(no PDF given|unknown option |--out needs|--tambahan needs|--jenis-order needs|--request needs|--service needs|--template needs|no such file: )|has no service /;
+  /^(no PDF given|unknown option |--out needs|--tambahan needs|--jenis-order needs|--request needs|--service needs|--template needs|--sections needs|--no-ai needs|--sections and --template cannot|--no-ai names |no such file: )|has no service /;
 
 // Guarded so the test suite can import this file's pure helpers (e.g.
 // poolForDocTypes, remapCitedPageIndex) without running the whole CLI --

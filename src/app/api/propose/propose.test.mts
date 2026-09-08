@@ -22,9 +22,11 @@ import {
 } from "../../../lib/auth/guard.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import {
+  applyDiscoveries,
   applyResponse,
   buildProposeRequest,
   capturesToWalk,
+  discoverIds,
 } from "../../../lib/ui/propose.ts";
 import type { BrowserRun } from "../../../lib/browser/types.ts";
 import {
@@ -178,7 +180,13 @@ test("an unauthenticated POST to /api/propose is refused, and the model is never
     gate: () => guard.apiUser(),
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
+      return {
+        proposals: [],
+        outstanding: [],
+        outOfScope: [],
+        continuations: [],
+        sections: [],
+      };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -213,7 +221,13 @@ test("an admitted caller sending within-source page numbers gets a 400, not a se
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
+      return {
+        proposals: [],
+        outstanding: [],
+        outOfScope: [],
+        continuations: [],
+        sections: [],
+      };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -249,7 +263,13 @@ test("a malformed line is refused before the credential is spent", async () => {
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
+      return {
+        proposals: [],
+        outstanding: [],
+        outOfScope: [],
+        continuations: [],
+        sections: [],
+      };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -1780,7 +1800,13 @@ test("a malformed overlay is a 400 before a token is spent", async () => {
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
+      return {
+        proposals: [],
+        outstanding: [],
+        outOfScope: [],
+        continuations: [],
+        sections: [],
+      };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -1855,5 +1881,359 @@ test("an overlay against another form is a 400, not a 503 blamed on the model", 
   assert.match(
     ((await response.json()) as { cause?: string }).cause ?? "",
     /overlay is against/,
+  );
+});
+
+/* ------------------------------------------------- judul discovery (usulan) */
+
+/**
+ * The judul prompt, recognised by its own question.
+ *
+ * Named by a phrase from `buildSectionsPrompt` rather than by call order,
+ * because `proposeZones` makes three different kinds of call and a double that
+ * answered by position would keep passing after the order changed.
+ */
+function isJudulPrompt(prompt: string): boolean {
+  return prompt.includes("List those sections");
+}
+
+/**
+ * A model that transcribes each berkas's first line as its one heading.
+ *
+ * Read OUT OF THE LISTING, so it answers correctly for whichever berkas it was
+ * handed and cannot accidentally quote a page it was not shown. That is also
+ * the rule under test: a title has to be in the lines it cites.
+ */
+function judulReply(prompt: string): string {
+  const firstLine = /^ {2}0: (.+)$/m.exec(prompt)?.[1] ?? "";
+  return JSON.stringify({
+    sections: [
+      { title: firstLine, fromPage: 0, toPage: 0, titleLines: [0, 0] },
+    ],
+  });
+}
+
+/** Ids a test can predict, so an assertion can name the usulan it just made. */
+function counterMint(): () => string {
+  let n = 0;
+  return () => `u:${(n += 1)}`;
+}
+
+test("the judul question is asked once per berkas, and its answer comes back ready to file", async () => {
+  const pages = [
+    wirePage(0, "a", "Perjanjian Kerjasama nomor"),
+    wirePage(1, "a", "Pembayaran dilakukan bertahap"),
+    wirePage(2, "b", "Surat Penunjukan rahasia"),
+  ];
+  const prompts: string[] = [];
+
+  const result = await proposeZones(
+    { runId: "r", pages, wanted: [], discover: ["a", "b"] },
+    async (prompt: string) => {
+      prompts.push(prompt);
+      if (isJudulPrompt(prompt)) return judulReply(prompt);
+      throw new Error("only the judul question should be asked here");
+    },
+    TEMPLATE,
+    undefined,
+    counterMint(),
+  );
+
+  // ONE PROMPT PER BERKAS. A judul is a run of consecutive pages of ONE
+  // document, so pooling two documents into one listing would offer the model
+  // an answer that can never be right.
+  assert.equal(prompts.filter(isJudulPrompt).length, 2);
+  assert.deepEqual(
+    result.sections.map((answer) => answer.sourceId),
+    ["a", "b"],
+  );
+
+  // FILED AS-IS: `record-proposals` takes this array unchanged, so every field
+  // `ProposedSection` requires has to be here already.
+  assert.deepEqual(result.sections[0].sections, [
+    {
+      id: "u:1",
+      title: "Perjanjian Kerjasama nomor",
+      fromSourceId: "a",
+      fromPages: [0],
+      cite: { pageIndex: 0, lineRange: [0, 0] },
+    },
+  ]);
+
+  // AND THE SECOND BERKAS PROVES THE RENUMBERING. Its only page is local 0 and
+  // run-global 2; `fromPages` is a position in `run.pages`, which is what
+  // `acceptProposal` indexes with, so a local 0 arriving here would crop every
+  // page of the second document out of the first.
+  assert.deepEqual(result.sections[1].sections[0].fromPages, [2]);
+  assert.equal(result.sections[1].sections[0].cite.pageIndex, 2);
+});
+
+test("a berkas the operator fenced off is answered, and no prompt quotes it", async () => {
+  const pages: WirePage[] = [
+    wirePage(0, "a", "Perjanjian Kerjasama nomor"),
+    { ...wirePage(2, "b", "Surat Penunjukan rahasia"), index: 1, searchable: false },
+  ];
+  const prompts: string[] = [];
+
+  const result = await proposeZones(
+    { runId: "r", pages, wanted: [], discover: ["a", "b"] },
+    async (prompt: string) => {
+      prompts.push(prompt);
+      return isJudulPrompt(prompt) ? judulReply(prompt) : "{}";
+    },
+    TEMPLATE,
+    undefined,
+    counterMint(),
+  );
+
+  // The promise on screen is that the model does not look inside that berkas.
+  for (const prompt of prompts) {
+    assert.doesNotMatch(prompt, /Surat Penunjukan rahasia/);
+  }
+  // AND IT IS STILL ANSWERED. `sectionsAskedFor` is set off this list, so an
+  // id that quietly fell out of it would be asked again on every press, for
+  // ever, at one model call each.
+  assert.equal(result.sections.length, 2);
+  assert.deepEqual(result.sections[1].sections, []);
+  assert.match(result.sections[1].note, /no page the model may read/);
+});
+
+test("discovery is not gated on the search: nothing wanted still asks for judul", async () => {
+  // An order whose every bagian is already confirmed has `wanted: []` and takes
+  // an early return. "What judul does this document contain" is still a
+  // question the operator pressed a key to ask.
+  const result = await proposeZones(
+    {
+      runId: "r",
+      pages: [wirePage(0, "a", "Perjanjian Kerjasama nomor")],
+      wanted: [],
+      discover: ["a"],
+    },
+    async (prompt: string) => {
+      if (isJudulPrompt(prompt)) return judulReply(prompt);
+      throw new Error("no search was asked for");
+    },
+    TEMPLATE,
+    undefined,
+    counterMint(),
+  );
+
+  assert.equal(result.sections.length, 1);
+  assert.equal(result.sections[0].sections.length, 1);
+});
+
+test("asking for no judul costs nothing and answers an empty list", async () => {
+  const result = await proposeZones(
+    { runId: "r", pages: [wirePage(0, "a", "alpha")], wanted: [] },
+    async (prompt: string) => {
+      if (isJudulPrompt(prompt)) throw new Error("nothing was asked for");
+      return "{}";
+    },
+    TEMPLATE,
+  );
+
+  assert.deepEqual(result.sections, []);
+});
+
+test("a judul reply that will not parse costs one berkas, not the request", async () => {
+  const pages = [
+    wirePage(0, "a", "Perjanjian Kerjasama nomor"),
+    wirePage(1, "b", "Surat Penunjukan rahasia"),
+  ];
+
+  const result = await proposeZones(
+    { runId: "r", pages, wanted: ["kbLanjutan.top"], discover: ["a", "b"] },
+    async (prompt: string) => {
+      if (isJudulPrompt(prompt)) {
+        return prompt.includes("Surat Penunjukan")
+          ? "I could not read this document."
+          : judulReply(prompt);
+      }
+      if (prompt.includes("segmenting")) {
+        return '{"spans":[{"docType":"KB","fromPage":0,"toPage":0}]}';
+      }
+      return poolAnswer(prompt, () => ({ pageIndex: 0, from: 0, to: 1 }));
+    },
+    TEMPLATE,
+    undefined,
+    counterMint(),
+  );
+
+  assert.equal(result.sections[0].sections.length, 1);
+  assert.deepEqual(result.sections[1].sections, []);
+  assert.match(result.sections[1].note, /judul discovery failed/);
+  // AND THE SEARCH IS UNTOUCHED. One unreadable answer about one berkas is not
+  // a reason to lose the minutes of work the rest of the request paid for.
+  assert.deepEqual(
+    result.proposals.map((proposal) => proposal.key),
+    ["kbLanjutan.top"],
+  );
+});
+
+test("a provider failure during discovery fails the request rather than reporting no judul", async () => {
+  // The `AskFailed` rule, one stage further out. Reported as an empty judul
+  // list it would say "this document has no headings" about a call that never
+  // happened, and the operator would accept that as an answer.
+  await assert.rejects(
+    () =>
+      proposeZones(
+        {
+          runId: "r",
+          pages: [wirePage(0, "a", "Perjanjian Kerjasama nomor")],
+          wanted: [],
+          discover: ["a"],
+        },
+        async () => {
+          throw new Error("503 high demand");
+        },
+        TEMPLATE,
+      ),
+    /could not be reached/,
+  );
+});
+
+test("a malformed discover list is a 400 before a single call is made", () => {
+  const pages = [wirePage(0, "a", "one")];
+  for (const discover of ["a", [1], [""], {}]) {
+    assert.throws(
+      () => parseProposeBody({ runId: "r", pages, wanted: [], discover }),
+      /discover must be an array of source ids/,
+      JSON.stringify(discover),
+    );
+  }
+  // Absent and empty are both legitimate and both mean "ask nothing".
+  assert.deepEqual(
+    parseProposeBody({ runId: "r", pages, wanted: [], discover: [] }).discover,
+    [],
+  );
+  assert.equal(
+    parseProposeBody({ runId: "r", pages, wanted: [] }).discover,
+    undefined,
+  );
+});
+
+/* ------------------------------------------ the client's half of discovery */
+
+test("discoverIds pays once per berkas, and never for a fenced one", () => {
+  const run = twoBerkasRun(false);
+
+  // The fenced berkas is not asked. Its heading would be a quotation, in the
+  // document's own voice, out of the one file the operator fenced off.
+  assert.deepEqual(discoverIds(run), ["a"]);
+  assert.deepEqual(buildProposeRequest(run, TEMPLATE).discover, ["a"]);
+
+  // THE COST GATE. A berkas already asked about is not asked again, whatever
+  // the answer was: the flag records that the QUESTION WAS PUT.
+  const asked: BrowserRun = {
+    ...run,
+    sources: run.sources.map((source) =>
+      source.id === "a" ? { ...source, sectionsAskedFor: true } : source,
+    ),
+  };
+  assert.deepEqual(discoverIds(asked), []);
+
+  // "Cari judul lagi" lifts the gate and nothing else: the fence holds.
+  assert.deepEqual(discoverIds(asked, { again: ["a"] }), ["a"]);
+  assert.deepEqual(
+    buildProposeRequest(asked, TEMPLATE, { again: ["a"] }).discover,
+    ["a"],
+  );
+  // NOT EVEN NAMED EXPLICITLY. The button that produces this list sits under
+  // one berkas's usulan, and a fenced berkas has none -- but the fence is a
+  // promise on screen, so it holds against a caller that asks anyway.
+  assert.deepEqual(discoverIds(asked, { again: ["a", "b"] }), ["a"]);
+
+  // AND IT IS PER BERKAS. Re-asking one must not re-read the others: that is a
+  // model call each, on a bill the operator did not press a key for.
+  const bothAsked: BrowserRun = {
+    ...run,
+    sources: run.sources.map((source) => ({
+      ...source,
+      ai: true,
+      sectionsAskedFor: true,
+    })),
+  };
+  assert.deepEqual(discoverIds(bothAsked, { again: ["b"] }), ["b"]);
+});
+
+test("an answer is filed as usulan, and the berkas is marked asked even when empty", () => {
+  const run = twoBerkasRun();
+
+  const next = applyDiscoveries(run, [
+    {
+      sourceId: "a",
+      sections: [
+        {
+          id: "u:1",
+          title: "Perjanjian Kerjasama nomor",
+          fromSourceId: "a",
+          fromPages: [0, 1],
+          cite: { pageIndex: 0, lineRange: [0, 0] },
+        },
+      ],
+      unusable: [],
+      note: "1 judul proposed across 2 page(s)",
+    },
+    // NOTHING FOUND IS STILL AN ANSWER. Skipping it would leave this berkas
+    // asked again on every press of Baca dengan AI, at one model call each.
+    { sourceId: "b", sections: [], unusable: [], note: "no heading" },
+  ]);
+
+  assert.deepEqual(
+    next.overlay.proposed.map((entry) => entry.title),
+    ["Perjanjian Kerjasama nomor"],
+  );
+  assert.deepEqual(
+    next.sources.map((source) => source.sectionsAskedFor),
+    [true, true],
+  );
+  // A USULAN IS NOT A JUDUL. `resolveTemplate` does not read `proposed`, so
+  // nothing here can reach the docx exporter until a person accepts it.
+  assert.deepEqual(next.overlay.added, []);
+  assert.equal(resolveTemplate(TEMPLATE, next.overlay), TEMPLATE);
+
+  // The evidence is untouched, which is what lets the caller save this with a
+  // plain `saveRun`: no capture is dropped, so no opt-in is owed.
+  assert.equal(next.slots, run.slots);
+});
+
+test("an answer about a berkas this order no longer holds is skipped, not thrown over", () => {
+  // A pass takes minutes and the operator can remove a document while it runs.
+  // Throwing here would discard the PROPOSALS half of the same answer.
+  const run = twoBerkasRun();
+  const next = applyDiscoveries(run, [
+    { sourceId: "gone", sections: [], unusable: [], note: "no heading" },
+  ]);
+  assert.equal(next, run);
+});
+
+test("applyResponse folds the judul half in with the rest of the answer", () => {
+  const run = twoBerkasRun();
+  const next = applyResponse(run, {
+    proposals: [],
+    outstanding: [],
+    outOfScope: [],
+    continuations: [],
+    sections: [
+      {
+        sourceId: "b",
+        sections: [
+          {
+            id: "u:9",
+            title: "Surat Penunjukan rahasia",
+            fromSourceId: "b",
+            fromPages: [2],
+            cite: { pageIndex: 2, lineRange: [0, 0] },
+          },
+        ],
+        unusable: [],
+        note: "1 judul proposed across 1 page(s)",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    next.overlay.proposed.map((entry) => entry.id),
+    ["u:9"],
   );
 });

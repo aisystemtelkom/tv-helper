@@ -19,8 +19,16 @@ const Reply = z.object({
   ),
 });
 
-/** How many characters of each page the model sees. Headings live at the top. */
-const HEAD_CHARS = 400;
+/**
+ * How many characters of each page the model sees. Headings live at the top.
+ *
+ * EXPORTED SO `./sections.ts` EATS THE SAME DIET. Judul discovery asks a
+ * different question of the same material -- the opening text of every page of
+ * one document -- and a second constant there would drift from this one
+ * silently, so that the two stages would disagree about how much of a page a
+ * heading may be read out of while both looked correct.
+ */
+export const HEAD_CHARS = 400;
 
 export function buildClassifyPrompt(
   pages: { index: number; head: string }[],
