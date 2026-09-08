@@ -84,6 +84,8 @@ improvise a synonym.
 | the two deliverables | **berkas hasil** | |
 | berkas handed over and not yet read | **antrean** | the operator may keep handing berkas over while one is being read, so the ones waiting are a real object on the Muat screen with a heading of their own ("Menunggu giliran") and a row each. Never "daftar tunggu" and never "queue" |
 | a berkas the order will not take | **tidak dimuat** | said of a duplicate, and the sentence always names the berkas it repeats, because identity is the CONTENT and the two names are routinely different |
+| the AI may propose out of this berkas | **dibaca AI** | THE DEFAULT FOR EVERY BERKAS, and a berkas nobody has decided anything about wears it. The key that carries it is selected and petrol, never amber: no decision is owed here |
+| the AI may not propose out of this berkas | **tanpa AI** | NEVER "gagal", never "dilewati", never "tidak ditemukan". The berkas IS still read -- every halaman is rendered, recognised, counted and drawn as a denah, and the operator can still cut a potongan out of it by hand and cite its baris. What stops is the model proposing. The sentence that rides under it says the doing half first: "Halaman berkas ini tetap terbaca dan bisa Anda potong sendiri, tapi AI tidak mencari apa pun di dalamnya." A bagian in such an order is still honestly **belum dicari** or **tidak ditemukan**; the fence is reported once, by name, at the head of the lembar periksa, and steals none of those words |
 
 ## The four phases
 

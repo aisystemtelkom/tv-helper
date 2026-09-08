@@ -74,7 +74,12 @@ import {
   outstandingSlots,
   removeDocument,
   saveRun,
+  setDocumentAi,
 } from "./runtime.ts";
+// FROM THE LEAF MODULE, because these two are pure arithmetic over a run and
+// are worth asserting without a database in the way. `setDocumentAi` above is
+// the same arithmetic plus the lock, the re-read and the write.
+import { aiExcludedSources, withSourceAi } from "./sources.ts";
 import { emptyOverlay, type TemplateOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./types.ts";
@@ -1647,5 +1652,125 @@ test("a page appended mid-rename keeps the rename, and says so in what it return
   assert.deepEqual(
     after?.pages.map((p) => p.id),
     ["n0", "n1"],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The per-berkas "tanpa AI" choice
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT THIS CHOICE IS NOT, and it is most of it.
+ *
+ * `setDocumentAi` writes ONE BOOLEAN. It does not re-read, re-render, un-read
+ * or drop a page: a berkas marked "tanpa AI" is still rendered and still OCR'd,
+ * which is what keeps its denah drawable, its halaman counted, and an area the
+ * operator draws on it snapped to real baris. What it withdraws is the model.
+ * The ingest loop is untouched by the whole feature for exactly that reason.
+ */
+function twoBerkasRun(id: string): BrowserRun {
+  return {
+    id,
+    createdAt: 1_700_000_000_000,
+    rev: 0,
+    sources: [
+      { id: "src-a", name: "LOP999001_BUNDLE.pdf", pageCount: 2 },
+      { id: "src-b", name: "SPLITBA_LOP999001.pdf", pageCount: 1 },
+    ],
+    pages: [page("q-a0", "src-a", 0), page("q-a1", "src-a", 1), page("q-b0", "src-b", 0)],
+    overlay: NO_EDITS,
+    slots: [confirmedSlot],
+  };
+}
+
+test("absent means dibaca AI, so an order stored before the choice existed is unchanged", () => {
+  // WRITTEN `=== false` AND NEVER `!ai`, and the difference is every order
+  // already on a device silently losing its search. `RunSource.ai` did not
+  // exist when those runs were stored, so absent has to keep meaning yes.
+  const run = twoBerkasRun("pure-default");
+  assert.deepEqual([...aiExcludedSources(run)], []);
+  assert.deepEqual([...aiExcludedSources(withSourceAi(run, "src-b", true))], []);
+  assert.deepEqual([...aiExcludedSources(withSourceAi(run, "src-b", false))], ["src-b"]);
+});
+
+test("a press that changes nothing returns the run BY IDENTITY", () => {
+  // Identity is how `setDocumentAi` decides not to write, and not writing is
+  // how a no-op press avoids advancing the revision and refusing whatever the
+  // screen is holding. "Already" is read through the SAME `?? true` default, so
+  // choosing Dibaca AI on a berkas nobody has touched is genuinely a no-op.
+  const run = twoBerkasRun("pure-identity");
+  assert.equal(withSourceAi(run, "src-b", true), run, "already the default");
+  assert.equal(withSourceAi(run, "not-in-this-order", false), run, "no such berkas");
+
+  const fenced = withSourceAi(run, "src-b", false);
+  assert.notEqual(fenced, run);
+  assert.equal(withSourceAi(fenced, "src-b", false), fenced, "already fenced");
+  // And the OTHER berkas is untouched, which is what "per berkas" means.
+  assert.equal(fenced.sources[0].ai, undefined);
+});
+
+test("marking a berkas tanpa AI keeps every page, every capture and every heading", async () => {
+  const id = runId("set-ai");
+  const stored = await putRun(twoBerkasRun(id));
+
+  const after = await setDocumentAi(id, "src-b", false);
+
+  assert.deepEqual(
+    after.sources.map((source) => source.ai),
+    [undefined, false],
+  );
+  // THE WHOLE POINT, ASSERTED RATHER THAN ASSUMED. The operator's semantics are
+  // that the berkas is still read; a version of this that dropped its pages
+  // would be a different feature wearing the same words, and the pages it drops
+  // are the ones `Zone.pageIndex` counts through.
+  assert.deepEqual(
+    after.pages.map((p) => p.id),
+    ["q-a0", "q-a1", "q-b0"],
+  );
+  assert.deepEqual(
+    after.slots.map((slot) => slot.key),
+    stored.slots.map((slot) => slot.key),
+  );
+  assert.equal(after.slots[0].zone?.pageIndex, stored.slots[0].zone?.pageIndex);
+  assert.deepEqual(after.overlay, stored.overlay);
+
+  // It is the STORED run that comes back, so a caller that keeps it can write
+  // again. The revision moved, which is exactly why they must.
+  assert.equal(after.rev, (stored.rev ?? 0) + 1);
+  const reread = await loadRun(id);
+  assert.deepEqual(reread?.sources.map((s) => s.ai), [undefined, false]);
+});
+
+test("the choice is read from STORAGE, so it survives a screen holding a stale run", async () => {
+  // THE SHAPE THIS FUNCTION EXISTS FOR. A screen holds a `BrowserRun` in React
+  // state for as long as the operator is looking at it, and `ingestDocument`
+  // advances the revision once per page across minutes. Taking the run as an
+  // argument would mean a press made during a long read is refused as stale,
+  // and the operator would be told the order changed underneath them for
+  // ticking a berkas. `setDocumentAi` takes ids and re-reads inside the lock.
+  const id = runId("set-ai-stale");
+  const stale = await putRun(twoBerkasRun(id));
+  // Somebody else advances the run: this is the ingest, compressed.
+  await saveRun({ ...stale, slots: [...stale.slots, { key: "kb.tanggal", label: "Tanggal", status: "pending" }] });
+
+  const after = await setDocumentAi(id, "src-b", false);
+
+  assert.equal(after.sources[1].ai, false);
+  assert.deepEqual(
+    after.slots.map((slot) => slot.key),
+    ["kb.nomor", "kb.tanggal"],
+    "the write must be built on the STORED run, not on the caller's copy",
+  );
+
+  // And the same press again writes nothing at all, so a double click cannot
+  // cost the screen its revision.
+  const again = await setDocumentAi(id, "src-b", false);
+  assert.equal(again.rev, after.rev);
+});
+
+test("setting the AI choice on an order that is gone throws, in the operator's words", async () => {
+  await assert.rejects(
+    () => setDocumentAi(runId("set-ai-missing"), "src-a", false),
+    /tidak ada lagi/,
   );
 });

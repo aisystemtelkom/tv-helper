@@ -1,5 +1,6 @@
 /**
- * Taking one source document back out of an open order.
+ * What an order's berkas are, as arithmetic: taking one back out, and deciding
+ * whether the model may look inside one.
  *
  * ITS OWN MODULE, PURE, for the reason `captures.ts` and `slot-key.ts` are:
  * the interesting part is arithmetic over a run, it has to be testable where
@@ -51,6 +52,59 @@
 import { zoneFingerprint } from "./captures.ts";
 import { captureOrdinalOf, slotKeyOf } from "./slot-key.ts";
 import type { BrowserRun, SlotState } from "./types.ts";
+
+/**
+ * The berkas the operator has marked "tanpa AI", by `RunSource.id`.
+ *
+ * ABSENT MEANS DIBACA AI, which is what `RunSource.ai` says and is the reading
+ * every run stored before the choice existed needs. So this is written as
+ * `=== false` and never as `!ai`: the difference is every order already on a
+ * device silently losing its search.
+ *
+ * A SET OF SOURCE IDS RATHER THAN A PER-PAGE TEST, because the choice is per
+ * BERKAS. That is what keeps `classifyPages`' every-page-exactly-once contract
+ * safe downstream -- an exclusion drops whole documents, so what survives is a
+ * document offered entire rather than one with holes in it.
+ */
+export function aiExcludedSources(run: BrowserRun): ReadonlySet<string> {
+  return new Set(
+    run.sources.filter((source) => source.ai === false).map((source) => source.id),
+  );
+}
+
+/**
+ * MAY THE AI PROPOSE ANYTHING OUT OF THIS BERKAS.
+ *
+ * IT IS NOT "WAS IT READ", and nothing here touches a page. Every berkas is
+ * rendered and OCR'd either way -- that is what lets the operator draw an area
+ * on a fenced one by hand, and what draws its denah -- so this writes one
+ * boolean and moves nothing else. The ingest loop is untouched by the whole
+ * feature for exactly that reason.
+ *
+ * RETURNS THE RUN BY IDENTITY when the answer is already what was asked for, or
+ * when this order holds no such berkas -- and "already" is read through the
+ * SAME `?? true` default, so re-selecting Dibaca AI on a berkas nobody has
+ * touched is a press that writes nothing. `editSections` and `removeDocument`
+ * both use identity to mean exactly that, so the storage write can be skipped
+ * rather than advancing the revision and refusing whatever the screen is
+ * holding.
+ */
+export function withSourceAi(
+  run: BrowserRun,
+  sourceId: string,
+  ai: boolean,
+): BrowserRun {
+  const held = run.sources.find((source) => source.id === sourceId);
+  if (!held) return run;
+  if ((held.ai ?? true) === ai) return run;
+
+  return {
+    ...run,
+    sources: run.sources.map((source) =>
+      source.id === sourceId ? { ...source, ai } : source,
+    ),
+  };
+}
 
 export type SourceRemoval = {
   /** The run as it should now be stored. Unchanged if `sourceId` is not in it. */

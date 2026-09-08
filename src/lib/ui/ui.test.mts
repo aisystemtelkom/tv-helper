@@ -35,8 +35,14 @@ import {
   textForLineRange,
   zonePageRef,
 } from "./evidence.ts";
-import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
-import { zoneFingerprint } from "../browser/captures.ts";
+import type { BrowserRun, SlotState, StoredPage, Zone } from "./runtime.ts";
+import { continuationChecked, zoneFingerprint } from "../browser/captures.ts";
+import {
+  continuationHint,
+  nextPageInBerkas,
+  withHandDrawnLink,
+  withNoContinuation,
+} from "./continuation.ts";
 import {
   buildExtractRequest,
   fillableValues,
@@ -1575,4 +1581,274 @@ test("a judul the operator typed is not attributed to the model", () => {
     ),
     { kind: "human" },
   );
+});
+
+/* ---------------------------------------------------------------- lanjutan */
+
+/**
+ * A berkas whose pages look like the contract this feature exists for: a body
+ * of clause lines with a two-line running footer under it.
+ *
+ * THE FOOTER IS NOT DECORATION IN THIS FIXTURE. `runningFurniture` is what
+ * tells a capture that ends where the CONTENT ends from one that stops in the
+ * middle of the page, and with no repeated strip to find it would read the
+ * footer itself as the last content line and decline a real lanjutan in
+ * silence. The body lines carry the page's own number so they do NOT repeat,
+ * which is the other half of the same test: only the footer may be furniture.
+ */
+function clausePage(id: string, sourceId: string, index: number): StoredPage {
+  const lines: Line[] = [];
+  for (let i = 0; i < 18; i++) {
+    lines.push(
+      line(i, `hal ${index} butir ${i} pekerjaan`, {
+        x: 100,
+        y: 60 + i * 90,
+        w: 800,
+        h: 60,
+      }),
+    );
+  }
+  // Digits are masked and collapsed before comparison, so these two lines read
+  // as the same running footer on every page of the berkas.
+  lines.push(
+    line(18, `Halaman ${index + 1} dari 4`, {
+      x: 100,
+      y: 60 + 18 * 90,
+      w: 800,
+      h: 60,
+    }),
+  );
+  lines.push(
+    line(19, "Dokumen contoh LOP999001", {
+      x: 100,
+      y: 60 + 19 * 90,
+      w: 800,
+      h: 60,
+    }),
+  );
+  return { id, sourceId, index, widthPx: 1000, heightPx: 2000, lines };
+}
+
+/** A drawn rectangle over lines `from..to`, the way the snapper would leave it. */
+function region(pageIndex: number, from: number, to: number): Zone {
+  return {
+    pageIndex,
+    box: { x: 88, y: 60 + from * 90 - 12, w: 824, h: (to - from) * 90 + 84 },
+    lineRange: [from, to],
+  };
+}
+
+/** The whole page, which is what "Ambil halaman berikutnya" arms. */
+function wholePage(pageIndex: number): Zone {
+  return {
+    pageIndex,
+    box: { x: 0, y: 0, w: 1000, h: 2000 },
+    lineRange: [0, 19],
+  };
+}
+
+const TOP = "kbLanjutan.top";
+
+/**
+ * Four pages of one contract scan, then one page of an unrelated one.
+ *
+ * The second berkas is the point of the fixture rather than filler: `pages` is
+ * one flat array across every document ingested, so run-global page 4 is
+ * "next" to page 3 by position and is a different document entirely.
+ */
+const CHAIN_RUN: BrowserRun = {
+  id: "run-lanjutan",
+  createdAt: 0,
+  overlay: emptyOverlay(AO_TEMPLATE),
+  sources: [
+    { id: "s1", name: "LOP999001_merged.pdf", pageCount: 4 },
+    { id: "s2", name: "SPLITBA_LOP999001.pdf", pageCount: 1 },
+  ],
+  pages: [
+    clausePage("c0", "s1", 0),
+    clausePage("c1", "s1", 1),
+    clausePage("c2", "s1", 2),
+    clausePage("c3", "s1", 3),
+    clausePage("c4", "s2", 0),
+  ],
+  slots: [
+    {
+      key: TOP,
+      label: "ToP",
+      status: "confirmed",
+      origin: "human",
+      zone: region(0, 10, 17),
+      text: "Pasal 6 PEMBAYARAN PEKERJAAN",
+    },
+  ],
+};
+
+test("a lanjutan is offered only on the next page OF THE SAME BERKAS", () => {
+  const inside = nextPageInBerkas(CHAIN_RUN, 0);
+  assert.equal(inside?.pageIndex, 1);
+  // The page's own number inside its document, which is the only one a
+  // reviewer can act on, and never the run-global position.
+  assert.equal(inside?.pageInDoc, 1);
+  assert.equal(inside?.pagesInDoc, 4);
+  assert.equal(inside?.sourceName, "LOP999001_merged.pdf");
+
+  // Run-global page 4 EXISTS and is adjacent by position. It is page 0 of a
+  // separate scan, so there is no lanjutan to offer: a whole-page capture of
+  // it, filed under this bagian's label, is precisely the plausible-wrong
+  // evidence a validator signs.
+  assert.equal(nextPageInBerkas(CHAIN_RUN, 3), null);
+  // The last page of the run, and a page the run does not have at all.
+  assert.equal(nextPageInBerkas(CHAIN_RUN, 4), null);
+  assert.equal(nextPageInBerkas(CHAIN_RUN, 9), null);
+});
+
+test("a whole-page capture yields no lanjutan hint at all", () => {
+  // Stage 0's reason, asserted rather than described: a capture that IS the
+  // page ends at that page's last content line BY CONSTRUCTION, so the
+  // geometric reading is a fact about the rectangle and not about the
+  // document. Three of bundle one's six measured false positives were exactly
+  // this, and rendering one as advice would be a new wrong-and-quiet surface
+  // built by the feature meant to close one.
+  assert.equal(continuationHint(CHAIN_RUN, wholePage(0)), null);
+
+  // THE SAME LINES DRAWN AS A REGION DO PRODUCE ONE, which is what makes the
+  // null above the whole-page rule rather than a hint that never fires.
+  assert.equal(continuationHint(CHAIN_RUN, region(0, 10, 17)), "runs-on");
+});
+
+test("the free hint reads the page bottom, and says nothing it cannot know", () => {
+  // Stops well above the last content line: the block was not cut off.
+  assert.equal(continuationHint(CHAIN_RUN, region(0, 2, 5)), "stops-short");
+  // Ends on the last content line, with the running footer below it.
+  assert.equal(continuationHint(CHAIN_RUN, region(0, 12, 17)), "runs-on");
+  // Swallowed the footer as well. It still MAY run on, and the extra thing
+  // that says is about the rectangle the operator is looking at.
+  assert.equal(continuationHint(CHAIN_RUN, region(0, 12, 19)), "runs-on");
+
+  // No line citation at all, which is a signature or stamp block taken as free
+  // pixels. There is no last cited line to compare against the page's, so
+  // there is nothing honest to say.
+  assert.equal(
+    continuationHint(CHAIN_RUN, {
+      pageIndex: 0,
+      box: { x: 600, y: 1500, w: 300, h: 200 },
+      lineRange: [NO_LINE_CITATION, NO_LINE_CITATION],
+    }),
+    null,
+  );
+});
+
+test("taking the next page stamps the PREVIOUS potongan, never the new one", () => {
+  // Nothing has looked past anything yet, which is what closing the editor
+  // leaves behind and what the sheet reads as "belum diperiksa lanjutannya".
+  assert.equal(continuationChecked(CHAIN_RUN.slots[0]), false);
+
+  const { run, key, index } = withHandDrawnLink(
+    CHAIN_RUN,
+    TOP,
+    region(1, 0, 15),
+    "lanjutan Pasal 6",
+  );
+
+  // MINTED BY THE WRITE, never guessed by the screen.
+  assert.equal(key, `${TOP}#2`);
+  assert.equal(index, 1);
+
+  const parent = run.slots.find((slot) => slot.key === TOP)!;
+  const link = run.slots.find((slot) => slot.key === key)!;
+
+  // Something looked past the parent and what it found is now in the run.
+  assert.equal(continuationChecked(parent), true);
+  // Nothing has looked past the link, which is why the editor asks the same
+  // question about it immediately.
+  assert.equal(continuationChecked(link), false);
+
+  // A person drew this rectangle and is looking at it, so there is nobody left
+  // to review it. Everything a SEARCH finds still arrives `proposed`.
+  assert.equal(link.status, "confirmed");
+  assert.equal(link.origin, "human");
+  // The template's own label, undecorated: `captureLabel` adds "(lanjutan)"
+  // from the ordinal at render time.
+  assert.equal(link.label, "ToP");
+});
+
+test('"tidak ada lanjutan" stamps the CURRENT potongan and appends nothing', () => {
+  const run = withNoContinuation(CHAIN_RUN, TOP);
+  assert.equal(run.slots.length, CHAIN_RUN.slots.length);
+  assert.equal(continuationChecked(run.slots[0]), true);
+  assert.equal(
+    run.slots[0].continuationCheckedFor,
+    zoneFingerprint(CHAIN_RUN.slots[0].zone!),
+  );
+});
+
+test("a refused link stamps nothing, because nothing was found past it", () => {
+  // The rectangle this bagian already holds. `withDiscoveredCaptures` declines
+  // it as a duplicate, and the parent must NOT come back stamped: if nothing
+  // was appended then nothing was found past it either.
+  const dup = withHandDrawnLink(
+    CHAIN_RUN,
+    TOP,
+    CHAIN_RUN.slots[0].zone!,
+    "sama persis",
+  );
+  assert.equal(dup.key, null);
+  assert.equal(dup.index, null);
+  // The ORIGINAL run, by identity, so no caller can accidentally persist a
+  // stamp that belongs to a write that did not happen.
+  assert.equal(dup.run, CHAIN_RUN);
+  assert.equal(continuationChecked(dup.run.slots[0]), false);
+
+  // Same rule one step further: a bagian the operator has put on the record as
+  // sengaja dikosongkan is not re-opened by a lanjutan.
+  const emptied: BrowserRun = {
+    ...CHAIN_RUN,
+    slots: [{ ...CHAIN_RUN.slots[0], status: "unfilled" }],
+  };
+  const refused = withHandDrawnLink(emptied, TOP, region(1, 0, 15), "teks");
+  assert.equal(refused.key, null);
+  assert.equal(continuationChecked(refused.run.slots[0]), false);
+});
+
+test("a chain of three hand-drawn links leaves every link but the last stamped", () => {
+  /*
+   * THE DEFECT THIS PINS IS QUADRATIC, not cosmetic. An unstamped middle link
+   * makes the next reading pass walk it again and append a byte-identical
+   * duplicate of every link below it. Over a ten-capture bagian that is 36
+   * duplicate rows and 36 extra model calls, on one press of a button the
+   * export screen itself recommends pressing.
+   */
+  let run = CHAIN_RUN;
+  let previous = TOP;
+  const keys = [previous];
+
+  // One link per remaining page of the berkas, which is the loop the operator
+  // drives with "Ambil halaman berikutnya".
+  for (const pageIndex of [1, 2, 3]) {
+    const step = withHandDrawnLink(
+      run,
+      previous,
+      wholePage(pageIndex),
+      `hal ${pageIndex}`,
+    );
+    assert.ok(step.key, `link on page ${pageIndex} was refused`);
+    run = step.run;
+    previous = step.key;
+    keys.push(previous);
+  }
+
+  assert.deepEqual(keys, [TOP, `${TOP}#2`, `${TOP}#3`, `${TOP}#4`]);
+  assert.deepEqual(
+    keys.map((key) =>
+      continuationChecked(run.slots.find((slot) => slot.key === key)!),
+    ),
+    // Every link but the last: three have been looked past, and the fourth is
+    // the one the strip is still asking about. Closing the editor there stamps
+    // nothing, which is true -- nobody looked.
+    [true, true, true, false],
+  );
+
+  // The chain ran out of berkas rather than out of patience, and the strip
+  // says so instead of offering page 0 of the SPLITBA scan.
+  assert.equal(nextPageInBerkas(run, 3), null);
 });

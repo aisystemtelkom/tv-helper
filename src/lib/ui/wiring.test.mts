@@ -68,6 +68,13 @@ test("the production runtime IS the browser runtime, not the stub", () => {
   assert.equal(liveRuntime.saveRun, browserRuntime.saveRun);
   assert.equal(liveRuntime.listRuns, browserRuntime.listRuns);
   assert.equal(liveRuntime.outstandingSlots, browserRuntime.outstandingSlots);
+  // The two writes that take IDS AND RE-READ INSIDE THE LOCK rather than
+  // taking a run. Both exist because a screen holds a `BrowserRun` for as long
+  // as the operator is looking at it, and an ingest advances the revision once
+  // per page: a stub standing in for either would hide exactly the staleness
+  // they were written to survive.
+  assert.equal(liveRuntime.editSections, browserRuntime.editSections);
+  assert.equal(liveRuntime.setDocumentAi, browserRuntime.setDocumentAi);
 });
 
 test("the operator app imports the live runtime and does not import the stub", () => {

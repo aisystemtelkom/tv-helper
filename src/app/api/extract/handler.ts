@@ -138,6 +138,18 @@ export type ExtractedField = {
 export type ExtractResult = { fields: ExtractedField[] };
 
 /**
+ * Why every key comes back blank when the operator fenced off every berkas.
+ *
+ * `not-searched`, NOT `not-found`, and the pair is the one this route already
+ * keeps apart six ways: "the documents do not contain a customer name" is a
+ * statement about documents somebody read, and nothing read these. Reported the
+ * other way, the operator would be told their bundle is missing values that are
+ * printed on a page the model was told to leave alone.
+ */
+export const NOTHING_OPEN_TO_AI_REASON =
+  "every berkas in this order is marked tanpa AI, so no page was searched";
+
+/**
  * The browser's pages as the extraction path reads them.
  *
  * `pageInDoc` IS DERIVED WHEN THE CALLER DID NOT SEND IT: a page's position
@@ -287,9 +299,47 @@ export function applyPoisonedFieldRules(fields: ExtractedField[]): ExtractedFiel
 export async function extractValues(
   body: ExtractBody,
   rawAsk: Ask,
+  /**
+   * THIS ROUTE TAKES NO OVERLAY, and the omission is a decision rather than an
+   * oversight. `/api/propose` gained one because a search is FOR a bagian, and
+   * the bagian list is exactly what an order's own form changes.
+   *
+   * Nothing an overlay can say reaches a value here. `resolveTemplate` passes
+   * `xlsxRows`, `fieldHints` and `fieldLists` through untouched by
+   * construction, so the key set and the hints are identical either way. The
+   * one thing it would move is `orderPaperworkDocTypes`, which ranks the page
+   * listing -- a PREFERENCE that never drops a page (`rankedPoolForDocTypes`)
+   * -- and ranking it by the base is the more correct answer anyway: which
+   * document types an order's paperwork is made of is a fact about the
+   * paperwork, not about which judul the operator wants printed in the packet.
+   * Deleting the Email heading from the docx does not make the email page a
+   * worse place to find the customer's name.
+   *
+   * So sending one would vary this prompt's page ORDER with an operator's
+   * naming edits, for no gain, and a prompt change is a thing only the
+   * measurement gate may judge.
+   */
   template: Template = AO_TEMPLATE,
 ): Promise<ExtractResult> {
+  // Over the FULL array, before anything is filtered out of it: `index` is the
+  // page's position in `run.pages`, and that is only checkable against the
+  // run-global list.
   assertRunGlobalIndexes(body.pages);
+
+  /**
+   * THE PAGES THE MODEL MAY BE ASKED ABOUT. See `WirePage.searchable`.
+   *
+   * THIS FILTER IS NOT OPTIONAL AND IT IS EASY TO MISS. `/api/propose` is the
+   * visible half of the operator's "tanpa AI" choice, and it would be perfectly
+   * possible to fence a berkas off there and leave this route reading it. What
+   * that produces is the failure this project is organised against: xlsx column
+   * E and the docx header table filled from a document the operator was told
+   * would not be checked, carrying a citation that PASSES validation and points
+   * straight into it. A validator would have every reason to sign it.
+   */
+  const excluded = new Set(
+    body.pages.filter((page) => page.searchable === false).map((page) => page.index),
+  );
 
   const keys = templateFieldKeys(template);
   const answered = new Set(body.answered ?? []);
@@ -313,16 +363,40 @@ export async function extractValues(
       ),
     };
   }
+  // THE SAME NEWS FOR THE SAME REASON, one step along: pages arrived and every
+  // one of them is fenced off, so nothing was searched. Reported before the
+  // credential is touched, because an empty pool would otherwise reach
+  // `extractFields` and come back as "searched every page, not found".
+  if (excluded.size === body.pages.length) {
+    return {
+      fields: applyPoisonedFieldRules(
+        keys.map((key) => notSearched(key, NOTHING_OPEN_TO_AI_REASON)),
+      ),
+    };
+  }
 
   // Every model call goes through the tagged wrapper, so a provider failure
   // cannot be reported as a field that was searched and not found.
   const ask = guardAsk(rawAsk);
 
-  const byType = await classifyByDocType(body.pages, ask);
+  const byType = await classifyByDocType(
+    body.pages.filter((page) => !excluded.has(page.index)),
+    ask,
+  );
+  // `toFieldPages` RUNS OVER THE WHOLE ARRAY AND THE RESULT IS FILTERED, never
+  // the other way round. It derives `pageInDoc` from a page's position among
+  // the pages sharing its `sourceId`, and that number is printed into the cell
+  // note a reviewer opens the operator's own PDF at. Filtering first would
+  // renumber a document around its fenced pages and send them to the wrong
+  // page of the right file -- which is the exact defect `pageInDoc` was added
+  // to close, rebuilt one layer up.
+  const pages = toFieldPages(body.pages).filter(
+    (page) => !excluded.has(page.index),
+  );
   const values = await extractTextFields({
     template,
     byType,
-    pages: toFieldPages(body.pages),
+    pages,
     ask,
     answered,
   });

@@ -21,6 +21,10 @@
  * saying it is a second thing to keep in step.
  */
 
+// From the leaf module rather than from `./runtime.ts`, for the reason
+// `propose.ts` imports it that way: this module is pure and is driven by
+// `node --test`, which has neither IndexedDB nor a Web Worker.
+import { aiExcludedSources } from "../browser/sources.ts";
 import type { BrowserRun } from "./runtime.ts";
 
 /** Mirrors `ExtractBody` in `src/app/api/extract/handler.ts`. */
@@ -33,6 +37,11 @@ export type ExtractRequest = {
     height: number;
     lines: BrowserRun["pages"][number]["lines"];
     sourceName?: string;
+    /**
+     * ABSENT ON EVERY ORDINARY PAGE, and only ever `false`. See
+     * `WirePage.searchable` in `src/lib/api/wire.ts`.
+     */
+    searchable?: false;
   }[];
   answered?: string[];
 };
@@ -86,22 +95,46 @@ export type ExtractResponse = { fields: ExtractedField[] };
  * same one `buildProposeRequest` sends. `sourceName` is passed so a citation
  * can name the operator's own file rather than a uuid: the route falls back
  * to the `sourceId` when it is missing, which is unambiguous and unreadable.
+ *
+ * ## THE "tanpa AI" CHOICE REACHES THIS ROUTE TOO, AND IT IS NOT OPTIONAL
+ *
+ * This function sent every page unconditionally, and that was the quiet half
+ * of the whole feature: an operator fences a berkas off, the search obeys, and
+ * the EXTRACTION reads it anyway -- filling xlsx column E and the docx header
+ * table with a value carrying a citation that PASSES VALIDATION and points
+ * into the one document they were told would not be checked. Nothing looks
+ * wrong anywhere, and a validator signs it. The two routes take the same wire
+ * contract, so they take the same fence.
+ *
+ * Fenced pages still travel, and for the same reason as at `/api/propose`:
+ * their positions ARE the run-global numbering. Their lines do not, and they
+ * carry `searchable: false`, which the route filters on.
+ *
+ * NO OVERLAY IS SENT, unlike `buildProposeRequest`. `resolveTemplate` passes
+ * `xlsxRows` and `fieldHints` through untouched, so this order's form cannot
+ * change which keys are asked for or how; the reasoning is written out on
+ * `extractValues`' `template` parameter.
  */
 export function buildExtractRequest(
   run: BrowserRun,
   answered: readonly string[] = [],
 ): ExtractRequest {
   const nameOf = new Map(run.sources.map((s) => [s.id, s.name]));
+  const fenced = aiExcludedSources(run);
   return {
     runId: run.id,
-    pages: run.pages.map((page, position) => ({
-      index: position,
-      sourceId: page.sourceId,
-      width: page.widthPx,
-      height: page.heightPx,
-      lines: page.lines,
-      sourceName: nameOf.get(page.sourceId),
-    })),
+    pages: run.pages.map((page, position) => {
+      const closed = fenced.has(page.sourceId);
+      return {
+        index: position,
+        sourceId: page.sourceId,
+        width: page.widthPx,
+        height: page.heightPx,
+        lines: closed ? [] : page.lines,
+        sourceName: nameOf.get(page.sourceId),
+        ...(closed ? { searchable: false as const } : {}),
+      };
+    }),
     ...(answered.length > 0 ? { answered: [...answered] } : {}),
   };
 }

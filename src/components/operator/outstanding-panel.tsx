@@ -790,6 +790,24 @@ function Panel({
             reason that cannot be folded away from the button it explains. */}
         <ReasonCounts counts={counts} />
 
+        {/* WHY NO USULAN CAME OUT OF THOSE BERKAS, said once, here.
+
+            IT DOES NOT TOUCH THE WORDS ABOVE IT, and that is the whole design
+            of this line. A bagian in an order holding a fenced berkas is still
+            honestly `belum dicari` or `tidak ditemukan`: those words mean what
+            they have always meant, they are what `reasonOf` derives per
+            bagian, and one of them is the operator's own recorded rejection.
+            Relabelling them run-wide would collapse five distinct reasons into
+            one, and would point the dokumen tambahan question at a berkas the
+            operator is already holding.
+
+            So the fence is reported as a fact about the ORDER, above the
+            counts and above the question, where it qualifies both without
+            rewriting either. It names the berkas, because "1 berkas" with no
+            name is a fact nobody can act on -- the action is to switch it back
+            to Dibaca AI in the documents bar. */}
+        <FencedBerkas run={run} />
+
         {/* ABOVE THE QUESTION, because when a round is owed it outranks it:
             deciding a bagian by hand before anything has looked for it is the
             one decision on this block that cannot be taken back cheaply. */}
@@ -866,6 +884,31 @@ function Panel({
 
       {dialog}
     </section>
+  );
+}
+
+/**
+ * The berkas this order will not let the AI look inside, named.
+ *
+ * NO COLOUR. The operator made this choice deliberately and it is not owed
+ * back: amber means a decision is owed here, and re-marking a settled decision
+ * with the product's loudest signal is how the signal stops being read. It is
+ * a `Note`, at the head of the block, in the operator's own terms.
+ *
+ * ABSENT MEANS DIBACA AI, read `=== false` for the reason `aiExcludedSources`
+ * gives: every order stored before this choice existed must keep reading as
+ * fully searched.
+ */
+function FencedBerkas({ run }: { run: BrowserRun }) {
+  const fenced = run.sources.filter((source) => source.ai === false);
+  if (fenced.length === 0) return null;
+
+  return (
+    <Note>
+      <span className="lt-figure">{fenced.length}</span> berkas Anda tandai
+      tanpa AI, jadi tidak ada usulan yang datang dari halamannya:{" "}
+      {fenced.map((source) => shortenFileName(source.name, 34)).join(", ")}.
+    </Note>
   );
 }
 

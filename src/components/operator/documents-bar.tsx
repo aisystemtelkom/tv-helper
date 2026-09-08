@@ -45,12 +45,123 @@ import type { BrowserRun } from "@/lib/ui/runtime";
  */
 export type RemovalCost = { pages: number; captures: number; confirmed: number };
 
+/**
+ * WHETHER THE AI MAY PROPOSE ANYTHING OUT OF ONE BERKAS.
+ *
+ * ## Two keys, not a checkbox
+ *
+ * A checkbox needs a label, and every label this choice could carry is a
+ * negative: "jangan cari di berkas ini" is a box the operator un-ticks to get
+ * the ordinary behaviour, which is a double negative standing on the default
+ * path. Two keys say the two states in their own words, and the one that is
+ * true is simply the one that is down.
+ *
+ * ## The selected key is PETROL, never amber
+ *
+ * `Btn`'s `on` sets `data-on`, which the stylesheet paints petrol: identity and
+ * selection. Amber means A DECISION IS OWED, and a berkas nobody has decided
+ * anything about owes nothing -- it is read by the AI, which is the default and
+ * the overwhelmingly common answer. Amber here would put the product's loudest
+ * signal on every row of every order for ever, which is how an operator learns
+ * to stop reading it.
+ *
+ * ## The sentence under "Tanpa AI" is what they can still DO
+ *
+ * It is not an account of where anything runs. The berkas IS still read: every
+ * page is rendered and OCR'd either way, so its denah draws, its halaman are
+ * counted with the rest, and an area drawn on it still snaps to real baris and
+ * still cites them. What stops is the model proposing. Saying only "AI tidak
+ * mencari di sini" would leave an operator believing they had just made the
+ * document unusable, so the clause they can act on comes first.
+ *
+ * SHARED WITH `ingest-panel.tsx` RATHER THAN WRITTEN TWICE. The choice has to
+ * be reachable in every phase, which is what this bar is for, and also on the
+ * Muat screen beside the berkas as it lands. Two copies of a control are two
+ * copies of a promise, and the sentence under it is the promise.
+ */
+export function DocumentAi({
+  name,
+  ai,
+  busy,
+  onChange,
+}: {
+  /** The berkas this choice belongs to, for the group's accessible name. */
+  name: string;
+  ai: boolean;
+  /** An ingest or a search is running. The choice is held, with its reason. */
+  busy: boolean;
+  onChange: (ai: boolean) => void;
+}) {
+  /*
+   * HELD WHILE ANYTHING IS RUNNING, AND THE SEARCH IS THE REASON.
+   *
+   * The write itself would be safe mid-ingest -- `setDocumentAi` re-reads
+   * inside the run lock, so a press during a long read is queued rather than
+   * refused. A running SEARCH is the case that is not safe: the request has
+   * already left with the old fence in it, so a berkas fenced off while it is
+   * in flight would still have its usulan land, and the screen would show
+   * evidence from the one document the operator had just closed. Loudly
+   * unavailable for a minute beats that.
+   *
+   * A HELD KEY STILL SAYS WHY. `Btn` carries the reason to a pointer, a
+   * keyboard and a screen reader only while the control is actually disabled,
+   * so this costs nothing on the ordinary path.
+   *
+   * WHAT IS LOST WHILE IT IS HELD is the petrol on the selected key:
+   * `.lt-btn:disabled` is declared after `.lt-btn[data-on="true"]` at equal
+   * specificity, so a disabled toggle reads as neither. That is the same
+   * behaviour the phase timeline has, and it is survivable HERE only because
+   * the state that matters says itself in prose: a fenced berkas carries
+   * `TanpaAiNote` underneath it, disabled or not, and the other state is the
+   * default and owes nothing.
+   */
+  const held = busy ? "Tunggu sampai dokumen selesai dimuat atau dibaca." : undefined;
+
+  return (
+    <div
+      role="group"
+      aria-label={`Pemakaian AI untuk ${name}`}
+      className="flex items-center gap-2"
+    >
+      <Btn
+        on={ai}
+        aria-pressed={ai}
+        disabled={busy}
+        reason={held}
+        onClick={() => onChange(true)}
+      >
+        Dibaca AI
+      </Btn>
+      <Btn
+        on={!ai}
+        aria-pressed={!ai}
+        disabled={busy}
+        reason={held}
+        onClick={() => onChange(false)}
+      >
+        Tanpa AI
+      </Btn>
+    </div>
+  );
+}
+
+/** The one sentence that rides under a berkas the operator has fenced off. */
+export function TanpaAiNote() {
+  return (
+    <p className="lt-note">
+      Halaman berkas ini tetap terbaca dan bisa Anda potong sendiri, tapi AI
+      tidak mencari apa pun di dalamnya.
+    </p>
+  );
+}
+
 export function DocumentsBar({
   run,
   busy,
   costOf,
   onAdd,
   onRemove,
+  onSetAi,
 }: {
   run: BrowserRun;
   /** An ingest or a search is running, so the bundle must not change under it. */
@@ -58,6 +169,16 @@ export function DocumentsBar({
   costOf: (sourceId: string) => RemovalCost;
   onAdd: () => void;
   onRemove: (sourceId: string) => void;
+  /**
+   * MAY THE AI PROPOSE OUT OF THIS BERKAS. Omitted, the rows carry no such
+   * control -- which is the state of a shell that has not wired it yet, not a
+   * berkas that cannot be fenced off.
+   *
+   * OPTIONAL ONLY BECAUSE THE SHELL IS ANOTHER TRACK'S FILE. It is meant to be
+   * passed, and a build where it is not is a build where the choice exists on
+   * the wire and nowhere on the screen.
+   */
+  onSetAi?: (sourceId: string, ai: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -144,6 +265,17 @@ export function DocumentsBar({
                     <span className="lt-figure text-[0.8125rem]">
                       {held} hal
                     </span>
+                    {/* BEFORE `Hapus`, because it is the reversible one. The
+                        two keys sit next to a key that destroys evidence, and
+                        the order they read in is the order of consequence. */}
+                    {onSetAi ? (
+                      <DocumentAi
+                        name={source.name}
+                        ai={source.ai !== false}
+                        busy={busy}
+                        onChange={(next) => onSetAi(source.id, next)}
+                      />
+                    ) : null}
                     <Btn
                       disabled={busy || documents === 1}
                       /* ONLY THE BUSY HALF, because the other half is already
@@ -175,6 +307,12 @@ export function DocumentsBar({
                       <b>Mulai order lain</b> di langkah Muat.
                     </p>
                   ) : null}
+
+                  {/* ONLY UNDER A FENCED BERKAS. The default state is the
+                      overwhelmingly common one and explaining it on every row
+                      of every order is the furniture this screen's density
+                      pass exists to keep off. */}
+                  {source.ai === false ? <TanpaAiNote /> : null}
 
                   {asking && cost ? (
                     /* PRICED, NOT MERELY CONFIRMED. "Anda yakin?" tells an

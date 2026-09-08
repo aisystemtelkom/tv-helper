@@ -26,6 +26,14 @@ import type { Template } from "../../../lib/forms/template.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import { citationOutcome } from "../../../lib/pipeline/fields.ts";
 import type { WirePage } from "../../../lib/api/wire.ts";
+import { emptyOverlay } from "../../../lib/forms/overlay.ts";
+import { AO_TEMPLATE } from "../../../lib/forms/template.ts";
+import type { BrowserRun } from "../../../lib/browser/types.ts";
+// THE TWO ENDS OF ONE WIRE IN ONE FILE. What the browser builds and what this
+// route reads are a single contract (`src/lib/api/wire.ts`), and the failure
+// this feature is about lives exactly in the gap between them: a fence obeyed
+// on one side and not the other is invisible from either side alone.
+import { buildExtractRequest } from "../../../lib/ui/extract.ts";
 import {
   createExtractHandler,
   extractValues,
@@ -604,4 +612,265 @@ test("pageInDoc is derived per source document, and restarts for the second file
   ]);
   assert.equal(told[12].sourceName, "bundle.pdf");
   assert.equal(told[12].pageInDoc, 12);
+});
+
+/* ------------------------------------------ the per-berkas "tanpa AI" choice */
+
+/**
+ * THE HALF OF THE OPERATOR'S CHOICE THAT IS EASY TO MISS, and the reason it is
+ * tested here at all.
+ *
+ * `/api/propose` is the visible half: the operator fences a berkas off, no
+ * usulan comes out of it, and the screen says so. This route is the quiet half.
+ * Left unfiltered it would read the fenced document anyway and fill xlsx column
+ * E and the docx header table from it -- with a citation that PASSES
+ * validation and points straight into the one document they were told would not
+ * be checked. Nothing looks wrong anywhere, and a validator signs it.
+ *
+ * The pages arrive CARRYING THEIR LINES, exactly as at `/api/propose`:
+ * `buildExtractRequest` withholds them at the boundary, and the route may not
+ * depend on it having done so.
+ */
+const FENCED_PAGES: WirePage[] = [
+  wirePage(0, "a", "Perjanjian Kerjasama"),
+  wirePage(1, "a", "Berita Acara Permintaan"),
+  { ...wirePage(2, "b", "Kutipan rahasia dari berkas tertutup"), searchable: false },
+];
+
+test("a fenced berkas is never read for a value, and reaches no prompt", async () => {
+  const prompts: string[] = [];
+  const spy = async (prompt: string): Promise<string> => {
+    prompts.push(prompt);
+    if (prompt.includes("segmenting")) {
+      // Honest about whatever it is shown. Unfiltered, the fenced document is
+      // classified too and lands in every pool below it; a double that refused
+      // to classify it would make this test pass on a route with no filter.
+      return prompt.includes("rahasia")
+        ? '{"spans":[{"docType":"Email","fromPage":0,"toPage":0}]}'
+        : JSON.stringify({
+            spans: [
+              { docType: "KB", fromPage: 0, toPage: 0 },
+              { docType: "BAPermintaan", fromPage: 1, toPage: 1 },
+            ],
+          });
+    }
+    return JSON.stringify({
+      values: [
+        { fieldKey: "cc", value: "BANK CONTOH NUSANTARA", pageIndex: 0, from: 0, to: 1 },
+      ],
+    });
+  };
+
+  const result = await extractValues({ runId: "r", pages: FENCED_PAGES }, spy, TEMPLATE);
+
+  for (const prompt of prompts) {
+    assert.ok(
+      !prompt.includes("Kutipan rahasia"),
+      "a fenced berkas's text must not reach any prompt",
+    );
+  }
+  // ONE CLASSIFY CALL, NOT TWO: `classifyByDocType` groups by `sourceId`, so a
+  // fenced berkas takes its own call with it. That is also the check that
+  // `classifyPages`' every-page-exactly-once contract survives the filter --
+  // what it is handed is one document offered entire, never one with holes.
+  assert.equal(prompts.filter((p) => p.includes("segmenting")).length, 1);
+
+  // `cc` ranks BA Permintaan first, so its pool leads with run-global page 1.
+  const cc = byKey(result.fields).get("cc");
+  assert.equal(cc?.status, "cited");
+  assert.equal(cc?.source?.pageIndex, 1);
+  assert.equal(cc?.source?.sourceName, "a");
+});
+
+test("every berkas fenced makes every key not-searched, and never calls the model", async () => {
+  // NOT `not-found`. "The documents do not contain a customer name" is a
+  // statement about documents somebody read, and nothing read these -- the
+  // operator would be told their bundle is missing values that are printed on
+  // a page the model was told to leave alone.
+  const result = await extractValues(
+    { runId: "r", pages: FENCED_PAGES.map((page) => ({ ...page, searchable: false })) },
+    async () => {
+      throw new Error("the model must not be reached with no page open to it");
+    },
+    TEMPLATE,
+  );
+
+  assert.ok(result.fields.length > 0);
+  for (const field of result.fields) {
+    assert.equal(field.status, "not-searched");
+    assert.equal(field.value, "");
+  }
+  // `namaProyek` keeps its OWN reason: it is never extracted whatever the
+  // pages say, and `applyPoisonedFieldRules` runs last for that reason.
+  const fields = byKey(result.fields);
+  assert.match(fields.get("cc")?.reason ?? "", /tanpa AI/);
+  assert.match(fields.get("namaProyek")?.reason ?? "", /deliberately not extracted/);
+});
+
+test("a fenced page does not renumber the pages of its own document in a citation", async () => {
+  // `toFieldPages` RUNS OVER THE WHOLE ARRAY AND THE RESULT IS FILTERED, never
+  // the other way round, and this is the assertion that pins the order.
+  // `pageInDoc` is a page's position among the pages sharing its `sourceId`,
+  // and it is printed into the cell note a reviewer opens the operator's own
+  // PDF at. Deriving it after the filter would renumber the document around
+  // its fenced pages and send them to the wrong page of the right file, which
+  // is the exact defect `pageInDoc` exists to close, rebuilt one layer up.
+  //
+  // ONE DOCUMENT WITH A HOLE IN IT is not a shape the UI can produce -- the
+  // choice is per berkas -- but the route takes the flag per page and must be
+  // right about it, because nothing downstream can tell the difference.
+  const holed: WirePage[] = [
+    wirePage(0, "a", "Perjanjian Kerjasama"),
+    { ...wirePage(1, "a", "Berita Acara Permintaan"), searchable: false },
+    wirePage(2, "a", "Lampiran kutipan"),
+  ];
+
+  const result = await extractValues(
+    { runId: "r", pages: holed },
+    async (prompt: string) =>
+      prompt.includes("segmenting")
+        ? '{"spans":[{"docType":"KB","fromPage":0,"toPage":1}]}'
+        : JSON.stringify({
+            values: [
+              // Pool position 1, which is the SECOND page still open: page 2.
+              { fieldKey: "quote", value: "1-70000000001", pageIndex: 1, from: 0, to: 1 },
+            ],
+          }),
+    TEMPLATE,
+  );
+
+  const quote = byKey(result.fields).get("quote");
+  assert.equal(quote?.status, "cited");
+  assert.equal(quote?.source?.pageIndex, 2, "the run-global page is unmoved");
+  assert.equal(
+    quote?.source?.pageInDoc,
+    2,
+    "and so is the page number inside the operator's own PDF",
+  );
+});
+
+test("the page-numbering guard runs over the FULL array, fenced pages included", async () => {
+  // FILTER FIRST AND THE CHECK CHANGES MEANING: `index` is the page's position
+  // in `run.pages`, fenced pages included, which is exactly why they stay in
+  // it. A guard run over the survivors would accept a body whose fenced page is
+  // misnumbered, and every citation after it would name the wrong page.
+  await assert.rejects(
+    () =>
+      extractValues(
+        {
+          runId: "r",
+          pages: [
+            wirePage(0, "a", "one"),
+            { ...wirePage(9, "b", "two"), searchable: false },
+          ],
+        },
+        async () => {
+          throw new Error("the numbering must be refused before anything is asked");
+        },
+        TEMPLATE,
+      ),
+    /run-global position/,
+  );
+});
+
+/* ---------------------------- what the browser puts on the wire for all this */
+
+/** A run over two berkas, so one of them can be fenced and one cannot. */
+function twoBerkasRun(ai?: boolean): BrowserRun {
+  const wire = [
+    wirePage(0, "a", "Perjanjian Kerjasama"),
+    wirePage(1, "a", "Berita Acara Permintaan"),
+    wirePage(2, "b", "Kutipan rahasia dari berkas tertutup"),
+  ];
+  return {
+    id: "r",
+    createdAt: 0,
+    sources: [
+      { id: "a", name: "LOP999001_merged.pdf", pageCount: 2 },
+      {
+        id: "b",
+        name: "SPLITBA_LOP999001.pdf",
+        pageCount: 1,
+        ...(ai === undefined ? {} : { ai }),
+      },
+    ],
+    pages: wire.map((page) => ({
+      id: `p${page.index}`,
+      sourceId: page.sourceId,
+      // `StoredPage.index` RESTARTS PER SOURCE, which is the contract.
+      index: page.sourceId === "b" ? 0 : page.index,
+      widthPx: page.width,
+      heightPx: page.height,
+      lines: page.lines,
+    })),
+    slots: [],
+    overlay: emptyOverlay(AO_TEMPLATE),
+  };
+}
+
+test("an extract request for a run with nothing fenced is the body it always sent", () => {
+  // BYTES, not a deep-equal an added `searchable: undefined` would satisfy.
+  // `searchable` is omitted when it is true, which is what keeps an ordinary
+  // order's request identical to the one this route took before the field
+  // existed.
+  const request = buildExtractRequest(twoBerkasRun());
+
+  assert.equal(
+    JSON.stringify(request.pages),
+    JSON.stringify([
+      {
+        index: 0,
+        sourceId: "a",
+        width: 2480,
+        height: 3507,
+        lines: wirePage(0, "a", "Perjanjian Kerjasama").lines,
+        sourceName: "LOP999001_merged.pdf",
+      },
+      {
+        index: 1,
+        sourceId: "a",
+        width: 2480,
+        height: 3507,
+        lines: wirePage(1, "a", "Berita Acara Permintaan").lines,
+        sourceName: "LOP999001_merged.pdf",
+      },
+      {
+        index: 2,
+        sourceId: "b",
+        width: 2480,
+        height: 3507,
+        lines: wirePage(2, "b", "Kutipan rahasia dari berkas tertutup").lines,
+        sourceName: "SPLITBA_LOP999001.pdf",
+      },
+    ]),
+  );
+  for (const page of request.pages) {
+    assert.ok(!("searchable" in page), "an open berkas carries no flag at all");
+  }
+  assert.equal(
+    JSON.stringify(buildExtractRequest(twoBerkasRun(true)).pages),
+    JSON.stringify(request.pages),
+  );
+});
+
+test("a fenced berkas loses its lines here too, and keeps its position", () => {
+  // THE ROUTE THIS FUNCTION FEEDS SENT EVERY PAGE UNCONDITIONALLY, and that
+  // was the quiet half of the whole feature: the search obeyed the operator's
+  // fence and the extraction read the document anyway.
+  const request = buildExtractRequest(twoBerkasRun(false));
+
+  assert.deepEqual(
+    request.pages.map((page) => page.index),
+    [0, 1, 2],
+  );
+  assert.deepEqual(
+    request.pages.map((page) => page.searchable),
+    [undefined, undefined, false],
+  );
+  assert.deepEqual(request.pages[2].lines, []);
+  assert.ok(request.pages[0].lines.length > 0);
+  // The berkas is still NAMED, because the citation of any page that survives
+  // has to name its own file, and because dropping the name would be a second
+  // difference nobody asked for.
+  assert.equal(request.pages[2].sourceName, "SPLITBA_LOP999001.pdf");
 });

@@ -93,6 +93,29 @@
  * right while the rectangle is wrong, so reading the text instead of looking
  * at the picture is exactly the shortcut that lets a wrong page through.
  *
+ * THE EDITOR NO LONGER CLOSES ON A COMMIT, AND THAT IS THE LANJUTAN LOOP.
+ *
+ * The operator asked for it in one sentence: "bisa pilih, ada lanjutan (next
+ * page) atau enggak, sampe semua page ke-cover." A lanjutan is the REST OF ONE
+ * BAGIAN carried onto the next page by a page break -- the sample's two ToP
+ * pictures are items 1-3 and items 4-5 of one Pasal -- so the loop ends when
+ * that bagian is complete, never when the document runs out of pages. Saving
+ * therefore asks a question instead of leaving, and the answer either reopens
+ * this editor on the next page with a whole-page draft armed or closes it.
+ *
+ * THE EDITOR IS STILL SINGLE-PAGE BY CONSTRUCTION. `pickPage` clears the draft
+ * on every page change and `save` emits exactly one `Zone`; a chain is N
+ * separate captures, each drawn and committed on its own page, and never a
+ * multi-page draft. Every link but the first is minted by
+ * `withDiscoveredCaptures`, which is the only thing in this codebase allowed to
+ * allocate a `<key>#n`.
+ *
+ * WHY THE PAGE GOES READ-ONLY AFTER A COMMIT rather than the editor simply
+ * closing: the rectangle on screen has to keep being the rectangle on disk
+ * while the strip asks about it. So the drag, the per-line nudges, the
+ * whole-page key and the commit all go down, each carrying its own reason, and
+ * the only things left to press are the two answers and the way out.
+ *
  * NOTHING MEASURED OFF THIS RECTANGLE MOVED, and that is the rule rather than
  * a judgement call. The citation register, every advisory under it (a whole
  * page, a crop covering most of one, interpolated line boundaries, a missing
@@ -119,6 +142,8 @@ import { unionBoxes } from "@/lib/pipeline/geometry";
 import type { Line } from "@/lib/pipeline/geometry";
 import { CROP_PADDING_PX } from "@/lib/pipeline/locate";
 import type { Box } from "@/lib/pipeline/render";
+import { continuationHint, nextPageInBerkas } from "@/lib/ui/continuation";
+import type { ContinuationHint, NextPage } from "@/lib/ui/continuation";
 import { pageToDisplayUrl } from "@/lib/ui/crops";
 import {
   citeZone,
@@ -165,6 +190,40 @@ export type EditorTarget = {
   slotKey: string;
   label: string;
   zone?: Zone;
+  /**
+   * THE CAPTURE THIS DRAWING CONTINUES, as a `SlotState.key`.
+   *
+   * Set only by the lanjutan loop below. It is what tells `saveZone` that this
+   * save is a LINK -- appended under a fresh `<key>#n` ordinal by
+   * `withDiscoveredCaptures`, which is the only thing allowed to mint one --
+   * rather than capture 1 of the bagian named by `slotKey`. Writing a link the
+   * ordinary way would store it under the parent's own key and one of the two
+   * would silently disappear.
+   *
+   * Capture 1's path is untouched: absent here means exactly what it always
+   * meant.
+   */
+  after?: string;
+  /**
+   * Which page to open on, when it is not the page the existing zone sits on.
+   *
+   * The lanjutan loop hands the operator the NEXT page. Without this the editor
+   * would open on page 0 of the order and the whole "one keypress" case would
+   * become a hunt through a 29-page strip for the page they were already
+   * looking at.
+   */
+  startPageId?: string;
+  /**
+   * Open with a whole-page draft already drawn, so the common case is one
+   * keypress.
+   *
+   * A lanjutan is the REST of a block, which starts at the top of its page and
+   * usually carries the letterhead above it, so the whole page is right far
+   * more often than any rectangle this app could guess. It is a DRAFT and not a
+   * decision: the operator adjusts it or replaces it by dragging, and nothing
+   * is stored until they press the commit.
+   */
+  armWholePage?: boolean;
 };
 
 /**
@@ -214,6 +273,27 @@ function pct(value: number, total: number): string {
 
 function seedFrom(zone: Zone): Draft {
   return { box: zone.box, lineRange: zone.lineRange, mode: "existing" };
+}
+
+/**
+ * The whole-page draft the lanjutan loop opens with, or null when this target
+ * asks for none.
+ *
+ * `snap: false` and `forced: true`, for the reason `takeWholePage` gives at
+ * length: snapping would union the LINE boxes, which stops at the text and
+ * drops the margins, so a draft offered as "the whole page" would quietly be
+ * the text block. `forced` says the free pixels were asked for rather than
+ * being a fall-through, which is what keeps the readout from claiming snapping
+ * failed here.
+ */
+function armedDraft(
+  pages: readonly StoredPage[],
+  target: EditorTarget,
+): Draft | null {
+  if (!target.armWholePage || !target.startPageId) return null;
+  const page = pages.find((p) => p.id === target.startPageId);
+  if (!page) return null;
+  return { ...drawZone(pageBounds(page), page, false), forced: true };
 }
 
 /** The lines a range cites, in reading order. */
@@ -532,15 +612,174 @@ function CropPreview({
   );
 }
 
+/**
+ * THE LANJUTAN QUESTION, asked once, right after a save.
+ *
+ * ## Why it is inline, solid and in flow
+ *
+ * The material rule in this product is that glass STAYS STILL while work
+ * scrolls under it, and everything that moves with the work is solid and matte.
+ * This strip is a piece of the work: it belongs to the potongan that was just
+ * saved, it scrolls with it, and it goes away when it is answered. A
+ * backdrop-filter here would also re-sample the backdrop every frame over the
+ * page image beside it, which is the one surface on this screen where the frame
+ * budget is the operator's aim.
+ *
+ * ## TWO KEYS, AND THE MISSING THIRD ONE IS A DECISION
+ *
+ * There is no "Nanti saja". Three reasons, and the last is the one that would
+ * actually do damage:
+ *
+ *  - CLOSING THE EDITOR ALREADY IS "later". It is one key away, it is already
+ *    on the screen, and it stamps nothing.
+ *  - A THREE-KEY PANEL AFTER EVERY SAVE TRAINS DISMISSAL. This appears on every
+ *    commit of every capture; the moment one of its keys means "make this go
+ *    away", that key is the one that gets pressed, and the question stops being
+ *    asked in any meaningful sense.
+ *  - IT WOULD HAVE TO WRITE SOMETHING FALSE. The only records available are
+ *    "diperiksa, tidak ada lanjutan" and nothing at all. `docs/ui-bahasa.md`
+ *    reserves the first for a search that ACTUALLY looked past a potongan's
+ *    page bottom, and a middle key would spend it on somebody deferring.
+ *
+ * ## The hint is free, and it is silent where it would be a tautology
+ *
+ * `continuationHint` is pure geometry over OCR the device already holds: no
+ * model call, no network. It returns null for a whole-page capture, because a
+ * capture that IS the page ends at that page's last content line BY
+ * CONSTRUCTION -- see the reason written out in `src/lib/ui/continuation.ts`.
+ * NOTHING is rendered for null: an absence of information dressed as a
+ * recommendation is the wrong-and-quiet failure, built by the feature meant to
+ * close one.
+ */
+function LanjutanStrip({
+  next,
+  hint,
+  onTake,
+  onNone,
+}: {
+  /** The page a lanjutan would sit on, or null on the last page of a berkas. */
+  next: NextPage | null;
+  hint: ContinuationHint | null;
+  onTake: () => void;
+  onNone: () => void;
+}) {
+  const box = useRef<HTMLDivElement | null>(null);
+
+  // The commit key is at the foot of a screen whose page block is 62vh tall, so
+  // a strip appended below it can land under the fold on the very press that
+  // produces it. This is not a scroll the operator asked for: it is the answer
+  // to the key they just pressed, moved to where they are looking.
+  useEffect(() => {
+    box.current?.scrollIntoView({ block: "center" });
+  }, []);
+
+  return (
+    <div ref={box}>
+      <Slab name="Lanjutan" owes="decision">
+        {/* THAT THE SAVE LANDED IS SAID FIRST. The commit key is now down and
+            the page can no longer be drawn on, and neither of those reads as
+            "it is stored" on its own. */}
+        <Lede>
+          {next
+            ? "Area tadi sudah disimpan. Apakah bagian ini bersambung ke halaman berikutnya?"
+            : "Area tadi sudah disimpan. Halaman terakhir di berkas ini."}
+        </Lede>
+
+        {/* WHAT A LANJUTAN IS, AND WHAT IT IS NOT, in the same two-part shape
+            the bagian's own catatan uses. Naming the look-alike is the half
+            that catches the wrong answer: a bagian that merely CARRIES ON the
+            subject is a new bagian, and capturing it here would file a second
+            clause under this one's label. */}
+        {next ? (
+          <p className="lt-lede" style={{ color: "var(--ink)" }}>
+            Lanjutan adalah sisa bagian yang sama, terpotong oleh pergantian
+            halaman. Bukan bagian baru.
+          </p>
+        ) : null}
+
+        {next ? (
+          <div className="lt-mat flex flex-wrap items-start gap-4">
+            {/* The plan of the page being offered, so the operator recognises
+                it by SHAPE before reading a number: a signature block, a Pasal
+                table and a letterhead look nothing like each other. */}
+            <Denah
+              page={next.page}
+              size="md"
+              label={`denah halaman ${next.pageInDoc + 1}`}
+              decorative
+            />
+            <div className="flex min-w-0 flex-col gap-2">
+              <Kotak title={next.sourceName}>
+                {shortenFileName(next.sourceName, 24)} hal {next.pageInDoc + 1} /{" "}
+                {next.pagesInDoc}
+              </Kotak>
+
+              {/* Quiet on purpose. The filter behind it fires on 7 of 12 human
+                  crops and only 1 of those 7 actually continues, so it is a
+                  cheap prompt to look, never a verdict; a `Note` is the
+                  register this product keeps for exactly that. Nothing at all
+                  is printed when it has nothing to say. */}
+              {hint === "runs-on" ? (
+                <Note>
+                  Potongan tadi berhenti di dasar halaman, jadi bloknya mungkin
+                  bersambung.
+                </Note>
+              ) : hint === "stops-short" ? (
+                <Note>
+                  Potongan tadi berhenti sebelum dasar halaman, jadi biasanya
+                  tidak ada lanjutan.
+                </Note>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {next ? (
+            /* THE COMMON CASE IS ONE KEYPRESS: it opens the next page with the
+               whole page already drawn, because a lanjutan starts at the top of
+               its page and usually carries the letterhead above it. The
+               operator can still redraw it before committing. */
+            <Btn tone="primary" onClick={onTake}>
+              <HalamanUtuh />
+              Ambil halaman berikutnya
+            </Btn>
+          ) : null}
+          <Btn onClick={onNone}>Tidak ada lanjutan</Btn>
+        </div>
+      </Slab>
+    </div>
+  );
+}
+
 export function ZoneEditor({
   run,
   target,
   onSave,
+  onContinue,
+  onNoContinuation,
   onCancel,
 }: {
   run: BrowserRun;
   target: EditorTarget;
-  onSave: (target: EditorTarget, zone: Zone, text: string) => void;
+  /**
+   * Stores the potongan and hands back THE KEY IT WAS STORED UNDER, or null
+   * when nothing was stored.
+   *
+   * The key is what the two lanjutan answers are about, and for a link it is
+   * MINTED BY THE WRITE: `withDiscoveredCaptures` allocates the next `#n`
+   * ordinal, so this screen cannot know it in advance and must not guess. A
+   * null says the write was refused and the shell has already said so; the
+   * editor then has nothing to ask about.
+   */
+  onSave: (target: EditorTarget, zone: Zone, text: string) => string | null;
+  /** Reopen on `pageId`, drawing the lanjutan of the capture keyed `after`. */
+  onContinue: (after: string, pageId: string) => void;
+  /**
+   * A person looked past this capture and there is nothing there: stamp it and
+   * close. Never called by closing the editor, which stamps nothing.
+   */
+  onNoContinuation: (key: string) => void;
   onCancel: () => void;
 }) {
   const runtime = useRuntime();
@@ -566,7 +805,19 @@ export function ZoneEditor({
     [run, target.zone],
   );
   const originLost = Boolean(target.zone) && origin === null;
-  const startPageId = origin?.page.id ?? run.pages[0]?.id ?? "";
+  /**
+   * The armed whole-page draft, when the lanjutan loop opened this editor.
+   *
+   * Memoised on `run.pages` rather than on `run`, because every commit builds
+   * `{ ...run, slots }` and keeps the SAME pages array: without that, saving a
+   * capture would rebuild `seedFor`, and with it `pickPage`, and with that
+   * every one of the 29 page plans in the strip.
+   */
+  const armed = useMemo(() => armedDraft(run.pages, target), [run.pages, target]);
+  // `target.startPageId` outranks the zone's own page: the lanjutan loop hands
+  // the operator the NEXT page, and a link target carries no zone to resolve.
+  const startPageId =
+    target.startPageId ?? origin?.page.id ?? run.pages[0]?.id ?? "";
 
   const [pageId, setPageId] = useState(startPageId);
   const [display, setDisplay] = useState<{ url: string; page: string } | null>(
@@ -610,8 +861,30 @@ export function ZoneEditor({
   const dragOrigin = useRef<Point | null>(null);
   const [dragging, setDragging] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(
-    target.zone && !originLost ? seedFrom(target.zone) : null,
+    target.zone && !originLost ? seedFrom(target.zone) : armed,
   );
+  /**
+   * THE POTONGAN THIS EDITOR HAS ALREADY STORED, and everything the lanjutan
+   * question is asked about.
+   *
+   * Set by the commit, and it is what turns this screen from "draw an area"
+   * into "is there a lanjutan": the strip is rendered, the page can no longer
+   * be drawn on, and the commit key goes down carrying its reason.
+   *
+   * `next` and `hint` ARE COMPUTED ONCE, HERE, rather than derived on each
+   * render, and that is not premature: `continuationHint` runs the running
+   * furniture detector over every page of the berkas, which is 151 of them on
+   * the second client bundle. Both are pure functions of `run.pages` and
+   * `run.sources`, and neither changes while this strip is open -- a commit
+   * writes `{ ...run, slots }` and keeps both arrays -- so recomputing them
+   * when the operator merely presses a zoom step buys nothing.
+   */
+  const [saved, setSaved] = useState<{
+    key: string;
+    zone: Zone;
+    next: NextPage | null;
+    hint: ContinuationHint | null;
+  } | null>(null);
 
   const groups = useMemo(() => groupPages(run), [run]);
   const page: StoredPage | undefined = useMemo(
@@ -659,11 +932,18 @@ export function ZoneEditor({
    * no longer resolve.
    */
   const seedFor = useCallback(
-    (id: string): Draft | null =>
-      target.zone && !originLost && origin?.page.id === id
-        ? seedFrom(target.zone)
-        : null,
-    [target.zone, origin, originLost],
+    (id: string): Draft | null => {
+      if (target.zone && !originLost && origin?.page.id === id) {
+        return seedFrom(target.zone);
+      }
+      // Going to look at another page and coming BACK to the armed one restores
+      // the whole-page draft, for the same reason returning to the original
+      // zone's page restores that: leaving to check something must not cost the
+      // rectangle you had.
+      if (target.startPageId === id) return armed;
+      return null;
+    },
+    [target.zone, target.startPageId, origin, originLost, armed],
   );
 
   /**
@@ -689,7 +969,10 @@ export function ZoneEditor({
     [pageId, seedFor],
   );
 
-  const dirty = draft !== null && draft.mode !== "existing";
+  // NOT DIRTY ONCE IT IS STORED. The rectangle on screen after a commit is the
+  // one that went to disk, so warning that closing would throw it away would be
+  // a false statement made by the screen that had just saved it.
+  const dirty = draft !== null && draft.mode !== "existing" && saved === null;
 
   const requestCancel = useCallback(() => {
     // A carefully aimed rectangle over a 29 page bundle is not thrown away by
@@ -789,7 +1072,12 @@ export function ZoneEditor({
 
   // Nothing is drawn over a page nobody has seen. A rectangle committed over a
   // page that never rendered is evidence the operator did not look at.
-  const canDraw = shown !== null;
+  //
+  // AND NOTHING IS DRAWN AFTER THE COMMIT. The potongan is stored and the
+  // screen is now asking about its lanjutan; letting a drag replace the
+  // rectangle here would leave the page showing an area that is not the one on
+  // disk, with no second commit available to reconcile them.
+  const canDraw = shown !== null && saved === null;
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!canDraw) return;
@@ -928,7 +1216,9 @@ export function ZoneEditor({
    * path to a rectangle, since none of this needs a pointer.
    */
   const nudge = (edge: "top" | "bottom", by: 1 | -1) => {
-    if (!draft || !cited) return;
+    // Same rule as the drag: once the potongan is stored, the rectangle on
+    // screen has to keep being the rectangle on disk.
+    if (!draft || !cited || saved) return;
     let [from, to] = draft.lineRange;
     // Bounded by the page's own first and last line index rather than by
     // `lines.length`, which assumes a dense 0-based numbering the type does
@@ -947,18 +1237,30 @@ export function ZoneEditor({
 
   const save = () => {
     if (!draft || !canDraw) return;
-    onSave(
-      target,
-      {
-        // Stored as the RUN-GLOBAL position, which is what `Zone.pageIndex`
-        // means, while the strip above shows the page's number inside its own
-        // file. Never write one where the other is read.
-        pageIndex: zonePageRef(run, page),
-        box: draft.box,
-        lineRange: draft.lineRange,
-      },
-      cited ? preview : "",
-    );
+    const zone: Zone = {
+      // Stored as the RUN-GLOBAL position, which is what `Zone.pageIndex`
+      // means, while the strip above shows the page's number inside its own
+      // file. Never write one where the other is read.
+      pageIndex: zonePageRef(run, page),
+      box: draft.box,
+      lineRange: draft.lineRange,
+    };
+    const key = onSave(target, zone, cited ? preview : "");
+    // A null key is a write the shell refused, and it has already put the
+    // refusal on screen. Staying in the drawing state is the honest thing to
+    // do: there is no stored potongan to ask a lanjutan question about.
+    if (key === null) return;
+    setSaved({
+      key,
+      zone,
+      // Read off the zone that was just stored, never off the draft: the
+      // question is about the rectangle that went to disk. `nextPageInBerkas`
+      // is what fences the chain to one document -- page 27 of a merged
+      // contract scan is not continued by page 0 of a separate SPLITBA scan,
+      // however adjacent their run-global numbers are.
+      next: nextPageInBerkas(run, zone.pageIndex),
+      hint: continuationHint(run, zone),
+    });
   };
 
   /**
@@ -977,11 +1279,16 @@ export function ZoneEditor({
    * that is the copy an operator has to act on; this string is only the
    * refusal, said where the refusal is.
    */
-  const blocked = failure
-    ? "Halaman ini tidak tampil. Pilih halaman lain."
-    : !canDraw
-      ? "Tunggu halamannya tampil dulu."
-      : !draft
+  const blocked = saved
+    ? // FIRST, because after a commit `canDraw` is false and the reason under
+      // it ("wait for the page to appear") would be a plain lie: the page is
+      // there, the area is stored, and what is owed is the answer below.
+      "Area ini sudah disimpan. Jawab dulu pertanyaan lanjutan di bawah."
+    : failure
+      ? "Halaman ini tidak tampil. Pilih halaman lain."
+      : !canDraw
+        ? "Tunggu halamannya tampil dulu."
+        : !draft
         ? // The same words as the button that does it ("Satu halaman"), not a
           // third spelling of the whole-page capture: an action keeps one
           // wording through the flow, or the reason and the remedy read as two
@@ -1002,6 +1309,7 @@ export function ZoneEditor({
       ? undefined
       : "decision";
 
+
   const frameInner: CSSProperties =
     zoom === "page"
       ? { height: "100%", width: "auto" }
@@ -1019,7 +1327,14 @@ export function ZoneEditor({
           {slotDef ? (
             <span className="lt-figure lt-label">{slotDef.section.title}</span>
           ) : null}
-          {captureCount > 1 ? (
+          {/* A LINK HAS NO ORDINAL YET, and inventing one would be wrong twice
+              over: `withDiscoveredCaptures` mints it at the write, and
+              `target.slotKey` on a link target is the BASE key, which would
+              print "potongan 1". The word is what the operator needs here
+              anyway -- this drawing is the rest of the bagian above it. */}
+          {target.after ? (
+            <span className="lt-label">lanjutan</span>
+          ) : captureCount > 1 ? (
             <span className="lt-label">
               potongan {captureOrdinal} dari {captureCount}
             </span>
@@ -1443,7 +1758,7 @@ export function ZoneEditor({
                   </Advisory>
                 )}
 
-                {cited ? (
+                {cited && !saved ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="lt-label">Per baris</span>
                     <Btn
@@ -1519,6 +1834,20 @@ export function ZoneEditor({
         </aside>
       </div>
 
+      {/* THE LANJUTAN QUESTION, in flow, under the work it is about and above
+          the rail that is glass. It exists only after a commit, and answering
+          it either reopens this editor on the next page or closes it. */}
+      {saved ? (
+        <LanjutanStrip
+          next={saved.next}
+          hint={saved.hint}
+          onTake={() =>
+            saved.next && onContinue(saved.key, saved.next.page.id)
+          }
+          onNone={() => onNoContinuation(saved.key)}
+        />
+      ) : null}
+
       {/* ONE BAR, AND EVERY CONTROL IS IN IT. The bar stays with the operator:
           drawing happens at the bottom of a page and committing used to happen
           at the top of the document, so every correction ended in a scroll away
@@ -1592,7 +1921,11 @@ export function ZoneEditor({
           <Btn
             onClick={takeWholePage}
             disabled={!canDraw}
-            reason="Tunggu halamannya tampil dulu."
+            reason={
+              saved
+                ? "Area ini sudah disimpan. Jawab dulu pertanyaan lanjutan di bawah."
+                : "Tunggu halamannya tampil dulu."
+            }
             aria-label="Ambil tangkapan satu halaman"
           >
             <HalamanUtuh />
@@ -1605,7 +1938,12 @@ export function ZoneEditor({
           {dragging ? <span className="lt-label">menggambar</span> : null}
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Btn onClick={requestCancel}>Batal</Btn>
+            {/* "Batal" IS THE WRONG WORD ONCE SOMETHING IS STORED, and this is
+                the "later" the strip deliberately has no key for: closing
+                stamps nothing, so the sheet keeps saying the lanjutan has not
+                been checked, which is true. Offering to cancel a save that has
+                already happened would be a promise this screen cannot keep. */}
+            <Btn onClick={requestCancel}>{saved ? "Tutup" : "Batal"}</Btn>
             {/* The save carries the potongan: what the click leaves behind is a
                 region cut out of a page, which is the one thing this screen
                 exists to author. */}

@@ -69,7 +69,7 @@ import {
   documentDigest,
 } from "./intake.ts";
 import { applySectionEdit, type SectionEdit } from "./sections.ts";
-import { removeSource } from "./sources.ts";
+import { removeSource, withSourceAi } from "./sources.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
   BrowserRun,
@@ -163,7 +163,11 @@ export {
  * before it asks it. The removal itself is `removeDocument` below, which is
  * this arithmetic plus two storage writes.
  */
-export { sourceRemovalCost, type SourceRemoval } from "./sources.ts";
+export {
+  aiExcludedSources,
+  sourceRemovalCost,
+  type SourceRemoval,
+} from "./sources.ts";
 
 /**
  * One operator gesture on this order's form, as a VALUE.
@@ -469,6 +473,62 @@ export async function editSections(
     if (run === stored) return stored;
 
     return putRun(run, { removing, removingSections });
+  });
+}
+
+/**
+ * WHETHER THE AI MAY PROPOSE ANYTHING OUT OF ONE BERKAS.
+ *
+ * ## What this does NOT do, which is most of it
+ *
+ * IT DOES NOT RE-READ, RE-RENDER OR UN-READ ANYTHING. The operator's own
+ * semantics: a berkas marked "tanpa AI" is still rendered and still OCR'd, so
+ * the denah still draws, the film strip still counts it, snapping an area to
+ * its lines still works, and a citation off it still names real baris. What
+ * they withdrew is the MODEL -- classifying, ranking, locating, walking a
+ * lanjutan, extracting a value. So `ingestDocument` is untouched by this
+ * feature, the worker protocol gains nothing, and this function writes one
+ * boolean.
+ *
+ * ## Shaped exactly like `editSections`, for the same reason
+ *
+ * THE RUN IS RE-READ INSIDE THE LOCK rather than taken as an argument. A screen
+ * holds a `BrowserRun` in React state for as long as the operator is looking at
+ * it, and `ingestDocument` advances the revision once per page across minutes:
+ * a run captured before a 151-page read is dozens of revisions stale, and
+ * `putRun` would refuse it. The operator would be told the order changed
+ * underneath them for ticking a berkas while a document was being read. Reading
+ * here turns a refused write into a queued one.
+ *
+ * THE CALLER MUST KEEP WHAT COMES BACK. It is the stored run, revision
+ * advanced, and the object the screen was holding is one behind the moment this
+ * resolves.
+ *
+ * NO OPT-IN IS PASSED TO `putRun` because none is owed: this changes one field
+ * of one `RunSource` and drops no page, no capture and no heading. If a future
+ * edit here ever did, the guards would refuse it, which is the correct outcome
+ * and not one to route around.
+ */
+export async function setDocumentAi(
+  runId: string,
+  sourceId: string,
+  ai: boolean,
+): Promise<BrowserRun> {
+  return withRunLock(runId, async () => {
+    const stored = await getRun(runId);
+    if (!stored) {
+      throw new Error(
+        `Order ${runId} tidak ada lagi, jadi dokumennya tidak bisa diubah.`,
+      );
+    }
+
+    // Identity means the berkas already stands where the press asked it to, or
+    // this order no longer holds it. Writing anyway would advance the revision
+    // and refuse whatever the screen is holding, for a press that did nothing.
+    const next = withSourceAi(stored, sourceId, ai);
+    if (next === stored) return stored;
+
+    return putRun(next);
   });
 }
 

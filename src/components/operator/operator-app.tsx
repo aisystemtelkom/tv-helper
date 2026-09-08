@@ -60,6 +60,7 @@ import Link from "next/link";
 import { getSession, signOut } from "next-auth/react";
 
 import { liveRuntime } from "@/lib/ui/live-runtime";
+import { withHandDrawnLink, withNoContinuation } from "@/lib/ui/continuation";
 import { applyResponse, requestProposals, wantedKeys } from "@/lib/ui/propose";
 import {
   DuplicateDocumentError,
@@ -765,6 +766,34 @@ function Workspace({
    * The run is re-read by the runtime inside its own lock rather than saved
    * from here, so this cannot collide with an ingest that is still writing.
    */
+  /**
+   * MAY THE AI PROPOSE OUT OF ONE BERKAS.
+   *
+   * One boolean, and NOT A PAGE IS TOUCHED: the berkas is rendered and read
+   * either way, so the denah, the line numbers under a potongan and snapping an
+   * area to baris all keep working on a berkas marked "Tanpa AI". The only
+   * thing that stops is the searching. That is why this does not go anywhere
+   * near `ingestDocument` and why nothing here has to be re-read.
+   *
+   * The runtime re-reads inside its own lock, so a press during a long ingest
+   * is QUEUED rather than refused, and THE RETURN MUST BE KEPT: the run this
+   * shell is holding is one revision behind the moment it resolves.
+   */
+  const setDocumentAi = async (sourceId: string, ai: boolean) => {
+    if (!run) return;
+    try {
+      setRun(await runtime.setDocumentAi(run.id, sourceId, ai));
+    } catch (problem) {
+      setFault({
+        origin: "save",
+        sentence:
+          "Pilihan AI untuk dokumen itu tidak jadi tersimpan, jadi order ini " +
+          "masih seperti sebelumnya.",
+        detail: messageOf(problem),
+      });
+    }
+  };
+
   const removeDocument = async (sourceId: string) => {
     if (!run) return;
     setBusy(true);
@@ -1346,7 +1375,47 @@ function Workspace({
     zone,
     text,
   ) => {
-    if (!run) return;
+    if (!run) return null;
+
+    /*
+     * A LINK IN A HAND-DRAWN LANJUTAN CHAIN, which is a different write from
+     * every other one on this path and must not be folded into it.
+     *
+     * It is APPENDED under a fresh `<key>#n` ordinal by
+     * `withDiscoveredCaptures`, the only minter of one, and the same call
+     * stamps the capture it follows: something looked past that rectangle and
+     * what it found is now in the run. Storing it the ordinary way would write
+     * it under the parent's own key and one of the two would silently
+     * disappear -- a bagian that looks complete and is missing half its
+     * evidence, which is the failure this project is organised against.
+     */
+    if (target.after) {
+      const { run: next, key, index } = withHandDrawnLink(
+        run,
+        target.after,
+        zone,
+        text,
+      );
+      if (key === null || index === null) {
+        // NOT SILENT. The append is declined when the capture being continued
+        // has lost its zone, has been marked sengaja dikosongkan, or already
+        // holds this exact rectangle -- all legitimate, and all of them mean
+        // the operator's drawing did not become evidence.
+        setFault({
+          origin: "save",
+          sentence:
+            "Potongan lanjutan tidak jadi disimpan. Area yang sama sudah tersimpan untuk bagian ini, atau potongan sebelumnya sudah berubah. Buka lembar periksa untuk memeriksa bagian ini.",
+          detail: `lanjutan after: ${target.after}`,
+        });
+        setEditing(null);
+        return null;
+      }
+      commit(next, [index]);
+      // THE EDITOR STAYS OPEN on purpose: it now asks whether THIS link runs on
+      // in turn, which is what makes the chain a loop rather than one step.
+      return key;
+    }
+
     const patched: SlotState = {
       key: target.slotKey,
       label: target.label,
@@ -1363,8 +1432,7 @@ function Workspace({
 
     if (target.slotIndex === null) {
       commit({ ...run, slots: [...run.slots, patched] }, [index]);
-      setEditing(null);
-      return;
+      return target.slotKey;
     }
 
     const redrawn: BrowserRun = {
@@ -1379,7 +1447,59 @@ function Workspace({
         : { run: redrawn, removed: [] as string[] };
 
     commit(next, [index], removed);
+    return target.slotKey;
+  };
+
+  /**
+   * "Ambil halaman berikutnya": draw the next link of the chain.
+   *
+   * NOTHING IS STAMPED HERE, and that is the rule rather than an omission.
+   * Opening the next page is not a search: the stamp is written by the SAVE
+   * that follows, because only then has something been looked past and found.
+   * An operator who opens the next page and then closes the editor has looked
+   * at nothing, and the sheet goes on saying "belum diperiksa lanjutannya",
+   * which is true.
+   *
+   * The target carries no `slotIndex`: the link does not exist yet, and its key
+   * is minted by the write. `slotKey` is the BASE key so the editor can find
+   * the bagian's own catatan and section title, which are what the operator is
+   * drawing against.
+   */
+  const continueFromCapture = (after: string, pageId: string) => {
+    if (!run) return;
+    const parent = run.slots.find((slot) => slot.key === after);
+    if (!parent) return;
+    setEditing({
+      slotIndex: null,
+      slotKey: slotKeyOf(after),
+      label: parent.label,
+      after,
+      startPageId: pageId,
+      armWholePage: true,
+    });
+  };
+
+  /**
+   * "Tidak ada lanjutan": a person looked past this capture and there is
+   * nothing there.
+   *
+   * This is the ONLY thing in the browser that records a human's own lanjutan
+   * verdict, and it stamps the CURRENT capture rather than the previous one.
+   * `withNoContinuation` stores the fingerprint of the zone that was looked at,
+   * so a capture redrawn in another tab in the meantime cannot be stamped with
+   * a verdict about a rectangle that no longer exists.
+   *
+   * The index is passed as `touched` so the write shows the same
+   * pending-then-saved signal every other decision on this run does. A stamp
+   * that reached no disk while the sheet printed "diperiksa" would be the same
+   * wrong-and-quiet shape one level up.
+   */
+  const stampNoContinuation = (key: string) => {
     setEditing(null);
+    if (!run) return;
+    const index = run.slots.findIndex((slot) => slot.key === key);
+    if (index === -1) return;
+    commit(withNoContinuation(run, key), [index]);
   };
 
   const outstanding = useMemo(
@@ -1608,6 +1728,7 @@ function Workspace({
               setPhase("ingest");
             }}
             onRemove={(sourceId) => void removeDocument(sourceId)}
+            onSetAi={(sourceId, ai) => void setDocumentAi(sourceId, ai)}
           />
         ) : null}
 
@@ -1650,12 +1771,20 @@ function Workspace({
           /* Keyed by target, so opening the editor on a different capture
              remounts it. Without the key React would keep the mounted
              instance, and its page choice and draft rectangle -- initialised
-             from the old target -- would be saved onto the new slot. */
+             from the old target -- would be saved onto the new slot.
+
+             `after` IS PART OF THE KEY because every link of a lanjutan chain
+             is `slotIndex: null` on the same `slotKey`: without it the second
+             and third links would reuse one mounted editor, keeping the
+             previous link's saved state and its page. The keys differ because
+             each link continues a different capture. */
           <ZoneEditor
-            key={`${editing.slotKey}#${editing.slotIndex ?? "new"}`}
+            key={`${editing.slotKey}#${editing.slotIndex ?? "new"}#${editing.after ?? ""}`}
             run={run}
             target={editing}
             onSave={saveZone}
+            onContinue={continueFromCapture}
+            onNoContinuation={stampNoContinuation}
             onCancel={() => setEditing(null)}
           />
         ) : phase === "ingest" ? (
@@ -1669,6 +1798,7 @@ function Workspace({
             busy={busy}
             fault={ingestFault}
             onFiles={(files) => void ingest(files)}
+            onSetDocumentAi={(sourceId, ai) => void setDocumentAi(sourceId, ai)}
             /* THE ANTREAN AND WHAT WAS TURNED AWAY. Both are state of the
                hand-over rather than of the run, which is why they live in this
                shell beside the ingest in flight and not in storage: a berkas

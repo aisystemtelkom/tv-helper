@@ -211,6 +211,26 @@ export type Runtime = {
    */
   removeDocument(runId: string, sourceId: string): Promise<BrowserRun>;
   /**
+   * WHETHER THE AI MAY PROPOSE ANYTHING OUT OF ONE BERKAS.
+   *
+   * IT IS NOT "READ THIS BERKAS" AND IT NEVER RE-READS ONE. Every berkas is
+   * rendered and OCR'd whatever this says -- that is what keeps the denah, the
+   * film strip, snapping and line citations working on a fenced document -- so
+   * this writes one boolean and touches no page. The screens must not print it
+   * as "dilewati" or "gagal": the berkas was read, the model simply is not
+   * asked about it.
+   *
+   * Takes ids and not a run, exactly as `editSections` does and for the same
+   * reason: the runtime re-reads inside its own lock, so a press made during a
+   * long ingest is queued rather than refused. Returns the STORED run, revision
+   * advanced. The caller must keep it.
+   */
+  setDocumentAi(
+    runId: string,
+    sourceId: string,
+    ai: boolean,
+  ): Promise<BrowserRun>;
+  /**
    * What removing that document would cost, without removing it: pages,
    * captures, and how many of those captures the operator has already
    * accepted. Pure, so a screen may call it while rendering.

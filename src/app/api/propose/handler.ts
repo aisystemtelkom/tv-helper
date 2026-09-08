@@ -28,6 +28,13 @@ import type { ApiGate } from "@/lib/auth/guard";
 // neither a bare alias nor an extensionless specifier.
 import { slotKeyOf } from "../../../lib/browser/slot-key.ts";
 import {
+  OverlayError,
+  assertOverlay,
+  emptyOverlay,
+  resolveTemplate,
+  type TemplateOverlay,
+} from "../../../lib/forms/overlay.ts";
+import {
   AO_TEMPLATE,
   type SectionDef,
   type SlotDef,
@@ -74,6 +81,23 @@ export type ProposeBody = {
    * search, needs no continuation phase at all.
    */
   captures?: { key: string; zone: Zone }[];
+  /**
+   * THIS ORDER'S OWN FORM, as a diff against `AO_TEMPLATE`.
+   *
+   * The route used to search the compile-time template for every caller, which
+   * was right for exactly as long as every order shared one form. It does not
+   * any more: an operator renames a judul, hides one, adds one. A route reading
+   * the constant would search for a bagian this order deleted and report the
+   * miss, and would answer under names the operator replaced.
+   *
+   * OPTIONAL, AND ABSENT MEANS THE UNEDITED FORM. `resolveTemplate` returns the
+   * base BY IDENTITY for an empty overlay, so a client that predates this field
+   * behaves exactly as it did. `parseProposeBody` runs `assertOverlay` over it
+   * before a token is spent, because this is a stored blob arriving from a
+   * device and the guard is what turns a mistake into a 400 rather than a
+   * TypeError beside a half-billed run.
+   */
+  overlay?: TemplateOverlay;
 };
 
 export type Proposal = {
@@ -118,6 +142,17 @@ export type ProposeResult = {
    *    order, a run's stored slot states outlive the form: the state is still in
    *    `run.slots` and nothing in the template answers to its key. "Searched, not
    *    found" about a bagian the operator themselves removed is simply a lie.
+   *
+   * IN PRACTICE THIS LIST COMES BACK EMPTY, AND IT STILL HAS TO EXIST.
+   * `wantedKeys` and `capturesToWalk` in `src/lib/ui/propose.ts` both filter on
+   * `isSearchable`, so the shipped client does not ask about either kind of key
+   * -- and if that were the whole story, this route could simply assume it.
+   * It may not. A route whose correctness rests on the caller having read a
+   * paragraph is a route that answers "tidak ditemukan" the first time a
+   * client, a script, an older tab or a future screen forgets one, and that
+   * word drives a loop that sends the operator out to find documents. The
+   * client's filter saves the tokens; this list is what makes the answer true
+   * either way.
    */
   outOfScope: { key: string; reason: string }[];
   /** One entry per capture walked forward, found or not. */
@@ -407,9 +442,15 @@ async function walkContinuations(
     const sourceId = sourceOfPage.get(capture.zone.pageIndex);
     const documentPages = sourceId ? bySource.get(sourceId) : undefined;
     if (!sourceId || !documentPages) {
-      // The zone names a page this run no longer holds. Recorded, not thrown:
+      // The zone names a page this walk was not given. Recorded, not thrown:
       // the capture is broken for other reasons the operator will see anyway,
       // and `checked: false` keeps it honestly unexamined.
+      //
+      // A CAPTURE ON A BERKAS MARKED "tanpa AI" LANDS HERE TOO, and `checked:
+      // false` is exactly right for it: nothing looked past that rectangle,
+      // so nothing may record that it did. `capturesToWalk` drops those on the
+      // client so this is normally unreachable for them, but the route may not
+      // depend on the client having done it.
       answers.push({
         key: capture.key,
         zones: [],
@@ -556,7 +597,16 @@ async function walkContinuations(
 export async function proposeZones(
   body: ProposeBody,
   rawAsk: Ask,
-  template: Template = AO_TEMPLATE,
+  // THIS ORDER'S RESOLVED FORM, and the default is the caller's overlay rather
+  // than the compile-time constant. A default parameter may reference an
+  // earlier one, so the wire and the explicit argument stay one mechanism:
+  // every test and script that hands a `Template` over keeps working
+  // unchanged, and a request carrying no overlay resolves to `AO_TEMPLATE` BY
+  // IDENTITY.
+  template: Template = resolveTemplate(
+    AO_TEMPLATE,
+    body.overlay ?? emptyOverlay(AO_TEMPLATE),
+  ),
   // How many slots one locate call may carry. Defaults to the measured
   // shipped value (1, see MAX_SLOTS_PER_LOCATE_CALL) and is a parameter only
   // so a test can drive BOTH settings end to end: the grouping is one env var
@@ -564,7 +614,32 @@ export async function proposeZones(
   // property worth a test rather than a hope.
   slotsPerCall: number = MAX_SLOTS_PER_LOCATE_CALL,
 ): Promise<ProposeResult> {
+  // OVER THE FULL ARRAY, and before anything is filtered out of it. `index`
+  // must be the page's position in `run.pages` because that is the number that
+  // lands in `Zone.pageIndex`, and a run-global index is only checkable
+  // against the run-global list. Filtering first would renumber the check and
+  // let a caller's mistake through on any run holding a fenced-off berkas.
   assertRunGlobalIndexes(body.pages);
+
+  /**
+   * THE PAGES THE MODEL MAY BE ASKED ABOUT. Every stage below reads this list
+   * and none of them reads `body.pages`.
+   *
+   * The operator marks a berkas "tanpa AI" and its pages arrive
+   * `searchable: false`. They were still rendered and still OCR'd on the
+   * device, and the operator can still cut a potongan out of them by hand;
+   * what they withdrew is the model. So the pages stay in the request -- their
+   * positions ARE the numbering the check above just enforced -- and they are
+   * simply not offered to any prompt.
+   *
+   * FILTERED ON THE FLAG, NEVER ON `lines.length`. A page whose recogniser
+   * found no text is a fact about the document and is still worth searching
+   * around; a fenced page is a decision. `buildProposeRequest` withholds an
+   * excluded page's lines at the boundary as well, so the two look alike on
+   * the wire, and testing the text rather than the flag would make an
+   * unreadable page indistinguishable from a fenced one in both directions.
+   */
+  const searchable = body.pages.filter((page) => page.searchable !== false);
 
   // Every model call in this function goes through the tagged wrapper, so a
   // provider failure cannot be reported as a slot that was searched.
@@ -586,7 +661,16 @@ export async function proposeZones(
   // Nothing to search does not mean nothing to do: a run whose slots are all
   // confirmed can still have captures nobody has looked past, which is the
   // whole point of a second Proses after the operator drew a zone by hand.
-  if (body.pages.length === 0) {
+  //
+  // NO SEARCHABLE PAGE IS THE SAME ANSWER AS NO PAGE AT ALL, and it answers
+  // with three EMPTY LISTS on purpose. A key named in neither `outstanding` nor
+  // `outOfScope` is left exactly as the run holds it (`applyProposals` changes
+  // only what the answer names), so a bagian stays "belum dicari" -- which is
+  // the truth. Reporting it `outstanding` would say SEARCHED AND NOT FOUND
+  // about pages nothing looked at and would send the operator hunting for a
+  // document they are already holding; inventing a third reason would collapse
+  // one of the distinctions `outOfScope` exists to keep.
+  if (body.pages.length === 0 || searchable.length === 0) {
     return { proposals, outstanding, outOfScope, continuations: [] };
   }
   if (body.wanted.length === 0) {
@@ -596,7 +680,7 @@ export async function proposeZones(
       outOfScope,
       continuations: await walkContinuations(
         body.captures ?? [],
-        body.pages,
+        searchable,
         ask,
         defs,
       ),
@@ -613,7 +697,14 @@ export async function proposeZones(
     else wantedBySlot.set(slotKey, [key]);
   }
 
-  const byType = await classifyByDocType(body.pages, ask);
+  // CLASSIFIES ONLY WHAT MAY BE SEARCHED, which also keeps `classifyPages`'
+  // every-page-exactly-once contract intact rather than merely hoping it does.
+  // `classifyByDocType` groups by `sourceId` and renumbers each group locally
+  // from 0, and the coverage check inside `classifyPages` is against the length
+  // of the list it was handed -- so any subset is dense by construction. In
+  // practice the flag is per BERKAS, so exclusion drops whole sources and a
+  // surviving document is offered entire.
+  const byType = await classifyByDocType(searchable, ask);
 
   // Whole-page sections first, and out of the model's way entirely. Handled
   // per SECTION rather than per slot because "SP" and "SP (lanjutan)" mean
@@ -639,7 +730,7 @@ export async function proposeZones(
     wholePageProposals(
       section,
       wantedBySlot,
-      body.pages,
+      searchable,
       byType,
       proposals,
       outstanding,
@@ -732,9 +823,9 @@ export async function proposeZones(
 
   for (const group of byPool.values()) {
     // Every slot in the group ranks the same pool, so it is built once from
-    // whichever of them is first. `body.pages` is known non-empty by here, and
+    // whichever of them is first. `searchable` is known non-empty by here, and
     // ranking never drops a page, so this pool always has something in it.
-    const pool = rankedPoolForSlot(group[0].slot, body.pages, byType);
+    const pool = rankedPoolForSlot(group[0].slot, searchable, byType);
 
     // ASKED WITH `slot.ask.label`, NOT WITH A SECTION-PREFIXED ONE, and that
     // is a deliberate difference from `scripts/generate.mjs`. Changing what the
@@ -860,7 +951,7 @@ export async function proposeZones(
         zone: proposal.zone,
       })),
     ],
-    body.pages,
+    searchable,
     ask,
     defs,
   );
@@ -911,6 +1002,15 @@ export function parseProposeBody(value: unknown): ProposeBody {
   // gate lets anything spend the credential on it.
   assertWirePages(body.pages as WirePage[]);
   assertCaptures(body.captures);
+  // THE FORM, SHAPE-CHECKED FOR THE SAME REASON THE PAGES ARE. An overlay is a
+  // blob stored on a device and posted back, and `resolveTemplate` walks it
+  // patch by patch: a malformed one would arrive as a TypeError inside
+  // `deps.search`, which is the handler's PROVIDER-FAILURE path, and the
+  // operator would be told the model could not be reached. `assertOverlay` also
+  // refuses any `ask`/`hint`/`docType`/`layout`/`pageOrdinal`/`fillable` key at
+  // any depth, which is the fence that keeps an operator's typing out of a
+  // prompt. Absent is legitimate and means the unedited form.
+  if (body.overlay !== undefined) assertOverlay(body.overlay);
   return body as ProposeBody;
 }
 
@@ -992,6 +1092,14 @@ export function createProposeHandler(deps: ProposeDeps) {
     try {
       return Response.json(await deps.search(body));
     } catch (error) {
+      // THE FORM CAN STILL BE REFUSED HERE, and it is the caller's mistake
+      // rather than the provider's. `assertOverlay` above checks the SHAPE;
+      // `resolveTemplate` checks it against the base it is a diff of, and an
+      // overlay written for another template throws `OverlayError` from inside
+      // the search. Left to fall through, that would answer 503 and tell the
+      // operator the model could not be reached about a body no model ever
+      // saw.
+      if (error instanceof OverlayError) return badRequest(error);
       return deps.unreachable(error instanceof AskFailed ? error.reason : error);
     }
   };

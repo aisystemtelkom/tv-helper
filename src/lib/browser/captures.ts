@@ -40,6 +40,17 @@ export type DiscoveredCapture = {
   text: string;
   origin?: SlotState["origin"];
   /**
+   * WHAT THE APPENDED CAPTURE ARRIVES AS, and it exists for the hand-drawn case
+   * alone.
+   *
+   * Defaults to `proposed`, which is the only correct answer for anything a
+   * search found: see the note on `withDiscoveredCaptures` for the measurement
+   * behind that. `confirmed` is passed by `withHandDrawnLink` in
+   * `src/lib/ui/continuation.ts`, where the operator drew the rectangle
+   * themselves and is looking at it, so there is nobody left to review it.
+   */
+  status?: "proposed" | "confirmed";
+  /**
    * Whether the walk ALSO looked past this newly-found capture.
    *
    * True for every link of a chain but the last one, because link n's own
@@ -96,7 +107,10 @@ export function continuationChecked(slot: SlotState): boolean {
  * wrong one is a legible crop of the NEXT clause under this slot's label,
  * which is exactly the plausible-wrong-evidence failure this project is
  * organised against. It goes to the operator with Terima / Bukan ini like any
- * other usulan.
+ * other usulan. `DiscoveredCapture.status` is the one exception and it is not a
+ * loosening of this rule: a capture the OPERATOR drew by hand arrives
+ * `confirmed`, because the person the usulan would have been shown to is the
+ * person who drew it.
  *
  * `checked` names the captures nothing needs to look past again, so the sheet
  * can tell "diperiksa, tidak ada lanjutan" from "belum diperiksa". A capture
@@ -167,7 +181,7 @@ export function withDiscoveredCaptures(
       // "(lanjutan)" from the ordinal at render time, so a stored label cannot
       // outlive a renumber.
       label: parent.label,
-      status: "proposed",
+      status: capture.status ?? "proposed",
       origin: capture.origin ?? "llm",
       zone: capture.zone,
       text: capture.text,

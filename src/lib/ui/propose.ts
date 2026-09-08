@@ -14,7 +14,12 @@
 import { captureOrdinalOf, withDiscoveredCaptures } from "./runtime.ts";
 import type { BrowserRun, DiscoveredCapture, SlotState } from "./runtime.ts";
 import { continuationChecked } from "../browser/captures.ts";
+// From the leaf modules rather than from `../browser/runtime.ts`, for the
+// reason `captures.ts` is imported that way above: this module is pure and is
+// driven by `node --test`, which has neither IndexedDB nor a Web Worker.
+import { aiExcludedSources } from "../browser/sources.ts";
 import { isSearchable } from "../forms/overlay.ts";
+import type { TemplateOverlay } from "../forms/overlay.ts";
 import type { Template } from "../forms/template.ts";
 
 type Zone = NonNullable<SlotState["zone"]>;
@@ -27,6 +32,13 @@ export type ProposeRequest = {
     width: number;
     height: number;
     lines: BrowserRun["pages"][number]["lines"];
+    /**
+     * ABSENT ON EVERY ORDINARY PAGE, and only ever `false`. See
+     * `WirePage.searchable` in `src/lib/api/wire.ts`: absent means the page may
+     * be searched, so a run with no berkas fenced off sends exactly the body it
+     * sent before this field existed.
+     */
+    searchable?: false;
   }[];
   wanted: string[];
   /**
@@ -38,6 +50,17 @@ export type ProposeRequest = {
    * every page; this asks "does that block run on", which is one page, given.
    */
   captures: { key: string; zone: Zone }[];
+  /**
+   * THIS ORDER'S OWN FORM, so the route searches for the bagian the operator is
+   * actually looking at.
+   *
+   * The route used to read the compile-time template, which was right for
+   * exactly as long as every order shared one. `wantedKeys` already filters on
+   * this order's form, so the two would have disagreed the moment a judul was
+   * added: the client would ask about a bagian the route could not name, and
+   * the answer would come back `outOfScope` on every reading pass.
+   */
+  overlay: TemplateOverlay;
 };
 
 /**
@@ -165,16 +188,36 @@ export function wantedKeys(run: BrowserRun, template: Template): string[] {
  * that continues answers something, and the something is a rectangle appended
  * to a bagian the operator is capturing by hand. A capture under a judul they
  * DELETED is the same shape with no def to build a prompt from at all.
+ *
+ * AND A CAPTURE SITTING ON A BERKAS MARKED "tanpa AI" IS DROPPED TOO, which is
+ * a third reason again. The operator drew that area themselves, so it can
+ * perfectly well hold a zone and be `confirmed`; walking it would ask the model
+ * what comes after it inside the one document they said it must not look in,
+ * and the answer would be a rectangle appended to their own work. It also
+ * spares the route a `checkForContinuation` that could only answer "page N is
+ * not among the pages supplied", since the page it names is not in the pool the
+ * route was given.
  */
 export function capturesToWalk(
   run: BrowserRun,
   template: Template,
 ): { key: string; zone: Zone }[] {
+  const fenced = aiExcludedSources(run);
+  // `Zone.pageIndex` is a POSITION IN `run.pages`, never `StoredPage.index`,
+  // so this indexes the array directly. A zone pointing past the end reads
+  // `undefined` and is dropped, which is the safe direction: a capture is
+  // walked only when the berkas it sits on is known AND open to the model.
+  const openPage = (zone: Zone) => {
+    const page = run.pages[zone.pageIndex];
+    return page !== undefined && !fenced.has(page.sourceId);
+  };
+
   return run.slots.flatMap((slot) =>
     slot.zone &&
     !continuationChecked(slot) &&
     (slot.status === "proposed" || slot.status === "confirmed") &&
-    isSearchable(template, slot.key)
+    isSearchable(template, slot.key) &&
+    openPage(slot.zone)
       ? [{ key: slot.key, zone: slot.zone }]
       : [],
   );
@@ -198,22 +241,47 @@ export function capturesToWalk(
  * overlay decides the answer: `resolveTemplate(AO_TEMPLATE, run.overlay)`, or
  * `useRunTemplate(run)` from a screen. Reading the constant here would send the
  * route a `wanted` list describing a form the operator is not looking at.
+ *
+ * ## A BERKAS MARKED "tanpa AI" LOSES ITS LINES HERE, AT THE BOUNDARY
+ *
+ * Its pages still travel, because their POSITIONS are the run-global numbering
+ * the route checks and every `Zone.pageIndex` is a position in that same list:
+ * dropping them would renumber every page after the fenced berkas and point
+ * every zone found in a later document at the wrong page. That is this
+ * project's failure class, so the pages stay and carry `searchable: false`
+ * instead.
+ *
+ * What does NOT travel is their text. The sentence on screen says the AI does
+ * not look inside that berkas, and the honest place to make that true is where
+ * the request is built, not three stages downstream in a filter somebody can
+ * simplify away. The route filters on the FLAG and never on `lines.length`, so
+ * the two halves are independent nets rather than one net counted twice.
+ *
+ * `searchable` IS OMITTED WHEN IT IS TRUE, which is what keeps a run with
+ * nothing fenced off byte-identical to what this function has always sent.
  */
 export function buildProposeRequest(
   run: BrowserRun,
   template: Template,
 ): ProposeRequest {
+  const fenced = aiExcludedSources(run);
+
   return {
     runId: run.id,
-    pages: run.pages.map((page, position) => ({
-      index: position,
-      sourceId: page.sourceId,
-      width: page.widthPx,
-      height: page.heightPx,
-      lines: page.lines,
-    })),
+    pages: run.pages.map((page, position) => {
+      const closed = fenced.has(page.sourceId);
+      return {
+        index: position,
+        sourceId: page.sourceId,
+        width: page.widthPx,
+        height: page.heightPx,
+        lines: closed ? [] : page.lines,
+        ...(closed ? { searchable: false as const } : {}),
+      };
+    }),
     wanted: wantedKeys(run, template),
     captures: capturesToWalk(run, template),
+    overlay: run.overlay,
   };
 }
 

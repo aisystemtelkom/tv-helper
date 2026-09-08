@@ -26,7 +26,11 @@ import {
   seedSlots,
   withDiscoveredCaptures,
 } from "../browser/runtime.ts";
-import { removeSource, sourceRemovalCost } from "../browser/sources.ts";
+import {
+  removeSource,
+  sourceRemovalCost,
+  withSourceAi,
+} from "../browser/sources.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 // The REAL comparison storage refuses writes with, not a second one written
@@ -489,6 +493,25 @@ export function createStubRuntime(): Runtime {
       const stored = { ...run, rev: (run.rev ?? 0) + 1 };
       runs.set(runId, stored);
       return stored;
+    },
+
+    /*
+     * The per-berkas AI choice, through the SAME pure function the live
+     * runtime uses, and reading the STORED run for the same reason
+     * `editSections` does.
+     *
+     * It writes one boolean and touches no page, which is the whole point of
+     * the feature: a berkas marked "tanpa AI" is still rendered and still
+     * OCR'd. A stub that dropped its pages here would teach a screen the one
+     * thing this choice must never mean.
+     */
+    async setDocumentAi(runId, sourceId, ai) {
+      const stored = runs.get(runId);
+      if (!stored) throw new Error(`no run ${runId}`);
+
+      const next = withSourceAi(stored, sourceId, ai);
+      if (next === stored) return stored;
+      return runtime.saveRun(next);
     },
 
     sourceRemovalCost,

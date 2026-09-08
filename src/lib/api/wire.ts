@@ -56,6 +56,32 @@ export type WirePage = {
   lines: Line[];
   sourceName?: string;
   pageInDoc?: number;
+  /**
+   * MAY THE MODEL BE ASKED ANYTHING ABOUT THIS PAGE. Absent means yes.
+   *
+   * The operator marks a whole berkas "tanpa AI" and every page of it arrives
+   * here `false`. IT DOES NOT MEAN THE PAGE WAS NOT READ: the browser renders
+   * and OCRs every berkas either way, which is what lets the operator draw an
+   * area on it by hand and what draws its denah. What this withdraws is the
+   * MODEL: classification, ranking, locating, the lanjutan walk, and the
+   * extraction pool.
+   *
+   * ABSENT MEANS TRUE, and it is written that way round on purpose. A run
+   * stored before the operator could make this choice, and any client that
+   * predates the field, must keep being searched exactly as it was -- reading
+   * absent as "no" would silently stop searching every order already on a
+   * device, and the operator would meet a bundle full of blanks with nothing
+   * on screen saying why. It is also what keeps a request from a run with
+   * nothing excluded byte-identical to the one this route took before the
+   * field existed.
+   *
+   * THE ROUTES FILTER ON THIS FLAG AND NEVER ON `lines.length`. An empty page
+   * is a page the recogniser found no text on, which is a fact about the
+   * document; an excluded page is a decision the operator took. Confusing the
+   * two would either search a berkas they fenced off or report a blank page as
+   * fenced.
+   */
+  searchable?: boolean;
 };
 
 /**
@@ -143,6 +169,20 @@ export function assertWirePages(pages: WirePage[]): void {
         `page ${page.index} has a non-string sourceName. It is printed into ` +
           "the citation an operator reads, so it is the document's name or " +
           "it is absent.",
+      );
+    }
+    // STRICTLY A BOOLEAN OR ABSENT, because the reading is `!== false` and
+    // every other value therefore reads as "search it". A caller that sent the
+    // string "false" -- JSON from a form field, a query parameter threaded
+    // through -- would have a berkas the operator fenced off searched anyway,
+    // and the answer would arrive as an ordinary usulan citing the one
+    // document they were told the model would not look inside. Loud here,
+    // before anything is spent.
+    if (page.searchable !== undefined && typeof page.searchable !== "boolean") {
+      throw new Error(
+        `page ${page.index} has searchable ${JSON.stringify(page.searchable)}. ` +
+          "It is true, false, or absent, and absent means the page may be " +
+          "searched.",
       );
     }
     if (page.pageInDoc !== undefined) {

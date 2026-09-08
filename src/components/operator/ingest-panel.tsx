@@ -104,6 +104,13 @@ import {
   shortenFileName,
 } from "./chrome";
 import { Denah } from "./denah";
+// THE SAME CONTROL AND THE SAME SENTENCE the documents bar carries, imported
+// rather than written again. The choice has to be reachable in every phase --
+// that is what the bar is for -- and also here, beside the berkas at the moment
+// it lands, which is when an operator actually knows whether the AI should read
+// it. Two copies of the control would be two copies of the promise underneath
+// it, and that promise is the whole feature.
+import { DocumentAi, TanpaAiNote } from "./documents-bar";
 import { Berkas, Cari, Muat } from "./icons";
 
 /**
@@ -728,7 +735,21 @@ function tally(run: BrowserRun): SourceTally[] {
  * carries the line boxes, so this is inline SVG and no bitmap, no blob URL and
  * no model call.
  */
-function RunContents({ run }: { run: BrowserRun }) {
+function RunContents({
+  run,
+  busy,
+  onSetAi,
+}: {
+  run: BrowserRun;
+  /** An ingest or a search is running, so the choice is held with its reason. */
+  busy: boolean;
+  /**
+   * MAY THE AI PROPOSE OUT OF THIS BERKAS. Omitted, the rows carry no such
+   * control, which is a shell that has not wired it rather than a berkas that
+   * cannot be fenced off.
+   */
+  onSetAi?: (sourceId: string, ai: boolean) => void;
+}) {
   const tallies = tally(run);
   const expected = tallies.reduce((sum, one) => sum + one.expected, 0);
   const read = run.pages.length;
@@ -817,6 +838,25 @@ function RunContents({ run }: { run: BrowserRun }) {
                     </span>
                   ) : null}
                 </p>
+
+                {/* AFTER THE COUNT AND BEFORE THE PAGE PLANS, which is the
+                    order the row reads in: what this berkas is, how much of it
+                    was read, and only then what the AI may do with it. It is
+                    deliberately NOT next to the count sentences: those say the
+                    berkas WAS read, this says whether the model may propose out
+                    of it, and the whole feature turns on the two not being
+                    confused. The plans below stay either way, because a fenced
+                    berkas is still a berkas the operator can cut a potongan
+                    out of by hand. */}
+                {onSetAi ? (
+                  <DocumentAi
+                    name={source.name}
+                    ai={source.ai !== false}
+                    busy={busy}
+                    onChange={(next) => onSetAi(source.id, next)}
+                  />
+                ) : null}
+                {source.ai === false ? <TanpaAiNote /> : null}
 
                 {pages.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
@@ -1101,6 +1141,7 @@ export function IngestPanel({
   searchStartedAt = null,
   searchNote = null,
   wanted = 0,
+  onSetDocumentAi,
 }: {
   run: BrowserRun | null;
   progress: IngestProgress | null;
@@ -1151,6 +1192,19 @@ export function IngestPanel({
   searchNote?: string | null;
   /** How many bagian the next search would look for. */
   wanted?: number;
+  /**
+   * MAY THE AI PROPOSE OUT OF ONE BERKAS OF THIS ORDER.
+   *
+   * IT IS NOT "READ THIS BERKAS" AND IT NEVER RE-READS ONE. Every berkas is
+   * rendered and OCR'd whatever this says, which is what keeps its denah, its
+   * halaman count, its short-page advisory and its hand-drawn potongan all
+   * working. What it withdraws is the model.
+   *
+   * OPTIONAL ONLY BECAUSE THE SHELL IS ANOTHER TRACK'S FILE. Omitted, the rows
+   * carry no such control at all -- the choice would then exist on the wire and
+   * nowhere on the screen, which is not a state worth shipping.
+   */
+  onSetDocumentAi?: (sourceId: string, ai: boolean) => void;
 }) {
   const pages = run?.pages.length ?? 0;
   // `busy` can lead `progress` by a moment, because the shell sets one before
@@ -1318,7 +1372,18 @@ export function IngestPanel({
             ) : null}
           </div>
 
-          {run ? <RunContents run={run} /> : null}
+          {/* HELD DURING A SEARCH TOO, not only during an ingest. A request
+              that has already left carries the old fence, so a berkas closed
+              while a read is in flight would still have its usulan land -- and
+              the screen would show evidence out of the one document the
+              operator had just closed. */}
+          {run ? (
+            <RunContents
+              run={run}
+              busy={busy || searching}
+              onSetAi={onSetDocumentAi}
+            />
+          ) : null}
 
           {/* Move two only exists once there is something to process. On the
               empty state the screen stays one invitation with one target. */}
