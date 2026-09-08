@@ -113,7 +113,21 @@ import { isSearchable } from "@/lib/forms/overlay";
 import type { NodeId, ProposedSection } from "@/lib/forms/overlay";
 import type { Template } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
-import { wantedKeys } from "@/lib/ui/propose";
+import {
+  DISCOVER_FENCED_REASON,
+  NO_USULAN_WAITING,
+  PAGES_NOT_IN_JUDUL,
+  REASON_HINT_LABEL,
+  REASON_MARK,
+  REASON_ORDER,
+  REASON_SENTENCE,
+  REASON_WORD,
+  SEARCH_ALL_FENCED_REASON,
+  berkasUsulan,
+  reasonOf,
+} from "@/lib/ui/outstanding";
+import type { BerkasUsulan, Reason } from "@/lib/ui/outstanding";
+import { searchablePageCount, wantedKeys } from "@/lib/ui/propose";
 import { slotKeyOf } from "@/lib/ui/runtime";
 import type {
   BrowserRun,
@@ -122,7 +136,6 @@ import type {
   SlotState,
   Zone,
 } from "@/lib/ui/runtime";
-import type { SlotAggregateStatus } from "@/lib/ui/slots";
 import { templateSlots } from "@/lib/ui/slots";
 import { useRunTemplate } from "@/lib/ui/use-run-template";
 
@@ -165,71 +178,6 @@ export type RoundLog = {
 };
 
 /**
- * Why a capture is blank. The runtime has no field for this: `onReject` sets
- * `status: "outstanding"` with the zone cleared, which is byte for byte what a
- * search miss looks like.
- *
- * The one surviving trace of a rejection is `origin`, which `applyProposals`
- * writes only when it hands over a zone and which `onReject`'s patch does not
- * clear. So an outstanding capture carrying `origin: "llm"` and no zone had a
- * usulan that a person refused. If that ever stops being true the derivation
- * below falls back to "tidak ditemukan", which is the weaker and still-true
- * claim, never the stronger one.
- */
-type Reason = "unsearched" | "notfound" | "rejected" | "undrawn" | "emptied";
-
-const REASON_WORD: Record<Reason, string> = {
-  unsearched: "belum dicari",
-  notfound: "tidak ditemukan",
-  rejected: "usulan ditolak",
-  undrawn: "belum digambar",
-  emptied: "sengaja dikosongkan",
-};
-
-/** Each kind of blank gets its own SHAPE, not only its own sentence. */
-const REASON_MARK: Record<Reason, SlotAggregateStatus> = {
-  unsearched: "pending",
-  notfound: "outstanding",
-  rejected: "outstanding",
-  // The same shape as `unsearched`, because it is the same standing: nothing
-  // has been looked for, nothing has failed. What differs is WHY, and that is
-  // what the word and the sentence carry.
-  undrawn: "pending",
-  emptied: "unfilled",
-};
-
-const REASON_SENTENCE: Record<Reason, string> = {
-  unsearched:
-    "Belum ada pencarian yang menyentuh bagian ini, jadi ini bukan bukti yang hilang.",
-  notfound: "Sudah dicari di seluruh halaman yang ada, buktinya tidak ketemu.",
-  rejected:
-    "Anda menolak usulannya, dan areanya ikut dibuang. Bagian ini kembali kosong.",
-  undrawn: "Judul ini Anda buat sendiri, jadi potongannya Anda ambil sendiri.",
-  emptied:
-    "Dikosongkan atas keputusan Anda, bukan karena terlewat. Selnya tetap muncul kosong di DOKUMEN VALIDASI.",
-};
-
-/**
- * The order the counts state them in: the four that owe a decision first.
- *
- * `undrawn` SITS LAST OF THE FOUR AND IS NOT A KIND OF FAILURE. The three
- * before it are things that went a certain way -- nobody has looked, the look
- * failed, you refused the answer -- and every one of them is a reason to
- * consider loading another document. This one is not: a judul the operator
- * created is captured by hand by design, so no berkas and no round can ever
- * change it. It is listed with them because it is still a decision they owe,
- * and it is ranked below them because it is the only one where the tool has
- * nothing left to offer.
- */
-const REASON_ORDER: Reason[] = [
-  "notfound",
-  "rejected",
-  "unsearched",
-  "undrawn",
-  "emptied",
-];
-
-/**
  * Why every decision on this block is refused while a document is being loaded.
  *
  * ONE SENTENCE, DECLARED ONCE, because it rides on each of the five controls
@@ -245,28 +193,6 @@ const REASON_ORDER: Reason[] = [
  * waiting for.
  */
 const LOADING_HOLD = "Tunggu pemuatan dokumen selesai.";
-
-/**
- * `searchable` IS `isSearchable(template, key)`, ASKED PER BAGIAN AND PASSED
- * IN, never re-derived here and never a run-wide relabel.
- *
- * When it is false the answer is `undrawn` and nothing else, because none of
- * the other four can be true of a bagian nothing will ever search: it cannot
- * have been searched and missed, and there was no usulan to refuse. The one
- * that CAN still be true is `emptied`, which is a decision rather than an
- * outcome, so it is tested first and keeps its word.
- *
- * It is a parameter rather than a `Template` argument so that the caller has to
- * ask the question about the RIGHT KEY. Only the caller knows whether it is
- * holding a bagian this order's form declares or a state left over from one it
- * does not, and the two want different answers to the same predicate.
- */
-function reasonOf(state: SlotState, searchable: boolean): Reason {
-  if (state.status === "unfilled") return "emptied";
-  if (!searchable) return "undrawn";
-  if (state.status === "pending") return "unsearched";
-  return state.origin === "llm" ? "rejected" : "notfound";
-}
 
 type Blank = {
   /** Position in `run.slots`, or null for a bagian the run never seeded. */
@@ -880,7 +806,12 @@ function Panel({
         {searchable > 0 ? (
           <SearchLine
             searchable={searchable}
-            pages={run.pages.length}
+            /* THE HALAMAN A ROUND WILL ACTUALLY BE GIVEN, not every halaman in
+               the order. `run.pages.length` counts the pages of a berkas the
+               operator fenced with "tanpa AI", whose lines `buildProposeRequest`
+               strips before it sends -- so this line promised a search over
+               pages nothing would read. */
+            pages={searchablePageCount(run)}
             searching={searching}
             busy={busy}
             afterDocument={rounds.length > 0}
@@ -1015,12 +946,11 @@ function UsulanJudul({
 
   const proposed = run.overlay.proposed;
 
-  const groups = run.sources.map((source) => ({
-    id: source.id,
-    name: source.name,
-    asked: source.sectionsAskedFor === true,
-    usulan: proposed.filter((entry) => entry.fromSourceId === source.id),
-  }));
+  // Every berkas of this order, with what may truthfully be said about it.
+  // The arithmetic is in `../../lib/ui/outstanding.ts` so a test can drive it
+  // with a real run: three of the sentences this block prints were false in
+  // ways only a run with a rejection in it makes visible.
+  const groups = berkasUsulan(run);
 
   /**
    * USULAN WHOSE BERKAS THIS ORDER NO LONGER HOLDS.
@@ -1169,7 +1099,7 @@ function BerkasUsulan({
   onDiscoverAgain,
 }: {
   run: BrowserRun;
-  group: { id: string; name: string; asked: boolean; usulan: ProposedSection[] };
+  group: BerkasUsulan;
   hold: string | undefined;
   working: NodeId | null;
   renaming: NodeId | null;
@@ -1180,30 +1110,16 @@ function BerkasUsulan({
   onDiscoverAgain?: (sourceId: string) => void;
 }) {
   /**
-   * HALAMAN NOBODY PROPOSED A JUDUL FOR.
+   * WHY "Cari judul lagi" IS DOWN ON A FENCED BERKAS.
    *
-   * Counted only once the question has actually been PUT to this berkas.
-   * Before that, "tidak diusulkan" would describe a search nothing ran -- the
-   * same distinction `outOfScope` draws against "tidak ditemukan" one level
-   * down, and the same reason that word is fenced in `docs/ui-bahasa.md`.
-   *
-   * A page under a judul the operator has already ACCEPTED counts as proposed:
-   * the usulan is gone from `proposed` by then, and reporting its pages as
-   * unclaimed would grow this figure every time they said yes.
+   * `discoverIds` drops a berkas marked tanpa AI, and nothing lifts that -- not
+   * even naming it in `again`, which is what this key does. So the press ran a
+   * whole pass over the order and came back with a sentence about a search that
+   * had not happened, on the one berkas the operator had just asked about. The
+   * reason rides on the control per the house rule; the fence itself is already
+   * on the page in prose, in `FencedBerkas`.
    */
-  const claimed = new Set<number>();
-  for (const entry of group.usulan) {
-    for (const page of entry.fromPages) claimed.add(page);
-  }
-  for (const added of run.overlay.added) {
-    if (added.fromSourceId !== group.id) continue;
-    for (const page of added.pages ?? []) claimed.add(page);
-  }
-  const unclaimed = run.pages.reduce(
-    (count, page, position) =>
-      page.sourceId === group.id && !claimed.has(position) ? count + 1 : count,
-    0,
-  );
+  const discoverHold = hold ?? (group.fenced ? DISCOVER_FENCED_REASON : undefined);
 
   return (
     <div className="flex flex-col gap-2">
@@ -1214,7 +1130,11 @@ function BerkasUsulan({
             judul di berkas
           </>
         ) : (
-          <>AI tidak menemukan judul di berkas</>
+          /* NOT "AI tidak menemukan judul": see `NO_USULAN_WAITING`. An empty
+             list is also what a berkas whose usulan were all REFUSED looks
+             like, and what one whose usulan were all ACCEPTED looks like, and
+             the runtime keeps nothing that tells the three apart. */
+          <>{NO_USULAN_WAITING}</>
         )}
         <span className="lt-kotak" title={group.name}>
           {shortenFileName(group.name, 30)}
@@ -1245,18 +1165,22 @@ function BerkasUsulan({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-4">
-        {group.asked && unclaimed > 0 ? (
+        {group.asked && group.unclaimed > 0 ? (
+          /* NOT "tidak diusulkan": a halaman whose usulan the operator REFUSED
+             lands in this count and had one proposed for it. The figure is
+             right and the claim about it was not, so the line reports the state
+             (`PAGES_NOT_IN_JUDUL`) instead of the history. */
           <span className="text-ink-2 flex flex-wrap items-center gap-2 text-[0.8125rem]">
-            <span className="lt-figure">{unclaimed}</span>
-            halaman tidak diusulkan jadi judul mana pun.
+            <span className="lt-figure">{group.unclaimed}</span>
+            {PAGES_NOT_IN_JUDUL}
           </span>
         ) : null}
 
         {onDiscoverAgain && group.asked ? (
           <>
             <Btn
-              disabled={hold !== undefined}
-              reason={hold}
+              disabled={discoverHold !== undefined}
+              reason={discoverHold}
               onClick={() => onDiscoverAgain(group.id)}
             >
               {/* The brain, because this is the AI reading again, and the same
@@ -1267,12 +1191,18 @@ function BerkasUsulan({
             {/* STATED AS A REPEAT OF A SEARCH, not as a free action. It is
                 another model call over the whole berkas, and it REPLACES the
                 usulan on screen -- which matters most to the operator who has
-                just renamed one and not yet accepted it. */}
-            <Hint label="Yang terjadi kalau dicari lagi">
-              AI membaca berkas ini sekali lagi. Usulan yang sekarang diganti
-              dengan hasil baru, termasuk nama yang sudah Anda ubah. Judul yang
-              sudah Anda terima tidak ikut berubah.
-            </Hint>
+                just renamed one and not yet accepted it.
+
+                NOT SHOWN ON A FENCED BERKAS, because every word of it would be
+                false there: nothing reads that berkas again and no usulan is
+                replaced. The key beside it carries the reason instead. */}
+            {group.fenced ? null : (
+              <Hint label="Yang terjadi kalau dicari lagi">
+                AI membaca berkas ini sekali lagi. Usulan yang sekarang diganti
+                dengan hasil baru, termasuk nama yang sudah Anda ubah. Judul yang
+                sudah Anda terima tidak ikut berubah.
+              </Hint>
+            )}
           </>
         ) : null}
       </div>
@@ -1486,11 +1416,12 @@ function FencedBerkas({ run }: { run: BrowserRun }) {
 }
 
 /**
- * The four kinds of blank, counted apart.
+ * The kinds of blank, counted apart. `REASON_ORDER` says how many there are,
+ * and no sentence on this component may say it a second time.
  *
  * SPLIT CLAUSE BY CLAUSE, which is the whole density argument in one component.
  * The COUNTS change with the order and decide what the operator does next,
- * so they stand. The four SENTENCES that gloss them read the same words on
+ * so they stand. The SENTENCES that gloss them read the same words on
  * every order, and an operator has read them four hundred times, so they sit
  * behind the question mark where they can be pointed at. What used to be a
  * three-column register roughly 110px tall is a run of figures on one line.
@@ -1518,10 +1449,14 @@ function ReasonCounts({ counts }: { counts: Record<Reason, number> }) {
         </span>
       ))}
 
-      {/* All four, always, whichever are on screen: the panel is the fixed
-          explanation of the vocabulary, not a report on this run. Which of the
-          four are actually happening is what the figures beside it say. */}
-      <Hint label="Arti keempat keterangan ini">
+      {/* EVERY ONE OF THEM, ALWAYS, whichever are on screen: the panel is the
+          fixed explanation of the vocabulary, not a report on this run. Which
+          of them are actually happening is what the figures beside it say.
+
+          THE LABEL DOES NOT COUNT THEM, and `REASON_HINT_LABEL` says why: it
+          read "keempat" over five entries, because `emptied` was added to
+          `REASON_ORDER` and the numeral stayed behind. */}
+      <Hint label={REASON_HINT_LABEL}>
         <dl className="flex flex-col gap-2">
           {REASON_ORDER.map((reason) => (
             <div key={reason}>
@@ -1830,6 +1765,17 @@ function SearchLine({
               Mencari <span className="lt-figure">{searchable}</span> bagian.
             </span>
           </>
+        ) : pages === 0 ? (
+          /* EVERY BERKAS IS FENCED, so there is nothing to read and the two
+             sentences below would both be false: "bisa dicari di 0 halaman"
+             contradicts itself, and "halaman baru belum dicari" points at
+             halaman no round will ever be given. What is true is why, and the
+             operator can act on it -- the switch back to Dibaca AI is on the
+             documents bar. */
+          <span>
+            Tidak ada halaman yang bisa dibaca AI: semua berkas Anda tandai
+            tanpa AI.
+          </span>
         ) : afterDocument ? (
           <span>
             Halaman baru belum dicari:{" "}
@@ -1858,13 +1804,29 @@ function SearchLine({
       {onSearch ? (
         <Btn
           tone={afterDocument ? "primary" : "default"}
-          disabled={searching || busy}
+          /* NOTHING TO READ IS ALSO A REASON THIS KEY IS DOWN, and it is not
+             cosmetic. A round over an order whose every page carries
+             `searchable: false` answers each wanted key in `outstanding`, and
+             `applyProposals` writes that word onto the bagian -- so the press
+             would stamp `tidak ditemukan`, fixed in `docs/ui-bahasa.md` to mean
+             SEARCHED AND NOT FOUND, across bagian nothing read a baris of. */
+          disabled={searching || busy || pages === 0}
           /* THE FIFTH CONTROL THE LOAD HOLDS, and the one that was left
              without its reason when the standing notice above went. Only for
              the load: while the round itself is running, the spinner and the
              sentence to the left say so on screen at full ink, and a hover
              repeating that would be the restatement this pass removes. */
-          reason={busy && !searching ? LOADING_HOLD : undefined}
+          /* THE LOAD OUTRANKS THE FENCE while both hold, because it is the one
+             that is about to change: a berkas arriving mid-load is Dibaca AI by
+             default, so "wait for the load" is the truthful thing to say to an
+             operator who is loading the document that will lift this. */
+          reason={
+            busy && !searching
+              ? LOADING_HOLD
+              : pages === 0
+                ? SEARCH_ALL_FENCED_REASON
+                : undefined
+          }
           aria-busy={searching || undefined}
           onClick={onSearch}
         >

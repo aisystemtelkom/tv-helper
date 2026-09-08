@@ -2097,7 +2097,59 @@ export async function searchRound({
       // type is precisely the plausible-wrong-evidence failure this project
       // is most afraid of. A slot with no candidate is reported outstanding
       // instead, which is what hands it to the tambahan loop.
-      const taken = new Map();
+      //
+      // ## WHICH PAGE A WHOLE-PAGE BAGIAN TAKES COMES FROM TWO NUMBERS
+      //
+      // This used to be one: a running `taken` counter over the section's
+      // fillable slots, keyed by docType, advanced only on a real assignment.
+      // That one counter was quietly answering two different questions at
+      // once, and it got one of them wrong the day an order could edit its own
+      // form.
+      //
+      //  1. WHICH PAGE OF ITS TYPE IS THIS BAGIAN? A fact about the FORM, and
+      //     `SlotDef.pageOrdinal` declares it. The counter derived it instead,
+      //     which is right for exactly as long as every order has the same
+      //     slots: delete `sp.1` for one order and the counter hands `sp.2`
+      //     position 0, the FIRST SP page -- the page `sp.2` is not, and quite
+      //     possibly the page a confirmed crop of `sp.1` came from before the
+      //     operator removed it. Two headings over one picture, silently, in a
+      //     packet a validator signs. `wholePageProposals` in
+      //     src/app/api/propose/handler.ts stopped counting in 185babd for this
+      //     reason and this branch did not follow until now.
+      //  2. HOW MANY OF ITS TYPE DID AN EARLIER ROUND ALREADY TAKE? A fact
+      //     about THIS RUN, and nothing declares it. It exists here and not in
+      //     the route because a tambahan round is handed only the pages that
+      //     round supplied: when round 1 filled `sp.1` and left `sp.2`
+      //     outstanding, `sp.2` must take the FIRST SP page the tambahan
+      //     supplies, not its second. The route is always offered the whole
+      //     run, so it needs no such discount -- that is the one place these
+      //     two readers legitimately differ, and it is a difference of
+      //     bookkeeping, not of meaning.
+      //
+      // So: the declared ordinal, DISCOUNTED by the same-type siblings an
+      // earlier round already satisfied.
+      //
+      // EVERY fillable bagian's ordinal is checked first, satisfied ones
+      // included, because the discount reads a SIBLING's ordinal: a missing one
+      // on a slot this round skips would silently stop discounting and slide a
+      // later bagian onto a page an earlier round is already holding. A
+      // template bug is not a fact about what this round wanted, and finding it
+      // out only on the round that happens to want the broken slot is how it
+      // reaches an operator instead of a developer. Thrown, never defaulted:
+      // a fallback to counting siblings is the defect above, restored quietly
+      // in precisely the orders that edited their form.
+      for (const slot of fillable) {
+        if (Number.isInteger(slot.pageOrdinal)) continue;
+        throw new Error(
+          `${slot.key}: pageOrdinal is required for a whole-page fillable ` +
+            `slot (section "${section.id}", layout "images"), because such a ` +
+            "slot picks its page BY POSITION among its document type's " +
+            "pages. Declare it on the slot; there is deliberately no fallback " +
+            "to counting siblings, which slides onto the wrong page the " +
+            "moment an order removes one.",
+        );
+      }
+
       for (const slot of fillable) {
         if (satisfied.has(slot.key)) continue;
 
@@ -2112,7 +2164,17 @@ export async function searchRound({
           // one day.
           searchableByIndex,
         ).filter(Boolean);
-        const position = taken.get(slot.docType) ?? 0;
+        // Number 2 above. Same docType, declared EARLIER in the type's page
+        // order, and already answered -- so its page is not in this round's
+        // pool and must not be counted against this bagian.
+        const settledEarlier = fillable.filter(
+          (sibling) =>
+            sibling.key !== slot.key &&
+            sibling.docType === slot.docType &&
+            sibling.pageOrdinal < slot.pageOrdinal &&
+            satisfied.has(sibling.key),
+        ).length;
+        const position = slot.pageOrdinal - settledEarlier;
         const page = candidates[position];
 
         if (!page) {
@@ -2132,37 +2194,49 @@ export async function searchRound({
           );
           continue;
         }
-        // Advanced only on a real assignment, so a slot already filled by an
-        // earlier round does not consume a page of THIS round's pool: when
-        // round 1 filled sp.1 and left sp.2 outstanding, sp.2 must take the
-        // first SP page the tambahan supplies, not its second.
-        taken.set(slot.docType, position + 1);
-
-        log(
-          `  ${slot.key}: whole page ${page.index} ` +
-            `(${sourceLabel(page)}), no model call`,
-        );
         // THE RANGE IS WRITTEN FROM THE ARRAY LENGTH BUT READ BY LINE NUMBER,
         // which only agrees while `lines[k].i === k`. This script never calls
         // `assertLinesWellFormed`, and `boxForLineRange` -- which would throw
-        // on the count -- is never called for a whole-page capture, so this
-        // one comparison is the ONLY thing standing between a differently
-        // numbered page and a citation that quietly names different text than
-        // the picture above it shows. Same guard as `wholePageZone` in
+        // on the count -- is never called for a whole-page capture, so these
+        // two checks are the ONLY thing standing between a page nobody could
+        // read and a citation that quietly names text the picture above it does
+        // not contain. Same pair, same order, as `wholePageZone` in
         // src/app/api/propose/handler.ts.
         const last = page.lines.length - 1;
-        if (last >= 0 && page.lines[last].i !== last) {
+        // A LINELESS PAGE IS REFUSED, never patched over, exactly as the added
+        // judul branch above refuses one. `lineRange` is two required numbers,
+        // so the only value available for a page with no lines is [0, 0] -- a
+        // citation naming line 0 of a page that has no line 0, printed under a
+        // picture in a packet a validator signs. Reported rather than thrown:
+        // one unreadable page costs one bagian and hands it to the tambahan
+        // loop, where a readable copy is the right thing to ask for.
+        if (last < 0) {
+          reasons.set(
+            slot.key,
+            `run page ${page.index} (${sourceLabel(page)}) is the ` +
+              `${slot.docType ?? "matching"} page ${position} of this round, ` +
+              "but its recogniser returned no readable text, so a whole-page " +
+              "capture of it would cite a line it does not have",
+          );
+          continue;
+        }
+        if (page.lines[last].i !== last) {
           throw new Error(
             `page ${page.index} (${sourceLabel(page)}) has its last line ` +
               `numbered ${page.lines[last].i}, not ${last}: a whole-page ` +
               "citation is written from the array length",
           );
         }
+
+        log(
+          `  ${slot.key}: whole page ${page.index} ` +
+            `(${sourceLabel(page)}), no model call`,
+        );
         zones.push({
           key: slot.key,
           pageIndex: page.index,
           box: { x: 0, y: 0, w: page.width, h: page.height },
-          lineRange: [0, Math.max(0, last)],
+          lineRange: [0, last],
         });
       }
       continue;

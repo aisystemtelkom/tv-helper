@@ -22,6 +22,28 @@
  * the wrong page with a validator's signature under it. So the pages are not
  * filtered; they are renumbered, and every surviving zone is moved with them.
  *
+ * THREE STRUCTURES INDEX INTO `run.pages` BY POSITION, NOT ONE, and for a while
+ * this header named only the first of them:
+ *
+ *   - `SlotState.zone.pageIndex` -- evidence, in `run.slots`;
+ *   - `overlay.proposed[].fromPages` and `.cite.pageIndex` -- a usulan waiting
+ *     for a decision;
+ *   - `overlay.added[].pages` and `.cite.pageIndex` -- what a judul the
+ *     operator ADOPTED says it was read from.
+ *
+ * The overlay was left untouched, and the shape of that is exactly the shape
+ * above. Berkas A holds positions 0-4 and berkas B holds 5-14; a usulan out of
+ * B names pages [5, 6]; the operator removes A; B is now 0-9 and the usulan
+ * still says [5, 6]. The panel draws a denah of B's SIXTH page, prints "dari
+ * SPLITBA.pdf hal 6/10" under a heading transcribed from B's FIRST page, and
+ * Terima mints whole-page potongan over two pages that do not carry that
+ * heading. Nothing throws. The orphan guard in `outstanding-panel.tsx` does not
+ * see it either: that finds usulan whose OWN berkas was removed, and this one's
+ * berkas is still in the order.
+ *
+ * So `remapOverlay` moves both of those through the SAME `next[]` map, and the
+ * rule for an entry that cannot be moved honestly is stated there.
+ *
  * WHAT HAPPENS TO EVIDENCE THAT LIVED IN THE REMOVED DOCUMENT is the other
  * half, and it follows `withoutCapture`'s rule rather than inventing one.
  *
@@ -49,6 +71,11 @@
  * should be.
  */
 
+import type {
+  AddedSection,
+  ProposedSection,
+  TemplateOverlay,
+} from "../forms/overlay.ts";
 import { zoneFingerprint } from "./captures.ts";
 import { captureOrdinalOf, slotKeyOf } from "./slot-key.ts";
 import type { BrowserRun, SlotState } from "./types.ts";
@@ -104,6 +131,174 @@ export function withSourceAi(
       source.id === sourceId ? { ...source, ai } : source,
     ),
   };
+}
+
+/**
+ * Where the page at position `old` ended up, or `null` when there is no honest
+ * answer.
+ *
+ * TWO CAUSES, ONE ANSWER, deliberately collapsed here so that no caller below
+ * has to remember the difference: `next[old] === -1` is a page going out with
+ * the berkas, and `next[old] === undefined` is a stored number that was already
+ * past the end of the array. Both mean "there is no page to point at", and both
+ * must produce an ABSENT claim rather than a number: -1 is what `assertPageList`
+ * refuses on the way to storage, and an out-of-range index is what draws an
+ * empty denah.
+ */
+function movedTo(next: readonly number[], old: number): number | null {
+  const to = next[old];
+  if (to === undefined || to < 0) return null;
+  return to;
+}
+
+/** Every page of a claim, moved, or `null` if any one of them cannot be. */
+function movedPages(
+  pages: readonly number[],
+  next: readonly number[],
+): number[] | null {
+  const out: number[] = [];
+  for (const page of pages) {
+    const to = movedTo(next, page);
+    if (to === null) return null;
+    out.push(to);
+  }
+  return out;
+}
+
+/** Did the removal actually move this claim, or does it read exactly as before. */
+function sameNumbers(
+  before: readonly number[] | undefined,
+  after: readonly number[] | null,
+): boolean {
+  if (before === undefined) return after === null || after.length === 0;
+  if (after === null) return false;
+  return (
+    before.length === after.length && before.every((page, at) => page === after[at])
+  );
+}
+
+/**
+ * THE OVERLAY'S OWN PAGE NUMBERS, MOVED THROUGH THE SAME MAP AS THE ZONES.
+ *
+ * A usulan's pages all come out of ONE berkas -- discovery is asked per source
+ * and is handed only that source's pages -- so they survive together or go
+ * together. That is what makes "all or nothing" the right rule rather than a
+ * simplification: there is no legitimate claim with a hole in it.
+ *
+ * ## What happens to an entry that cannot be moved
+ *
+ * AN ACCEPTED JUDUL STOPS CLAIMING PAGES. `pages` and `cite` are optional
+ * metadata saying "I was read out of these pages"; with the berkas gone there
+ * is no true answer, and any number written there would name a page of a
+ * DIFFERENT document. So both are dropped and the judul itself stays. ITS
+ * EVIDENCE IS ALREADY SAFE and is NOT this function's business: an accepted
+ * potongan lives in `run.slots`, which `removeSource` remaps and drops by the
+ * same rule as every other capture. Do not "fix" that here a second time.
+ * Dropping the whole `AddedSection` would be worse still -- it is a name the
+ * operator adopted, so `SectionLossError` refuses that write without an opt-in
+ * `removeDocument` deliberately does not pass.
+ *
+ * A USULAN WHOSE BERKAS IS GONE KEEPS ITS NUMBERS, untouched. `UsulanJudul` in
+ * `outstanding-panel.tsx` finds those by `fromSourceId` against the sources the
+ * order still holds and offers only "Bukan ini", so the numbers are never read
+ * again; rewriting them would make an unanswerable row look answerable, and
+ * hiding the row would leave a decision owed that nothing on screen mentions.
+ *
+ * A USULAN WHOSE BERKAS SURVIVED BUT WHOSE PAGES DID NOT IS DROPPED, and that
+ * is the one case with no good answer. It cannot happen from discovery (see
+ * above) and can only arrive from a hand-written overlay or a future change,
+ * but if it does, the row is answerable on screen -- its berkas is right there
+ * -- while its pages name whatever now sits at those positions. Terima would
+ * mint potongan of the wrong pages, which is the failure this module exists to
+ * prevent, so the usulan ceases to exist instead. Nothing is owed for that:
+ * `discardedAuthorship` does not count `overlay.proposed` at all, because a
+ * usulan nobody has ruled on costs a model call to remake rather than a
+ * person's decision.
+ */
+function remapOverlay(
+  overlay: TemplateOverlay,
+  next: readonly number[],
+  removedSourceId: string,
+): TemplateOverlay {
+  const added: AddedSection[] = overlay.added.map((section) => {
+    // Nothing claimed, nothing to move. Identity, so a React memo can skip a
+    // judul whose heading did not move.
+    if (section.pages === undefined && section.cite === undefined) return section;
+
+    const gone = section.fromSourceId === removedSourceId;
+    const pages = gone ? null : movedPages(section.pages ?? [], next);
+    const citePage =
+      gone || section.cite === undefined
+        ? null
+        : movedTo(next, section.cite.pageIndex);
+
+    // BOTH OR NEITHER. `pages` and `cite` are two halves of one claim, and a
+    // judul that still names a page while its citation has been dropped is a
+    // half-truth on the sheet that reads exactly like a whole one.
+    const keeps =
+      !gone && pages !== null && (section.cite === undefined || citePage !== null);
+    if (!keeps) {
+      // A spread and two deletes rather than a whitelist, because the semantic
+      // here is "keep everything, drop these two claims": a field added to
+      // `AddedSection` later is a name or a provenance, and inheriting it is
+      // the right default. `removeSource`'s slot rebuild takes the opposite
+      // shape for the opposite reason.
+      const stripped: AddedSection = { ...section };
+      delete stripped.pages;
+      delete stripped.cite;
+      return stripped;
+    }
+
+    // NOTHING ACTUALLY MOVED, so nothing is rebuilt: a berkas removed from
+    // BEHIND this one shifts none of its pages. Identity again, for the memo.
+    if (
+      sameNumbers(section.pages, pages) &&
+      (section.cite === undefined || section.cite.pageIndex === citePage)
+    ) {
+      return section;
+    }
+
+    const moved: AddedSection = { ...section };
+    if (section.pages !== undefined && pages !== null) moved.pages = pages;
+    if (section.cite !== undefined && citePage !== null) {
+      // The line range is a fact about that page's own text and does not move.
+      moved.cite = { ...section.cite, pageIndex: citePage };
+    }
+    return moved;
+  });
+
+  const proposed: ProposedSection[] = [];
+  for (const entry of overlay.proposed) {
+    if (entry.fromSourceId === removedSourceId) {
+      proposed.push(entry);
+      continue;
+    }
+    const pages = movedPages(entry.fromPages, next);
+    const citePage = movedTo(next, entry.cite.pageIndex);
+    if (pages === null || citePage === null) continue;
+    if (sameNumbers(entry.fromPages, pages) && entry.cite.pageIndex === citePage) {
+      proposed.push(entry);
+      continue;
+    }
+    proposed.push({
+      ...entry,
+      fromPages: pages,
+      cite: { ...entry.cite, pageIndex: citePage },
+    });
+  }
+
+  // BY ELEMENT IDENTITY, not by a `changed` flag threaded through both loops. A
+  // removal that moved nothing (every entry sits in front of the berkas that
+  // went) hands the same overlay object back, which is what the screens compare
+  // against.
+  const same =
+    added.length === overlay.added.length &&
+    proposed.length === overlay.proposed.length &&
+    added.every((section, at) => section === overlay.added[at]) &&
+    proposed.every((entry, at) => entry === overlay.proposed[at]);
+  if (same) return overlay;
+
+  return { ...overlay, added, proposed };
 }
 
 export type SourceRemoval = {
@@ -287,6 +482,9 @@ export function removeSource(
       sources: run.sources.filter((source) => source.id !== sourceId),
       pages,
       slots,
+      // THROUGH THE SAME `next[]`, for the same reason and in the same breath.
+      // The overlay holds page positions too; see `remapOverlay`.
+      overlay: remapOverlay(run.overlay, next, sourceId),
     },
     removedPageIds,
     removedCaptureKeys,

@@ -2615,16 +2615,19 @@ test("a section's frozen ask.title is the title it was transcribed from, and its
   }
 });
 
-test("every whole-page slot DECLARES which page of its type it takes, and agrees with the counter", () => {
+test("every whole-page slot DECLARES which page of its type it takes, densely and from 0", () => {
   /*
-   * `wholePageProposals` (src/app/api/propose/handler.ts) still derives this
-   * with a running counter over the section's fillable slots. `pageOrdinal`
-   * declares the same number so it survives an order deleting a bagian, which
-   * is when the counter stops being derivable: drop `sp.1` and the counter
-   * slides `sp.2` onto the first SP page, silently, under the right heading.
+   * BOTH READERS NOW READ THIS NUMBER AND NEITHER COUNTS: `wholePageProposals`
+   * (src/app/api/propose/handler.ts) and the `layout: "images"` branch of
+   * `searchRound` (scripts/generate.mjs). A counter stops being derivable the
+   * day an order can delete a bagian -- drop `sp.1` and it slides `sp.2` onto
+   * the first SP page, silently, under the right heading -- which is why the
+   * ordinal is declared.
    *
-   * Until that reader switches over, THE TWO MUST AGREE, and this is where
-   * they are checked against each other.
+   * The counter survives HERE, in this one assertion, as the definition of
+   * what the declared numbers have to be: dense and from 0 within each
+   * (section, docType). That is what makes "the third BA page" reachable at
+   * all, and a hand-typed 3 where 2 was meant leaves a page nothing can pick.
    */
   for (const section of AO_TEMPLATE.sections) {
     const seen = new Map();
@@ -2643,7 +2646,8 @@ test("every whole-page slot DECLARES which page of its type it takes, and agrees
       assert.equal(
         slot.pageOrdinal,
         position,
-        `${slot.key}: declared ordinal disagrees with the running counter`,
+        `${slot.key}: declared ordinal is not dense from 0 within its judul ` +
+          "and document type, so some page of that type is unreachable",
       );
     }
   }
@@ -3671,6 +3675,199 @@ test("searchRound never offers a fenced page to the model, or takes one whole", 
   assert.deepEqual(offered, [0]);
   assert.deepEqual(zones, []);
   assert.match(reasons.get("whole.1"), /no BAPermintaan page 0/);
+});
+
+test("a whole-page bagian is refused a page with no readable text, and the round carries on", async () => {
+  // THE SAME DEFECT THE ROUTE CARRIED (`wholePageZone` in
+  // src/app/api/propose/handler.ts), in the branch of this script that answers
+  // the same question. `lineRange` was written as `[0, Math.max(0, last)]`, so
+  // a page whose recogniser returned nothing came back as `[0, 0]`: a citation
+  // naming line 0 of a page that has no line 0, in a file this command writes
+  // UNREVIEWED. The added-judul branch a hundred lines above already refused
+  // one; this branch did not.
+  const blank = { ...fakePage(0), lines: [] };
+
+  const { zones, reasons } = await searchRound({
+    template: TINY_TEMPLATE,
+    byType: new Map([["BAPermintaan", [0, 1]]]),
+    pages: [blank, fakePage(1)],
+    locatePool: async (questions) =>
+      new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+  });
+
+  assert.equal(
+    zones.some((zone) => zone.key === "whole.1"),
+    false,
+    "a page with no OCR lines has no honest whole-page citation",
+  );
+  assert.match(reasons.get("whole.1"), /no readable text/);
+
+  // ONE BAD PAGE COSTS ONE BAGIAN. Thrown instead, it would cost the whole
+  // round -- every other bagian lost to a document that is merely a photograph.
+  const whole2 = zones.find((zone) => zone.key === "whole.2");
+  assert.ok(whole2, `whole.2's own page is readable: ${reasons.get("whole.2")}`);
+  assert.deepEqual([whole2.pageIndex, whole2.lineRange], [1, [0, 0]]);
+});
+
+/* ------------------- the two numbers a whole-page bagian's page comes from */
+
+/**
+ * TINY_TEMPLATE with one whole-page bagian DELETED by this order, the way an
+ * operator deletes one. Resolved through the real resolver rather than written
+ * by hand: the whole point is what the script does with a form that is no
+ * longer the compile-time constant, and a hand-built fixture would pin it
+ * against a shape nothing in production produces.
+ */
+function withoutWholeOne() {
+  const overlay = {
+    ...emptyOverlay(TINY_TEMPLATE),
+    slots: { "whole.1": { removed: true } },
+  };
+  assertOverlay(overlay);
+  return resolveTemplate(TINY_TEMPLATE, overlay);
+}
+
+test("a deleted whole-page sibling does not slide the survivor onto its page", async () => {
+  // DEFECT J. `searchRound` derived each whole-page slot's position with a
+  // running `taken` counter over the section's fillable slots, keyed by
+  // docType. `wholePageProposals` in src/app/api/propose/handler.ts stopped
+  // doing exactly that in 185babd and the script did not follow.
+  //
+  // Delete `whole.1` for one order and the counter hands `whole.2` position 0,
+  // which is the FIRST page of that type -- the page `whole.2` is not, and
+  // quite possibly the page a confirmed crop of `whole.1` was cut from before
+  // the operator removed the bagian. Nothing throws, the packet opens, and it
+  // carries one picture under two headings. The declared `pageOrdinal` is 1 and
+  // survives the deletion.
+  const template = withoutWholeOne();
+  // The premise, stated rather than assumed: one fillable whole-page bagian is
+  // left in that judul and it is the SECOND page's.
+  assert.deepEqual(
+    template.sections[0].slots
+      .filter((slot) => slot.fillable)
+      .map((slot) => [slot.key, slot.pageOrdinal]),
+    [["whole.2", 1]],
+  );
+
+  const { zones, reasons } = await searchRound({
+    template,
+    byType: new Map([
+      ["BAPermintaan", [0, 1]],
+      ["KB", [2]],
+    ]),
+    pages: [0, 1, 2].map((i) => fakePage(i)),
+    locatePool: async (questions) =>
+      new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+  });
+
+  const whole2 = zones.find((zone) => zone.key === "whole.2");
+  assert.ok(whole2, `whole.2 was not filled: ${reasons.get("whole.2")}`);
+  assert.equal(
+    whole2.pageIndex,
+    1,
+    "whole.2 must still take the SECOND page of its type, not the one its " +
+      "deleted sibling would have held",
+  );
+});
+
+test("an earlier round's whole-page sibling still discounts the declared ordinal", async () => {
+  /*
+   * THE SECOND NUMBER, AND WHY BOTH EXIST.
+   *
+   * `pageOrdinal` says which page OF ITS TYPE the bagian is: a fixed fact about
+   * the form, which is why the test above can delete a sibling without moving
+   * it. `searchRound` cannot use it raw, because a tambahan round is handed
+   * ONLY the pages that round supplied: `whole.2` is the second BA page of the
+   * ORDER, and the tambahan's first BA page is what it has to take.
+   *
+   * So the position is the declared ordinal DISCOUNTED by the same-type
+   * siblings an earlier round already satisfied. The route needs no such
+   * discount -- it is always offered the whole run -- which is the one place
+   * these two readers legitimately differ.
+   *
+   * Three whole-page bagian, so the two numbers are visibly different: with
+   * `whole.1` settled, `whole.2` and `whole.3` want ordinals 1 and 2 and must
+   * take this round's pages 0 and 1.
+   */
+  const template = {
+    ...TINY_TEMPLATE,
+    sections: [
+      {
+        ...TINY_TEMPLATE.sections[0],
+        slots: [
+          ...TINY_TEMPLATE.sections[0].slots,
+          {
+            key: "whole.3",
+            label: "Whole 3",
+            docType: "BAPermintaan",
+            ask: { label: "Whole 3", hint: "the third whole request page" },
+            fillable: true,
+            pageOrdinal: 2,
+          },
+        ],
+      },
+      TINY_TEMPLATE.sections[1],
+    ],
+  };
+
+  const { zones, reasons } = await searchRound({
+    template,
+    // The whole ORDER's classification, as it stands after the tambahan: three
+    // BA pages, of which round 1 held only page 0.
+    byType: new Map([["BAPermintaan", [0, 7, 8]]]),
+    // ...but this round supplies only the tambahan's own two pages.
+    pages: [7, 8].map((i) => fakePage(i, "tambahan.pdf")),
+    satisfied: new Set(["whole.1"]),
+    locatePool: async (questions) =>
+      new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+  });
+
+  const byKey = new Map(zones.map((zone) => [zone.key, zone.pageIndex]));
+  assert.equal(
+    byKey.get("whole.2"),
+    7,
+    `whole.2 must take the tambahan's first BA page: ${reasons.get("whole.2")}`,
+  );
+  assert.equal(
+    byKey.get("whole.3"),
+    8,
+    `whole.3 must take the tambahan's second BA page: ${reasons.get("whole.3")}`,
+  );
+});
+
+test("a fillable whole-page bagian with no pageOrdinal is a template bug, and throws", async () => {
+  // NOT A RUNTIME CONDITION AND NOT A FALLBACK, for the reason the route gives
+  // in `wholePageProposals`: counting siblings to fill the gap is the very
+  // derivation the declared ordinal replaced, so a fallback would reinstate the
+  // defect above quietly, in precisely the orders that edited their form. Both
+  // readers of a whole-page bagian's page now say the same thing about a
+  // template that does not declare one.
+  const template = {
+    ...TINY_TEMPLATE,
+    sections: [
+      {
+        ...TINY_TEMPLATE.sections[0],
+        slots: TINY_TEMPLATE.sections[0].slots.map((slot) =>
+          slot.key === "whole.2"
+            ? { ...slot, pageOrdinal: undefined }
+            : slot,
+        ),
+      },
+      TINY_TEMPLATE.sections[1],
+    ],
+  };
+
+  await assert.rejects(
+    () =>
+      searchRound({
+        template,
+        byType: new Map([["BAPermintaan", [0, 1]]]),
+        pages: [0, 1].map((i) => fakePage(i)),
+        locatePool: async (questions) =>
+          new Map(questions.map((q) => [q.key, { ok: true, result: null }])),
+      }),
+    /whole\.2: pageOrdinal is required/,
+  );
 });
 
 test("proposalsFrom carries the stage's own run-global pages and citation", () => {

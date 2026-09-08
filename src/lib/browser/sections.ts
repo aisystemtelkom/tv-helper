@@ -76,7 +76,20 @@ export type SectionEdit =
   /** One place up or down the packet, past the next VISIBLE judul. */
   | { tag: "move-section"; id: NodeId; by: -1 | 1 }
   /** The judul stops being part of this order, and its bagian go with it. */
-  | { tag: "remove-section"; id: NodeId }
+  | {
+      tag: "remove-section";
+      id: NodeId;
+      /**
+       * HOW MANY ZONE-CARRYING POTONGAN THE OPERATOR AGREED TO LOSE.
+       *
+       * Present means a person was shown a figure and said yes to it, so the
+       * removal is refused if the STORED order would drop more than that.
+       * Absent means nobody was asked -- which is `sectionRemovalCost`'s own
+       * call, made to compute the figure in the first place -- and is a
+       * different statement from a zero. See `removeSection`.
+       */
+      droppingCaptures?: number;
+    }
   /** A base judul brought back, its bagian re-seeded as belum dicari. */
   | { tag: "restore-section"; id: NodeId }
   /** A judul this order has and the form does not, typed by a person. */
@@ -87,6 +100,57 @@ export type SectionEdit =
   | { tag: "accept-proposal"; id: NodeId }
   /** A person ruling a usulan out. It ceases to exist. */
   | { tag: "reject-proposal"; id: NodeId };
+
+/**
+ * A judul removal that would cost MORE than the operator was asked about.
+ *
+ * ## The gap this closes is minutes wide and is nobody's mistake
+ *
+ * `sectionRemovalCost` computes the figure against the `BrowserRun` REACT IS
+ * HOLDING. `editSections` re-reads inside the run lock and applies the edit to
+ * whatever is STORED, which is the entire point of an edit being a value: an
+ * ingest holds that lock for minutes over a 151-page document and a Proses
+ * behind it can attach a potongan to any judul while the dialog is on screen.
+ *
+ * The visible shape is worse than a wrong number. `judul.tsx` skips the
+ * confirmation ENTIRELY when the count is zero, so a judul that gained a
+ * confirmed crop during a long ingest is deleted on one press with no question
+ * asked. And every net downstream reports success: the revision is current,
+ * every page is carried, and `removing` names the very captures being dropped,
+ * so `CaptureLossError` is SATISFIED BY THE WRITE ITSELF. It is the operator's
+ * consent that went stale, and consent is the one thing storage cannot check.
+ *
+ * ## Named, so the shell can say it in Bahasa
+ *
+ * Read off `error.name` exactly as `saveFault` in `operator-app.tsx` reads the
+ * storage refusals. An `OverlayError` here would fall through to that
+ * function's generic sentence, which blames the device's storage for a
+ * refusal that is about a number changing.
+ *
+ * A SUBCLASS of `OverlayError` rather than a sibling, so every existing
+ * `instanceof OverlayError` boundary -- including a route answering 400 rather
+ * than 500 -- keeps working unchanged.
+ */
+export class CaptureCountChangedError extends OverlayError {
+  /** The figure the operator agreed to, as the screen printed it. */
+  readonly agreed: number;
+  /** What the stored order would actually drop. */
+  readonly held: number;
+
+  constructor(id: NodeId, agreed: number, held: number) {
+    super(
+      `remove-section "${id}": the operator agreed to lose ${agreed} potongan ` +
+        `carrying evidence, and this order now holds ${held}. Something ` +
+        "attached evidence to this judul after the question was asked -- most " +
+        "likely a Proses or an ingest that finished while the dialog was " +
+        "open -- so the removal is refused rather than performed. Re-read the " +
+        "run, show the new figure, and ask again.",
+    );
+    this.name = "CaptureCountChangedError";
+    this.agreed = agreed;
+    this.held = held;
+  }
+}
 
 export type SectionEditResult = {
   /** The run as it should now be stored. The SAME OBJECT when nothing changed. */
@@ -281,7 +345,7 @@ function route(
     case "move-section":
       return moveSection(run, edit.id, edit.by, base);
     case "remove-section":
-      return removeSection(run, edit.id, base);
+      return removeSection(run, edit.id, base, edit.droppingCaptures);
     case "restore-section":
       return restoreSection(run, edit.id, base);
     case "add-section":
@@ -487,11 +551,18 @@ function moveSection(
  * is what two tabs or a double click produce. Removing an added judul twice
  * addresses an id that no longer exists anywhere and throws. The asymmetry is
  * the tombstone: one of them is still a thing you can name.
+ *
+ * ## `droppingCaptures` is the operator's consent, carried on the edit
+ *
+ * See `CaptureCountChangedError`. The figure a person was shown is computed
+ * against a run React is holding and this edit is applied to the STORED one, so
+ * the number has to travel with the decision or it cannot be checked at all.
  */
 function removeSection(
   run: BrowserRun,
   id: NodeId,
   base: Template,
+  droppingCaptures?: number,
 ): SectionEditResult {
   assertNodeId(id);
 
@@ -532,6 +603,27 @@ function removeSection(
     if (slot.zone) removing.push(slot.key);
     return false;
   });
+
+  /*
+   * MORE THAN WAS AGREED IS A DIFFERENT DECISION, so it is asked again.
+   *
+   * FEWER IS NOT. A "Bukan ini" landing between the question and the answer
+   * lowers the count, and refusing then would block a removal nobody objects
+   * to: the operator already consented to losing more than this costs.
+   *
+   * ABSENT IS NOT ZERO, and the difference is load-bearing.
+   * `sectionRemovalCost` performs this very edit to COUNT what it would drop,
+   * and reading an omitted figure as a zero would make the guard refuse the
+   * call that exists to feed it -- taking down the review sheet in the act of
+   * deciding how loudly to ask.
+   *
+   * Thrown AFTER `removing` is computed and BEFORE anything is returned: the
+   * function is pure, so nothing is half-applied either way, but the counts in
+   * the message have to be the real ones.
+   */
+  if (droppingCaptures !== undefined && removing.length > droppingCaptures) {
+    throw new CaptureCountChangedError(id, droppingCaptures, removing.length);
+  }
 
   return {
     run: { ...run, overlay, slots },
@@ -693,6 +785,47 @@ function addSection(
 // ---------------------------------------------------------------------------
 
 /**
+ * The judul this order ALREADY captures every page of, if there is one.
+ *
+ * ## Why anything asks this
+ *
+ * "Cari judul lagi" puts the same question to the same berkas and gets the same
+ * answer. Discovery is stateless -- it re-reads the pages and names every
+ * heading printed on them -- and it has never seen `overlay.added`, which is
+ * where a heading goes the moment somebody accepts it. So the second pass
+ * re-proposes what the operator already adopted, and accepting the repeat files
+ * THE SAME PAGES a second time under a second heading: the packet then carries
+ * one picture twice, in two places, reading as more evidence rather than as the
+ * same evidence.
+ *
+ * ## FULLY CLAIMED, NOT OVERLAPPING, and the narrowness is the point
+ *
+ * A span sharing one page with an accepted judul and adding three of its own is
+ * a DIFFERENT finding about the document -- a re-segmentation the operator may
+ * well want, and the operator is the only one who can tell that from a
+ * duplicate. Refusing on any overlap would silently delete headings nobody has
+ * ruled on. The duplicate this guards is the exact repeat, which is precisely
+ * what asking twice produces.
+ *
+ * Only `pages` is consulted, so this sees judul that came from a usulan and not
+ * ones the operator TYPED: `add-section` claims no pages, because it was not
+ * read off anything. That is correct rather than a gap -- a typed heading makes
+ * no claim about a page, so it cannot be claiming these.
+ */
+function fullyClaimedBy(
+  added: readonly AddedSection[],
+  pages: readonly number[],
+): AddedSection | null {
+  if (pages.length === 0) return null;
+  for (const section of added) {
+    if (section.pages === undefined || section.pages.length === 0) continue;
+    const held = new Set(section.pages);
+    if (pages.every((page) => held.has(page))) return section;
+  }
+  return null;
+}
+
+/**
  * What discovery read out of ONE berkas.
  *
  * REPLACES that berkas's entries rather than appending to them, because asking
@@ -733,10 +866,29 @@ function recordProposals(
     }
   }
 
+  /*
+   * A HEADING THE OPERATOR ALREADY ADOPTED IS NOT A DECISION OWED, so it never
+   * reaches the panel. See `fullyClaimedBy`: asking a berkas twice re-proposes
+   * everything already accepted out of it, and the amber count on the usulan
+   * panel would then stand over work that is finished. `--mark` stops being
+   * read the moment it appears over nothing.
+   *
+   * DROPPED, NOT REFUSED. The reply is otherwise perfectly good, and one
+   * repeated heading is no reason to throw away the three new ones beside it --
+   * the same line `discoverSections` draws when it files one entry in
+   * `unusable` and keeps the rest.
+   *
+   * `acceptProposal` checks this too, and that is not redundant: a usulan filed
+   * BEFORE the accept is already stored, and nothing re-screens it.
+   */
+  const filed = sections.filter(
+    (section) => fullyClaimedBy(run.overlay.added, section.fromPages) === null,
+  );
+
   const overlay = copyOverlay(run.overlay);
   overlay.proposed = [
     ...run.overlay.proposed.filter((entry) => entry.fromSourceId !== sourceId),
-    ...sections,
+    ...filed,
   ];
 
   return {
@@ -804,6 +956,23 @@ function acceptProposal(
     throw new OverlayError(
       `accept-proposal: usulan "${id}" names no pages, so there is nothing to ` +
         "capture",
+    );
+  }
+
+  // THE SAME PAGES, UNDER A SECOND HEADING, IS ONE PICTURE FILED TWICE. See
+  // `fullyClaimedBy` for how a usulan gets to be a repeat of a judul that is
+  // already in the packet, and why the test is "every page of it" rather than
+  // "any page of it".
+  const alreadyHeld = fullyClaimedBy(run.overlay.added, proposal.fromPages);
+  if (alreadyHeld) {
+    throw new OverlayError(
+      `accept-proposal: usulan "${id}" covers page(s) ` +
+        `${proposal.fromPages.join(", ")}, which the judul ` +
+        `"${alreadyHeld.title}" in this order already captures. Accepting it ` +
+        "would file the same pages a second time under a second heading, so " +
+        "the packet would carry one picture twice and read as more evidence " +
+        'than it holds. Rule it out with "Bukan ini", or remove the judul ' +
+        "that holds those pages first.",
     );
   }
 

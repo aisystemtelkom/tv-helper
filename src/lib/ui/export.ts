@@ -163,6 +163,42 @@ export type ExportTally = {
   slotsPartial: number;
   slotsBlank: number;
   /**
+   * THE THREE WAYS A BAGIAN ENDS UP BLANK, WHICH ARE THREE DIFFERENT FACTS.
+   *
+   * `slotsBlank` alone was printed on the export screen as "n terbit kosong
+   * atas keputusan Anda" -- n bagian ship empty BY YOUR DECISION -- and it
+   * counted bagian the SEARCH FAILED on as well. Those are opposite things in
+   * this product's own vocabulary: `sengaja dikosongkan` means the operator
+   * decided to ship it empty, `tidak ditemukan` means we looked and did not
+   * find it. Fusing them credits the operator with a decision they never made,
+   * on the last screen anybody reads before a validator signs, which is this
+   * project's named failure class wearing a summary line.
+   *
+   * SPLIT HERE RATHER THAN ON THE SCREEN, because this is the only place every
+   * capture of every slot is visible. The obvious screen-side derivation is
+   * `plan.empty[].status`, and it re-tells the same lie in a new shape: that
+   * field is `placed[0]?.state.status`, so a bagian holding one `unfilled`
+   * capture and one `outstanding` capture reports whichever happens to be
+   * first. Each of these three reads EVERY capture's standing.
+   *
+   * They partition `slotsBlank`: byChoice + notFound + other === slotsBlank.
+   */
+  /** Every capture stands `unfilled`. The operator decided, on the record. */
+  slotsBlankByChoice: number;
+  /** Every capture stands `outstanding`. Searched, and not found. */
+  slotsBlankNotFound: number;
+  /**
+   * Neither of the above: a bagian carrying BOTH kinds of capture, one holding
+   * a capture that blocks the export outright, or one the run holds no state
+   * for at all.
+   *
+   * On a run that is actually exportable this can only be the mixture. Nothing
+   * else survives `blockingItems`: a fillable slot with no captures raises
+   * `pending`, and a `proposed`, `pending` or `lost` capture raises its own
+   * kind. So the export screen may name it as a mixture, and only there.
+   */
+  slotsBlankOther: number;
+  /**
    * Captures the run HOLDS on fillable slots, which is as close to "required"
    * as anything can now get: nothing declares a capture count, so a picture is
    * owed only once something has found one.
@@ -232,6 +268,9 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
     slotsComplete: 0,
     slotsPartial: 0,
     slotsBlank: 0,
+    slotsBlankByChoice: 0,
+    slotsBlankNotFound: 0,
+    slotsBlankOther: 0,
     capturesHeld: 0,
     capturesShipping: 0,
     capturesExtra: 0,
@@ -324,7 +363,25 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
         // says how much of that "as far as anything knows" was ever tested.
         if (ships > 0 && ships === placed.length) tally.slotsComplete += 1;
         else if (ships > 0) tally.slotsPartial += 1;
-        else tally.slotsBlank += 1;
+        else {
+          tally.slotsBlank += 1;
+          // READ OFF EVERY CAPTURE'S STANDING, never off the first one's
+          // status. See `slotsBlankByChoice`: the whole point of the split is
+          // that a bagian can hold one capture the operator wrote off and
+          // another the search failed on, and calling that either name alone
+          // is the sentence this fixes.
+          //
+          // A slot the run holds NO state for reaches the `other` arm through
+          // the length check rather than through `every`, which answers true
+          // for an empty list and would file "nothing has ever happened here"
+          // under "the operator decided".
+          if (captures.length === 0) tally.slotsBlankOther += 1;
+          else if (captures.every((c) => c.standing === "unfilled")) {
+            tally.slotsBlankByChoice += 1;
+          } else if (captures.every((c) => c.standing === "outstanding")) {
+            tally.slotsBlankNotFound += 1;
+          } else tally.slotsBlankOther += 1;
+        }
       } else {
         tally.capturesExtra += ships;
       }

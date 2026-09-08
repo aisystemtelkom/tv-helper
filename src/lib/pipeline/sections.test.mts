@@ -256,6 +256,80 @@ test("a span whose first page has no OCR lines is dropped", async () => {
   assert.match(found.unusable[0].reason, /no recognised lines/);
 });
 
+test("a span with a lineless page in the MIDDLE is dropped too", async () => {
+  /*
+   * THE GUARD USED TO READ ONLY `pages[entry.fromPage]`, and the usulan it let
+   * through was permanently unacceptable rather than merely wrong.
+   *
+   * `acceptProposal` builds a whole-page zone for EVERY page of the span and
+   * `wholePageZone` refuses ANY lineless one, so a span like this survived
+   * discovery, reached the panel looking exactly like a good usulan, and threw
+   * on Terima. The operator's only remaining answer was "Bukan ini" for a
+   * heading that really is printed on page 0 -- a refusal with no remedy on
+   * it, which is worse than never having offered the row.
+   *
+   * The heading itself is fine here: page 0 carries it and the citation checks
+   * out. It is page 1, in the middle of the span, that has no text.
+   */
+  const withBlankInside = [
+    page(0, ["BERITA ACARA PERMINTAAN ORDER", "Nomor: LOP999001"]),
+    // A drawing, or a stamped signature sheet: real ink, no recognised text.
+    page(1, []),
+    page(2, ["Lampiran daftar layanan", "SID 1209990001"]),
+  ];
+  const { ask } = asking({
+    sections: [
+      {
+        title: "BERITA ACARA PERMINTAAN ORDER",
+        fromPage: 0,
+        toPage: 2,
+        titleLines: [0, 0],
+      },
+    ],
+  });
+
+  const found = await discoverSections(withBlankInside, ask);
+
+  assert.equal(
+    found.sections.length,
+    0,
+    "a span acceptProposal cannot accept must never be offered as a usulan",
+  );
+  assert.equal(found.unusable.length, 1);
+  assert.match(found.unusable[0].reason, /page 1 .*no recognised lines/);
+});
+
+test("the whole-span check runs AFTER the bounds check, so no index is invented", async () => {
+  /*
+   * ORDERING, AS A TEST. Walking the span before `toPage > last` is refused
+   * would read `pages[9]` on a three-page berkas: `undefined.lines` throws,
+   * turning a reply this stage is supposed to REFUSE INFORMATIVELY into a
+   * `TypeError` that takes down the whole discovery call and the three good
+   * usulan alongside it.
+   */
+  const { ask } = asking({
+    sections: [
+      {
+        title: "BERITA ACARA PERMINTAAN ORDER",
+        fromPage: 0,
+        toPage: 9,
+        titleLines: [0, 0],
+      },
+      { title: "SURAT PENUNJUKAN", fromPage: 2, toPage: 2, titleLines: [0, 0] },
+    ],
+  });
+
+  const found = await discoverSections(BERKAS, ask);
+
+  assert.equal(found.unusable.length, 1);
+  assert.match(found.unusable[0].reason, /this berkas has 3 page\(s\)/);
+  // And the good one beside it is untouched.
+  assert.deepEqual(
+    found.sections.map((s) => s.title),
+    ["SURAT PENUNJUKAN"],
+  );
+});
+
 test("a reversed span and a span past the last page are refused", async () => {
   const { ask } = asking({
     sections: [

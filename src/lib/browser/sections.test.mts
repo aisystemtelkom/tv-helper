@@ -431,6 +431,116 @@ test("removing a judul that is not in this order is refused, not ignored", () =>
 });
 
 // ---------------------------------------------------------------------------
+// 3b. The number the operator agreed to lose is the number that may be lost
+// ---------------------------------------------------------------------------
+
+test("remove-section REFUSES when the stored order would drop more potongan than were agreed", () => {
+  /*
+   * THE CONFIRMATION IS COMPUTED FROM ONE RUN AND APPLIED TO ANOTHER, and that
+   * gap is minutes wide.
+   *
+   * `sectionRemovalCost` runs against the `BrowserRun` React is holding.
+   * `editSections` re-reads inside the run lock and applies the edit to
+   * whatever is STORED -- which is the whole point of an edit being a value,
+   * and is also what makes the count stale. `ingestDocument` advances the
+   * revision once per page across a 151-page document, and a Proses behind it
+   * can attach potongan to any judul while the operator is reading the dialog.
+   *
+   * The visible shape on screen: `judul.tsx` skips the dialog entirely when
+   * `cost.captures === 0`, so a judul that gained a confirmed crop during a
+   * long ingest is deleted on one press, with no question asked, taking
+   * evidence the operator was never told about. Everything downstream reports
+   * success -- the revision is current, every page is carried, and `removing`
+   * names the very captures being dropped, so `CaptureLossError` is satisfied
+   * BY THE WRITE ITSELF.
+   *
+   * So the agreed number rides on the edit. Losing FEWER than agreed is fine
+   * (the operator already said yes to more); losing MORE has to be asked again.
+   */
+  const run = runWithEvidence(runId("remove-stale-count"));
+
+  // What the stored order actually holds under `kb`: two zone-carrying
+  // captures, one of them a discovered lanjutan.
+  const honest = applySectionEdit(run, { tag: "remove-section", id: "kb" });
+  assert.deepEqual(honest.removing.slice().sort(), ["kb.nomor", "kb.nomor#2"]);
+
+  // The press that asked nothing, because the screen's copy of the run had no
+  // potongan under this judul yet.
+  assert.throws(
+    () =>
+      applySectionEdit(run, {
+        tag: "remove-section",
+        id: "kb",
+        droppingCaptures: 0,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OverlayError);
+      // BOTH COUNTS, because a refusal that names only one of them cannot be
+      // turned into a sentence telling the operator what changed.
+      assert.match(error.message, /\b0\b/);
+      assert.match(error.message, /\b2\b/);
+      // A distinct name, so the shell can print a Bahasa sentence for it
+      // rather than falling through to "penyimpanan menolak tulisan terakhir",
+      // which names the wrong cause.
+      assert.equal(error.name, "CaptureCountChangedError");
+      return true;
+    },
+  );
+
+  // Nothing half-applied: the judul is still in the packet with its evidence.
+  assert.ok(renderedIds(run).includes("kb"));
+  assert.ok(run.slots.some((slot) => slot.key === "kb.nomor#2"));
+});
+
+test("the agreed number lets the removal through, and so does a larger one", () => {
+  const run = runWithEvidence(runId("remove-agreed-count"));
+
+  const agreed = applySectionEdit(run, {
+    tag: "remove-section",
+    id: "kb",
+    droppingCaptures: 2,
+  });
+  assert.deepEqual(agreed.removing.slice().sort(), ["kb.nomor", "kb.nomor#2"]);
+  assert.equal(renderedIds(agreed.run).includes("kb"), false);
+
+  // FEWER THAN AGREED IS NOT A REFUSAL. The operator said yes to losing three;
+  // losing two is the same decision with a smaller cost, and stopping them
+  // would refuse a removal nobody objects to -- which happens whenever a
+  // "Bukan ini" lands between the question and the answer.
+  const fewer = applySectionEdit(run, {
+    tag: "remove-section",
+    id: "kb",
+    droppingCaptures: 3,
+  });
+  assert.equal(fewer.removing.length, 2);
+});
+
+test("an omitted count is not a waiver, it is the caller not asking", () => {
+  /*
+   * `sectionRemovalCost` in `src/lib/ui/headings.ts` performs the real edit to
+   * COUNT what it would drop, and that call must not be refused by the guard
+   * it exists to feed. So absent means "no number was agreed", which is a
+   * different statement from "zero were agreed" -- and the screens are the
+   * ones that must pass the figure they showed.
+   */
+  const run = runWithEvidence(runId("remove-no-count"));
+
+  const result = applySectionEdit(run, { tag: "remove-section", id: "kb" });
+  assert.equal(result.removing.length, 2);
+
+  // And zero agreed against zero held is not a refusal either: a judul whose
+  // bagian carry no evidence is exactly the press `judul.tsx` performs with no
+  // dialog, and it must keep working.
+  const empty = applySectionEdit(run, {
+    tag: "remove-section",
+    id: "sp",
+    droppingCaptures: 0,
+  });
+  assert.deepEqual(empty.removing, []);
+  assert.equal(renderedIds(empty.run).includes("sp"), false);
+});
+
+// ---------------------------------------------------------------------------
 // 4. Restoring re-seeds, because a judul with no rows blocks the export
 // ---------------------------------------------------------------------------
 
@@ -713,6 +823,144 @@ test("accept-proposal refuses a page the order does not hold", () => {
     () => applySectionEdit(run, { tag: "accept-proposal", id: PROPOSAL.id }, mintIds()),
     /names page 99/,
   );
+});
+
+test("accept-proposal REFUSES a usulan whose pages a judul already captures", () => {
+  /*
+   * "CARI JUDUL LAGI" ASKS THE SAME QUESTION AND GETS THE SAME ANSWER.
+   *
+   * `record-proposals` replaces one berkas's entries, and discovery is
+   * stateless: it re-reads the whole berkas and names every heading on it,
+   * including the ones the operator has ALREADY ACCEPTED. Those live in
+   * `overlay.added` by then, which discovery has never seen. Accepting the
+   * repeat files the same pages a second time under a second heading -- so the
+   * packet carries the identical picture twice, under two headings, and reads
+   * as more evidence rather than as the same evidence.
+   *
+   * The usulan here is hand-placed rather than re-recorded, because
+   * `record-proposals` now drops it on the way in (see the next test). This is
+   * the backstop under that: a usulan filed BEFORE the accept is already
+   * stored, and nothing re-screens it.
+   */
+  const mint = mintIds();
+  const base = runWithProposal(runId("accept-duplicate"));
+  const accepted = applySectionEdit(
+    base,
+    { tag: "accept-proposal", id: PROPOSAL.id },
+    mint,
+  );
+  const judul = accepted.run.overlay.added[0];
+  assert.deepEqual(judul.pages, [1, 2]);
+
+  const again: ProposedSection = {
+    ...PROPOSAL,
+    id: "u:00000000-0000-4000-8000-0000000000c9",
+  };
+  const stale: BrowserRun = {
+    ...accepted.run,
+    overlay: { ...accepted.run.overlay, proposed: [again] },
+  };
+
+  assert.throws(
+    () => applySectionEdit(stale, { tag: "accept-proposal", id: again.id }, mint),
+    (error: unknown) => {
+      assert.ok(error instanceof OverlayError);
+      // NAMES THE JUDUL THAT ALREADY HOLDS THEM, because "this is a duplicate"
+      // is only actionable if the operator can find the original on the sheet.
+      assert.match(error.message, /Berita Acara Uji Terima/);
+      return true;
+    },
+  );
+
+  // Nothing half-applied: one judul, its two bagian, and the usulan still
+  // sitting there for "Bukan ini".
+  assert.equal(stale.overlay.added.length, 1);
+  assert.equal(stale.overlay.proposed.length, 1);
+});
+
+test("record-proposals drops an incoming usulan whose span is already a judul", () => {
+  /*
+   * THE DECISION WAS ALREADY MADE, so the row is not a decision owed. Showing
+   * it again would put an amber count on the panel for work that is finished,
+   * and `--mark` stops being read the moment it appears over nothing.
+   *
+   * Dropped rather than refused: the reply is otherwise perfectly good, and one
+   * repeated heading is no reason to throw away the three new ones beside it.
+   */
+  const mint = mintIds();
+  const base = runWithProposal(runId("record-duplicate"));
+  const accepted = applySectionEdit(
+    base,
+    { tag: "accept-proposal", id: PROPOSAL.id },
+    mint,
+  );
+
+  const repeat: ProposedSection = {
+    ...PROPOSAL,
+    id: "u:00000000-0000-4000-8000-0000000000d1",
+  };
+  const fresh: ProposedSection = {
+    id: "u:00000000-0000-4000-8000-0000000000d2",
+    title: "SURAT PENUNJUKAN",
+    fromSourceId: "src-a",
+    fromPages: [0],
+    cite: { pageIndex: 0, lineRange: [0, 0] },
+  };
+
+  const recorded = applySectionEdit(accepted.run, {
+    tag: "record-proposals",
+    sourceId: "src-a",
+    sections: [repeat, fresh],
+  });
+
+  assert.deepEqual(
+    recorded.run.overlay.proposed.map((entry) => entry.id),
+    [fresh.id],
+    "a heading the operator already adopted is not a decision owed",
+  );
+  // The cost gate is still set: the question WAS put to this berkas, whatever
+  // survived the screening.
+  assert.equal(recorded.run.sources[0].sectionsAskedFor, true);
+});
+
+test("a usulan that only PARTLY overlaps an accepted judul is still offered", () => {
+  /*
+   * FULLY CLAIMED, NOT OVERLAPPING, and the difference is deliberate. A span
+   * that shares one page with an accepted judul and adds three of its own is a
+   * different finding about the document, and the operator is the one who can
+   * tell a re-segmentation from a duplicate. Refusing it here would silently
+   * delete a heading nobody has ruled on; the duplicate this guard exists for
+   * is the exact repeat, which is what "Cari judul lagi" produces.
+   */
+  const mint = mintIds();
+  const base = runWithProposal(runId("accept-partial"));
+  const accepted = applySectionEdit(
+    base,
+    { tag: "accept-proposal", id: PROPOSAL.id },
+    mint,
+  );
+
+  const wider: ProposedSection = {
+    ...PROPOSAL,
+    id: "u:00000000-0000-4000-8000-0000000000e1",
+    title: "Lampiran daftar layanan",
+    fromPages: [0, 1],
+    cite: { pageIndex: 0, lineRange: [0, 1] },
+  };
+
+  const recorded = applySectionEdit(accepted.run, {
+    tag: "record-proposals",
+    sourceId: "src-a",
+    sections: [wider],
+  });
+  assert.equal(recorded.run.overlay.proposed.length, 1);
+
+  const taken = applySectionEdit(
+    recorded.run,
+    { tag: "accept-proposal", id: wider.id },
+    mint,
+  );
+  assert.equal(taken.run.overlay.added.length, 2);
 });
 
 test("reject-proposal removes it and names nothing", () => {

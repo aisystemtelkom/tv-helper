@@ -308,6 +308,33 @@ export function discoverIds(
 }
 
 /**
+ * HOW MANY HALAMAN A ROUND WILL ACTUALLY BE GIVEN TEXT FOR.
+ *
+ * The search line printed `run.pages.length`, which counts the halaman of a
+ * berkas the operator fenced off with "tanpa AI" -- so the one screen where
+ * they decide whether to fetch another document promised a search over pages
+ * `buildProposeRequest` sends stripped by construction. The operator's own
+ * decision is what made the figure wrong, which is the worst way for a count to
+ * lie: it moves when they act and still reads as the tool's own arithmetic.
+ *
+ * DELIBERATELY THE SAME FENCE, `aiExcludedSources`, AND NOT A SECOND ONE. The
+ * request marks a page `searchable: false` and strips its lines; this counts
+ * the pages that keep them. `ui.test.mts` drives one run through both and
+ * asserts the two agree, because a count that quietly disagrees with the
+ * request it describes is a sentence nobody can check.
+ *
+ * It counts HALAMAN and not berkas: the sentence beside it is "... bisa dicari
+ * di N halaman", and one fenced berkas can be 2 pages or 149.
+ */
+export function searchablePageCount(run: BrowserRun): number {
+  const fenced = aiExcludedSources(run);
+  return run.pages.reduce(
+    (count, page) => (fenced.has(page.sourceId) ? count : count + 1),
+    0,
+  );
+}
+
+/**
  * The request body.
  *
  * `index` IS THE POSITION IN `run.pages`, deliberately re-derived here with

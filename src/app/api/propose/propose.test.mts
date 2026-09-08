@@ -1039,6 +1039,73 @@ test("re-searching only the second SP slot does not hand it the first one's page
   assert.equal(result.proposals[0].zone.pageIndex, 2);
 });
 
+/**
+ * A page the recogniser returned nothing for. Legal on the wire, and it has to
+ * be: `assertWirePages` refuses a page whose lines are malformed and accepts an
+ * empty list, because "this page carries no text" is a fact about a document
+ * (a photograph, a stamped signature sheet, a drawing) and not a caller's
+ * mistake. See `WirePage.searchable`'s note, which says in so many words that
+ * the routes filter on the flag and NEVER on `lines.length`.
+ */
+function blankWirePage(index: number, sourceId: string): WirePage {
+  return { index, sourceId, width: 2480, height: 3507, lines: [] };
+}
+
+test("a whole-page bagian is REFUSED a page with no readable text, never cited at line 0", async () => {
+  // DEFECT C, reproduced before it was fixed by driving the real
+  // `proposeZones`. `wholePageZone` wrote its range from the array length as
+  // `[0, Math.max(0, lines.length - 1)]`, so a page with NO lines came back as
+  // `[0, 0]`: a citation naming line 0 of a page that has no line 0, carried on
+  // a proposal marked `confidence: "high"`.
+  //
+  // That is this project's failure class with nothing left out. The picture is
+  // real, the heading is right, the packet opens, and the sumber under it names
+  // text that does not exist -- so the one thing a validator could use to check
+  // the crop says something no page ever said. It is worse here than anywhere
+  // else in the route because this path makes NO MODEL CALL: nothing is
+  // uncertain, nothing is marked low, and there is no verdict for the operator
+  // to disagree with.
+  //
+  // The page is REFUSED, not patched: `outstanding` (searched, considered and
+  // rejected), which is the same list the "no SP page of that type" branch
+  // uses, so it drives the dokumen tambahan loop and asks for a readable copy.
+  const pages = [
+    wirePage(0, "a", "KB page"),
+    blankWirePage(1, "a"),
+    wirePage(2, "a", "SP page two"),
+  ];
+
+  const result = await proposeZones(
+    { runId: "r", pages, wanted: ["sp.1", "sp.2"] },
+    classifiesSpOnly,
+    IMAGE_TEMPLATE,
+  );
+
+  // NOT PROPOSED AT ALL. A zone here is the defect, whatever its range says.
+  assert.equal(
+    result.proposals.some((proposal) => proposal.key === "sp.1"),
+    false,
+    "a page with no OCR lines has no honest whole-page citation, so it must " +
+      "not be proposed as evidence",
+  );
+
+  const blank = result.outstanding.find((entry) => entry.key === "sp.1");
+  assert.ok(blank, "sp.1 must be reported, not silently dropped from both lists");
+  assert.match(blank.reason, /no readable text/);
+  // SEARCHED, so it belongs in `outstanding` and not in `outOfScope`: a page
+  // WAS considered for this bagian and rejected, which is a negative answer the
+  // tambahan loop can act on. `outOfScope` means nothing looked.
+  assert.deepEqual(result.outOfScope, []);
+
+  // ONE BAD PAGE COSTS ONE BAGIAN. `wholePageProposals` is called from
+  // `proposeZones` with no per-slot catch, so a throw here would turn one blank
+  // page into a failed request for the whole search -- every other bagian lost
+  // to a page that is merely unreadable.
+  const sp2 = result.proposals.find((proposal) => proposal.key === "sp.2");
+  assert.ok(sp2, "sp.2's own page is readable and must still be proposed");
+  assert.equal(sp2.zone.pageIndex, 2);
+});
+
 /* ------------------------------ the DECLARED ordinal, and what is out of scope */
 
 /** The three pages `classifiesSpOnly` labels: KB, then two SP pages. */

@@ -82,7 +82,11 @@ import type {
 import { runFragment, runIdFromHash } from "@/lib/ui/run-address";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
-import type { ExtractedField } from "@/lib/ui/extract";
+import {
+  extractionSignature,
+  usableExtraction,
+  type ExtractionCache,
+} from "@/lib/ui/extract";
 import { useRunTemplate } from "@/lib/ui/use-run-template";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
@@ -264,6 +268,31 @@ function messageOf(problem: unknown): string {
 }
 
 /**
+ * The last resort: a refusal none of the named branches recognised.
+ *
+ * It reads as a disk problem because that is what an unrecognised write
+ * failure usually is, and that is exactly why a caller who knows the write it
+ * asked for could be refused ON PURPOSE has to be able to replace it. See
+ * `SECTION_EDIT_REFUSED`.
+ */
+const STORAGE_REFUSED =
+  "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
+
+/**
+ * ANY refusal of a judul removal that no named guard claimed.
+ *
+ * `removeSectionEdit` sends a ceiling with every removal the operator presses,
+ * so a refusal of one is never a disk problem: something between this screen
+ * and storage declined to perform it, and the reason is always that the stored
+ * order is not what this screen is drawing. It does NOT assert which of those
+ * it was, because an unrecognised error has not said. What it does assert is
+ * the only thing an operator needs and the only thing true in every case:
+ * nothing was deleted, and looking again is the next act.
+ */
+const SECTION_EDIT_REFUSED =
+  "perubahan itu ditolak karena order ini sudah tidak sama dengan yang terlihat di layar. Muat ulang halaman ini, lalu lihat lagi judul itu sebelum memutuskan; tidak ada yang terhapus.";
+
+/**
  * The refusals this storage layer makes ON PURPOSE, each given the sentence an
  * operator can act on.
  *
@@ -272,8 +301,12 @@ function messageOf(problem: unknown): string {
  * rename it, and matching on it keeps this shell working against a runtime
  * that is not the browser one: a test fake raises the same named error without
  * dragging IndexedDB into the process.
+ *
+ * @param unnamed What to say when NONE of the named guards matched. The
+ * default reads as a disk problem, which is wrong for a caller whose write can
+ * be refused deliberately by something that is not storage.
  */
-function saveFault(problem: unknown): Fault {
+function saveFault(problem: unknown, unnamed: string = STORAGE_REFUSED): Fault {
   const name = problem instanceof Error ? problem.name : "";
 
   const because =
@@ -294,9 +327,22 @@ function saveFault(problem: unknown): Fault {
             // than performed. Same remedy, different thing saved.
             name === "SectionLossError"
             ? "penyimpanan menolak tulisan yang akan membuang nama judul yang Anda tulis sendiri. Muat ulang halaman ini, lalu ulangi perubahan terakhir Anda; judul yang tersimpan tetap utuh."
-            : name === "QuotaExceededError"
-              ? "penyimpanan peramban ini penuh. Kosongkan order lama, lalu ulangi keputusan terakhir Anda."
-              : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
+            : // THE FIFTH NET, AND THE ONLY ONE THAT IS NOT STORAGE. A judul
+              // removal carries the number of potongan the operator agreed to
+              // lose (`removeSectionEdit`), because the cost the dialog printed
+              // was read off the run THIS TAB HOLDS while the write lands on
+              // whatever is STORED, and a background ingest moves the second
+              // one for minutes at a time. Every storage guard is satisfied by
+              // that write -- current revision, every page carried, `removing`
+              // computed from the same stored run -- so this is the only thing
+              // standing between a stale screen and evidence a human accepted.
+              // The sentence names the cause rather than the disk, and the
+              // remedy is to LOOK AGAIN, not to repeat the last decision.
+              name === "CaptureCountChangedError"
+              ? "order ini sudah berubah sejak layar ini dibuka, jadi judul itu ternyata memuat lebih banyak potongan daripada yang Anda setujui, dan penghapusannya ditolak. Muat ulang halaman ini, lalu lihat lagi isi judul itu sebelum memutuskan; potongan yang tersimpan tetap utuh."
+              : name === "QuotaExceededError"
+                ? "penyimpanan peramban ini penuh. Kosongkan order lama, lalu ulangi keputusan terakhir Anda."
+                : unnamed;
 
   return {
     origin: "save",
@@ -392,13 +438,22 @@ function Workspace({
    * flicking back to Periksa to check one crop and returning would pay for it
    * again, silently, with nothing on screen suggesting they had.
    *
-   * Keyed by run id so opening a different order does not inherit the last
-   * one's values, which would be a wrong-and-quiet fill on a signed document.
+   * KEYED BY THE RUN ID **AND** BY WHAT THE READING WAS AN ANSWER ABOUT, which
+   * is the whole of `extractionSignature`: the berkas set and their AI fences.
+   *
+   * The run id alone was not enough and the gap was traceable end to end.
+   * Neither `setDocumentAi` nor `removeDocument` invalidated this, so an
+   * operator could read the values, go back and mark a berkas "Tanpa AI" (or
+   * delete it), return, and export a column E and a docx header table filled
+   * from that berkas -- every value carrying a citation that PASSES VALIDATION
+   * and points into the one document the screen promised would not be read.
+   *
+   * `usableExtraction` is what decides, so the comparison lives in one place
+   * next to the request it guards rather than being spelled out at each render
+   * site. A mismatch reads as NOTHING HAS BEEN READ YET: the export screen
+   * asks again and says on screen that it is doing so.
    */
-  const [extracted, setExtracted] = useState<{
-    runId: string;
-    fields: ExtractedField[];
-  } | null>(null);
+  const [extracted, setExtracted] = useState<ExtractionCache | null>(null);
   const [phase, setPhase] = useState<Phase>("ingest");
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [rounds, setRounds] = useState<RoundLog[]>([]);
@@ -684,7 +739,20 @@ function Workspace({
         setPending(new Set());
         setFresh(new Set());
       } catch (problem) {
-        setFault(saveFault(problem));
+        // A SECOND NET UNDER `CaptureCountChangedError`, and it is not
+        // belt-and-braces. That name is asserted in `sections.test.mts` and
+        // read here, which is a string shared across a module boundary by
+        // nothing but agreement; if it is ever renamed, a removal refused on
+        // purpose would otherwise print "the storage on this device refused
+        // the last write", which names the wrong cause on the one screen where
+        // a wrong cause sends an operator to reload instead of to look. Every
+        // named guard in `saveFault` still wins over this.
+        setFault(
+          saveFault(
+            problem,
+            edit.tag === "remove-section" ? SECTION_EDIT_REFUSED : undefined,
+          ),
+        );
         throw problem;
       }
     },
@@ -1886,8 +1954,22 @@ function Workspace({
           <ExportPanel
             run={run}
             onGoToSheet={() => setPhase("sheet")}
-            extracted={extracted?.runId === run.id ? extracted.fields : null}
-            onExtracted={(fields) => setExtracted({ runId: run.id, fields })}
+            extracted={usableExtraction(extracted, run)}
+            /* THE SIGNATURE IS TAKEN AT THE MOMENT THE ANSWER IS FILED, off
+               the run this closure was built over, which is the run the
+               request was built from. A berkas fenced or deleted while the
+               reading was in flight therefore files the answer under the
+               berkas set it actually describes, and `usableExtraction` then
+               declines to serve it against the order as it now stands. Reading
+               the signature after the fact would file a stale answer as
+               current, which is the defect this key exists to close. */
+            onExtracted={(fields) =>
+              setExtracted({
+                runId: run.id,
+                sig: extractionSignature(run),
+                fields,
+              })
+            }
           />
         )}
 

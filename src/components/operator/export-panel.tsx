@@ -155,7 +155,11 @@ import {
   type JenisOrderPage,
 } from "@/lib/pipeline/jenis-order";
 import { cropToDisplayUrl, downloadBytes, revokeUrls } from "@/lib/ui/crops";
-import { fillableValues } from "@/lib/ui/extract";
+import {
+  columnEValues,
+  extractionSignature,
+  fillableValues,
+} from "@/lib/ui/extract";
 import type { ExtractedField } from "@/lib/ui/extract";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type {
@@ -1146,13 +1150,61 @@ export function ExportPanel({
    */
   const [reading, setReading] = useState(false);
   const [readFailed, setReadFailed] = useState<string | null>(null);
-  const asked = useRef(false);
+  /**
+   * WHICH BERKAS SET THE READING WOULD BE ABOUT, and therefore whether the one
+   * already in hand still describes this order.
+   *
+   * `extracted` arrives already filtered by the shell against exactly this
+   * signature, so a null here after a berkas is fenced or deleted means "read
+   * it again", not "the reading failed".
+   */
+  const sig = useMemo(() => extractionSignature(run), [run]);
+  /** The signature the last request was sent for, or null before the first. */
+  const asked = useRef<string | null>(null);
+  /** The request in flight, so a change of berkas set can drop it. */
+  const inFlight = useRef<AbortController | null>(null);
+  /** True while re-reading after the berkas set changed, so the screen says so. */
+  const [again, setAgain] = useState(false);
+
+  /*
+   * ABORTED ON UNMOUNT AND NOWHERE ELSE.
+   *
+   * This used to be the reading effect's own cleanup, and that quietly killed
+   * the request: the effect depends on `run` and on `onExtracted`, both of
+   * which change identity on any parent render, so the FIRST re-render while
+   * the call was in flight ran that cleanup and aborted it. An aborted request
+   * takes neither the success nor the failure branch, so the spinner stayed up
+   * for ever, `asked` was already spent, and column E shipped empty with
+   * nothing on screen suggesting anything had gone wrong.
+   *
+   * A reading should survive a re-render and should not survive the screen
+   * going away, which is what an unmount-only cleanup says.
+   */
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   useEffect(() => {
-    if (extracted || asked.current || run.pages.length === 0) return;
-    asked.current = true;
+    if (extracted) {
+      // THE SHELL ALREADY HOLDS AN ANSWER FOR THIS BERKAS SET, so nothing is
+      // asked -- but the fact is recorded, because it is what makes a LATER
+      // change read as a re-read rather than as a first reading. An operator
+      // who arrives to filled fields and then watches them empty and refill is
+      // owed the sentence saying why, and this screen is otherwise unable to
+      // tell the two situations apart: it did not do the asking.
+      asked.current = sig;
+      return;
+    }
+    if (asked.current === sig || run.pages.length === 0) return;
+    // A previous reading is now about a berkas set this order no longer has.
+    // Dropping it is not an optimisation: its answer would arrive after this
+    // one and overwrite it, filing values mined from a fenced berkas as the
+    // current reading.
+    inFlight.current?.abort();
+    const first = asked.current === null;
+    asked.current = sig;
     const abort = new AbortController();
+    inFlight.current = abort;
     setReading(true);
+    setAgain(!first);
     setReadFailed(null);
     void (async () => {
       try {
@@ -1174,8 +1226,7 @@ export function ExportPanel({
         if (!abort.signal.aborted) setReading(false);
       }
     })();
-    return () => abort.abort();
-  }, [extracted, onExtracted, run]);
+  }, [extracted, onExtracted, run, sig]);
 
   const [state, setState] = useState<
     | { kind: "idle" }
@@ -1248,11 +1299,20 @@ export function ExportPanel({
    * the whole template: `ask`, `docType` and the rest cannot move within an
    * order, and hashing them would only add noise to a comparison whose whole
    * job is to be exact about what changed.
+   *
+   * AND COLUMN E, which the crops and the header between them do not cover.
+   * The reading is re-asked when the berkas set changes, and it can change
+   * while this screen is open: a dokumen tambahan queued on Periksa finishes
+   * here. Without this the workbook in hand would keep column E from a reading
+   * of a berkas set that no longer exists, beside a screen showing the new
+   * one, with no "buat ulang" anywhere. Keys and values rather than the whole
+   * field, because a citation cannot move without its value moving too.
    */
   const stamp = useMemo(
     () =>
       JSON.stringify({
         header,
+        values: (extracted ?? []).map((field) => [field.fieldKey, field.value]),
         headings: template.sections.map((section) => [
           section.id,
           section.title,
@@ -1265,7 +1325,7 @@ export function ExportPanel({
           box: crop.box,
         })),
       }),
-    [header, plan, template],
+    [extracted, header, plan, template],
   );
   // Narrowed once, so the two file slabs can be rendered outside the branch
   // that proves the bytes exist.
@@ -1325,12 +1385,15 @@ export function ExportPanel({
          * they may have corrected any of it. Column E takes the extraction's
          * own values, which is why a conflict (blank value, both spellings
          * recorded) still writes nothing rather than picking a side.
+         *
+         * AND THE CITATION TRAVELS WITH EACH VALUE. This mapping was written
+         * inline here and dropped `source`, so `buildXlsx`'s note-writing
+         * branch never fired in the browser: every cell of the workbook an
+         * operator actually hands over carried no note, while the headless
+         * `pnpm generate` wrote one on each. `columnEValues` owns the mapping
+         * now, where a test can hold it to that.
          */
-        values: (extracted ?? []).map((field) => ({
-          fieldKey: field.fieldKey,
-          value: field.value,
-          ...(field.conflict ? { conflict: field.conflict } : {}),
-        })),
+        values: columnEValues(extracted ?? []),
       });
       // Built, not downloaded. Two files handed over back to back is two
       // programmatic downloads in a row, which a browser blocks after the
@@ -1428,7 +1491,14 @@ export function ExportPanel({
           {reading ? (
             <p className="flex items-center gap-2 text-[0.8125rem] text-ink-2">
               <span className="lt-spinner" aria-hidden="true" />
-              AI sedang membaca nilai dari dokumen.
+              {/* A RE-READ SAYS WHY IT IS HAPPENING. The alternative is the
+                  screen showing the same spinner for two different situations,
+                  one of which means the numbers that were on it a moment ago
+                  came from a berkas this order no longer reads. An operator
+                  who is not told that reads the wait as slowness. */}
+              {again
+                ? "Daftar berkas order ini berubah, jadi nilainya dibaca ulang."
+                : "AI sedang membaca nilai dari dokumen."}
             </p>
           ) : null}
           {readFailed ? (
@@ -1683,15 +1753,58 @@ export function ExportPanel({
               <p className="text-sm">
                 <span className="lt-figure">{tally.slotsComplete}</span> dari{" "}
                 <span className="lt-figure">{tally.fillableSlots}</span> bagian
-                membawa bukti
-                {tally.slotsBlank > 0 ? (
-                  <>
-                    , <span className="lt-figure">{tally.slotsBlank}</span>{" "}
-                    terbit kosong atas keputusan Anda
-                  </>
-                ) : null}
-                .
+                membawa bukti.
               </p>
+              {/* THE BLANKS, SPLIT BY WHY THEY ARE BLANK.
+
+                  This was one number and one clause: "n terbit kosong atas
+                  keputusan Anda", n being every bagian shipping without
+                  evidence. Most of those are bagian the SEARCH FAILED on,
+                  which is not a decision the operator made, and the sentence
+                  credited them with making it -- on the last screen anybody
+                  reads before a validator signs. `sengaja dikosongkan` and
+                  `tidak ditemukan` are different words in this product
+                  precisely because they are different facts.
+
+                  The split is computed in `planExport`, where every capture of
+                  every bagian is visible. The screen must not re-derive it:
+                  `plan.empty[].status` carries only the FIRST capture's status,
+                  so a bagian holding one of each would be filed under whichever
+                  came first and the fused sentence would come back in a new
+                  shape.
+
+                  Only non-zero lines are drawn. Every line in this rail is
+                  subtracted from the page twice, once as the rail and once as
+                  the height `useBarHeight` reserves for it. */}
+              {tally.slotsBlank > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {tally.slotsBlankByChoice > 0 ? (
+                    <li className="text-sm">
+                      <span className="lt-figure">
+                        {tally.slotsBlankByChoice}
+                      </span>{" "}
+                      sengaja dikosongkan atas keputusan Anda.
+                    </li>
+                  ) : null}
+                  {tally.slotsBlankNotFound > 0 ? (
+                    <li className="text-sm">
+                      <span className="lt-figure">
+                        {tally.slotsBlankNotFound}
+                      </span>{" "}
+                      tidak ditemukan di berkas yang ada.
+                    </li>
+                  ) : null}
+                  {/* Reachable ONLY as a mixture here. Nothing else that lands
+                      in `slotsBlankOther` survives `blockingItems`, and this
+                      branch renders only when nothing is blocking. */}
+                  {tally.slotsBlankOther > 0 ? (
+                    <li className="text-sm">
+                      <span className="lt-figure">{tally.slotsBlankOther}</span>{" "}
+                      sebagian tidak ditemukan, sebagian sengaja dikosongkan.
+                    </li>
+                  ) : null}
+                </ul>
+              ) : null}
             </>
           )}
         </div>

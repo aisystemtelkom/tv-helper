@@ -259,21 +259,36 @@ function refuse(
     );
   }
 
-  const first = pages[entry.fromPage];
-
-  // A SPAN WHOSE FIRST PAGE HAS NO OCR LINES IS DROPPED. Accepting one is a
-  // citation of line 0 of a page that has no line 0: `acceptProposal` builds a
-  // whole-page zone per page of the span and writes `lineRange` FROM THE ARRAY
-  // LENGTH, so a lineless page has no honest range to write at all and
-  // `wholePageZone` refuses it -- one page into an accept that has already
-  // begun. Refusing it here means the operator never sees the usulan rather
-  // than meeting an error on the button that accepts it.
-  if (first.lines.length === 0) {
-    return (
-      `page ${entry.fromPage} has no recognised lines, so there is no heading ` +
-      "on it to have transcribed and no honest line range to cite"
-    );
+  /*
+   * A SPAN CARRYING A PAGE WITH NO OCR LINES IS DROPPED -- ANY PAGE OF IT, NOT
+   * JUST THE FIRST, and the difference is a usulan that can never be accepted.
+   *
+   * `acceptProposal` builds a whole-page zone for EVERY page of the span and
+   * writes `lineRange` FROM THE ARRAY LENGTH, so a lineless page has no honest
+   * range at all and `wholePageZone` refuses it -- one page into an accept that
+   * has already begun. Checking only `pages[entry.fromPage]` therefore let a
+   * span with a blank page in the MIDDLE through: it reached the panel looking
+   * like every other usulan, threw on Terima, and left the operator with
+   * "Bukan ini" as the only working answer to a heading that really is printed
+   * on the page. Refusing the whole span here means they never see the row
+   * instead of meeting an error on the button that accepts it.
+   *
+   * AFTER the bounds check above, deliberately: every index walked below is
+   * known to be in range by then, and reading `pages[9]` of a three-page
+   * berkas would throw a `TypeError` out of a function whose whole job is to
+   * refuse informatively -- taking the good usulan beside it down as well.
+   */
+  for (let at = entry.fromPage; at <= entry.toPage; at += 1) {
+    if (pages[at].lines.length > 0) continue;
+    return at === entry.fromPage
+      ? `page ${at} has no recognised lines, so there is no heading on it to ` +
+          "have transcribed and no honest line range to cite"
+      : `page ${at} of this span (pages ${entry.fromPage}-${entry.toPage}) has ` +
+          "no recognised lines, so a whole-page potongan of it would cite " +
+          "line 0 of a page with no line 0";
   }
+
+  const first = pages[entry.fromPage];
 
   const [from, to] = entry.titleLines;
   if (from > to) {

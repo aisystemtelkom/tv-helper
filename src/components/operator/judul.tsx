@@ -58,10 +58,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { NodeId } from "@/lib/forms/overlay";
-import type {
-  HeadingCost,
-  HiddenSection,
-  Provenance,
+import {
+  removalNeedsDialog,
+  removeSectionEdit,
+  type HeadingCost,
+  type HiddenSection,
+  type Provenance,
 } from "@/lib/ui/headings";
 import type { SectionEdit } from "@/lib/ui/runtime";
 
@@ -335,17 +337,35 @@ export function JudulBar({
   const [renaming, setRenaming] = useState(false);
   const [asking, setAsking] = useState(false);
 
+  /*
+   * THE NUMBER THE OPERATOR AGREED TO TRAVELS WITH THE REMOVAL.
+   *
+   * `cost` is arithmetic over the run THIS TAB IS HOLDING; the write lands on
+   * whatever is STORED, which a background ingest advances once per page for
+   * minutes at a time. A judul that held nothing when these keys were drawn can
+   * hold a confirmed potongan by the time this fires, and the branch below
+   * would then skip the dialog entirely and delete the evidence without ever
+   * asking. `removeSectionEdit` sends `cost.captures` as the ceiling so the
+   * engine can refuse the difference; see its own comment for why every
+   * storage guard is satisfied by that write and none of them can catch it.
+   *
+   * ZERO IS SENT, not omitted. "No dialog was shown" is the agreement that
+   * matters most here: they agreed to lose nothing.
+   */
   const remove = () => {
-    void onEdit({ tag: "remove-section", id: section.id })
+    void onEdit(removeSectionEdit(section.id, cost))
       .then(() => {
         setAsking(false);
         // Only a hide that took nothing with it is offered back, because
         // "Kembalikan" restores the heading and never the potongan. Saying so
         // here would be a promise the foot of the sheet cannot keep.
-        if (cost.captures === 0 && !cost.added) onHidden(section);
+        if (!removalNeedsDialog(cost)) onHidden(section);
       })
       // The fault is an Interruption in the sticky header. Leaving the dialog
-      // open over it would hide the only sentence explaining the refusal.
+      // open over it would hide the only sentence explaining the refusal. That
+      // includes the refusal this edit's own ceiling produces: the sentence
+      // says the order changed underneath and asks them to look again, and it
+      // has to be readable without a dialog over it.
       .catch(() => setAsking(false));
   };
 
@@ -401,7 +421,7 @@ export function JudulBar({
         <Btn
           data-flat="true"
           onClick={() => {
-            if (cost.captures > 0 || cost.added) {
+            if (removalNeedsDialog(cost)) {
               setAsking(true);
               return;
             }

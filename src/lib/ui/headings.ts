@@ -23,7 +23,7 @@
  * of a fact the overlay already carries, and the two can disagree.
  */
 
-import { applySectionEdit } from "../browser/sections.ts";
+import { applySectionEdit, type SectionEdit } from "../browser/sections.ts";
 import type { NodeId, SectionPatch } from "../forms/overlay.ts";
 import { AO_TEMPLATE, type SectionDef, type Template } from "../forms/template.ts";
 import type { BrowserRun } from "./runtime.ts";
@@ -87,6 +87,67 @@ export function sectionRemovalCost(
     added: added !== undefined,
     origin: added?.origin ?? null,
   };
+}
+
+/** `remove-section`, narrowed out of the union so the field names are visible. */
+export type RemoveSectionEdit = Extract<SectionEdit, { tag: "remove-section" }>;
+
+/**
+ * The removal to hand the engine, carrying what the operator actually agreed
+ * to.
+ *
+ * ## Why a number travels with the edit at all
+ *
+ * `sectionRemovalCost` is computed from THE RUN THIS TAB IS HOLDING, and
+ * `editSections` applies the edit to WHATEVER IS STORED. The two are the same
+ * object almost always and are not the same object exactly when it matters: a
+ * `ingestDocument` advances the stored revision once per page across minutes,
+ * and discovery appends a lanjutan to a bagian while it goes. So a judul that
+ * held nothing when this screen drew its keys can hold a confirmed potongan by
+ * the time "Hapus judul" is pressed, and the operator is shown NO DIALOG at
+ * all, because the cost the dialog reads said zero.
+ *
+ * The removal then succeeds, the evidence goes, and every guard in storage is
+ * satisfied: the revision is current (the runtime re-reads inside the lock),
+ * every page is carried, and `putRun`'s `removing` opt-in is computed from the
+ * same stored run, so `CaptureLossError` is handed exactly the list it asked
+ * for and has nothing to refuse. The one fact missing from that write is what
+ * the human was told they were spending.
+ *
+ * So the number rides along, and the engine refuses a removal that would drop
+ * more than this. It is a CEILING, not an assertion: fewer is fine, because
+ * fewer means the operator agreed to more than the order turned out to hold.
+ *
+ * ## Zero is a real answer, not a default
+ *
+ * A judul that costs nothing is removed with one press and a toast, which is
+ * deliberate (a confirmation for a reversible act teaches people to click
+ * through the ones that matter). Zero is then precisely the agreement that was
+ * obtained: they agreed to lose no potongan. That is the case the whole defect
+ * is about, so it must be sent rather than omitted.
+ */
+export function removeSectionEdit(
+  id: NodeId,
+  cost: HeadingCost,
+): RemoveSectionEdit {
+  return { tag: "remove-section", id, droppingCaptures: cost.captures };
+}
+
+/**
+ * Does removing this judul have to be confirmed in a dialog?
+ *
+ * The two irreversible losses, and only those: potongan carrying evidence, and
+ * a name a person typed. Everything else is one press and an undo at the foot
+ * of the sheet.
+ *
+ * IT IS THE SAME PREDICATE THE NUMBER IS READ AGAINST. The dialog shows
+ * `cost.captures` and `removeSectionEdit` sends `cost.captures`, so what the
+ * operator was told and what the engine is held to are one value with one
+ * source; there is no arrangement in which the dialog says four and the write
+ * is allowed five.
+ */
+export function removalNeedsDialog(cost: HeadingCost): boolean {
+  return cost.captures > 0 || cost.added;
 }
 
 /** One judul the form declares that this order is not printing. */

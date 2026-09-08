@@ -16,6 +16,8 @@ import { applySectionEdit } from "../browser/sections.ts";
 import {
   emptyOverlay,
   resolveTemplate,
+  type NodeId,
+  type ProposedSection,
   type TemplateOverlay,
 } from "../forms/overlay.ts";
 import {
@@ -45,8 +47,12 @@ import {
 } from "./continuation.ts";
 import {
   buildExtractRequest,
+  columnEValues,
+  extractionSignature,
   fillableValues,
   noteForField,
+  usableExtraction,
+  type ExtractedField,
 } from "./extract.ts";
 import {
   captureLabel,
@@ -62,9 +68,24 @@ import {
 } from "./slots.ts";
 import { blockingItems, planExport } from "./export.ts";
 import {
+  DISCOVER_FENCED_REASON,
+  NO_USULAN_WAITING,
+  PAGES_NOT_IN_JUDUL,
+  REASON_HINT_LABEL,
+  REASON_ORDER,
+  berkasUsulan,
+} from "./outstanding.ts";
+import {
+  buildProposeRequest,
+  discoverIds,
+  searchablePageCount,
+} from "./propose.ts";
+import {
   hiddenSections,
   packetPosition,
   provenanceOf,
+  removalNeedsDialog,
+  removeSectionEdit,
   sectionRemovalCost,
 } from "./headings.ts";
 import {
@@ -1051,6 +1072,142 @@ test("a field nothing looked for does not read as a field that was searched", ()
   assert.notEqual(notFound.text, notSearched.text);
 });
 
+test("fencing a berkas retires the reading that was taken with it", () => {
+  /*
+   * THE DEFECT THIS PINS, traced end to end.
+   *
+   * The shell caches `/api/extract`'s answer so that leaving Berkas and coming
+   * back does not re-bill a reading of every page in the bundle. It was keyed
+   * BY RUN ID ALONE, and neither marking a berkas "Tanpa AI" nor deleting one
+   * invalidated it. So: read the values, go back, fence a berkas, return, and
+   * export. Column E and the docx header table then carry values mined out of
+   * that berkas, each with a citation that PASSES VALIDATION and points into
+   * the one document the screen promised would not be read. The packet opens
+   * fine and a validator signs it.
+   */
+  const fields: ExtractedField[] = [
+    { fieldKey: "cc", value: "BANK CONTOH NUSANTARA", status: "cited", confidence: "high" },
+  ];
+  const cache = { runId: RUN.id, sig: extractionSignature(RUN), fields };
+
+  // The ordinary case, which must keep working or every visit to Berkas pays
+  // for a 29-page reading again.
+  assert.equal(usableExtraction(cache, RUN), fields);
+
+  // "Tanpa AI" on the berkas the value came out of.
+  const fenced: BrowserRun = {
+    ...RUN,
+    sources: [{ ...RUN.sources[0], ai: false }, RUN.sources[1]],
+  };
+  assert.notEqual(extractionSignature(fenced), extractionSignature(RUN));
+  assert.equal(usableExtraction(cache, fenced), null);
+
+  // And the berkas taken out of the order altogether.
+  const removed: BrowserRun = {
+    ...RUN,
+    sources: [RUN.sources[1]],
+    pages: RUN.pages.filter((p) => p.sourceId === "s2"),
+  };
+  assert.equal(usableExtraction(cache, removed), null);
+
+  // Another order's answer was already refused, and still is.
+  assert.equal(usableExtraction(cache, { ...RUN, id: "run-2" }), null);
+});
+
+test("the signature moves for the berkas set and for nothing else", () => {
+  /*
+   * A SIGNATURE THAT MOVES TOO EASILY IS ITS OWN DEFECT. Every change re-bills
+   * a reading of every page in the bundle, and this one is asked automatically
+   * with no button for an operator to not press. Pages arrive one at a time
+   * across minutes of ingest, and a page arriving inside a berkas the order
+   * already had cannot produce a citation into a document nobody may read --
+   * which is the only thing this key exists to stop.
+   */
+  const before = extractionSignature(RUN);
+
+  assert.equal(
+    extractionSignature({ ...RUN, pages: RUN.pages.slice(0, 4) }),
+    before,
+    "a berkas still being read is not a different berkas set",
+  );
+  assert.equal(
+    extractionSignature({ ...RUN, slots: [state("one", "confirmed", true)] }),
+    before,
+    "accepting a potongan says nothing about which berkas may be read",
+  );
+  // ABSENT MEANS DIBACA AI, which is what every order stored before the choice
+  // existed means. Reading `ai` as falsy would retire the reading on every one
+  // of them, and re-bill it, for a fence nobody set.
+  assert.equal(
+    extractionSignature({
+      ...RUN,
+      sources: [{ ...RUN.sources[0], ai: true }, RUN.sources[1]],
+    }),
+    before,
+  );
+});
+
+test("every cell of column E carries the citation behind it", () => {
+  /*
+   * THE DEFECT THIS PINS. The export screen built column E inline and copied
+   * across `fieldKey`, `value` and `conflict` only. `buildXlsx` writes its note
+   * from `value.source`, so that branch never fired in the browser: every cell
+   * of the workbook an operator actually hands over had NO NOTE AT ALL, while
+   * the headless `pnpm generate` wrote one on each. AGENTS.md states the rule
+   * flatly -- a cell note must name the source file and its own page number --
+   * and the deliverable that reaches a validator was the one without the audit
+   * trail. The number in the cell is identical either way, which is why it went
+   * unnoticed.
+   */
+  const values = columnEValues([
+    {
+      fieldKey: "quote",
+      value: "1-70000000001",
+      status: "cited",
+      confidence: "high",
+      source: {
+        pageIndex: 3,
+        lineRange: [12, 14],
+        sourceName: "LOP999001_merged.pdf",
+        pageInDoc: 1,
+      },
+    },
+    // A confabulated citation, which `/api/extract` deliberately does NOT put
+    // in `source`. It must not acquire one on the way to the sheet: a note
+    // pointing at a page the model invented is worse than no note.
+    {
+      fieldKey: "cc",
+      value: "BANK CONTOH NUSANTARA",
+      status: "citation-invalid",
+      confidence: "low",
+      claimed: { pageIndex: 99, from: 1, to: 2 },
+    },
+    // A conflict: blank value, both spellings kept. Carried rather than
+    // dropped, because dropping it would take the conflict with it.
+    {
+      fieldKey: "alamat",
+      value: "",
+      status: "conflict",
+      confidence: "low",
+      conflict: ["Jl. Contoh 1", "Jl. Contoh 1, Jakarta"],
+    },
+  ]);
+
+  const quote = values.find((v) => v.fieldKey === "quote");
+  assert.deepEqual(quote?.source, {
+    pageIndex: 3,
+    lineRange: [12, 14],
+    sourceName: "LOP999001_merged.pdf",
+    pageInDoc: 1,
+  });
+
+  assert.equal(values.find((v) => v.fieldKey === "cc")?.source, undefined);
+
+  const alamat = values.find((v) => v.fieldKey === "alamat");
+  assert.equal(alamat?.value, "");
+  assert.deepEqual(alamat?.conflict, ["Jl. Contoh 1", "Jl. Contoh 1, Jakarta"]);
+});
+
 /* ------------------------------------------------- handing documents over */
 
 /**
@@ -1287,6 +1444,84 @@ test("an orphan carrying no potongan does not stop anything", () => {
   assert.deepEqual(blockingItems(plan), []);
 });
 
+test("a bagian the search failed on is not counted as a decision the operator made", () => {
+  /*
+   * THE SENTENCE THIS PINS. The export screen's ready-to-go summary read
+   * "n dari m bagian membawa bukti, k terbit kosong atas keputusan Anda" --
+   * k ship empty BY YOUR DECISION -- and k was every fillable bagian with no
+   * evidence. Most of those are bagian the SEARCH FAILED on. In this product's
+   * own vocabulary `sengaja dikosongkan` means the operator decided and `tidak
+   * ditemukan` means we looked and did not find it; the line fused them and
+   * credited the operator with a decision they never made, on the last screen
+   * anybody reads before a validator signs.
+   *
+   * THE MIXTURE IS WHY THIS IS COMPUTED IN `planExport` AND NOT ON THE SCREEN.
+   * The obvious screen-side derivation is `plan.empty[].status`, which is only
+   * `placed[0]?.state.status`: `mixed` below holds an `unfilled` capture FIRST
+   * and an `outstanding` one second, so that derivation would file the whole
+   * bagian under "the operator decided" and re-tell the same lie in a new
+   * shape. Each count here reads every capture.
+   */
+  const slot = (key: string, fillable = true): SlotDef => ({
+    key,
+    label: key,
+    docType: null,
+    ask: { label: key, hint: "h" },
+    fillable,
+  });
+  const template: Template = {
+    id: "BLANKS",
+    label: "BLANKS",
+    sections: [
+      section("Kosong", "table", [
+        slot("chosen"),
+        slot("missing"),
+        slot("mixed"),
+        slot("ships"),
+      ]),
+    ],
+    xlsxRows: [],
+    fieldHints: {},
+  };
+
+  const plan = planExport(
+    {
+      ...RUN,
+      slots: [
+        state("chosen", "unfilled"),
+        state("missing", "outstanding"),
+        // Ordered so the FIRST capture is the operator's decision and the
+        // second is the failed search. `plan.empty[].status` reads "unfilled"
+        // here, which is the trap.
+        state("mixed", "unfilled"),
+        state("mixed#2", "outstanding"),
+        state("ships", "confirmed", true),
+      ],
+    },
+    template,
+  );
+
+  const { tally } = plan;
+  assert.equal(tally.slotsBlank, 3);
+  assert.equal(tally.slotsBlankByChoice, 1, "only `chosen` was decided");
+  assert.equal(tally.slotsBlankNotFound, 1, "only `missing` was searched for");
+  assert.equal(tally.slotsBlankOther, 1, "`mixed` is neither, and says so");
+  // A partition, not three overlapping readings: the screen prints all three
+  // and their sum has to be the number of bagian shipping without evidence.
+  assert.equal(
+    tally.slotsBlankByChoice + tally.slotsBlankNotFound + tally.slotsBlankOther,
+    tally.slotsBlank,
+  );
+
+  // And the trap itself, stated as the thing not to re-derive from.
+  assert.equal(plan.empty.find((e) => e.key === "mixed")?.status, "unfilled");
+
+  // Nothing here blocks, so this is exactly the branch the summary renders in:
+  // the counts are printed beside "Siap diekspor", where the fused sentence
+  // was.
+  assert.deepEqual(blockingItems(plan), []);
+});
+
 /* ----------------------------------------------------------------- headings */
 
 /**
@@ -1386,6 +1621,69 @@ test("the cost and the edit are one computation, not two", () => {
     sectionRemovalCost(run, "satu", HEADINGS_BASE).captures,
     removing.length,
   );
+});
+
+test("the removal carries the number the operator was shown, zero included", () => {
+  /*
+   * THE DEFECT THIS PINS, and it is a two-run defect: the cost the dialog reads
+   * is computed against the run REACT IS HOLDING, and `editSections` applies
+   * the edit to whatever is STORED. A background ingest advances the stored one
+   * once per page across minutes, and discovery appends a lanjutan while it
+   * goes. So a judul that held nothing when this screen drew its keys can hold
+   * a confirmed potongan by the time "Hapus judul" is pressed -- and the screen
+   * skips the dialog entirely, because the cost it read said zero.
+   *
+   * Every storage guard is satisfied by that write. The revision is current
+   * (the runtime re-reads inside its own lock), every page is carried, and
+   * `putRun`'s `removing` opt-in is computed from the same stored run, so
+   * `CaptureLossError` is handed exactly the list it asked for and has nothing
+   * to refuse. The only fact missing from the write is what the human was told
+   * they were spending, which is why it now travels on the edit.
+   */
+  const empty = headingsRun(undefined, [state("a", "pending"), state("b", "pending")]);
+  const emptyCost = sectionRemovalCost(empty, "satu", HEADINGS_BASE);
+
+  // The no-dialog press. ZERO IS SENT, not omitted: "nobody asked me anything"
+  // is precisely the agreement to lose nothing, and it is the case the whole
+  // defect is about.
+  assert.equal(removalNeedsDialog(emptyCost), false);
+  assert.deepEqual(removeSectionEdit("satu", emptyCost), {
+    tag: "remove-section",
+    id: "satu",
+    droppingCaptures: 0,
+  });
+
+  // The stored order, which gained two potongan while that screen was drawn.
+  const stored = headingsRun(undefined, [
+    state("a", "confirmed", true),
+    state("a#2", "confirmed", true),
+    state("b", "pending"),
+  ]);
+  assert.throws(
+    () =>
+      applySectionEdit(
+        stored,
+        removeSectionEdit("satu", emptyCost),
+        minter(),
+        HEADINGS_BASE,
+      ),
+    { name: "CaptureCountChangedError" },
+    "a press that asked nothing may not drop potongan somebody accepted",
+  );
+
+  // And the same press made against a screen drawn from the stored order goes
+  // through, dialog and all. A ceiling that refused the honest case would just
+  // be a broken control.
+  const honest = sectionRemovalCost(stored, "satu", HEADINGS_BASE);
+  assert.equal(removalNeedsDialog(honest), true);
+  assert.equal(honest.captures, 2);
+  const done = applySectionEdit(
+    stored,
+    removeSectionEdit("satu", honest),
+    minter(),
+    HEADINGS_BASE,
+  );
+  assert.deepEqual(done.removing.slice().sort(), ["a", "a#2"]);
 });
 
 test("a judul that is already hidden costs nothing to hide again", () => {
@@ -1851,4 +2149,263 @@ test("a chain of three hand-drawn links leaves every link but the last stamped",
   // The chain ran out of berkas rather than out of patience, and the strip
   // says so instead of offering page 0 of the SPLITBA scan.
   assert.equal(nextPageInBerkas(run, 3), null);
+});
+
+/* --------------------------------------- the outstanding block's own claims */
+
+/**
+ * THE SENTENCES AT THE HEAD OF THE LEMBAR PERIKSA, AND WHY THEY GET A SUITE.
+ *
+ * Nothing here crops anything or moves a zone. What these pin is a class of
+ * defect this project keeps meeting in words rather than in pixels: a line that
+ * reads as a finding, is false, and is believed. Five of them shipped at once
+ * on this block, and every one was a claim about WHAT THE TOOL HAD DONE made by
+ * code that could not know -- because `reject-proposal` records nothing, so a
+ * refused usulan is byte for byte one that never existed.
+ *
+ * The runs below are built with the REAL edits (`record-proposals`,
+ * `accept-proposal`, `reject-proposal`), so the three histories a sentence has
+ * to survive are the three an operator actually produces.
+ */
+
+/** A usulan over one berkas, cited to its first page. */
+function usulanFor(
+  id: NodeId,
+  sourceId: string,
+  title: string,
+  pages: number[],
+): ProposedSection {
+  return {
+    id,
+    title,
+    fromSourceId: sourceId,
+    fromPages: pages,
+    cite: { pageIndex: pages[0], lineRange: [0, 0] },
+  };
+}
+
+/**
+ * `RUN`, with lines on every page.
+ *
+ * `accept-proposal` mints a whole-page zone per page and refuses a page with no
+ * lines, so the ACCEPTED arm of these tests cannot be built on the bare
+ * fixture. The text is the document's own voice and therefore fictional, per
+ * the rule in AGENTS.md.
+ */
+function usulanRun(): BrowserRun {
+  return {
+    ...RUN,
+    overlay: emptyOverlay(AO_TEMPLATE),
+    pages: RUN.pages.map((held, at) =>
+      page(held.id, held.sourceId, held.index, [
+        line(0, `KESEPAKATAN BERSAMA ${at}`, { x: 0, y: 0, w: 900, h: 40 }),
+      ]),
+    ),
+  };
+}
+
+/** The berkas the block is talking about, by id. */
+function berkas(run: BrowserRun, id: string) {
+  const held = berkasUsulan(run).find((entry) => entry.id === id);
+  assert.ok(held, `no berkas ${id} in this order`);
+  return held;
+}
+
+function record(
+  run: BrowserRun,
+  sourceId: string,
+  sections: ProposedSection[],
+): BrowserRun {
+  return applySectionEdit(run, { tag: "record-proposals", sourceId, sections })
+    .run;
+}
+
+test("an empty usulan list never claims the AI found nothing", () => {
+  /*
+   * THE DEFECT. The line read "AI tidak menemukan judul di berkas X" whenever
+   * that berkas had no usulan waiting -- including on a berkas whose usulan the
+   * operator had just ruled on, one at a time, seconds earlier. It reported
+   * their own work back to them as a failure of the tool's, at the head of the
+   * screen where they decide whether to go and fetch another document.
+   *
+   * All three histories below end in the same place, and TWO OF THEM ARE
+   * INDISTINGUISHABLE by construction: `reject-proposal` filters the entry out
+   * of `overlay.proposed` and records nothing else at all.
+   */
+  const asked = record(usulanRun(), "s1", []);
+
+  const proposed = record(usulanRun(), "s1", [
+    usulanFor("u:one", "s1", "BERITA ACARA SPLITTING", [0]),
+    usulanFor("u:two", "s1", "LAMPIRAN", [1]),
+  ]);
+  const rejected = ["u:one", "u:two"].reduce(
+    (run, id) => applySectionEdit(run, { tag: "reject-proposal", id }).run,
+    proposed,
+  );
+  // ONE minter across both accepts: a fresh one per call re-issues `u:mint-1`,
+  // and `accept-proposal` refuses a duplicate id rather than letting two judul
+  // share one.
+  const mint = minter();
+  const accepted = ["u:one", "u:two"].reduce(
+    (run, id) => applySectionEdit(run, { tag: "accept-proposal", id }, mint).run,
+    proposed,
+  );
+
+  for (const [name, run] of [
+    ["nothing was ever proposed", asked],
+    ["every usulan was refused", rejected],
+    ["every usulan was accepted", accepted],
+  ] as const) {
+    assert.equal(
+      berkas(run, "s1").usulan.length,
+      0,
+      `${name}: the block draws its empty branch here`,
+    );
+  }
+
+  // So the sentence that branch prints may not report on the search. It states
+  // what is on screen instead, which is true of all three.
+  assert.ok(
+    !NO_USULAN_WAITING.includes("menemukan"),
+    `the empty-list line claims to know what the AI found: "${NO_USULAN_WAITING}"`,
+  );
+  assert.ok(NO_USULAN_WAITING.includes("menunggu keputusan"));
+});
+
+test("halaman under no judul are not reported as halaman nobody proposed", () => {
+  /*
+   * THE SAME ROOT CAUSE ONE LEVEL DOWN. The figure counts this berkas's
+   * halaman that no usulan and no accepted judul covers, and the line called
+   * them "tidak diusulkan jadi judul mana pun" -- which is a statement about a
+   * search. A halaman whose usulan the operator REFUSED lands in exactly this
+   * count and had a judul proposed for it.
+   *
+   * The figure itself is right and is not what changed: rejection is not
+   * recoverable, so there is nothing to subtract. What changed is the claim
+   * made about it.
+   */
+  const proposed = record(usulanRun(), "s1", [
+    usulanFor("u:one", "s1", "BERITA ACARA SPLITTING", [0]),
+  ]);
+  const rejected = applySectionEdit(proposed, {
+    tag: "reject-proposal",
+    id: "u:one",
+  }).run;
+  const accepted = applySectionEdit(
+    proposed,
+    { tag: "accept-proposal", id: "u:one" },
+    minter(),
+  ).run;
+
+  // s1 holds two halaman. One is spoken for while the usulan waits.
+  assert.equal(berkas(proposed, "s1").unclaimed, 1);
+  // Refusing it puts that halaman straight back in the count, with no trace of
+  // the usulan that named it. This is the number the old sentence lied about.
+  assert.equal(berkas(rejected, "s1").unclaimed, 2);
+  // Accepting it must NOT release the halaman: the figure would then grow every
+  // time the operator said yes. `overlay.added` carries the claim now.
+  assert.equal(berkas(accepted, "s1").unclaimed, 1);
+
+  // The other berkas is untouched by any of it.
+  assert.equal(berkas(proposed, "s2").unclaimed, 3);
+
+  assert.ok(
+    !PAGES_NOT_IN_JUDUL.includes("diusulkan"),
+    "the unclaimed-halaman line still claims nobody proposed them: " +
+      `"${PAGES_NOT_IN_JUDUL}"`,
+  );
+});
+
+test("the search line counts the halaman a round will actually be given", () => {
+  /*
+   * IT COUNTED `run.pages.length`, which includes every halaman of a berkas the
+   * operator fenced with "tanpa AI" -- so the sentence promised a search over
+   * pages `buildProposeRequest` strips the text off before sending. Here 2 of
+   * the 5 halaman belong to the fenced berkas.
+   */
+  const run = usulanRun();
+  const fenced: BrowserRun = {
+    ...run,
+    sources: run.sources.map((source) =>
+      source.id === "s1" ? { ...source, ai: false } : source,
+    ),
+  };
+
+  assert.equal(searchablePageCount(run), 5);
+  assert.equal(searchablePageCount(fenced), 3);
+  assert.notEqual(searchablePageCount(fenced), fenced.pages.length);
+
+  // AND IT AGREES WITH THE REQUEST IT DESCRIBES. Two spellings of one fence is
+  // how the sentence and the round start disagreeing about which halaman were
+  // read, which is exactly the thing nobody can check by looking.
+  const sent = buildProposeRequest(fenced, AO_TEMPLATE).pages.filter(
+    (sentPage) => sentPage.searchable !== false,
+  );
+  assert.equal(searchablePageCount(fenced), sent.length);
+
+  // Every berkas fenced: the branch that must not print "bisa dicari di 0
+  // halaman", and must not let the key beside it stamp `tidak ditemukan` over
+  // bagian nothing read a baris of.
+  const all: BrowserRun = {
+    ...run,
+    sources: run.sources.map((source) => ({ ...source, ai: false })),
+  };
+  assert.equal(searchablePageCount(all), 0);
+});
+
+test("Cari judul lagi is down on a berkas the AI may not read", () => {
+  /*
+   * The key ran a whole pass and answered with a sentence about a search nobody
+   * performed: `discoverIds` drops a fenced berkas and NOTHING lifts that, not
+   * even naming it in `again`, which is precisely what this key does. So the
+   * panel disables it on `fenced` and carries the reason on the control.
+   */
+  const asked = record(usulanRun(), "s1", []);
+  const fenced: BrowserRun = {
+    ...asked,
+    sources: asked.sources.map((source) =>
+      source.id === "s1" ? { ...source, ai: false } : source,
+    ),
+  };
+
+  assert.equal(berkas(asked, "s1").fenced, false);
+  assert.equal(berkas(fenced, "s1").fenced, true);
+
+  // The fact that makes the press useless, stated where the panel cannot get it
+  // wrong: asking again for this berkas by name buys nothing.
+  assert.deepEqual(discoverIds(asked, { again: ["s1"] }), ["s1", "s2"]);
+  assert.deepEqual(discoverIds(fenced, { again: ["s1"] }), ["s2"]);
+
+  // A disabled control's reason rides on the control, and it names the fence
+  // in the operator's own words rather than describing a round.
+  assert.ok(DISCOVER_FENCED_REASON.includes("tanpa AI"));
+});
+
+test("the vocabulary panel does not count its own entries in its label", () => {
+  /*
+   * It read "Arti keempat keterangan ini" over FIVE of them: `REASON_ORDER` was
+   * four words long when the label was typed, `emptied` was added, and the
+   * numeral stayed. The panel that explains this product's vocabulary opened by
+   * miscounting the vocabulary.
+   *
+   * The numeral is gone rather than bumped, so this asserts the ABSENCE of any
+   * of them: a count with two spellings goes stale again the next time the list
+   * grows, and it has grown once already.
+   */
+  assert.equal(REASON_ORDER.length, 5);
+  for (const numeral of [
+    "kedua",
+    "ketiga",
+    "keempat",
+    "kelima",
+    "keenam",
+    "empat",
+    "lima",
+  ]) {
+    assert.ok(
+      !REASON_HINT_LABEL.includes(numeral),
+      `the label counts its own entries ("${numeral}"), and that count went ` +
+        `stale once already: "${REASON_HINT_LABEL}"`,
+    );
+  }
 });

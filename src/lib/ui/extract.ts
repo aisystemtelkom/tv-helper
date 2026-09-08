@@ -25,6 +25,7 @@
 // `propose.ts` imports it that way: this module is pure and is driven by
 // `node --test`, which has neither IndexedDB nor a Web Worker.
 import { aiExcludedSources } from "../browser/sources.ts";
+import type { FieldValue } from "../pipeline/fields.ts";
 import type { BrowserRun } from "./runtime.ts";
 
 /** Mirrors `ExtractBody` in `src/app/api/extract/handler.ts`. */
@@ -137,6 +138,82 @@ export function buildExtractRequest(
     }),
     ...(answered.length > 0 ? { answered: [...answered] } : {}),
   };
+}
+
+/**
+ * WHAT AN EXTRACTION IS AN ANSWER ABOUT, as one comparable string.
+ *
+ * ## The failure this exists to close, traced end to end
+ *
+ * The shell caches `/api/extract`'s answer so that flicking between Periksa
+ * and Berkas does not re-bill a reading of every page in the bundle. That
+ * cache was keyed BY RUN ID ALONE, and neither marking a berkas "Tanpa AI" nor
+ * removing one from the order invalidated it. So:
+ *
+ *   1. The operator opens Berkas. The values are read out of every berkas.
+ *   2. They go back, mark one berkas Tanpa AI (or delete it outright).
+ *   3. They return to Berkas and export.
+ *
+ * Column E and the docx header table then ship values mined from that berkas,
+ * each carrying a citation that PASSES VALIDATION and points into the very
+ * document the operator fenced off. The screen says the AI does not look
+ * inside that berkas; the deliverable proves it did. Nothing is broken
+ * anywhere, and a validator signs it.
+ *
+ * ## What is in the signature, and what is deliberately not
+ *
+ * The BERKAS SET AND THEIR FENCES, in stored order, because that is what
+ * `buildExtractRequest` turns into a request: a source that is gone sends no
+ * pages, and a fenced source sends `searchable: false`. Both change the
+ * answer, and both are one press away on another screen.
+ *
+ * The fence is read through `aiExcludedSources` rather than off `source.ai`,
+ * so this and the request it guards cannot disagree about what "fenced" means.
+ * `ai` absent means DIBACA AI, and a hand-rolled `!source.ai` here would
+ * silently re-read every order stored before the choice existed.
+ *
+ * NOT the page count. Ingest appends pages one at a time across minutes, so a
+ * per-page signature would re-bill a 29-page reading on every page of a
+ * dokumen tambahan being read in the background. A run that gains pages inside
+ * a berkas it already had gains detail; it does not gain a wrong citation,
+ * which is what this guard is for.
+ *
+ * NOT the run id. The shell holds that separately, because an answer belonging
+ * to another order is a different mistake with a different remedy.
+ */
+export function extractionSignature(run: BrowserRun): string {
+  const fenced = aiExcludedSources(run);
+  return run.sources
+    .map((source) => `${source.id}:${fenced.has(source.id) ? "0" : "1"}`)
+    .join("|");
+}
+
+/** One reading, remembered with the two facts that say whether it still fits. */
+export type ExtractionCache = {
+  runId: string;
+  /** `extractionSignature` of the run this answer was read out of. */
+  sig: string;
+  fields: ExtractedField[];
+};
+
+/**
+ * The remembered reading, or null when it no longer describes this order.
+ *
+ * THE SIGNATURE IS RECOMPUTED HERE rather than compared by the caller, so
+ * there is exactly one place that decides whether a cached reading still fits
+ * the run in front of it. A caller that compared the wrong two strings would
+ * fail in the quiet direction: it would serve values mined from a berkas the
+ * operator has since fenced off or deleted.
+ *
+ * A MISMATCH IS "NOTHING HAS BEEN READ YET", not "here is something slightly
+ * out of date". The screen re-asks, and says so while it does.
+ */
+export function usableExtraction(
+  cache: ExtractionCache | null,
+  run: BrowserRun,
+): ExtractedField[] | null {
+  if (!cache || cache.runId !== run.id) return null;
+  return cache.sig === extractionSignature(run) ? cache.fields : null;
 }
 
 export async function requestExtraction(
@@ -283,4 +360,40 @@ export function fillableValues(
     out.set(field.fieldKey, field.value);
   }
   return out;
+}
+
+/**
+ * Column E of the workbook, as `buildXlsx` takes it.
+ *
+ * THE CITATION TRAVELS WITH THE VALUE, and it did not. The export screen built
+ * this list inline and copied across `fieldKey`, `value` and `conflict` only,
+ * so `buildXlsx`'s whole note-writing branch (`else if (value?.source)`) was
+ * dead in the browser: EVERY cell of the workbook an operator actually
+ * produces shipped with no note at all, while the headless `pnpm generate`
+ * wrote one on each. AGENTS.md states the rule flatly -- an xlsx cell note
+ * must name the source file and its own page number -- and the deliverable
+ * that reaches a validator was the one without the audit trail.
+ *
+ * It is exactly the wrong-and-quiet shape: the number in the cell is the same
+ * either way, so the missing half is invisible until somebody tries to check
+ * one and finds there is nothing to check it against.
+ *
+ * `source` IS SET ONLY FOR A VALIDATED CITATION. `/api/extract` fills it on
+ * `cited` and on nothing else -- not on `citation-invalid`, where the model
+ * named a place and the place was wrong. So a note written from it never
+ * points a reviewer at a page the model confabulated, and a cell with no note
+ * is a cell with no citation rather than one whose citation was dropped in
+ * transit.
+ *
+ * EVERY FIELD IS CARRIED, blanks included, because `buildXlsx` writes
+ * `value?.value ?? ""` and a conflict entry is deliberately a blank value plus
+ * both spellings. Dropping those here would take the conflict with them.
+ */
+export function columnEValues(fields: readonly ExtractedField[]): FieldValue[] {
+  return fields.map((field) => ({
+    fieldKey: field.fieldKey,
+    value: field.value,
+    ...(field.conflict ? { conflict: field.conflict } : {}),
+    ...(field.source ? { source: field.source } : {}),
+  }));
 }

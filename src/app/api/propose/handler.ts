@@ -268,10 +268,12 @@ export function rankedPoolForSlot(
 }
 
 /**
- * A whole page, as a zone.
+ * A whole page, as a zone, or `null` when the page has no honest citation.
  *
  * `lineRange` covers every line the page has, so the citation the contact
  * sheet renders says so rather than claiming a region.
+ *
+ * ## Two ways a whole-page citation can be untrue, and they end differently
  *
  * THE RANGE IS WRITTEN FROM THE ARRAY LENGTH BUT READ BY LINE NUMBER, which
  * only agrees while `lines[k].i === k`. `parseProposeBody` already ran
@@ -280,11 +282,37 @@ export function rankedPoolForSlot(
  * comparison. Without it a page numbered any other way cites a range that
  * simply names different text than the rectangle covers: nothing throws,
  * `boxForLineRange` is never called for a whole-page capture, and the
- * citation under the picture is quietly wrong.
+ * citation under the picture is quietly wrong. That is a PRODUCER BUG -- no
+ * document can cause it -- so it throws.
+ *
+ * A PAGE WITH NO LINES AT ALL IS A FACT ABOUT THE DOCUMENT, not a bug, and it
+ * returns `null` instead. `Zone.lineRange` is two required numbers, so the
+ * only value available for an empty page is `[0, 0]`: a citation naming line 0
+ * of a page that has no line 0, on a proposal this path marks `confidence:
+ * "high"` because nothing was guessed. Wrong-and-quiet in full: the picture is
+ * real, the heading is right, the packet opens, and the one line a validator
+ * could check the crop against names text no page ever carried.
+ *
+ * `null` RATHER THAN A THROW, and rather than the `NO_LINE_CITATION` sentinel.
+ *
+ *  - Not a throw, because `wholePageProposals` is called from `proposeZones`
+ *    with no per-slot catch: one unreadable page would cost the whole search,
+ *    losing every other bagian to a document that is merely a photograph. The
+ *    caller reports the one bagian `outstanding` and carries on. (The browser's
+ *    twin in `src/lib/browser/sections.ts` DOES throw for the same condition,
+ *    and that is right there: it is one operator edit, in front of the operator,
+ *    and refusing it is the whole answer.)
+ *  - Not `NO_LINE_CITATION` (`src/lib/ui/evidence.ts`), which exists for a
+ *    rectangle A PERSON DRAGGED over unreadable pixels: there is a human behind
+ *    that crop and the sentinel records honestly that no line backs it. Nobody
+ *    drew this one. The route picked the page, so the truthful answer is not
+ *    "here is evidence with no citation" but "this page cannot be offered as
+ *    evidence", which is a page refused rather than a zone weakened.
  */
-function wholePageZone(page: WirePage): Zone {
+function wholePageZone(page: WirePage): Zone | null {
   const last = page.lines.length - 1;
-  if (last >= 0 && page.lines[last].i !== last) {
+  if (last < 0) return null;
+  if (page.lines[last].i !== last) {
     throw new Error(
       `page ${page.index}'s last line is numbered ${page.lines[last].i}, not ` +
         `${last}: a whole-page citation is written from the array length`,
@@ -293,7 +321,7 @@ function wholePageZone(page: WirePage): Zone {
   return {
     pageIndex: page.index,
     box: { x: 0, y: 0, w: page.width, h: page.height },
-    lineRange: [0, Math.max(0, last)],
+    lineRange: [0, last],
   };
 }
 
@@ -315,13 +343,15 @@ function wholePageZone(page: WirePage): Zone {
  * page: plausible wrong evidence is the failure this project is organised
  * against, and an unclassified page is exactly that.
  *
- * WHERE THIS DELIBERATELY DIFFERS FROM `generate.mjs`. There, a slot's
- * position among its section's same-docType siblings counts only the slots
- * being filled THIS ROUND, because a tambahan round searches only the pages
- * the tambahan supplied. This route is always offered the whole run, so the
- * position is the slot's FIXED ordinal instead. Counting only the wanted ones
- * here would hand `sp.2` the very page `sp.1` already holds whenever the
- * operator re-runs the search with `sp.1` confirmed.
+ * WHERE THIS DELIBERATELY DIFFERS FROM `generate.mjs`. Both read the DECLARED
+ * `pageOrdinal` now; what the script additionally does is DISCOUNT it by the
+ * same-docType siblings an earlier round already satisfied, because a tambahan
+ * round is handed only the pages that tambahan supplied and `sp.2` must take
+ * the first SP page in it. This route is always offered the whole run, so
+ * there is nothing to discount and the ordinal is used as it stands. Counting
+ * only the WANTED slots here -- which is what this used to do -- would hand
+ * `sp.2` the very page `sp.1` already holds whenever the operator re-runs the
+ * search with `sp.1` confirmed.
  *
  * ## THE ORDINAL IS READ FROM THE SLOT, NOT COUNTED OFF ITS SIBLINGS
  *
@@ -398,10 +428,32 @@ function wholePageProposals(
       continue;
     }
 
+    // THE PAGE IS REFUSED, THE REQUEST IS NOT. `null` means the recogniser
+    // returned nothing for this page, so there is no line to cite and the whole
+    // point of the citation is that it can be checked. Reported the same way
+    // the "no page of that type" branch above reports its miss: SEARCHED AND
+    // NOT FOUND, which is true (a page was considered and rejected) and which
+    // is what hands the bagian to the dokumen tambahan loop, where a readable
+    // copy of the page is exactly the right thing to ask for.
+    const zone = wholePageZone(page);
+    if (!zone) {
+      for (const key of keys) {
+        outstanding.push({
+          key,
+          reason:
+            `page ${page.index} is the ${slot.docType ?? "matching"} page ` +
+            `${position} of the bundle, but its recogniser returned no ` +
+            "readable text, so a whole-page capture of it would cite a line " +
+            "it does not have",
+        });
+      }
+      continue;
+    }
+
     const [first, ...rest] = keys;
     proposals.push({
       key: first,
-      zone: wholePageZone(page),
+      zone,
       text: page.lines.map((line) => line.text).join("\n"),
       // The classifier answered, not the locator. High because nothing was
       // guessed: the page is taken whole, so there is no extent to be wrong
