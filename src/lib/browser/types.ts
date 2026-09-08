@@ -8,6 +8,7 @@
  * should import from there and never from this file.
  */
 
+import type { TemplateOverlay } from "../forms/overlay.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import type { Zone } from "../pipeline/locate.ts";
 
@@ -100,6 +101,48 @@ export type SlotState = {
   continuationCheckedFor?: string;
 };
 
+/**
+ * A PAGE THIS DEVICE KNOWS IT READ INCOMPLETELY.
+ *
+ * `checkPageCompleteness` compares the recogniser's boxes against the page's
+ * own ink and refuses a page that left a stretch of ink unread, because a page
+ * read short yields a plausible wrong line range, a plausible wrong crop and a
+ * citation a validator signs. That refusal used to end the ingest: one page of
+ * 151 threw, `ingestPdf` stopped, and 150 pages of finished work went with it.
+ *
+ * Measured on the second client bundle, 2026-09-04: 7 of its 150 pages fail
+ * the guard, and the two thresholds have no empty band there to sit in. Passes
+ * run to 5.8% uncovered ink against a 6.0% rule and coverage down to 0.903
+ * against a 0.90 rule, while failures sit at 6.2%, 6.3%, 0.878 and 0.872. So
+ * some of these are a genuine short read (one page returned 20 lines over 48%
+ * of its ink; another returned NOTHING over a page of ink, which is a drawing)
+ * and some are a stamp, a signature or a page frame that the recogniser
+ * correctly declines to transcribe. Nothing in the numbers separates them.
+ *
+ * SO THE PAGE IS KEPT AND SAID OUT LOUD, in the browser only. What is stored
+ * is what was actually read -- real boxes over the part that was transcribed --
+ * plus this record that the rest of it was not. `pnpm generate` still throws,
+ * because a headless run has no operator to tell and writes its deliverable
+ * unreviewed; the browser has one, and every crop is confirmed by hand before
+ * it can be exported, so the operator is the check that the script does not
+ * have. This field is what tells them, on the film strip, on the page plan and
+ * on any crop cut from this page.
+ *
+ * ABSENT MEANS THE PAGE PASSED. It is never written as `false` or as a zeroed
+ * record: a reader must not have to tell a page that passed from a page whose
+ * marker was defaulted.
+ */
+export type PageShortfall = {
+  /** `boxBottomY / inkExtent`, as `checkPageCompleteness` measured it. */
+  inkCoverage: number;
+  /** The longest unread stretch of ink, as a share of the page height. */
+  uncoveredInkRunShare: number;
+  /** How many times the page was read before it was kept short. */
+  attempts: number;
+  /** The guard's own sentences, deployer-facing, one per rule missed. */
+  shortfalls: string[];
+};
+
 export type StoredPage = {
   id: string;
   /** The `BrowserRun.sources` entry this page was rendered from. */
@@ -117,9 +160,57 @@ export type StoredPage = {
   widthPx: number;
   heightPx: number;
   lines: Line[];
+  /** Set only when this page was read incompletely; see `PageShortfall`. */
+  short?: PageShortfall;
 };
 
-export type RunSource = { id: string; name: string; pageCount: number };
+export type RunSource = {
+  id: string;
+  name: string;
+  pageCount: number;
+  /**
+   * THE SHA-256 OF THE DOCUMENT'S BYTES, which is what this order uses to
+   * decide it already has a berkas. See `src/lib/browser/intake.ts` for why
+   * identity is the content and never the file name.
+   *
+   * OPTIONAL, AND ABSENT MEANS UNKNOWN RATHER THAN UNIQUE. A run ingested
+   * before this field existed carries sources with nothing to compare, and
+   * those must never match anything: the alternative is a stored source
+   * matching a fresh file by both having no digest, which would refuse a real
+   * document. `ingestDocument` writes it on every source it stores from here
+   * on, so the gap only ever shrinks.
+   */
+  digest?: string;
+  /**
+   * MAY THE AI PROPOSE ANYTHING OUT OF THIS BERKAS.
+   *
+   * IT DOES NOT MEAN "WAS IT READ", and the distinction is the whole reason
+   * this needs its own sentence. Every berkas is rendered and OCR'd either
+   * way -- that is how an operator can draw an area on it by hand, and how the
+   * film strip can show its pages at all. What this gates is the MODEL:
+   * proposing a zone, ranking a pool, walking a lanjutan, extracting a value.
+   * A berkas with `ai: false` is one the operator reads and the model never
+   * sees.
+   *
+   * ABSENT MEANS YES, which is what every run stored before this field existed
+   * meant. Reading absent as "no" would silently stop searching every order
+   * already on a device, and the operator would meet a bundle full of "tidak
+   * ditemukan" with nothing on screen saying why.
+   */
+  ai?: boolean;
+  /**
+   * HAS DISCOVERY ALREADY BEEN ASKED WHAT JUDUL THIS BERKAS CONTAINS.
+   *
+   * A cost gate and nothing else: pressing Proses twice must not pay for the
+   * same answer twice. Absent means "never asked", which is the honest reading
+   * for every run stored before the question existed.
+   *
+   * It records that the QUESTION WAS PUT, not that the answer was useful. A
+   * berkas that yielded no `ProposedSection` at all is still asked-for -- the
+   * answer was "nothing here", and paying again buys the same sentence.
+   */
+  sectionsAskedFor?: boolean;
+};
 
 export type BrowserRun = {
   id: string;
@@ -193,4 +284,27 @@ export type BrowserRun = {
    * `CaptureLossError`, in the write's own transaction, beside `PageLossError`.
    */
   slots: SlotState[];
+  /**
+   * THIS ORDER'S DIFF AGAINST `AO_TEMPLATE`: every judul and bagian the
+   * operator renamed, hid, reordered or added, and every judul the model has
+   * merely SUGGESTED. See `src/lib/forms/overlay.ts` for why it is a diff and
+   * not a copy of the form.
+   *
+   * REQUIRED, NOT OPTIONAL, AND THAT IS THE POINT. `metaOf` in
+   * `src/lib/browser/runtime.ts` lists a run's small half field by field
+   * precisely so that `tsc` names anything new, and an optional field walks
+   * straight past that: this repo has the scar already, where `StoredPage.short`
+   * was written, stored, and then thrown away on the way back out by a
+   * field-by-field reader that compiled unchanged. A device that had recorded
+   * an operator's renamed heading and then forgot it would print the packet
+   * under the wrong names and look entirely fine doing it.
+   *
+   * A FRESH RUN CARRIES `emptyOverlay(AO_TEMPLATE)`, never `undefined`, and
+   * `resolveTemplate` short-circuits that to the base BY IDENTITY -- so
+   * "required" costs an unedited run nothing, in memory or in behaviour. A
+   * record STORED before this field existed is upgraded to the same thing on
+   * read (`getRun`), never written back there; see the comment at that read for
+   * why a write on read is not a free repair.
+   */
+  overlay: TemplateOverlay;
 };

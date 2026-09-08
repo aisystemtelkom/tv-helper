@@ -1244,6 +1244,7 @@ export function ExportPanel({
     proposed: blocking.filter((item) => item.kind === "proposed"),
     pending: blocking.filter((item) => item.kind === "pending"),
     lost: blocking.filter((item) => item.kind === "lost"),
+    orphan: blocking.filter((item) => item.kind === "orphan"),
   };
   const blocked = blocking.length > 0 || faults.length > 0;
 
@@ -1355,10 +1356,23 @@ export function ExportPanel({
             <p className="lt-figure text-[0.8125rem]">
               {plan.orphans.map((orphan) => orphan.label).join(", ")}
             </p>
-            <p className="text-[0.8125rem] text-ink-2">
-              Bagiannya sudah tidak ada di dokumen validasi. Catat saja sebelum
-              berkasnya dipakai.
-            </p>
+            {/* THE SLAB USED TO END "catat saja sebelum berkasnya dipakai",
+                which read as permission to carry on. A potongan carrying bukti
+                now HOLDS the export, so the sentence has to say which of the
+                two situations this is or it contradicts the key below it. */}
+            {byKind.orphan.length > 0 ? (
+              <p className="text-[0.8125rem] text-ink-2">
+                Bagiannya sudah tidak ada di dokumen validasi.{" "}
+                <span className="lt-figure">{byKind.orphan.length}</span> di
+                antaranya sudah membawa potongan, dan itu menahan pembuatan
+                berkas sampai potongannya dibuang.
+              </p>
+            ) : (
+              <p className="text-[0.8125rem] text-ink-2">
+                Bagiannya sudah tidak ada di dokumen validasi. Catat saja
+                sebelum berkasnya dipakai.
+              </p>
+            )}
           </div>
         </Slab>
       ) : null}
@@ -1584,6 +1598,16 @@ export function ExportPanel({
                   <li className="text-sm text-gap">
                     <span className="lt-figure">{byKind.lost.length}</span>{" "}
                     potongan menunjuk halaman yang sudah tidak ada.
+                  </li>
+                ) : null}
+                {/* A potongan the operator accepted that no longer has a
+                    bagian to be printed in. It stops the export for the same
+                    reason the row above it does: the berkas would open, look
+                    complete, and be missing a bukti somebody already checked. */}
+                {byKind.orphan.length > 0 ? (
+                  <li className="text-sm text-gap">
+                    <span className="lt-figure">{byKind.orphan.length}</span>{" "}
+                    potongan tidak punya tempat di dokumen ini.
                   </li>
                 ) : null}
                 {faults.length > 0 ? (

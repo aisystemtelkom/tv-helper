@@ -3,6 +3,7 @@ import type { Box } from "./render.ts";
 import { boxForLineRange, type Line } from "./geometry.ts";
 import { extractJson } from "./json.ts";
 import type { Ask } from "./classify.ts";
+import type { SlotAsk } from "../forms/template.ts";
 
 export type OcrPage = {
   index: number;
@@ -521,6 +522,18 @@ export function buildLocatePrompt(
   ].join("\n");
 }
 
+/**
+ * `slotLabel` and `hint` STAY LOOSE STRINGS HERE, and every caller in the tree
+ * fills them from a `SlotAsk` (`SlotQuestion.ask` above, or a `SlotDef.ask`
+ * one step further out). They are loose because this function is also driven
+ * straight from the unit suite and from the gate harness with strings that
+ * belong to no template.
+ *
+ * WHAT MUST NEVER BE PASSED IS `SlotDef.label`. That is the operator's and the
+ * docx's name for the bagian, it is renameable per order, and putting it here
+ * would move a prompt AGENTS.md forbids moving without three fresh gate
+ * samples. The type cannot say so at this depth; the callers can, and do.
+ */
 export async function locateSlot(
   slotLabel: string,
   hint: string,
@@ -628,7 +641,8 @@ function resolveAnswer(
 // ---------------------------------------------------------------------------
 
 /**
- * A slot, reduced to the three things a prompt needs to ask about it.
+ * A slot, reduced to the two things a prompt needs to ask about it: an
+ * identity to answer under, and the frozen question itself.
  *
  * `key` rather than `label` is the reply's identity, and that is not a
  * preference. Two slots in `AO_TEMPLATE` are both labelled `TTD Pejabat` and
@@ -636,11 +650,17 @@ function resolveAnswer(
  * prefixed. A reply keyed by label would silently merge two slots' answers,
  * which is the shape this project is organised against -- a deliverable that
  * looks complete carrying evidence for the wrong row.
+ *
+ * THE QUESTION ARRIVES AS A `SlotAsk`, NEVER AS TWO LOOSE STRINGS, and that
+ * is the point of the type. `SlotDef.label` is about to become editable per
+ * order, and a builder that took `label: string` would accept the operator's
+ * rename without complaint and quietly rewrite a prompt AGENTS.md forbids
+ * changing without three fresh gate samples. A `SlotAsk` is the frozen half,
+ * so passing a display string here stops type-checking.
  */
 export type SlotQuestion = {
   key: string;
-  label: string;
-  hint: string;
+  ask: SlotAsk;
 };
 
 /**
@@ -719,8 +739,8 @@ export function buildPoolLocatePrompt(
     .map(
       (slot) =>
         `- key: ${slot.key}\n` +
-        `  field: "${slot.label}"\n` +
-        `  what it means: ${slot.hint}`,
+        `  field: "${slot.ask.label}"\n` +
+        `  what it means: ${slot.ask.hint}`,
     )
     .join("\n");
 
@@ -888,7 +908,7 @@ export async function locateSlots(
       try {
         out.set(slot.key, {
           ok: true,
-          result: await locateSlot(slot.label, slot.hint, pages, ask),
+          result: await locateSlot(slot.ask.label, slot.ask.hint, pages, ask),
         });
       } catch (error) {
         out.set(slot.key, {

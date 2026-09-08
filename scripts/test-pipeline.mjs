@@ -291,9 +291,12 @@ test("locateSlot returns null when the model finds nothing", async () => {
 // asserts that the other six slots came through it intact.
 // ---------------------------------------------------------------------------
 
+// The question arrives as a `SlotAsk`, whole, exactly as `SlotQuestion` now
+// declares it: a display label and a hint as two loose strings is the shape
+// that let a per-order rename rewrite a measured prompt.
 const poolSlots = [
-  { key: "kb.nomor", label: "KB / Nomor", hint: "the contract number" },
-  { key: "kb.tanggal", label: "KB / Tanggal", hint: "the signing date" },
+  { key: "kb.nomor", ask: { label: "KB / Nomor", hint: "the contract number" } },
+  { key: "kb.tanggal", ask: { label: "KB / Tanggal", hint: "the signing date" } },
 ];
 
 test("buildPoolLocatePrompt asks every field BEFORE the pages", () => {
@@ -1353,7 +1356,10 @@ test("buildDocx omits a slotless table section instead of emitting an empty tabl
       {
         id: "T",
         label: "T",
-        sections: [{ title: "Kosong", layout: "table", slots: [] }],
+        sections: [
+          { id: "kosong", title: "Kosong", layout: "table",
+            ask: { title: "Kosong" }, slots: [] },
+        ],
         xlsxRows: [],
       },
       AO_HEADER,
@@ -1754,23 +1760,31 @@ const TINY_TEMPLATE = {
   label: "test",
   sections: [
     {
+      id: "whole-pages",
       title: "Whole pages",
       layout: "images",
+      ask: { title: "Whole pages" },
       slots: [
         { key: "whole.1", label: "Whole 1", docType: "BAPermintaan",
-          hint: "the whole request page", fillable: true },
+          ask: { label: "Whole 1", hint: "the whole request page" },
+          fillable: true, pageOrdinal: 0 },
         { key: "whole.2", label: "Whole 2", docType: "BAPermintaan",
-          hint: "the second whole request page", fillable: true },
+          ask: { label: "Whole 2", hint: "the second whole request page" },
+          fillable: true, pageOrdinal: 1 },
       ],
     },
     {
+      id: "fields",
       title: "Fields",
       layout: "table",
+      ask: { title: "Fields" },
       slots: [
-        { key: "field.one", label: "One", docType: "KB", hint: "a", fillable: true },
-        { key: "field.two", label: "Two", docType: "KB", hint: "b", fillable: true },
-        { key: "field.manual", label: "Manual", docType: null, hint: "c",
-          fillable: false },
+        { key: "field.one", label: "One", docType: "KB",
+          ask: { label: "One", hint: "a" }, fillable: true },
+        { key: "field.two", label: "Two", docType: "KB",
+          ask: { label: "Two", hint: "b" }, fillable: true },
+        { key: "field.manual", label: "Manual", docType: null,
+          ask: { label: "Manual", hint: "c" }, fillable: false },
       ],
     },
   ],
@@ -2357,9 +2371,20 @@ const WRONG_CUSTOMER_BY_TYPE = new Map([
 const CC_ONLY_TEMPLATE = {
   sections: [
     {
+      id: "ba-permintaan",
       title: "BA Permintaan",
       layout: "images",
-      slots: [{ key: "ba.1", label: "BA", fillable: true, docType: "BAPermintaan" }],
+      ask: { title: "BA Permintaan" },
+      slots: [
+        {
+          key: "ba.1",
+          label: "BA",
+          ask: { label: "BA", hint: "the whole request page" },
+          fillable: true,
+          docType: "BAPermintaan",
+          pageOrdinal: 0,
+        },
+      ],
     },
   ],
   xlsxRows: [{ nomor: 1, itemI: "Customer", itemII: "Name", fieldKey: "cc" }],
@@ -2519,10 +2544,108 @@ test("every AO slot searched by the model carries a hint that rules something ou
   assert.ok(searched.length > 0);
   for (const slot of searched) {
     assert.ok(
-      /\bnot\b/i.test(slot.hint),
-      `${slot.key}'s hint names nothing it is not: ${slot.hint}`,
+      /\bnot\b/i.test(slot.ask.hint),
+      `${slot.key}'s hint names nothing it is not: ${slot.ask.hint}`,
     );
-    assert.ok(slot.hint.length > 60, `${slot.key}'s hint is too thin: ${slot.hint}`);
+    assert.ok(
+      slot.ask.hint.length > 60,
+      `${slot.key}'s hint is too thin: ${slot.ask.hint}`,
+    );
+  }
+});
+
+test("the question a slot is asked with is FROZEN beside the name it is shown under", () => {
+  /*
+   * THE WHOLE POINT OF SPLITTING `SlotAsk` OUT, PINNED.
+   *
+   * `SlotDef.label` is what the operator sees and what the docx prints, and it
+   * is about to become editable per order. `SlotDef.ask.label` is what four
+   * prompt builders compose the model's question out of: `buildLocatePrompt`
+   * and `buildPoolLocatePrompt` in locate.ts, `buildContinuationPrompt` in
+   * continuation.ts, and `askedAs` in scripts/measure-locate.mjs. Before the
+   * split they were ONE string, so a rename would have silently rewritten two
+   * live prompts and the measurement gate's own question -- the one change
+   * AGENTS.md forbids without three fresh samples, made by the one person who
+   * cannot run them.
+   *
+   * They are seeded identically, and that is what makes the split
+   * behaviour-identical rather than a prompt change wearing a refactor's
+   * clothes. This test is the record of that seeding: it fails the day
+   * somebody edits one half and calls it a typo fix, which is exactly when
+   * somebody has to go and re-run the gate.
+   */
+  const all = templateSlots(AO_TEMPLATE).map(({ slot }) => slot);
+  assert.ok(all.length > 0);
+  for (const slot of all) {
+    assert.equal(
+      slot.ask.label,
+      slot.label,
+      `${slot.key}: ask.label has drifted from the label it was seeded from`,
+    );
+  }
+
+  // And a fillable slot's hint is the half that has to survive a whole-bundle
+  // pool, so an empty one is not a thin hint, it is no question at all.
+  for (const slot of all.filter((s) => s.fillable)) {
+    assert.ok(
+      slot.ask.hint.trim().length > 0,
+      `${slot.key} is searched with an empty hint`,
+    );
+  }
+});
+
+test("a section's frozen ask.title is the title it was transcribed from, and its id is not", () => {
+  // `slotSearchLabel` (generate.mjs) and `askedAs` (measure-locate.mjs) both
+  // compose the search name out of `section.ask.title`, so it is seeded from
+  // `title` and pinned here for the same reason `ask.label` is.
+  const ids = new Set();
+  for (const section of AO_TEMPLATE.sections) {
+    assert.equal(
+      section.ask.title,
+      section.title,
+      `${section.id}: ask.title has drifted from the title it was seeded from`,
+    );
+    // HAND-WRITTEN, NOT DERIVED, and unique. A derived id moves when a
+    // transcription is corrected, and every stored order that patched a judul
+    // by id forks the moment it does.
+    assert.ok(section.id.length > 0, "a section with no id");
+    assert.ok(!section.id.includes("#"), `${section.id} contains a "#"`);
+    assert.ok(!ids.has(section.id), `duplicate section id ${section.id}`);
+    ids.add(section.id);
+  }
+});
+
+test("every whole-page slot DECLARES which page of its type it takes, and agrees with the counter", () => {
+  /*
+   * `wholePageProposals` (src/app/api/propose/handler.ts) still derives this
+   * with a running counter over the section's fillable slots. `pageOrdinal`
+   * declares the same number so it survives an order deleting a bagian, which
+   * is when the counter stops being derivable: drop `sp.1` and the counter
+   * slides `sp.2` onto the first SP page, silently, under the right heading.
+   *
+   * Until that reader switches over, THE TWO MUST AGREE, and this is where
+   * they are checked against each other.
+   */
+  for (const section of AO_TEMPLATE.sections) {
+    const seen = new Map();
+    for (const slot of section.slots) {
+      const wholePage = section.layout === "images" && slot.fillable;
+      if (!wholePage) {
+        assert.equal(
+          slot.pageOrdinal,
+          undefined,
+          `${slot.key} is not a whole-page capture and must not claim an ordinal`,
+        );
+        continue;
+      }
+      const position = seen.get(slot.docType) ?? 0;
+      seen.set(slot.docType, position + 1);
+      assert.equal(
+        slot.pageOrdinal,
+        position,
+        `${slot.key}: declared ordinal disagrees with the running counter`,
+      );
+    }
   }
 });
 

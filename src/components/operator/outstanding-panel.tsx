@@ -92,7 +92,12 @@ import { AO_TEMPLATE } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
 import { wantedKeys } from "@/lib/ui/propose";
 import { slotKeyOf } from "@/lib/ui/runtime";
-import type { BrowserRun, SlotState, Zone } from "@/lib/ui/runtime";
+import type {
+  BrowserRun,
+  RefusedDocument,
+  SlotState,
+  Zone,
+} from "@/lib/ui/runtime";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
 import { templateSlots } from "@/lib/ui/slots";
 
@@ -107,7 +112,14 @@ import {
   shortenFileName,
 } from "./chrome";
 import { Cari, Klip, Kosongkan, Potongan } from "./icons";
-import { DocumentDrop, type IngestProgress } from "./ingest-panel";
+import {
+  Antrean,
+  DocumentDrop,
+  Refusals,
+  type IngestFault,
+  type IngestProgress,
+  type QueuedDocument,
+} from "./ingest-panel";
 
 /**
  * One document read during THIS SESSION.
@@ -344,8 +356,28 @@ type PanelProps = {
   rounds: RoundLog[];
   progress: IngestProgress | null;
   busy: boolean;
-  error: string | null;
+  /**
+   * The ingest that just failed. Unlike `ingest-panel.tsx` this panel does
+   * speak the fault's own sentence, because the drop it belongs to is a
+   * dialog the operator may have closed; the `detail` rides behind a
+   * disclosure exactly as it does everywhere else.
+   */
+  fault: IngestFault | null;
   onFiles: (files: File[]) => void;
+  /**
+   * THE SAME ANTREAN THE MUAT SCREEN SHOWS, because it is the same hand-over.
+   *
+   * The shell owns the queue, so a berkas dropped here and a berkas dropped
+   * there join one list read by one loop. Passing it through means this dialog
+   * can leave its drop target LIVE while a document is being read, which is
+   * the whole point: an operator who has just been told a bagian is missing is
+   * exactly the operator who goes and finds two more documents, one after the
+   * other.
+   */
+  queue?: readonly QueuedDocument[];
+  screening?: boolean;
+  refusals?: readonly RefusedDocument[];
+  onCancelQueued?: (id: string) => void;
   onDraw: (slotIndex: number) => void;
   onUnfill: (slotIndex: number) => void;
   onUnfillAll: (slotIndexes: number[]) => void;
@@ -382,8 +414,12 @@ function Panel({
   rounds,
   progress,
   busy,
-  error,
+  fault,
   onFiles,
+  queue = [],
+  screening = false,
+  refusals = [],
+  onCancelQueued,
   onDraw,
   onUnfill,
   onUnfillAll,
@@ -448,9 +484,9 @@ function Panel({
   // dialog stays open around its own failure notice, where the drop target is
   // still under the operator's hand.
   useEffect(() => {
-    if (wasBusy.current && !busy && !error) setDropOpen(false);
+    if (wasBusy.current && !busy && !fault) setDropOpen(false);
     wasBusy.current = busy;
-  }, [busy, error]);
+  }, [busy, fault]);
 
   const { blanks, emptied } = collectBlanks(run, new Set(outstandingKeys));
   const actionable = blanks.filter((b) => b.index !== null);
@@ -486,9 +522,18 @@ function Panel({
   // belongs beside the drop the operator is looking at, and everywhere else it
   // belongs here, above the sheet, where it cannot be missed. Never both at
   // once: one failure stated twice on one screen reads as two failures.
-  const errorNotice = error ? (
+  const errorNotice = fault ? (
     <Notice tone="stop">
-      {error} Halaman yang sudah dimuat tetap tersimpan.
+      {/* The same two-part shape `Interruption` uses, gap and all, because it
+          is the same object: one sentence for the operator, and the raw
+          diagnosis behind a disclosure under it. THE DIAGNOSIS TRAVELS WITH
+          THE SENTENCE -- this notice used to carry the sentence alone, so a
+          failed tambahan round told the operator that something went wrong
+          and told nobody what. */}
+      <div className="flex flex-col gap-2">
+        <p>{fault.sentence} Halaman yang sudah dimuat tetap tersimpan.</p>
+        {fault.detail ? <TechnicalDetail>{fault.detail}</TechnicalDetail> : null}
+      </div>
     </Notice>
   ) : null;
   const errorHere = dropOpen ? null : errorNotice;
@@ -501,6 +546,10 @@ function Panel({
       progress={progress}
       errorNotice={errorNotice}
       onFiles={onFiles}
+      queue={queue}
+      screening={screening}
+      refusals={refusals}
+      onCancelQueued={onCancelQueued}
     />
   );
 
@@ -522,12 +571,12 @@ function Panel({
    */
   if (blanks.length === 0) {
     const nothingPending =
-      emptied.length === 0 && rounds.length === 0 && !busy && error === null;
+      emptied.length === 0 && rounds.length === 0 && !busy && fault === null;
     if (nothingPending) return null;
 
     return (
       <section aria-labelledby="tambahan-head" className="lt-slab">
-        <div className="lt-kop" data-owes={error ? "fault" : "done"}>
+        <div className="lt-kop" data-owes={fault ? "fault" : "done"}>
           <h2 id="tambahan-head">Tidak ada yang tersisa</h2>
           {/* `lt-kop-right` rather than a hand-rolled `ms-auto`: the stylesheet
               declares the kop's right-hand slot so every kop in the product
@@ -565,7 +614,7 @@ function Panel({
           hue is ever a saturated fill under light text; the rule is what reads
           from across the room. Nothing else on the block has to carry that
           signal, and none of it can be collapsed. */}
-      <div className="lt-kop" data-owes={error ? "fault" : "decision"}>
+      <div className="lt-kop" data-owes={fault ? "fault" : "decision"}>
         <h2 id="tambahan-head">Bagian tanpa bukti</h2>
         <span className="lt-figure lt-kop-right">{blanks.length}</span>
       </div>
@@ -1198,6 +1247,10 @@ function TambahanDialog({
   progress,
   errorNotice,
   onFiles,
+  queue,
+  screening,
+  refusals,
+  onCancelQueued,
 }: {
   open: boolean;
   onOpen: (open: boolean) => void;
@@ -1205,6 +1258,10 @@ function TambahanDialog({
   progress: IngestProgress | null;
   errorNotice: React.ReactNode;
   onFiles: (files: File[]) => void;
+  queue: readonly QueuedDocument[];
+  screening: boolean;
+  refusals: readonly RefusedDocument[];
+  onCancelQueued?: (id: string) => void;
 }) {
   return (
     <Dialog
@@ -1236,16 +1293,43 @@ function TambahanDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {busy ? (
-          <Reading progress={progress} />
-        ) : (
-          <DocumentDrop
-            label="Dokumen tambahan"
-            hint="Sesudah dimuat, AI masih harus membacanya."
-            size="inline"
-            onFiles={onFiles}
-          />
-        )}
+        {/* THE TARGET STAYS OPEN WHILE A DOCUMENT IS BEING READ, and it used
+            to be replaced by the progress. An operator who has just been shown
+            a list of bagian nobody could find is precisely the operator who
+            walks off and comes back with two documents, one after the other,
+            and under the old shape the second one was refused for as long as
+            the first took to read. It joins the antrean and is read in turn.
+            See `ingest-panel.tsx`'s own note for the invariant that keeps. */}
+        {busy ? <Reading progress={progress} /> : null}
+
+        <Antrean
+          queue={queue}
+          stopped={!busy}
+          onCancel={onCancelQueued ?? (() => {})}
+        />
+
+        <Refusals refusals={refusals} />
+
+        <DocumentDrop
+          label={busy ? "Tambahkan berkas lagi" : "Dokumen tambahan"}
+          hint={
+            busy
+              ? "Berkas ini masuk antrean dan dimuat setelah yang sedang berjalan selesai."
+              : "Sesudah dimuat, AI masih harus membacanya."
+          }
+          size="inline"
+          tone={busy ? "default" : "primary"}
+          onFiles={onFiles}
+        />
+
+        <div role="status" aria-live="polite">
+          {screening ? (
+            <p className="text-ink flex items-center gap-3 text-[0.9375rem]">
+              <span className="lt-spinner" aria-hidden="true" />
+              <span>Memeriksa berkas yang Anda berikan.</span>
+            </p>
+          ) : null}
+        </div>
 
         {errorNotice}
       </DialogContent>

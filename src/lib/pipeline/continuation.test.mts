@@ -299,8 +299,7 @@ test("stage 2 is never shown the running footer as the tail of the block", async
 
   let seen = "";
   await findContinuations({
-    slotLabel: "KB / ToP",
-    hint: "the payment clause",
+    slotAsk: { label: "KB / ToP", hint: "the payment clause" },
     zone: zoneOn(0, 0, 5),
     documentPages: pages,
     furniture,
@@ -561,8 +560,7 @@ test("a continuation that itself runs off the page is followed, with no count de
   // confirmed capture simply becomes stage 1's input again.
   let asked = 0;
   const walked = await findContinuations({
-    slotLabel: "KB / ToP",
-    hint: "the payment clause",
+    slotAsk: { label: "KB / ToP", hint: "the payment clause" },
     zone: zoneOn(0, 0, 2),
     documentPages: CHAIN_PAGES,
     furniture: NO_FURNITURE,
@@ -593,8 +591,7 @@ test("the chain stops at its cap and SAYS SO rather than stopping quietly", asyn
   // bundle two's deepest slot holds ten captures, i.e. nine continuations --
   // so what protects a 151-page document is that hitting it is reported.
   const walked = await findContinuations({
-    slotLabel: "KB / Detail",
-    hint: "the scope and pricing clause",
+    slotAsk: { label: "KB / Detail", hint: "the scope and pricing clause" },
     zone: zoneOn(0, 0, 2),
     documentPages: CHAIN_PAGES,
     furniture: NO_FURNITURE,
@@ -614,8 +611,7 @@ test("the chain stops at its cap and SAYS SO rather than stopping quietly", asyn
 test("a whole-page capture costs no model call at all", async () => {
   let asked = 0;
   const walked = await findContinuations({
-    slotLabel: "SP",
-    hint: "the whole Surat Penunjukan page",
+    slotAsk: { label: "SP", hint: "the whole Surat Penunjukan page" },
     zone: zoneOn(0, 0, 2),
     documentPages: CHAIN_PAGES,
     furniture: NO_FURNITURE,
@@ -638,8 +634,7 @@ test("a decline is recorded, not just an acceptance", async () => {
   // "We looked and found none" is the half that closes this change's own
   // trade: without it a slot with an undiscovered continuation looks finished.
   const walked = await findContinuations({
-    slotLabel: "KB / Jangka Waktu",
-    hint: "the term of the agreement",
+    slotAsk: { label: "KB / Jangka Waktu", hint: "the term of the agreement" },
     zone: zoneOn(0, 0, 0),
     documentPages: CHAIN_PAGES,
     furniture: NO_FURNITURE,
@@ -659,8 +654,7 @@ test("an unusable reply stops the chain with the message kept, and never throws"
   // hand, which is this design's floor and a perfectly good outcome. Losing
   // the rest of the run over it is not, and neither is inventing a range.
   const walked = await findContinuations({
-    slotLabel: "KB / ToP",
-    hint: "the payment clause",
+    slotAsk: { label: "KB / ToP", hint: "the payment clause" },
     zone: zoneOn(0, 0, 2),
     documentPages: CHAIN_PAGES,
     furniture: NO_FURNITURE,

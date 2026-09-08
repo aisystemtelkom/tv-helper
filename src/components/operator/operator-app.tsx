@@ -63,11 +63,20 @@ import { AO_TEMPLATE } from "@/lib/forms/template";
 import { liveRuntime } from "@/lib/ui/live-runtime";
 import { applyResponse, requestProposals, wantedKeys } from "@/lib/ui/propose";
 import {
+  DuplicateDocumentError,
   captureOrdinalOf,
+  heldDocuments,
+  screenDigested,
+  screenDocuments,
   withoutCapture,
   withoutCapturesAfter,
 } from "@/lib/ui/runtime";
-import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
+import type {
+  BrowserRun,
+  HeldDocument,
+  RefusedDocument,
+  SlotState,
+} from "@/lib/ui/runtime";
 import { runFragment, runIdFromHash } from "@/lib/ui/run-address";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
@@ -78,7 +87,12 @@ import { ContactSheet } from "./contact-sheet";
 import { DocumentsBar } from "./documents-bar";
 import { ExportPanel } from "./export-panel";
 import { Chevron, Otak, Paraf } from "./icons";
-import { IngestPanel, type IngestProgress } from "./ingest-panel";
+import {
+  IngestPanel,
+  type IngestFault,
+  type IngestProgress,
+  type QueuedDocument,
+} from "./ingest-panel";
 import { OutstandingPanel, type RoundLog } from "./outstanding-panel";
 import { ToastHost, useSay } from "./toast";
 import { ZoneEditor, type EditorTarget } from "./zone-editor";
@@ -308,6 +322,17 @@ export function OperatorApp({
   );
 }
 
+/**
+ * A BERKAS THE OPERATOR HANDED OVER THAT NOTHING HAS READ YET.
+ *
+ * `QueuedDocument` is the half the screen draws; this is that plus the two
+ * things only the shell needs. `digest` is what the next hand-over is screened
+ * against, so a duplicate is caught while the berkas is still waiting rather
+ * than when its turn comes, and `file` is the handle the drain loop passes to
+ * `ingestDocument`.
+ */
+type Queued = QueuedDocument & { digest: string; file: File };
+
 function Workspace({
   account,
   notice,
@@ -372,6 +397,103 @@ function Workspace({
   const [pending, setPending] = useState<ReadonlySet<number>>(() => new Set());
   const [fresh, setFresh] = useState<ReadonlySet<number>>(() => new Set());
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  /**
+   * THE ANTREAN: every berkas this order has been promised and has not read.
+   *
+   * WHY A QUEUE EXISTS AT ALL. Handing documents over used to be a single
+   * event -- one drop of one or more files, refused for the whole of the
+   * minutes it took to read them. That fits an operator who has the whole
+   * bundle in one folder and fits nobody else: the common shape is the merged
+   * contract, then the SPLITBA found on the second screen, then the email
+   * print-out, each handed over as it turns up. Under the old rule the second
+   * and third hand-overs were refused, so the operator either stood and
+   * watched or walked away and came back to a screen that had finished without
+   * them.
+   *
+   * WHAT THE REFUSAL WAS ACTUALLY PROTECTING, and it is kept exactly: ONE
+   * INGEST AT A TIME, in the order the berkas were given. `BrowserRun.pages`
+   * is append-only because `Zone.pageIndex` is a position in it, and two
+   * concurrent `ingestDocument` calls on one run would interleave their pages
+   * and race each other's revisions. So the drain below is strictly serial and
+   * `draining` is what makes it so.
+   *
+   * THE REF IS THE QUEUE AND THE STATE IS THE PICTURE OF IT. A drop can land
+   * while the loop is between two files, and reading React state there would
+   * see a value from a render that has already been superseded. `queueRef` is
+   * what the loop consumes; `queue` is what the screen draws, and every write
+   * sets both.
+   */
+  const queueRef = useRef<Queued[]>([]);
+  const [queue, setQueue] = useState<readonly QueuedDocument[]>([]);
+  const draining = useRef(false);
+  const [screening, setScreening] = useState(0);
+  const [refusals, setRefusals] = useState<readonly RefusedDocument[]>([]);
+
+  /**
+   * THE RUN AS THE DRAIN LOOP SEES IT.
+   *
+   * `run` is React state, read at render time; the loop runs for minutes
+   * across many renders, and a hand-over screened against a `run` captured
+   * before the current berkas finished would not see the source that berkas
+   * just added. This ref is written by the loop the moment each ingest
+   * resolves, and mirrored from state so that opening an order from
+   * `/riwayat` or closing one is reflected without the loop knowing about
+   * either.
+   */
+  const runRef = useRef<BrowserRun | null>(null);
+  useEffect(() => {
+    runRef.current = run;
+  }, [run]);
+
+  /**
+   * THE BERKAS BEING READ RIGHT NOW, which is in neither of the other two.
+   *
+   * It has left the antrean (the list on screen is what is WAITING) and it is
+   * not in `run.sources` until it finishes. Screening a hand-over without it
+   * therefore accepts a second copy of the one document the operator can
+   * actually see on the screen in front of them, which is the easiest one of
+   * all to hand over twice.
+   */
+  const readingRef = useRef<Queued | null>(null);
+
+  /**
+   * AN ORDER THE OPERATOR WALKED AWAY FROM WHILE IT WAS STILL BEING READ.
+   *
+   * `Mulai order lain` empties the antrean, but the berkas already in flight
+   * cannot be called back: `ingestDocument` has a worker running and keeps
+   * committing its pages, which is right -- those pages are paid for and the
+   * run is in the riwayat. What must NOT happen is the loop publishing that
+   * result when it finishes, because `setRun` would silently re-open an order
+   * the operator has just closed, several minutes after they closed it, over
+   * whatever they are doing by then.
+   *
+   * Holding the id rather than a flag is what makes it safe to leave set: a
+   * later hand-over mints a new run, whose id cannot match.
+   */
+  const abandoned = useRef<string | null>(null);
+
+  const setQueueTo = (next: Queued[]) => {
+    queueRef.current = next;
+    setQueue(next.map(({ id, name }) => ({ id, name })));
+  };
+
+  /**
+   * EVERY DOCUMENT THIS ORDER HAS ALREADY BEEN PROMISED, which is what a
+   * hand-over is screened against and is three lists rather than one.
+   *
+   * `run.sources` is what finished; the antrean is what is waiting; and
+   * `readingRef` is the one being read at this moment, which is in neither of
+   * the other two and is the easiest of all to hand over twice, because it is
+   * the one named on the screen the operator is looking at.
+   */
+  const promised = (): HeldDocument[] => [
+    ...heldDocuments(runRef.current?.sources ?? []),
+    ...queueRef.current.map(({ name, digest }) => ({ name, digest })),
+    ...(readingRef.current
+      ? [{ name: readingRef.current.name, digest: readingRef.current.digest }]
+      : []),
+  ];
 
   useEffect(() => {
     let alive = true;
@@ -537,6 +659,9 @@ function Workspace({
    * would point at the wrong captures if they survived into the next one.
    */
   const closeRun = () => {
+    // Recorded BEFORE the run leaves state, because that is the only place its
+    // id still is. See `abandoned`.
+    if (run) abandoned.current = run.id;
     setRun(null);
     // Same reason `pending` and `fresh` are cleared: it is keyed to the run
     // that is going away, and values from the last order shown against the
@@ -546,6 +671,14 @@ function Workspace({
     setPending(new Set());
     setFresh(new Set());
     setSearchNote(null);
+    // THE ANTREAN BELONGS TO THE ORDER IT WAS HANDED TO. Berkas left waiting
+    // when the operator walks away are for the run they were given to, and
+    // reading them into the NEXT order is exactly the kind of quiet wrong
+    // answer this product exists to stop. The refusals go with them: a
+    // sentence about a duplicate in an order nobody is looking at any more
+    // names a berkas that is no longer anywhere on screen.
+    setQueueTo([]);
+    setRefusals([]);
     rememberRun(null);
   };
 
@@ -594,10 +727,37 @@ function Workspace({
     }
   };
 
-  const ingest = async (files: File[]) => {
+  /**
+   * Reads the antrean, one berkas at a time, until it is empty.
+   *
+   * IT IS RE-ENTRANT-SAFE BY THE `draining` FLAG AND NOTHING ELSE. Every
+   * hand-over calls this; only the one that finds the flag down actually runs,
+   * and the rest have simply added to a list the running loop has not reached
+   * yet. That is what keeps `ingestDocument` serial per run without a lock in
+   * the UI.
+   *
+   * A FAILURE STOPS THE LOOP AND KEEPS THE REST OF THE ANTREAN. The berkas
+   * that failed is already off the queue -- retrying it automatically would
+   * spin forever on a document that fails every time -- and everything behind
+   * it stays, because the operator picked those files out of a folder minutes
+   * ago and making them find them again is the app spending their time on its
+   * own error. `Lanjutkan pemuatan` on the panel starts it again.
+   */
+  const drain = async () => {
+    if (draining.current) return;
+    if (queueRef.current.length === 0) return;
+    draining.current = true;
     setBusy(true);
     setFault(null);
     setSearchNote(null);
+    // DECLARED OUT HERE so the `catch` can read back the pages that did land.
+    // See the comment on that read.
+    let runId = runRef.current?.id ?? crypto.randomUUID();
+    // Counted rather than derived from the queue's length, because the queue
+    // GROWS while this runs: "berkas ke-2 dari 3" has to keep meaning the
+    // second one handed over, even when the third arrived after the first had
+    // already been read.
+    let doneFiles = 0;
     try {
       /*
        * THE RUNTIME MINTS THE RUN, not this component.
@@ -611,33 +771,95 @@ function Workspace({
        * per capture, ordinals and all -- which is knowledge that belongs to
        * the template and the runtime, not to a screen.
        */
-      let runId = run?.id ?? crypto.randomUUID();
-      let current: BrowserRun | null = run;
+      while (queueRef.current.length > 0) {
+        const next = queueRef.current[0];
+        const before = runRef.current?.pages.length ?? 0;
+        const fileIndex = doneFiles + 1;
+        setProgress({
+          name: next.name,
+          done: 0,
+          total: 0,
+          fileIndex,
+          fileCount: doneFiles + queueRef.current.length,
+        });
+        // OFF THE ANTREAN BEFORE IT IS READ, not after. The list on screen is
+        // what is WAITING, and the berkas being read is already named by the
+        // film strip above it; leaving it in both would print it twice and
+        // offer a cancel that cannot be honoured.
+        setQueueTo(queueRef.current.slice(1));
+        readingRef.current = next;
 
-      for (const file of files) {
-        const before = current?.pages.length ?? 0;
-        setProgress({ name: file.name, done: 0, total: 0 });
-        const updated = await runtime.ingestDocument(
-          runId,
-          file,
-          (done, total) => setProgress({ name: file.name, done, total }),
-        );
-        current = updated;
-        runId = updated.id;
-        setRounds((prev) => [
-          ...prev,
-          {
-            round: prev.length + 1,
-            document: file.name,
-            pagesAdded: updated.pages.length - before,
-            outstandingAfter: runtime.outstandingSlots(updated).length,
-          },
-        ]);
-      }
-
-      if (current) {
-        setRun(current);
-        rememberRun(current.id);
+        try {
+          const updated = await runtime.ingestDocument(
+            runId,
+            next.file,
+            (done, total) =>
+              setProgress({
+                name: next.name,
+                done,
+                total,
+                fileIndex,
+                // Re-read rather than closed over: more berkas may have
+                // arrived since this one started, and the count is a promise
+                // about what is still coming.
+                fileCount: doneFiles + 1 + queueRef.current.length,
+              }),
+          );
+          runId = updated.id;
+          doneFiles += 1;
+          if (abandoned.current === runId) {
+            // Closed underneath us. The pages are committed and the order is
+            // in the riwayat; what would be wrong is putting it back on screen.
+            setQueueTo([]);
+            break;
+          }
+          /*
+           * PUBLISHED AFTER EVERY BERKAS, not once at the end.
+           *
+           * `Isi order ini` grows as documents land, which is the operator's
+           * own check that they handed over the right ones, and the next
+           * hand-over is screened against the sources this one just added.
+           * Holding it back until the antrean empties would leave both stale
+           * for as long as the operator keeps feeding it.
+           */
+          runRef.current = updated;
+          setRun(updated);
+          rememberRun(updated.id);
+          setRounds((prev) => [
+            ...prev,
+            {
+              round: prev.length + 1,
+              document: next.name,
+              pagesAdded: updated.pages.length - before,
+              outstandingAfter: runtime.outstandingSlots(updated).length,
+            },
+          ]);
+        } catch (problem) {
+          /*
+           * A DUPLICATE IS A REFUSAL, NOT A FAULT, AND IT STOPS ONE BERKAS
+           * RATHER THAN THE ANTREAN. Telling the two apart is the whole reason
+           * the runtime throws a class rather than an Error.
+           *
+           * Nothing went wrong: the order already holds that document, the
+           * screen said so before it was queued, and this is the backstop
+           * catching what the screen could not see -- a second tab on the same
+           * order, or an antrean screened before the berkas ahead of it had
+           * landed. Everything behind it in the queue is unaffected, so the
+           * loop carries on.
+           *
+           * Anything else is a real failure and is rethrown to the handler
+           * below, which stops the loop deliberately: a dead worker or a route
+           * answering 503 will do the same to the next berkas, and grinding
+           * through ten of them to say so ten times serves nobody.
+           */
+          if (!(problem instanceof DuplicateDocumentError)) throw problem;
+          setRefusals((prev) => [
+            ...prev,
+            { name: problem.candidate, held: problem.held, inSameDrop: false },
+          ]);
+        } finally {
+          readingRef.current = null;
+        }
       }
       /*
        * AND IT STAYS ON MUAT. Reading the pages used to land the operator on
@@ -648,13 +870,57 @@ function Workspace({
        * just finished. Jumping away would hide the one thing left to do.
        */
     } catch (problem) {
+      /*
+       * THE PAGES THAT DID LAND ARE READ BACK, AND THE SENTENCE DEPENDS ON IT.
+       *
+       * `ingestDocument` commits each page to IndexedDB as it reads it and
+       * only RETURNS the run when the whole file is done, so a failure on page
+       * 137 of 151 leaves 136 pages in storage while this component still
+       * holds the run as it was before the drop -- `null`, for the first file
+       * of a new order. Two things followed from that, both of them wrong and
+       * neither of them loud:
+       *
+       *  - `IngestPanel` picks its sentence off `run.pages.length`, so it
+       *    reported "berhenti sebelum satu halaman pun tersimpan" over a run
+       *    holding minutes of finished OCR. That reads as "nothing was saved,
+       *    start again", and starting again re-reads and re-pays for every
+       *    page that was already committed.
+       *  - The run in state was a revision behind storage, so the operator's
+       *    next write would have been refused as stale (see `putRun`).
+       *
+       * The read is best-effort and never replaces the ingest's own fault:
+       * whatever it does, the failure below is what the operator is told.
+       */
+      try {
+        const stored = await runtime.loadRun(runId);
+        if (stored) {
+          runRef.current = stored;
+          setRun(stored);
+          rememberRun(stored.id);
+        }
+      } catch {
+        // Deliberately swallowed. A storage read that fails here would replace
+        // the diagnosis the operator actually needs with a second one about
+        // the attempt to recover it.
+      }
       setFault({
         origin: "ingest",
         sentence:
-          "Pembacaan dokumen berhenti sebelum selesai. Halaman yang sudah terbaca tetap tersimpan, jadi Anda bisa mengulang dengan berkas yang sama tanpa kehilangan order.",
+          // WHAT IS LEFT IN THE ANTREAN IS PART OF THE DIAGNOSIS. Those berkas
+          // were handed over and have not been read, and an operator who is
+          // not told will hunt for them in a folder they opened ten minutes
+          // ago. They are still listed, and `Lanjutkan pemuatan` starts again
+          // from where this stopped.
+          queueRef.current.length > 0
+            ? "Pemuatan berhenti sebelum selesai. Halaman yang sudah terbaca tetap tersimpan, dan berkas yang belum sempat dimuat masih ada di antrean di bawah, jadi Anda bisa melanjutkan tanpa mencarinya lagi."
+            : "Pembacaan dokumen berhenti sebelum selesai. Halaman yang sudah terbaca tetap tersimpan, jadi Anda bisa mengulang dengan berkas yang sama tanpa kehilangan order.",
         detail: messageOf(problem),
       });
     } finally {
+      // Lowered before anything else, so a hand-over landing in this same tick
+      // finds the loop free and starts it again rather than queueing behind a
+      // loop that has already finished.
+      draining.current = false;
       setBusy(false);
       setProgress(null);
       // NOTHING IS RE-LISTED HERE, and the reason the old code did matters
@@ -665,6 +931,84 @@ function Workspace({
       // reads storage when it opens, and a partly-ingested run is in storage
       // whatever happened here.
     }
+  };
+
+  /**
+   * A HAND-OVER: screen it, queue what survives, and start the loop.
+   *
+   * TWO REFUSALS LIVE ON THIS PATH AND THEY ARE DIFFERENT REFUSALS.
+   * `DocumentDrop` has already dropped anything that is not a PDF and said so
+   * on the card itself. This one is about IDENTITY: a berkas whose content
+   * this order already holds is not loaded a second time. See
+   * `src/lib/browser/intake.ts` for why a duplicate is a wrong-and-quiet
+   * failure rather than untidiness, and why the test is the bytes and never
+   * the file name.
+   *
+   * IT IS SCREENED AGAINST EVERYTHING ALREADY PROMISED, not only against what
+   * is stored: the sources of the open order, the berkas still waiting in the
+   * antrean, and the one being read at this moment.
+   *
+   * THE REFUSALS ARE REPLACED, NOT ACCUMULATED. They belong to the hand-over
+   * the operator just made; carrying the last one forward would leave a
+   * sentence on screen about a berkas they dealt with two drops ago.
+   */
+  const ingest = async (files: File[]) => {
+    setScreening((n) => n + 1);
+    try {
+      const { accepted, refused } = await screenDocuments(files, promised());
+      /*
+       * ASKED AGAIN AT THE INSTANT OF APPENDING, and that is not belt and
+       * braces. Hashing is asynchronous, so two hand-overs made a moment apart
+       * are each screened against a list neither has been added to yet, and
+       * both pass. This line is the one place that can see the other's result,
+       * because the antrean is only ever appended to here. Without it the
+       * repeat is caught by the runtime's own backstop minutes later, when its
+       * turn comes, which is a correct refusal arriving long after the
+       * operator stopped watching for one.
+       *
+       * The same function, deliberately: what "already have it" means is one
+       * rule, and a Map built by hand here would be a second one.
+       */
+      const { accepted: fresh, refused: late } = screenDigested(
+        accepted,
+        promised(),
+      );
+
+      setRefusals([...refused, ...late]);
+      if (fresh.length > 0) {
+        setQueueTo([
+          ...queueRef.current,
+          ...fresh.map((one) => ({
+            // Minted here rather than taken from the berkas: two different
+            // documents legitimately share a name, and a row the operator can
+            // cancel has to name exactly one of them.
+            id: crypto.randomUUID(),
+            name: one.name,
+            digest: one.digest,
+            file: one.file,
+          })),
+        ]);
+      }
+    } catch (problem) {
+      // Reading the bytes off the device to hash them is the only thing that
+      // can fail here, and it fails on a berkas that was moved or a drive that
+      // was unplugged between the drop and now. Silence would look exactly
+      // like a berkas that queued and never appeared.
+      setFault({
+        origin: "ingest",
+        sentence:
+          "Berkas yang Anda berikan tidak bisa dibaca dari perangkat ini, jadi tidak ada yang masuk ke antrean. Coba berikan berkasnya sekali lagi.",
+        detail: messageOf(problem),
+      });
+    } finally {
+      setScreening((n) => n - 1);
+    }
+    await drain();
+  };
+
+  /** Drops one berkas out of the antrean before anything has read it. */
+  const cancelQueued = (id: string) => {
+    setQueueTo(queueRef.current.filter((one) => one.id !== id));
   };
 
   /**
@@ -991,9 +1335,24 @@ function Workspace({
   // opens at the top of the lembar periksa.
   const ingestPanelVisible =
     !editing && (phase === "ingest" || (phase === "sheet" && !!run));
-  const ingestError =
-    fault?.origin === "ingest" && ingestPanelVisible ? fault.sentence : null;
-  const showInterruption = fault !== null && !ingestError;
+  /*
+   * THE WHOLE FAULT, NOT ONE OF ITS TWO HALVES.
+   *
+   * This handed the panels `fault.sentence` under the name `error`, and the
+   * two panels that receive it disagreed about what it was: `IngestPanel`
+   * files it behind `Detail teknis` and `OutstandingPanel` reads it as prose.
+   * So the Muat screen printed a second operator sentence where the raw
+   * exception belongs, and `fault.detail` -- the route's own diagnosis, which
+   * names the credential, the status or the page that failed -- reached no
+   * screen at all. An operator could report that an ingest had failed and
+   * nothing else, which is what a 151-page bundle failing for an unknown
+   * reason looked like from the outside.
+   */
+  const ingestFault: IngestFault | null =
+    fault?.origin === "ingest" && ingestPanelVisible
+      ? { sentence: fault.sentence, detail: fault.detail }
+      : null;
+  const showInterruption = fault !== null && !ingestFault;
 
   /**
    * The dokumen tambahan question, BUILT HERE AND RENDERED THERE.
@@ -1013,8 +1372,16 @@ function Workspace({
         rounds={rounds}
         progress={progress}
         busy={busy}
-        error={ingestError}
+        fault={ingestFault}
         onFiles={(files) => void ingest(files)}
+        /* ONE ANTREAN, TWO PLACES TO FEED IT. The dokumen tambahan dialog and
+           the Muat screen hand berkas to the same queue and the same loop, so
+           the dialog can leave its target live while a document is being read
+           and the operator sees the same list of what is waiting either way. */
+        queue={queue}
+        screening={screening > 0}
+        refusals={refusals}
+        onCancelQueued={cancelQueued}
         onDraw={(index) => actions.onRedraw(index)}
         onUnfill={(index) => patchSlot(index, { status: "unfilled" })}
         onReopen={(index) => actions.onReopen(index)}
@@ -1182,8 +1549,17 @@ function Workspace({
             run={run}
             progress={progress}
             busy={busy}
-            error={ingestError}
+            fault={ingestFault}
             onFiles={(files) => void ingest(files)}
+            /* THE ANTREAN AND WHAT WAS TURNED AWAY. Both are state of the
+               hand-over rather than of the run, which is why they live in this
+               shell beside the ingest in flight and not in storage: a berkas
+               waiting its turn has not been written anywhere yet. */
+            queue={queue}
+            screening={screening > 0}
+            refusals={refusals}
+            onCancelQueued={cancelQueued}
+            onResumeQueue={() => void drain()}
             onStartNewRun={closeRun}
             onProcess={() => void search()}
             searching={searching}

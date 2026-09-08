@@ -33,6 +33,25 @@
  * wrong-and-quiet surface built by the very thing meant to close one, so a
  * page with no lines is drawn as an OUTLINE with a struck rule and, where
  * there is room, the words. It never renders as an empty sheet.
+ *
+ * THE SAME LIE, ONE STEP QUIETER, IS THE REASON `short` EXISTS. A page the
+ * device read INCOMPLETELY has bars, and a plan of them looks exactly like a
+ * plan of a page that was read whole -- the operator is looking at a picture
+ * of the part that WAS read, with nothing to say that the rest is missing.
+ * `StoredPage.short` is set on such a page (see `PageShortfall`), and it is
+ * drawn as a ring around the whole plan plus its own words.
+ *
+ * A RING RATHER THAN A BAND OVER THE MISSING PART, deliberately. The device
+ * does not know where the missing part is: `checkPageCompleteness` returns
+ * ratios and refuses to return the row where the ink was missed, on the
+ * grounds that a caller holding it is one small step from cropping to it. So
+ * this flags the PAGE, which is what is actually known, and invents no
+ * geometry to look more helpful than it is.
+ *
+ * IT IS `--mark`, NOT `--gap`. The page was kept, not refused, and what it
+ * asks of the operator is to look at it -- which is what amber means in this
+ * product and the only thing it may mean. Red is for the page that would not
+ * read at all.
  */
 
 import type { Box } from "@/lib/pipeline/render";
@@ -82,6 +101,10 @@ export function Denah({
   const width = Math.round((page.widthPx / page.heightPx) * height);
   const minBar = page.heightPx * MIN_BAR_SHARE;
   const unreadable = page.lines.length === 0;
+  // A page can be both: the second bundle's page 72 returned nothing at all
+  // over a page carrying ink, so it is unreadable AND short. The struck rule
+  // is the stronger statement and wins the caption.
+  const short = !!page.short && !unreadable;
 
   return (
     <div className="relative shrink-0" style={{ width, height }}>
@@ -118,6 +141,19 @@ export function Denah({
           />
         ) : null}
 
+        {short ? (
+          <rect
+            x={0}
+            y={0}
+            width={page.widthPx}
+            height={page.heightPx}
+            fill="none"
+            stroke="var(--mark)"
+            strokeWidth={3}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
+
         {cut ? (
           <rect
             className="lt-denah-cut"
@@ -146,6 +182,20 @@ export function Denah({
           teks tidak
           <br />
           terbaca
+        </span>
+      ) : null}
+
+      {short && size !== "sm" ? (
+        /* The same 13px floor and the same reason as the sentence above it:
+           this is the device that answers "is this the right page" saying that
+           it read only part of the page, which is safety copy by definition. */
+        <span
+          className="absolute inset-x-0 bottom-1 text-center text-[0.8125rem] leading-tight"
+          style={{ color: "var(--mark)" }}
+        >
+          sebagian
+          <br />
+          tidak terbaca
         </span>
       ) : null}
     </div>

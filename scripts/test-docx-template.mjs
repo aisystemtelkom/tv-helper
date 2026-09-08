@@ -234,7 +234,11 @@ const slot = (key, label, extra = {}) => ({
   key,
   label,
   docType: null,
-  hint: `test slot ${key}`,
+  // Seeded from `label` exactly as `AO_TEMPLATE` seeds it. Nothing in the docx
+  // exporter reads `ask` -- it prints `label` -- but a fixture that still
+  // carried a bare `hint` would be a copy of a shape `SlotDef` no longer has,
+  // and fixtures are what the next person copies.
+  ask: { label, hint: `test slot ${key}` },
   fillable: true,
   ...extra,
 });
@@ -243,22 +247,34 @@ const FORM = {
   id: "TEST",
   label: "DOKUMEN VALIDASI",
   sections: [
-    { title: "Alpha", layout: "images", slots: [slot("alpha.1", "Alpha")] },
     {
+      id: "alpha",
+      title: "Alpha",
+      layout: "images",
+      ask: { title: "Alpha" },
+      slots: [slot("alpha.1", "Alpha")],
+    },
+    {
+      id: "beta",
       title: "Beta",
       layout: "table",
+      ask: { title: "Beta" },
       slots: [slot("beta.nomor", "Nomor"), slot("beta.top", "ToP", { crops: 2 })],
     },
     {
       // The continuation table under the Beta heading, named the way
       // `AO_TEMPLATE` names the KB one.
+      id: "beta-lanjutan",
       title: "Beta (lanjutan)",
       layout: "table",
+      ask: { title: "Beta (lanjutan)" },
       slots: [slot("betaLanjutan.detail", "Detail")],
     },
     {
+      id: "gamma",
       title: "Gamma",
       layout: "table",
+      ask: { title: "Gamma" },
       slots: [slot("gamma.quote", "{{quote}}"), slot("gamma.lainnya", "Lainnya")],
     },
   ],

@@ -39,7 +39,7 @@
  *    existed for a real reason: on an unnarrowed pool the customer name
  *    matched the printed email's own `Cc:` header and both deliverables
  *    shipped a WRONG CUSTOMER. What holds that bug down now is the
- *    disambiguation in `SlotDef.hint` and `Template.fieldHints`, not a
+ *    disambiguation in `SlotDef.ask.hint` and `Template.fieldHints`, not a
  *    smaller haystack -- weaken those and the bug comes back quietly.
  *
  * 4. A RUN IS ADDITIVE ACROSS ROUNDS. The positional PDFs are round 1. Each
@@ -1243,7 +1243,7 @@ async function classifyEverything(sources, sourceIndexes, pages, byType) {
 // pipeline has never seen.
 //
 // The narrowing it replaces existed to fix a live wrong-and-quiet defect, so
-// the replacement has to carry that weight: read `SlotDef.hint` and
+// the replacement has to carry that weight: read `SlotDef.ask.hint` and
 // `Template.fieldHints` in src/lib/forms/template.ts before touching either.
 // ---------------------------------------------------------------------------
 
@@ -1286,8 +1286,13 @@ function pagesByIndex(pages) {
  * a section title is part of the question and stays.
  */
 export function slotSearchLabel(section, slot) {
-  const document = section.title.replace(/\s*\(lanjutan\)\s*$/i, "");
-  return `${document} / ${slot.label}`;
+  // BOTH HALVES COME FROM THE FROZEN `ask`, never from `title` or `label`.
+  // Those two are what the operator sees and prints and are about to be
+  // renameable per order; composing the question out of them would let a
+  // rename rewrite this measured string with nothing failing. See `SlotAsk`
+  // in src/lib/forms/template.ts.
+  const document = section.ask.title.replace(/\s*\(lanjutan\)\s*$/i, "");
+  return `${document} / ${slot.ask.label}`;
 }
 
 /** Every slot in the template, paired with the section that holds it. */
@@ -1658,7 +1663,12 @@ async function locatePoolWithFallback(questions, pool, ask, log) {
   const out = new Map();
   for (const question of questions) {
     try {
-      const result = await locateSlot(question.label, question.hint, pool, ask);
+      const result = await locateSlot(
+        question.ask.label,
+        question.ask.hint,
+        pool,
+        ask,
+      );
       out.set(question.key, { ok: true, result });
     } catch (error) {
       out.set(question.key, { ok: false, reason: error.message });
@@ -1821,8 +1831,7 @@ export async function searchRound({
 
     const questions = group.map(({ section, slot }) => ({
       key: slot.key,
-      label: slotSearchLabel(section, slot),
-      hint: slot.hint,
+      ask: { label: slotSearchLabel(section, slot), hint: slot.ask.hint },
     }));
 
     log(

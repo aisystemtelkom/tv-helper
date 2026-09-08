@@ -23,7 +23,11 @@
 
 import { seedSlots, withDiscoveredCaptures } from "../browser/runtime.ts";
 import { removeSource, sourceRemovalCost } from "../browser/sources.ts";
+import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
+// The REAL comparison storage refuses writes with, not a second one written
+// here: see `saveRun` below.
+import { discardedAuthorship } from "../storage/runs.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import { CROP_PADDING_PX } from "../pipeline/locate.ts";
 import type {
@@ -258,6 +262,12 @@ function seedRun(): BrowserRun {
     ],
     pages,
     slots: emptySlots(),
+    // Seeded through the real `emptyOverlay`, for the reason `emptySlots`
+    // borrows the real `seedSlots`: a stub may invent pages and pixels, but
+    // never the shape of the contract. A hand-built `{ sections: {}, ... }`
+    // here would carry the wrong `version` or a stale `baseFingerprint` the
+    // day either changes, and every screen would be developed against it.
+    overlay: emptyOverlay(AO_TEMPLATE),
   };
   return lanjutanStub({ ...run, slots: searchStub(run, pages) });
 }
@@ -364,6 +374,22 @@ export function createStubRuntime(): Runtime {
               "in saveRun's `removing` option.",
           );
         }
+
+        // And the same for the overlay, through the REAL comparison rather
+        // than a second one written here: a stub whose idea of "this write
+        // loses a heading" differs from storage's is a stub that teaches
+        // screens a rule production does not apply.
+        const named = new Set(options?.removingSections ?? []);
+        const reverted = discardedAuthorship(before.overlay, run.overlay).filter(
+          (id) => !named.has(id),
+        );
+        if (reverted.length > 0) {
+          throw new Error(
+            `run ${run.id} would lose ${reverted.length} operator-authored ` +
+              `name(s) (${reverted.join(", ")}) without naming them. Pass them ` +
+              "in saveRun's `removingSections` option.",
+          );
+        }
       }
 
       // Advance `rev` exactly as the real runtime does. A stub that returns
@@ -385,6 +411,7 @@ export function createStubRuntime(): Runtime {
         sources: [],
         pages: [],
         slots: emptySlots(),
+        overlay: emptyOverlay(AO_TEMPLATE),
       };
 
       const sourceId = `src-${existing.sources.length}-${file.name}`;

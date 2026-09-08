@@ -1,7 +1,75 @@
 import type { DocType } from "../pipeline/classify.ts";
+import type { NodeId } from "./overlay.ts";
+
+/**
+ * THE HALF A PROMPT SEES. Frozen at transcription time, never editable by an
+ * operator, never on a screen, never on the wire out of a run.
+ *
+ * Everything in here is measured. `label` and `hint` are what
+ * `buildPoolLocatePrompt` and `buildLocatePrompt`
+ * (`src/lib/pipeline/locate.ts`) compose the search question out of, what
+ * `buildContinuationPrompt` (`src/lib/pipeline/continuation.ts`) asks the
+ * lanjutan question with, and what `askedAs` in `scripts/measure-locate.mjs`
+ * asks the GATE's question with. AGENTS.md's rule for all three is the same:
+ * never re-tune one without re-running `pnpm measure:locate`, and sample it at
+ * least three times, because the gate scored 11 / 9 / 11 on three runs of an
+ * identical prompt and a single run cannot tell a gain from a regression.
+ *
+ * ## `label` IS DUPLICATED FROM `SlotDef.label`, AND THE DUPLICATION IS THE
+ * ## POINT
+ *
+ * Both are seeded from the same transcribed string and
+ * `scripts/test-pipeline.mjs` pins that they still agree, so today the copy
+ * buys nothing. It buys something the moment the display name becomes
+ * per-order editable, which is what it is about to become: an operator whose
+ * own contract calls the KB row "No. PKS" renames it, the docx prints their
+ * word, and the question the gate measured does not move by a byte.
+ *
+ * Before this split, four prompt builders composed their question out of
+ * `label` + `hint` as sibling strings on one type. A rename would therefore
+ * have silently rewritten two live prompts and the measurement gate's own
+ * question, and the only thing standing in the way was a rule in AGENTS.md
+ * that the person doing the renaming cannot read and could not act on if they
+ * did: an operator cannot run the gate. Splitting the frozen half out turns
+ * that rule into a COMPILER ERROR. A prompt builder handed a `SlotDef` no
+ * longer finds a `hint` on it, and one handed a `SlotAsk` cannot see the
+ * editable name at all.
+ */
+export type SlotAsk = {
+  /**
+   * The slot's name AS THE MODEL IS TOLD IT.
+   *
+   * Seeded verbatim from `SlotDef.label` and then frozen. `slotSearchLabel`
+   * in `scripts/generate.mjs` prefixes it with the section's own frozen
+   * `SectionDef.ask.title` before asking, because a row label on its own --
+   * "Detail", "Nomor", "ToP" -- is not a question once the pool is the whole
+   * bundle rather than one document.
+   */
+  label: string;
+  /**
+   * What this slot means, in enough detail to beat a look-alike ELSEWHERE
+   * IN THE BUNDLE. Since the search is no longer narrowed by `docType`,
+   * every hint competes against every page of every supplied document, so
+   * a hint that only names the field ("the date the contract was signed")
+   * is now a defect: several documents carry a signing date. Say which
+   * document's, and say plainly what it is NOT.
+   */
+  hint: string;
+};
 
 export type SlotDef = {
   key: string;
+  /**
+   * The name this bagian is SHOWN and PRINTED under: the operator's screens
+   * and the docx row.
+   *
+   * Overlay-editable, per order. Nothing written here can reach a prompt --
+   * what the model is asked is `ask.label`, seeded from this string once and
+   * frozen beside it -- so this may be renamed to whatever the operator's own
+   * paperwork calls the row without re-running the measurement gate. That
+   * separation is the whole reason `SlotAsk` exists; read its doc comment
+   * before merging the two back together.
+   */
   label: string;
   /**
    * The document type this slot's answer is MOST LIKELY to sit in -- a
@@ -17,28 +85,24 @@ export type SlotDef = {
    * Narrowing was not arbitrary, and removing it without replacing it
    * re-opens a real defect: on an unnarrowed pool the customer name matched
    * the printed email thread's own `Cc:` header and both deliverables
-   * shipped a WRONG CUSTOMER. The replacement is the `hint` below, which
-   * must describe the thing well enough that the right region wins on merit
+   * shipped a WRONG CUSTOMER. The replacement is `ask.hint`, which must
+   * describe the thing well enough that the right region wins on merit
    * anywhere in the bundle -- not a smaller haystack. Anything added here
    * should assume the whole bundle is searched.
    */
   docType: DocType | null;
   /**
-   * What this slot means, in enough detail to beat a look-alike ELSEWHERE
-   * IN THE BUNDLE. Since the search is no longer narrowed by `docType`,
-   * every hint competes against every page of every supplied document, so
-   * a hint that only names the field ("the date the contract was signed")
-   * is now a defect: several documents carry a signing date. Say which
-   * document's, and say plainly what it is NOT.
+   * THE QUESTION. Frozen, on no screen, on no wire, not overlay-editable.
+   * See `SlotAsk`.
    */
-  hint: string;
+  ask: SlotAsk;
   /**
    * The same field, said to the OPERATOR instead of to the model. Bahasa
-   * Indonesia, and NEVER sent anywhere near a prompt: `locateSlot` is handed
-   * `slot.label` and `slot.hint` and nothing else, so no wording here can
-   * move a proposal.
+   * Indonesia, and NEVER sent anywhere near a prompt: the prompt builders are
+   * handed `slot.ask` and nothing else, so no wording here can move a
+   * proposal.
    *
-   * It exists because `hint` cannot do this job. A hint is a prompt: it is
+   * It exists because `ask.hint` cannot do this job. A hint is a prompt: it is
    * English, it is written to beat a look-alike, and AGENTS.md forbids
    * retuning one without re-running the measurement gate. So the definition
    * the operator is judging against was in the repository and never on the
@@ -56,6 +120,49 @@ export type SlotDef = {
    */
   catatan?: { adalah: string; bukan?: string };
   fillable: boolean;
+  /**
+   * WHICH PAGE OF ITS DOCUMENT TYPE this whole-page slot takes: 0-based,
+   * counted among the FILLABLE SIBLINGS OF ITS OWN SECTION THAT SHARE ITS
+   * `docType`. `sp.1` is 0 and `sp.2` is 1. Set on every fillable slot of a
+   * `layout: "images"` section and absent everywhere else, because only a
+   * whole-page capture picks a page by position at all -- a table slot is
+   * located by the model and has no ordinal to be wrong about.
+   *
+   * ## The counter this replaces, and the hazard it closes
+   *
+   * `wholePageProposals` (`src/app/api/propose/handler.ts`) derives exactly
+   * this today with a running counter over the section's fillable slots,
+   * advanced for every sibling whether the request wanted it or not --
+   * deliberately, so that re-running the search with `sp.1` already confirmed
+   * cannot hand `sp.2` the page `sp.1` is already holding.
+   *
+   * That counter is correct precisely while the TEMPLATE is the only thing
+   * that says which slots exist. It stops being correct the day an order can
+   * delete one: drop `sp.1` for this order and the counter slides `sp.2` onto
+   * the first SP page, and restoring `sp.1` slides it back while `sp.2` still
+   * holds a confirmed crop of that same page -- two headings over one
+   * picture, arriving silently, which is this project's whole failure class.
+   * Declared here, the ordinal survives both.
+   *
+   * `wholePageProposals` (`src/app/api/propose/handler.ts`) READS THIS AND NO
+   * LONGER COUNTS. It is REQUIRED on a fillable slot in a `layout: "images"`
+   * section: a missing one throws there naming the key, rather than falling
+   * back to a counter. A fallback would be the defect above, restored quietly
+   * the first time somebody added a whole-page bagian and forgot the number.
+   */
+  pageOrdinal?: number;
+  /**
+   * Present ONLY on a slot that a particular ORDER added. `AO_TEMPLATE` never
+   * sets it, and that absence is load-bearing: `added === undefined` means
+   * "this bagian is the form", which makes every downstream check a presence
+   * test rather than a flag somebody has to remember to set.
+   *
+   * `origin` records whether a person asked for the bagian or the tool
+   * proposed it. That is not decoration either: an "llm" bagian is a
+   * suggestion nobody has stood behind yet, and a deliverable looks exactly
+   * the same whichever put the row in it.
+   */
+  added?: { id: NodeId; origin: "human" | "llm" };
   /*
    * THERE IS DELIBERATELY NO CAPTURE COUNT ON A SLOT. If you are about to add
    * one back -- `crops`, `images`, `maxCaptures`, whatever it gets called --
@@ -92,9 +199,43 @@ export type SlotDef = {
 };
 
 export type SectionDef = {
+  /**
+   * Stable identity, HAND-WRITTEN beside `title` in the same transcription
+   * pass, and NEVER derived from it.
+   *
+   * A title is a transcription of the sample, and a transcription gets
+   * corrected: this file has already had one of these titles argued over. An
+   * id derived from the title changes when the title is corrected, and every
+   * stored order that patched a judul by id then forks into a patch for a
+   * judul that no longer exists and a judul nobody has patched -- a run that
+   * loads clean and quietly loses the operator's renames. Writing the id by
+   * hand costs one line per section and makes that impossible.
+   *
+   * Short, stable, kebab or dotted, matching the slot key prefix where the
+   * section has one. NEVER contains "#": a capture key is `<slot>#<n>`, so a
+   * "#" in an id makes the two unparseable in one direction or the other.
+   */
+  id: string;
   title: string;
   layout: "images" | "table";
+  /**
+   * THE SECTION HALF OF THE QUESTION, frozen for the reason `SlotAsk` is.
+   *
+   * `slotSearchLabel` in `scripts/generate.mjs` composes the search name out
+   * of this title (minus its `(lanjutan)` layout suffix) and the slot's own
+   * `ask.label`, and `askedAs` in `scripts/measure-locate.mjs` repeats that
+   * composition so the gate asks production's question rather than a tidier
+   * one. Both were reading `title` directly, which is exactly the wire a
+   * per-order rename would have cut.
+   */
+  ask: { title: string };
   slots: SlotDef[];
+  /**
+   * Present ONLY on a judul a particular order added; `AO_TEMPLATE` never
+   * sets it. `fromSourceId` names the document the judul was read off, so an
+   * added judul can be dropped again with the source it came from.
+   */
+  added?: { id: NodeId; origin: "human" | "llm"; fromSourceId?: string };
 };
 
 export type XlsxRowDef = {
@@ -114,7 +255,7 @@ export type Template = {
   /**
    * What each `xlsxRows[].fieldKey` means, keyed by that fieldKey.
    *
-   * `SlotDef.hint` does this job for the crops; this does it for the text
+   * `SlotAsk.hint` does this job for the crops; this does it for the text
    * values, and for exactly the same reason. `extractFields` is given bare
    * key names ("cc", "alamat"), and a bare key name is the thinnest hint in
    * the pipeline: "cc" alone is what let the model answer with the printed
@@ -158,20 +299,31 @@ export type Template = {
  *     page (or one of several, for SP) is the capture.
  *   - "table": a specific field lives at a location within a page, so a
  *     slot here is something `locateSlot` finds.
+ *
+ * `ask.title` and every `ask.label` below are seeded VERBATIM from the
+ * `title` and `label` beside them, which is what makes the split that
+ * introduced them behaviour-identical by construction. A test in
+ * `scripts/test-pipeline.mjs` pins that they still agree, so an edit that
+ * lets one drift from the other has to be a deliberate one.
  */
 export const AO_TEMPLATE: Template = {
   id: "AO",
   label: "DOKUMEN VALIDASI",
   sections: [
     {
+      id: "ba-permintaan",
       title: "BA Permintaan",
       layout: "images",
+      ask: { title: "BA Permintaan" },
       slots: [
         {
           key: "ba.permintaan",
           label: "BA Permintaan",
           docType: "BAPermintaan",
-          hint: "the whole Berita Acara Permintaan Order page",
+          ask: {
+            label: "BA Permintaan",
+            hint: "the whole Berita Acara Permintaan Order page",
+          },
           catatan: {
             adalah:
               "Satu halaman penuh Berita Acara Permintaan Order, diambil " +
@@ -181,18 +333,24 @@ export const AO_TEMPLATE: Template = {
               "seperti BA Splitting atau BASO.",
           },
           fillable: true,
+          pageOrdinal: 0,
         },
       ],
     },
     {
+      id: "sp",
       title: "SP",
       layout: "images",
+      ask: { title: "SP" },
       slots: [
         {
           key: "sp.1",
           label: "SP",
           docType: "SP",
-          hint: "the whole Surat Penunjukan page",
+          ask: {
+            label: "SP",
+            hint: "the whole Surat Penunjukan page",
+          },
           catatan: {
             adalah:
               "Halaman pertama Surat Penunjukan, diambil utuh sebagai " +
@@ -202,12 +360,16 @@ export const AO_TEMPLATE: Template = {
               "Order, dan bukan halaman lanjutan Surat Penunjukan.",
           },
           fillable: true,
+          pageOrdinal: 0,
         },
         {
           key: "sp.2",
           label: "SP (lanjutan)",
           docType: "SP",
-          hint: "the second whole page of the Surat Penunjukan",
+          ask: {
+            label: "SP (lanjutan)",
+            hint: "the second whole page of the Surat Penunjukan",
+          },
           catatan: {
             adalah:
               "Halaman lanjutan Surat Penunjukan, juga diambil utuh sebagai " +
@@ -217,22 +379,32 @@ export const AO_TEMPLATE: Template = {
               "atasnya.",
           },
           fillable: true,
+          // 1, not 0, and the difference is which SP page this bagian crops.
+          // `wholePageProposals` reads this number directly, so it is the only
+          // thing deciding that: deleting `sp.1` for one order now leaves this
+          // 1 alone rather than sliding it to 0.
+          pageOrdinal: 1,
         },
       ],
     },
     {
+      id: "kb",
       title: "KB",
       layout: "table",
+      ask: { title: "KB" },
       slots: [
         {
           key: "kb.nomor",
           label: "Nomor",
           docType: "KB",
-          hint:
-            "the contract number of the Perjanjian Kerjasama itself, in the " +
-            "agreement's opening title block, above the parties. Not a " +
-            "reference number on a covering letter, an appointment letter " +
-            "(Surat Penunjukan), a memo, an order form or an email.",
+          ask: {
+            label: "Nomor",
+            hint:
+              "the contract number of the Perjanjian Kerjasama itself, in the " +
+              "agreement's opening title block, above the parties. Not a " +
+              "reference number on a covering letter, an appointment letter " +
+              "(Surat Penunjukan), a memo, an order form or an email.",
+          },
           catatan: {
             adalah:
               "Nomor Perjanjian Kerjasama itu sendiri, di blok judul pembuka " +
@@ -247,12 +419,15 @@ export const AO_TEMPLATE: Template = {
           key: "kb.paraPihak",
           label: "Para Pihak",
           docType: "KB",
-          hint:
-            "the two parties entering the Perjanjian Kerjasama, in the block " +
-            "that introduces them (PIHAK PERTAMA and PIHAK KEDUA) with their " +
-            "names, addresses and representatives. Not an email header, a " +
-            "distribution list, a recipient block on a letter, or a " +
-            "signature block.",
+          ask: {
+            label: "Para Pihak",
+            hint:
+              "the two parties entering the Perjanjian Kerjasama, in the block " +
+              "that introduces them (PIHAK PERTAMA and PIHAK KEDUA) with their " +
+              "names, addresses and representatives. Not an email header, a " +
+              "distribution list, a recipient block on a letter, or a " +
+              "signature block.",
+          },
           catatan: {
             adalah:
               "Blok yang memperkenalkan kedua pihak Perjanjian Kerjasama, " +
@@ -268,11 +443,14 @@ export const AO_TEMPLATE: Template = {
           key: "kb.tanggal",
           label: "Tanggal",
           docType: "KB",
-          hint:
-            "the date the Perjanjian Kerjasama was signed, as its own " +
-            "opening states it (the hari/tanggal sentence). Not a letter " +
-            "date, an email date, a print or scan date, or a date inside a " +
-            "payment or delivery clause.",
+          ask: {
+            label: "Tanggal",
+            hint:
+              "the date the Perjanjian Kerjasama was signed, as its own " +
+              "opening states it (the hari/tanggal sentence). Not a letter " +
+              "date, an email date, a print or scan date, or a date inside a " +
+              "payment or delivery clause.",
+          },
           catatan: {
             adalah:
               "Tanggal Perjanjian Kerjasama ditandatangani, pada kalimat hari " +
@@ -287,12 +465,15 @@ export const AO_TEMPLATE: Template = {
           key: "kb.jangkaWaktu",
           label: "Jangka Waktu",
           docType: "KB",
-          hint:
-            "the duration or term of the Perjanjian Kerjasama (Jangka Waktu " +
-            "Perjanjian): when it takes effect and how long it runs. Not a " +
-            "payment period, a delivery deadline, or a service period on an " +
-            "order form. Start at the clause's own number line (the 'Pasal N' " +
-            "line), not at the title beneath it.",
+          ask: {
+            label: "Jangka Waktu",
+            hint:
+              "the duration or term of the Perjanjian Kerjasama (Jangka Waktu " +
+              "Perjanjian): when it takes effect and how long it runs. Not a " +
+              "payment period, a delivery deadline, or a service period on an " +
+              "order form. Start at the clause's own number line (the 'Pasal N' " +
+              "line), not at the title beneath it.",
+          },
           catatan: {
             adalah:
               "Pasal Jangka Waktu Perjanjian: kapan perjanjian mulai berlaku " +
@@ -307,19 +488,29 @@ export const AO_TEMPLATE: Template = {
       ],
     },
     {
+      id: "kb-lanjutan",
       title: "KB (lanjutan)",
       layout: "table",
+      // The `(lanjutan)` suffix is kept here VERBATIM even though
+      // `slotSearchLabel` strips it before asking, because this is the frozen
+      // copy of what the sample's own heading says. Stripping it at the
+      // transcription would hide a measured decision inside a constant; it is
+      // made, and commented, where the question is composed.
+      ask: { title: "KB (lanjutan)" },
       slots: [
         {
           key: "kbLanjutan.detail",
           label: "Detail",
           docType: "KB",
-          hint:
-            "the scope of work and its pricing in the Perjanjian Kerjasama " +
-            "(Ruang Lingkup dan Harga Pekerjaan), usually a table of items " +
-            "and amounts. Not a quotation, a price list, or a configuration " +
-            "table on an order form. Start at the clause's own number line " +
-            "(the 'Pasal N' line), not at the title beneath it.",
+          ask: {
+            label: "Detail",
+            hint:
+              "the scope of work and its pricing in the Perjanjian Kerjasama " +
+              "(Ruang Lingkup dan Harga Pekerjaan), usually a table of items " +
+              "and amounts. Not a quotation, a price list, or a configuration " +
+              "table on an order form. Start at the clause's own number line " +
+              "(the 'Pasal N' line), not at the title beneath it.",
+          },
           catatan: {
             adalah:
               "Pasal Ruang Lingkup dan Harga Pekerjaan pada Perjanjian " +
@@ -335,12 +526,15 @@ export const AO_TEMPLATE: Template = {
           key: "kbLanjutan.top",
           label: "ToP",
           docType: "KB",
-          hint:
-            "the clause of the Perjanjian Kerjasama that sets the terms of " +
-            "payment for the work (Pembayaran Pekerjaan): when the invoice " +
-            "is raised and by when it is paid. Not a price table, and not a " +
-            "billing period on an order form. Start at the clause's own " +
-            "number line (the 'Pasal N' line), not at the title beneath it.",
+          ask: {
+            label: "ToP",
+            hint:
+              "the clause of the Perjanjian Kerjasama that sets the terms of " +
+              "payment for the work (Pembayaran Pekerjaan): when the invoice " +
+              "is raised and by when it is paid. Not a price table, and not a " +
+              "billing period on an order form. Start at the clause's own " +
+              "number line (the 'Pasal N' line), not at the title beneath it.",
+          },
           catatan: {
             adalah:
               "Pasal Pembayaran Pekerjaan pada Perjanjian Kerjasama, dimulai " +
@@ -373,11 +567,14 @@ export const AO_TEMPLATE: Template = {
           key: "kbLanjutan.ttdPejabat",
           label: "TTD Pejabat",
           docType: "KB",
-          hint:
-            "the signature block that closes the Perjanjian Kerjasama, " +
-            "where the officials of both parties sign, with their names and " +
-            "titles. Not the signature on an appointment letter (Surat " +
-            "Penunjukan), on a Berita Acara, or in an email footer.",
+          ask: {
+            label: "TTD Pejabat",
+            hint:
+              "the signature block that closes the Perjanjian Kerjasama, " +
+              "where the officials of both parties sign, with their names and " +
+              "titles. Not the signature on an appointment letter (Surat " +
+              "Penunjukan), on a Berita Acara, or in an email footer.",
+          },
           catatan: {
             adalah:
               "Blok tanda tangan penutup Perjanjian Kerjasama, tempat pejabat " +
@@ -391,28 +588,38 @@ export const AO_TEMPLATE: Template = {
       ],
     },
     {
+      id: "konfigurasi-epic",
       title: "Konfigurasi (Excel dari EPIC)",
       layout: "table",
+      ask: { title: "Konfigurasi (Excel dari EPIC)" },
       slots: [
         {
           key: "konfigurasiEpic.sid",
           label: "SID",
           docType: null,
-          hint: "the EPIC service id, not backed by a PDF in v1",
+          ask: {
+            label: "SID",
+            hint: "the EPIC service id, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "konfigurasiEpic.konfigurasi",
           label: "Konfigurasi",
           docType: null,
-          hint: "the EPIC configuration excerpt, not backed by a PDF in v1",
+          ask: {
+            label: "Konfigurasi",
+            hint: "the EPIC configuration excerpt, not backed by a PDF in v1",
+          },
           fillable: false,
         },
       ],
     },
     {
+      id: "konfigurasi",
       title: "Konfigurasi",
       layout: "table",
+      ask: { title: "Konfigurasi" },
       slots: [
         {
           // The sample labels this row with the quote number itself, e.g.
@@ -421,41 +628,62 @@ export const AO_TEMPLATE: Template = {
           key: "konfigurasi.quote",
           label: "{{quote}}",
           docType: null,
-          hint: "the quote number, not backed by a PDF in v1",
+          // Seeded verbatim like every other `ask.label`, template token and
+          // all. It is never asked -- the slot is not `fillable` -- and
+          // "correcting" it here would be a silent divergence from the rule
+          // the test pins.
+          ask: {
+            label: "{{quote}}",
+            hint: "the quote number, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "konfigurasi.priceSa",
           label: "Price & SA",
           docType: null,
-          hint: "price and service address from EPIC, not backed by a PDF in v1",
+          ask: {
+            label: "Price & SA",
+            hint: "price and service address from EPIC, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "konfigurasi.bw",
           label: "BW",
           docType: null,
-          hint: "bandwidth from EPIC, not backed by a PDF in v1",
+          ask: {
+            label: "BW",
+            hint: "bandwidth from EPIC, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "konfigurasi.ba",
           label: "BA",
           docType: null,
-          hint: "the BA reference from EPIC, not backed by a PDF in v1",
+          ask: {
+            label: "BA",
+            hint: "the BA reference from EPIC, not backed by a PDF in v1",
+          },
           fillable: false,
         },
       ],
     },
     {
+      id: "email",
       title: "Email",
       layout: "images",
+      ask: { title: "Email" },
       slots: [
         {
           key: "email.1",
           label: "Email",
           docType: "Email",
-          hint: "the whole printed email thread page",
+          ask: {
+            label: "Email",
+            hint: "the whole printed email thread page",
+          },
           catatan: {
             adalah:
               "Satu halaman penuh cetakan utas email yang meminta order ini, " +
@@ -465,51 +693,70 @@ export const AO_TEMPLATE: Template = {
               "bukan surat atau berita acara.",
           },
           fillable: true,
+          pageOrdinal: 0,
         },
       ],
     },
     {
+      id: "mom",
       title: "MOM",
       layout: "images",
+      ask: { title: "MOM" },
       slots: [],
     },
     {
+      id: "ba-splitting",
       title: "BA Splitting",
       layout: "table",
+      ask: { title: "BA Splitting" },
       slots: [
         {
           key: "baSplitting.nomor",
           label: "Nomor",
           docType: null,
-          hint: "the BA Splitting number, not backed by a PDF in v1",
+          ask: {
+            label: "Nomor",
+            hint: "the BA Splitting number, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "baSplitting.detailKontrak",
           label: "Detail Kontrak",
           docType: null,
-          hint: "the contract detail, not backed by a PDF in v1",
+          ask: {
+            label: "Detail Kontrak",
+            hint: "the contract detail, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "baSplitting.detailSplitting",
           label: "Detail Splitting",
           docType: null,
-          hint: "the splitting detail, not backed by a PDF in v1",
+          ask: {
+            label: "Detail Splitting",
+            hint: "the splitting detail, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "baSplitting.ttdPejabat",
           label: "TTD Pejabat",
           docType: null,
-          hint: "the signing official's signature block, not backed by a PDF in v1",
+          ask: {
+            label: "TTD Pejabat",
+            hint: "the signing official's signature block, not backed by a PDF in v1",
+          },
           fillable: false,
         },
       ],
     },
     {
+      id: "sbr-pricing",
       title: "SBR Pricing",
       layout: "table",
+      ask: { title: "SBR Pricing" },
       slots: [
         {
           key: "sbrPricing.nomorTanggal",
@@ -518,33 +765,46 @@ export const AO_TEMPLATE: Template = {
           // deliberately intact.
           label: "Nomor dan tanggal (tidak ada)",
           docType: null,
-          hint: "the SBR pricing document's number and date, not backed by a PDF in v1",
+          ask: {
+            label: "Nomor dan tanggal (tidak ada)",
+            hint: "the SBR pricing document's number and date, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "sbrPricing.diskonCc",
           label: "Diskon ke CC",
           docType: null,
-          hint: "the discount extended to the customer, not backed by a PDF in v1",
+          ask: {
+            label: "Diskon ke CC",
+            hint: "the discount extended to the customer, not backed by a PDF in v1",
+          },
           fillable: false,
         },
         {
           key: "sbrPricing.ttdPejabat",
           label: "TTD Pejabat",
           docType: null,
-          hint: "the signing official's signature block, not backed by a PDF in v1",
+          ask: {
+            label: "TTD Pejabat",
+            hint: "the signing official's signature block, not backed by a PDF in v1",
+          },
           fillable: false,
         },
       ],
     },
     {
+      id: "baso",
       title: "BASO",
       layout: "images",
+      ask: { title: "BASO" },
       slots: [],
     },
     {
+      id: "ba-penjelasan-order",
       title: "BA Penjelasan Order",
       layout: "images",
+      ask: { title: "BA Penjelasan Order" },
       slots: [],
     },
   ],

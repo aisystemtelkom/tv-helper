@@ -65,6 +65,18 @@
  * duplicated. What went is the text that would read word for word the same on
  * every order.
  *
+ * THE HAND-OVER IS OPEN FOR THE WHOLE OF AN INGEST, and it did not use to be.
+ * The drop target was replaced by the progress and both halves of it refused
+ * with "tunggu sampai pemuatan selesai", so an operator who found the SPLITBA
+ * four minutes into a 27-page contract had to stand and watch. Berkas handed
+ * over now join an ANTREAN and are read in turn, one at a time, in the order
+ * they were given, which is the invariant that refusal was protecting. Two
+ * things follow and both are on screen: what is waiting is listed by name,
+ * because a hand-over that vanishes into a running ingest is this project's
+ * failure class in the interaction layer; and a berkas whose CONTENT the order
+ * already holds is refused in prose that names the one it repeats. See
+ * `Antrean`, `Refusals` and `src/lib/browser/intake.ts`.
+ *
  * WHY A DISABLED CONTROL NO LONGER PRINTS ITS REASON BESIDE ITSELF. Same
  * operator, same complaint: the key is down, that already reads as
  * unavailable, and a paragraph restating it is furniture on every screen
@@ -76,7 +88,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { BrowserRun, RunSource, StoredPage } from "@/lib/ui/runtime";
+import type {
+  BrowserRun,
+  RefusedDocument,
+  RunSource,
+  StoredPage,
+} from "@/lib/ui/runtime";
 
 import {
   Advisory,
@@ -107,6 +124,32 @@ export type IngestProgress = {
   fileCount?: number;
 };
 
+/**
+ * AN INGEST THAT FAILED, WHOLE, because flattening it to one string lost the
+ * only part worth having.
+ *
+ * The shell holds a fault as `{sentence, detail}` -- an operator sentence and
+ * the raw exception behind a disclosure -- and used to hand the two panels
+ * that show an ingest failure a single `error: string`. Each then interpreted
+ * it differently and both were served the SENTENCE: this panel filed it under
+ * `Detail teknis`, where it printed a second operator sentence in a monospace
+ * well, and `outstanding-panel.tsx` read it as prose, which it is. So a failed
+ * ingest reached the screen with `messageOf(problem)` -- the route's own
+ * diagnosis, naming the credential, the status or the page -- rendered
+ * NOWHERE, on any screen, and an operator reporting a failure could only
+ * report that it had failed.
+ *
+ * A pair rather than a string so the flattening cannot come back: `sentence`
+ * and `detail` are different audiences (see `Fault` in `operator-app.tsx`) and
+ * `tsc` now refuses to let one stand in for the other.
+ */
+export type IngestFault = {
+  /** Written for the operator. Names the consequence, not the mechanism. */
+  sentence: string;
+  /** Deployer-facing: ids, variable names, raw exception text. */
+  detail?: string;
+};
+
 /** A file this app can actually read. */
 function isPdf(file: File): boolean {
   // Both tests, not the extension alone. A scan handed over through a chat app
@@ -134,7 +177,6 @@ export function DocumentDrop({
   label,
   hint,
   explain,
-  disabled,
   onFiles,
   size = "hero",
   tone = "primary",
@@ -151,7 +193,6 @@ export function DocumentDrop({
    * is NOT where the consent sentence goes; that is printed below, always.
    */
   explain?: ReactNode;
-  disabled?: boolean;
   onFiles: (files: File[]) => void;
   /** `inline` is the same target at a smaller height, for a secondary screen. */
   size?: "hero" | "inline";
@@ -210,16 +251,14 @@ export function DocumentDrop({
         aria-labelledby={labelId}
         onDragEnter={(event) => {
           event.preventDefault();
-          if (disabled) return;
           depth.current += 1;
           setOver(true);
         }}
         onDragOver={(event) => {
-          // Always prevented, even while disabled: without it the browser
-          // treats the drop as a navigation and opens the operator's PDF over
-          // the top of a running ingest.
+          // Without this the browser treats the drop as a navigation and opens
+          // the operator's PDF over the top of a running ingest.
           event.preventDefault();
-          event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+          event.dataTransfer.dropEffect = "copy";
         }}
         onDragLeave={() => {
           depth.current = Math.max(0, depth.current - 1);
@@ -229,14 +268,6 @@ export function DocumentDrop({
           event.preventDefault();
           depth.current = 0;
           setOver(false);
-          if (disabled) {
-            // The card used to light amber on drag over while disabled and
-            // then discard the file without a word. Saying no is the point.
-            setRefusal(
-              "Dokumen sedang dimuat. Tunggu sampai pemuatan selesai, lalu tambahkan berkasnya.",
-            );
-            return;
-          }
           take(event.dataTransfer.files);
         }}
         /* A TRAY CUT INTO THE BENCH, NOT A DASHED RECTANGLE INHERITED FROM A
@@ -332,21 +363,15 @@ export function DocumentDrop({
             event.target.value = "";
           }}
         />
-        {/* THE KEY CARRIES ITS OWN REFUSAL. The drop half of this card
-            already says no out loud when a file is dropped on it mid-ingest;
-            the key beside it went down silently. `reason` is the same
-            sentence, reached by pointer, keyboard and screen reader, so
-            neither half of one target can refuse without saying why. */}
-        <Btn
-          tone={tone}
-          disabled={disabled}
-          reason={
-            disabled
-              ? "Dokumen sedang dimuat. Tunggu sampai pemuatan selesai, lalu tambahkan berkasnya."
-              : undefined
-          }
-          onClick={() => input.current?.click()}
-        >
+        {/* THIS KEY IS NEVER DOWN, AND THAT IS THE CHANGE. Both halves of
+            this target used to refuse for the whole of an ingest -- the card
+            said "tunggu sampai pemuatan selesai" and the key went down with
+            the same sentence on it. An operator who finds the SPLITBA four
+            minutes into a 27-page contract had to stand and watch, and the one
+            who walked away came back to a screen that had finished and
+            forgotten. Nothing about handing a berkas over needs the reader to
+            be idle: it joins the antrean below and is read in turn. */}
+        <Btn tone={tone} onClick={() => input.current?.click()}>
           Pilih berkas PDF
         </Btn>
 
@@ -371,6 +396,162 @@ export function DocumentDrop({
       <div role="status" aria-live="polite">
         {refusal ? <Notice tone="stop">{refusal}</Notice> : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A BERKAS THIS ORDER HAS BEEN PROMISED AND HAS NOT READ YET.
+ *
+ * `id` is minted by the shell rather than taken from the file, because two
+ * different documents legitimately share a name (`document.pdf` out of two
+ * emails is a merged contract and a SPLITBA) and a row the operator can cancel
+ * has to name exactly one of them.
+ */
+export type QueuedDocument = { id: string; name: string };
+
+/**
+ * WHAT IS WAITING ITS TURN.
+ *
+ * THE QUEUE IS THE WHOLE POINT OF LETTING THE TARGET STAY LIVE. A hand-over
+ * that vanishes into a running ingest with nothing on screen to show for it is
+ * this project's failure class in the interaction layer: the operator walks
+ * away believing the SPLITBA is in the order, and the bagian that live in it
+ * ship `tidak ditemukan` on the record. So every berkas that was accepted and
+ * has not been read yet is listed by name, countable, from the moment it is
+ * accepted.
+ *
+ * IT IS NOT A PROGRESS BAR AND IT MUST NOT LOOK LIKE ONE. Nothing here knows
+ * how many pages these documents hold; a berkas is opened when its turn comes.
+ * A list of names is exactly what is known.
+ *
+ * WHY IT SURVIVES A FAILURE INSTEAD OF BEING THROWN AWAY. An ingest that stops
+ * part way leaves the rest of the antrean unread, and the operator picked
+ * those files out of a folder minutes ago. Making them find them again is the
+ * app spending their time on its own error, so the list stays, `Lanjutkan
+ * pemuatan` starts it again from where it stopped, and each row can be
+ * dropped on its own -- which is the way out of a berkas that fails every
+ * time.
+ */
+export function Antrean({
+  queue,
+  stopped,
+  onCancel,
+  onResume,
+}: {
+  queue: readonly QueuedDocument[];
+  /** Nothing is reading them: an ingest stopped and left these behind. */
+  stopped: boolean;
+  onCancel: (id: string) => void;
+  /**
+   * Omitted, no resume key is drawn, which is the tambahan dialog's case: the
+   * block underneath it already carries the fault and the way forward, and a
+   * second key for it inside a modal the operator may have closed is a control
+   * they have to find twice.
+   */
+  onResume?: () => void;
+}) {
+  if (queue.length === 0) return null;
+
+  return (
+    <section
+      className="border-line flex flex-col gap-3 border-t pt-5"
+      aria-labelledby="ingest-queue"
+    >
+      <h3 id="ingest-queue" className="text-[0.9375rem] font-semibold">
+        Menunggu giliran
+      </h3>
+
+      {/* Announced as it changes, because the operator's own drop is what
+          changes it and the confirmation that it landed is this number. */}
+      <p aria-live="polite" className="text-ink-2 text-[0.9375rem]">
+        <span className="lt-figure">{queue.length}</span>{" "}
+        {stopped
+          ? "berkas belum sempat dimuat. Halaman yang sudah masuk tetap tersimpan."
+          : "berkas sudah Anda berikan dan dimuat setelah yang sedang berjalan selesai."}
+      </p>
+
+      <ul className="flex flex-col gap-2">
+        {queue.map((one) => (
+          <li
+            key={one.id}
+            className="lt-row flex-row items-center justify-between gap-3"
+          >
+            <span className="flex items-center gap-2" title={one.name}>
+              <Berkas className="text-ink-3" />
+              <span className="lt-figure">{shortenFileName(one.name, 40)}</span>
+            </span>
+            {/* The glossary's word for it, and the same word the zone editor
+                uses to back out of an act in progress. */}
+            <Btn onClick={() => onCancel(one.id)}>Batal</Btn>
+          </li>
+        ))}
+      </ul>
+
+      {stopped && onResume ? (
+        <div>
+          <Btn tone="primary" onClick={onResume}>
+            <Muat size={16} />
+            Lanjutkan pemuatan
+          </Btn>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * THE BERKAS THIS ORDER WOULD NOT TAKE, AND WHY, IN PROSE ON THE PAGE.
+ *
+ * A refusal is not a routine unavailability, so it does not ride on a control
+ * as a hover reason: the operator handed a document over and it is not going
+ * to be read, and they may miss that and be worse off -- which is the test
+ * `toast.tsx` states and this fails. It is printed, it is in a live region,
+ * and it stays until the next hand-over replaces it.
+ *
+ * IT NAMES BOTH BERKAS. A duplicate is decided on the CONTENT of a document
+ * and not on its name (see `src/lib/browser/intake.ts`), so the two names are
+ * routinely different -- a downloads folder's `scan (1).pdf` against the
+ * `scan.pdf` that went in ten minutes ago. "Sudah ada di order ini" alone
+ * would read as a mistake by the app. Naming the one already held is what
+ * makes the refusal checkable.
+ */
+export function Refusals({
+  refusals,
+}: {
+  refusals: readonly RefusedDocument[];
+}) {
+  return (
+    // Mounted before it has anything to say, so a refusal is announced when it
+    // appears rather than when the region is first inserted.
+    <div role="status" aria-live="polite">
+      {refusals.length === 0 ? null : (
+        <Notice tone="stop">
+          <ul className="flex flex-col gap-1">
+            {refusals.map((one) => (
+              <li key={`${one.name}-${one.held}`}>
+                <span className="lt-figure">
+                  {shortenFileName(one.name, 34)}
+                </span>{" "}
+                {one.inSameDrop ? (
+                  <>
+                    Anda berikan dua kali sekaligus, jadi hanya satu yang
+                    dimuat.
+                  </>
+                ) : (
+                  <>
+                    isinya sama persis dengan{" "}
+                    <span className="lt-figure">
+                      {shortenFileName(one.held, 34)}
+                    </span>{" "}
+                    yang sudah ada di order ini, jadi tidak dimuat lagi.
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Notice>
+      )}
     </div>
   );
 }
@@ -553,6 +734,12 @@ function RunContents({ run }: { run: BrowserRun }) {
   const read = run.pages.length;
   const short = Math.max(0, expected - read);
   const unreadable = run.pages.filter((page) => page.lines.length === 0).length;
+  // A DIFFERENT SHORTFALL FROM `short` ABOVE, and the two are easy to confuse
+  // in prose as well as in code. `short` counts pages that never arrived at
+  // all; these arrived and were read INCOMPLETELY, which the device knows
+  // because `checkPageCompleteness` measured the recogniser's boxes against
+  // the page's own ink. See `PageShortfall`.
+  const partial = run.pages.filter((page) => page.short);
   const names = run.sources.map((source) => source.name);
   const duplicated = new Set(names).size !== names.length;
 
@@ -609,6 +796,26 @@ function RunContents({ run }: { run: BrowserRun }) {
                       terbaca.
                     </>
                   )}
+                  {/* Said on the berkas it belongs to, as well as in the one
+                      advisory below, because the operator opens a PDF at a
+                      page number and the number only means something next to
+                      the file it counts from. */}
+                  {pages.some((page) => page.short) ? (
+                    <span className="text-ink">
+                      {" "}
+                      <span className="lt-figure">
+                        {pages.filter((page) => page.short).length}
+                      </span>{" "}
+                      di antaranya terbaca sebagian: halaman{" "}
+                      <span className="lt-figure">
+                        {pages
+                          .filter((page) => page.short)
+                          .map((page) => page.index + 1)
+                          .join(", ")}
+                      </span>
+                      .
+                    </span>
+                  ) : null}
                 </p>
 
                 {pages.length > 0 ? (
@@ -644,6 +851,18 @@ function RunContents({ run }: { run: BrowserRun }) {
         </p>
       )}
 
+      {partial.length > 0 ? (
+        <Advisory>
+          <span>
+            <span className="lt-figure">{partial.length}</span> halaman hanya
+            terbaca sebagian. Halamannya tetap tersimpan dan tetap dicari, tapi
+            teks yang tidak terbaca tidak bisa diusulkan. Periksa sendiri
+            potongan yang datang dari halaman itu, dan lihat tanda kuning pada
+            denah halamannya.
+          </span>
+        </Advisory>
+      ) : null}
+
       {short > 0 ? (
         <Advisory>
           <span>
@@ -665,11 +884,21 @@ function RunContents({ run }: { run: BrowserRun }) {
         </Advisory>
       ) : null}
 
+      {/* IT NO LONGER MEANS WHAT IT USED TO, and the new meaning is the
+          useful one. A berkas whose CONTENT this order already holds is now
+          refused at the hand-over (see `src/lib/browser/intake.ts`), so two
+          rows sharing a name are two DIFFERENT documents: a merged contract
+          and a SPLITBA that both came out of a mail client as
+          `document.pdf`, or a scan the operator re-exported and changed. That
+          is legitimate and both are loaded, but it is also the one shape in
+          which the operator cannot tell their own berkas apart on this screen
+          or in a citation. */}
       {duplicated ? (
         <Advisory>
           <span>
-            Ada dua berkas dengan nama yang sama di order ini. Periksa
-            apakah salah satunya termuat dua kali.
+            Ada dua berkas dengan nama yang sama di order ini, dan isinya
+            berbeda, jadi keduanya dimuat. Periksa apakah keduanya memang
+            dokumen yang berbeda.
           </span>
         </Advisory>
       ) : null}
@@ -859,10 +1088,15 @@ export function IngestPanel({
   run,
   progress,
   busy,
-  error,
+  fault,
   onFiles,
   onStartNewRun,
   onProcess,
+  queue = [],
+  screening = false,
+  refusals = [],
+  onCancelQueued,
+  onResumeQueue,
   searching = false,
   searchStartedAt = null,
   searchNote = null,
@@ -872,11 +1106,12 @@ export function IngestPanel({
   progress: IngestProgress | null;
   busy: boolean;
   /**
-   * The ingest that just failed, as the runtime reported it. Deployer-facing
-   * text: it goes behind `Detail teknis`, never into the sentence the operator
-   * is meant to act on.
+   * The ingest that just failed. This panel writes the operator's sentence
+   * itself, because only it knows whether any page survived; what it takes
+   * from the shell is the fault's `detail`, which goes behind
+   * `Detail teknis` and never into the sentence.
    */
-  error: string | null;
+  fault: IngestFault | null;
   onFiles: (files: File[]) => void;
   /**
    * Closes the open order so the next drop starts a fresh one. Omitted, the
@@ -886,6 +1121,29 @@ export function IngestPanel({
   onStartNewRun?: () => void;
   /** MOVE TWO. Omitted, the block is not offered at all. */
   onProcess?: () => void;
+  /**
+   * BERKAS THIS ORDER HAS BEEN PROMISED AND HAS NOT READ YET, oldest first.
+   *
+   * The one being read right now is NOT in here: it is `progress`, and having
+   * it in both would print the same berkas twice, once as running and once as
+   * waiting.
+   */
+  queue?: readonly QueuedDocument[];
+  /**
+   * A hand-over is being weighed against what this order already holds.
+   *
+   * It is a hash of the whole file, which on a 50MB bundle is long enough to
+   * look like nothing happened. Saying so is cheap; the alternative is a drop
+   * that produces no reaction for a second, which is what teaches an operator
+   * to drop it again.
+   */
+  screening?: boolean;
+  /** What was handed over and refused. Outlives the drop that caused it. */
+  refusals?: readonly RefusedDocument[];
+  /** Drops one waiting berkas. Omitted, the rows carry no control. */
+  onCancelQueued?: (id: string) => void;
+  /** Starts an antrean that an interrupted ingest left behind. */
+  onResumeQueue?: () => void;
   searching?: boolean;
   /** When the running search started, for the elapsed reading. */
   searchStartedAt?: number | null;
@@ -909,11 +1167,25 @@ export function IngestPanel({
           rather than designed. The lede went with it: "Berikan semua berkas
           PDF yang datang bersama order ini" is what the drop target's own
           label already says one line further down. */}
-      {error ? (
-        <Interruption detail={error}>
+      {fault ? (
+        <Interruption detail={fault.detail}>
           {pages > 0
             ? "Pemuatan berhenti sebelum semua halaman selesai. Halaman yang sudah masuk tetap tersimpan, dan order ini tetap ada di daftar. Anda bisa memuat berkas yang sama lagi."
             : "Pemuatan berhenti sebelum satu halaman pun tersimpan. Order yang kosong tetap ada di daftar, jadi Anda bisa mencoba berkas yang sama lagi atau memilih berkas lain."}
+          {/* THE ANTREAN IS PART OF THE DIAGNOSIS, and this panel is the only
+              place that can say so: it writes its own sentence off
+              `run.pages.length` and takes nothing but `detail` from the shell,
+              so the shell's own queue-aware wording never reaches this screen.
+              Berkas the operator handed over and nothing read are still listed
+              below with a key that starts again; without this clause the
+              paragraph above reads as "give it all to me again". */}
+          {queue.length > 0 ? (
+            <>
+              {" "}
+              Berkas yang belum sempat dimuat masih ada di antrean di bawah,
+              jadi Anda tidak perlu mencarinya lagi.
+            </>
+          ) : null}
         </Interruption>
       ) : null}
 
@@ -947,44 +1219,104 @@ export function IngestPanel({
           </span>
         </div>
         <div className="lt-slab-body flex flex-col gap-6">
-          {reading ? (
-            /* The drop target stands down while an ingest runs. It cannot
-               accept anything, and leaving a dead target on screen is the same
-               refusal-in-silence the file filter used to make. */
-            <Reading progress={reading} />
-          ) : (
-            /* NEITHER HINT IS PRINTED ANY MORE, and the label carries the one
-               difference between them. "Tambahkan berkas ke order ini"
-               against "Taruh berkas order di sini" is the whole of what the
-               operator needed on screen: whether this drop joins the open
-               order or starts one. The reassurances behind it (nothing you
-               already accepted changes, rotated scans are straightened) are
-               word for word the same on every order. */
-            <DocumentDrop
-              label={
-                pages > 0
+          {/* THE DROP TARGET NO LONGER STANDS DOWN WHILE AN INGEST RUNS, and
+              that inversion is the point of this block.
+
+              It used to be replaced by the progress, and the card and its key
+              both refused with "tunggu sampai pemuatan selesai". The
+              behaviour that was actually being protected -- one ingest at a
+              time, pages appended in a known order -- is protected by the
+              antrean instead, which is a better answer to the same problem:
+              the operator hands a berkas over the moment they find it, at the
+              speed they work, and it is read in turn. Some people drag the
+              whole bundle in at once and some drop the merged contract, then
+              the SPLITBA, then the email print-out, and the second habit was
+              simply unsupported for the whole of the minutes an ingest takes.
+
+              The progress and the target now stand together: what is being
+              read, what is waiting, what was refused, and where to put more. */}
+          {reading ? <Reading progress={reading} /> : null}
+
+          <Antrean
+            queue={queue}
+            /* An antrean with nothing reading it is one an ingest stopped and
+               left behind, which is the only state that offers to resume. */
+            stopped={!reading}
+            onCancel={onCancelQueued ?? (() => {})}
+            onResume={onResumeQueue}
+          />
+
+          <Refusals refusals={refusals} />
+
+          {/* NEITHER HINT IS PRINTED ANY MORE, and the label carries the one
+              difference between them. "Tambahkan berkas ke order ini" against
+              "Taruh berkas order di sini" is the whole of what the operator
+              needed on screen: whether this drop joins the open order or
+              starts one. The reassurances behind it (nothing you already
+              accepted changes, rotated scans are straightened) are word for
+              word the same on every order. */}
+          <DocumentDrop
+            label={
+              reading
+                ? "Tambahkan berkas lagi"
+                : /* ON THE ORDER BEING OPEN, not on it holding halaman. An
+                     ingest that failed on page one leaves a run with a berkas
+                     in it and nothing read, and "Taruh berkas order di sini"
+                     there says the next drop starts a new order, which is the
+                     one thing this label exists to answer and would be
+                     answering wrongly. */
+                  run
                   ? "Tambahkan berkas ke order ini"
                   : "Taruh berkas order di sini"
-              }
-              explain={
-                pages > 0
-                  ? "Berkas baru masuk ke order yang sedang terbuka, bukan ke order baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh."
-                  : /* THE OUTCOME, NOT THE MECHANISM. This used to say the
-                       rotated scans "akan diluruskan lebih dulu", which is us
-                       narrating our own render step. What the operator wants
-                       to know before they walk back to the scanner is whether
-                       a sideways page is a problem. It is not. */
-                    "Semua berkas sekaligus juga bisa. Halaman yang miring atau terputar tetap terbaca."
-              }
-              /* ONE PRIMARY KEY PER SCREEN. Empty, this target is the only
-                 move there is. Once the order holds halaman the move is
-                 `Baca dengan AI` in the block below, and this becomes the
-                 secondary path for somebody who noticed a missing berkas. */
-              tone={pages > 0 ? "default" : "primary"}
-              disabled={busy}
-              onFiles={onFiles}
-            />
-          )}
+            }
+            hint={
+              /* THE ONE STATE THAT NEEDS A LINE ON THE CARD ITSELF. Everywhere
+                 else this target's hint reads the same on every order and is
+                 behind the question mark. Mid-ingest it is not: what happens
+                 to a berkas dropped now is genuinely different from what
+                 happens to one dropped on an idle screen, and an operator who
+                 does not know it queues will not try. */
+              reading
+                ? "Berkas ini masuk antrean dan dimuat setelah yang sedang berjalan selesai."
+                : undefined
+            }
+            explain={
+              pages > 0 || reading
+                ? "Berkas baru masuk ke order yang sedang terbuka, bukan ke order baru. Halaman yang sudah ada tidak berubah, dan area yang sudah Anda terima tetap utuh. Berkas yang isinya sama dengan yang sudah ada di order ini tidak dimuat dua kali."
+                : /* THE OUTCOME, NOT THE MECHANISM. This used to say the
+                     rotated scans "akan diluruskan lebih dulu", which is us
+                     narrating our own render step. What the operator wants to
+                     know before they walk back to the scanner is whether a
+                     sideways page is a problem. It is not. */
+                  "Semua berkas sekaligus juga bisa, atau satu per satu sambil berjalan. Halaman yang miring atau terputar tetap terbaca."
+            }
+            /* ONE PRIMARY KEY PER SCREEN. Empty, this target is the only move
+               there is. Once the order holds halaman the move is `Baca dengan
+               AI` in the block below, and with an antrean waiting it is
+               `Lanjutkan pemuatan` just above; in both cases this becomes the
+               secondary path for somebody who noticed a missing berkas. */
+            tone={
+              pages > 0 || reading || queue.length > 0 ? "default" : "primary"
+            }
+            /* Not the subject of the screen any more once something is being
+               read: the film strip above it is. */
+            size={reading ? "inline" : "hero"}
+            onFiles={onFiles}
+          />
+
+          {/* HASHING A 50MB BUNDLE TAKES LONG ENOUGH TO LOOK LIKE NOTHING
+              HAPPENED, and a drop that produces no reaction is a drop the
+              operator repeats. Its own live region rather than the drop
+              target's, because the card's region carries refusals and this is
+              not one. */}
+          <div role="status" aria-live="polite">
+            {screening ? (
+              <p className="text-ink flex items-center gap-3 text-[0.9375rem]">
+                <span className="lt-spinner" aria-hidden="true" />
+                <span>Memeriksa berkas yang Anda berikan.</span>
+              </p>
+            ) : null}
+          </div>
 
           {run ? <RunContents run={run} /> : null}
 

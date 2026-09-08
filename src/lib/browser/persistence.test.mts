@@ -59,12 +59,15 @@ import {
   deleteRun,
   CaptureLossError,
   PageLossError,
+  SectionLossError,
   StaleRunWriteError,
   type RunMeta,
 } from "../storage/runs.ts";
 import { continuationChecked } from "./captures.ts";
 import {
+  DuplicateDocumentError,
   createRun,
+  fileDigest,
   ingestDocument,
   listRuns,
   loadRun,
@@ -72,6 +75,8 @@ import {
   removeDocument,
   saveRun,
 } from "./runtime.ts";
+import { emptyOverlay, type TemplateOverlay } from "../forms/overlay.ts";
+import { AO_TEMPLATE } from "../forms/template.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +85,22 @@ import type { BrowserRun, SlotState, StoredPage } from "./types.ts";
 
 let counter = 0;
 const runId = (name: string) => `test-${name}-${(counter += 1)}`;
+
+/**
+ * An order on which the operator has renamed nothing and added nothing.
+ *
+ * `BrowserRun.overlay` is REQUIRED rather than optional, which is what forces
+ * every fixture here to say so out loud. That is the point: the same
+ * field-by-field discipline that made `metaOf` name the field is what a
+ * `short?:`-shaped optional walked straight past once already, and a run that
+ * silently forgot an operator's headings would print the packet under the
+ * wrong names and look entirely fine doing it.
+ *
+ * One shared object across the file is safe because nothing here mutates an
+ * overlay, and every value that goes through storage comes back as IndexedDB's
+ * own structured clone rather than this reference.
+ */
+const NO_EDITS: TemplateOverlay = emptyOverlay(AO_TEMPLATE);
 
 /**
  * A page with real-looking OCR geometry.
@@ -130,6 +151,7 @@ function freshRun(id: string, pages: StoredPage[] = []): BrowserRun {
     rev: 0,
     sources: [{ id: "src-a", name: "LOP999001_BUNDLE.pdf", pageCount: pages.length }],
     pages,
+    overlay: NO_EDITS,
     slots: [
       confirmedSlot,
       { key: "kb.tanggal", label: "Tanggal", status: "outstanding" },
@@ -176,6 +198,43 @@ test("a run survives a round trip: pages, OCR lines and confirmed zones come bac
   // Storage stamps the revision it wrote, and hands the writer the same one.
   assert.equal(saved.rev, 1);
   assert.equal(loaded.rev, 1);
+});
+
+test("a page marked short comes back marked short", async () => {
+  /*
+   * THE TYPE CANNOT CHECK THIS ONE, WHICH IS THE WHOLE REASON IT IS A TEST.
+   *
+   * `toStoredPage` in `src/lib/storage/runs.ts` maps a record field by field,
+   * on purpose, so that adding a field to `StoredPage` fails to compile there
+   * rather than silently not being read back. `short` is OPTIONAL, so it
+   * compiled fine while being dropped on the way out: the device would write
+   * down that it had misread a page and then forget, and the page would come
+   * back looking clean. That is the exact failure the marker exists to
+   * prevent, rebuilt one layer down.
+   */
+  const id = runId("shortpage");
+  const clean = page("clean", "src-a", 0);
+  const short: StoredPage = {
+    ...page("short", "src-a", 1),
+    short: {
+      inkCoverage: 0.872,
+      uncoveredInkRunShare: 0.027,
+      attempts: 3,
+      shortfalls: ["its returned boxes reach y=647 against ink to y=741"],
+    },
+  };
+
+  await putRun(freshRun(id, [clean, short]));
+  const loaded = await getRun(id);
+
+  assert.ok(loaded);
+  assert.deepEqual(loaded.pages, [clean, short]);
+  assert.equal(loaded.pages[1].short?.inkCoverage, 0.872);
+  assert.equal(loaded.pages[1].short?.shortfalls.length, 1);
+
+  // And a page that passed still carries no key at all, so "read short" and
+  // "written before the marker existed" cannot be told apart by accident.
+  assert.ok(!("short" in loaded.pages[0]));
 });
 
 test("listRunMeta lists a run without dragging its pages along", async () => {
@@ -684,7 +743,7 @@ test("appendPage refuses a page for a run that is not stored", async () => {
   await assert.rejects(
     () =>
       appendPage(
-        { id, createdAt: 1, rev: 0, sources: [], slots: [] },
+        { id, createdAt: 1, rev: 0, sources: [], slots: [], overlay: NO_EDITS },
         page("o0", "src-a", 0),
         0,
       ),
@@ -733,9 +792,20 @@ function fakeWorker(count: number) {
   };
 }
 
-/** Fictional identifiers only: this repo is public. */
+/**
+ * Fictional identifiers only: this repo is public.
+ *
+ * THE BYTES ARE DERIVED FROM THE NAME, and that is not decoration. A run
+ * refuses a document it already holds BY CONTENT (see `intake.ts`), so two
+ * fixtures standing in for two different documents have to actually differ --
+ * otherwise every "a second document appends" test would be asserting against
+ * a duplicate, which the runtime is now correct to refuse. Use `copyOf` when
+ * a test wants a genuine second copy.
+ */
 const pdfFile = (name: string) =>
-  new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
+  new File([new TextEncoder().encode(`%PDF-1.7 ${name}`)], name, {
+    type: "application/pdf",
+  });
 
 test("ingestDocument STORES the pages it read, not just returns them", async () => {
   const id = runId("ingest-stores");
@@ -860,8 +930,11 @@ function fakeIngestSource(pages: number) {
   };
 }
 
-const pdf = (name: string) =>
-  new File([new Uint8Array([37, 80, 68, 70])], name, { type: "application/pdf" });
+const pdf = pdfFile;
+
+/** The same document under a different name: what a downloads folder produces. */
+const copyOf = (file: File, name: string) =>
+  new File([file], name, { type: file.type });
 
 test("two documents ingested into one run make ONE order, not two", async () => {
   /*
@@ -947,6 +1020,7 @@ function twoDocumentRun(id: string): BrowserRun {
   return {
     id,
     createdAt: 1,
+    overlay: NO_EDITS,
     sources: [
       { id: "src-a", name: "KONTRAK.pdf", pageCount: 2 },
       { id: "src-b", name: "SPLITBA.pdf", pageCount: 2 },
@@ -1151,4 +1225,427 @@ test("removing a document the run does not have changes nothing", async () => {
   // Two tabs removing the same document should not make the second an error.
   assert.equal(after.rev, stored.rev);
   assert.equal(after.pages.length, 4);
+});
+
+// ---------------------------------------------------------------------------
+// 6. A document this order already holds is refused, and nothing is written
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BACKSTOP UNDER THE INGEST SCREEN'S OWN CHECK.
+ *
+ * The screen screens a hand-over as it happens, which is the refusal the
+ * operator experiences. These tests are about the other one: the check inside
+ * the run lock, against what is stored, which is the only one that can see a
+ * second tab or a queue screened before the run finished growing.
+ *
+ * What it prevents does not look like a failure. A run holding one document
+ * twice reads back as a longer bundle, gives the model two identical
+ * candidates for every bagian, and turns a crop the operator accepted into a
+ * picture of a different scan the moment the copy is removed and
+ * `removeSource` renumbers what survived.
+ */
+
+test("ingesting the SAME document twice is refused, by content not by name", async () => {
+  const id = runId("ingest-duplicate");
+  const first = pdf("LOP999001_BUNDLE.pdf");
+
+  await ingestDocument(id, first, undefined, { ingestSource: fakeWorker(3) });
+
+  // A renamed copy, which is what a downloads folder produces and what a name
+  // check does not see at all.
+  await assert.rejects(
+    () =>
+      ingestDocument(id, copyOf(first, "LOP999001_BUNDLE (1).pdf"), undefined, {
+        ingestSource: fakeWorker(3),
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof DuplicateDocumentError);
+      assert.equal(error.candidate, "LOP999001_BUNDLE (1).pdf");
+      // Names the one already held, because under a byte identity the two
+      // names routinely differ and the operator cannot otherwise find it.
+      assert.equal(error.held, "LOP999001_BUNDLE.pdf");
+      return true;
+    },
+  );
+
+  // NOTHING WAS WRITTEN. Not a second source, not a page, not a revision: a
+  // refusal that still appended would be worse than no refusal, because the
+  // screen would say the document was rejected while the run held it.
+  const stored = await loadRun(id);
+  assert.ok(stored);
+  assert.equal(stored.sources.length, 1);
+  assert.equal(stored.pages.length, 3);
+});
+
+test("a document that only SHARES A NAME is still ingested", async () => {
+  // The failure pointed the other way, and the expensive one: `document.pdf`
+  // out of two different emails is a merged contract and a SPLITBA, and
+  // refusing the second ships every bagian inside it as tidak ditemukan.
+  const id = runId("ingest-same-name");
+
+  await ingestDocument(id, pdfFile("document.pdf"), undefined, {
+    ingestSource: fakeWorker(2),
+  });
+  await ingestDocument(
+    id,
+    new File([new TextEncoder().encode("%PDF-1.7 a different scan")], "document.pdf", {
+      type: "application/pdf",
+    }),
+    undefined,
+    { ingestSource: fakeWorker(2) },
+  );
+
+  const stored = await loadRun(id);
+  assert.equal(stored?.sources.length, 2);
+  assert.equal(stored?.pages.length, 4);
+});
+
+test("the digest is stored on the source, so it survives a reload", async () => {
+  // The check reads `run.sources[].digest` out of storage. If the write did
+  // not carry it, or `loadRun` dropped it, every duplicate would be loadable
+  // again after a refresh and nothing would fail.
+  const id = runId("ingest-digest-roundtrip");
+  const file = pdf("SPLITBA_LOP999001.pdf");
+
+  await ingestDocument(id, file, undefined, { ingestSource: fakeWorker(2) });
+
+  const stored = await loadRun(id);
+  assert.equal(stored?.sources[0].digest, await fileDigest(file));
+});
+
+test("a run whose sources predate the digest still accepts documents", async () => {
+  /*
+   * Absent means UNKNOWN, never "unique" and never "matches anything". A run
+   * ingested before sources carried a digest has nothing to compare, and the
+   * safe direction is to let the hand-over through: the cost is one document
+   * loadable twice on an old run, against refusing a document the order does
+   * not have.
+   */
+  const id = runId("ingest-legacy-source");
+  await putRun({
+    id,
+    createdAt: Date.now(),
+    sources: [{ id: "src-old", name: "LOP999001_BUNDLE.pdf", pageCount: 27 }],
+    pages: [],
+    slots: [],
+    overlay: NO_EDITS,
+  });
+
+  const after = await ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
+    ingestSource: fakeWorker(2),
+  });
+
+  assert.equal(after.sources.length, 2);
+  assert.equal(after.pages.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// 7. The overlay: an order's own names, and the fourth net under them
+// ---------------------------------------------------------------------------
+//
+// `run.overlay` IS THE ONLY PLACE AN OPERATOR'S NAMING WORK EXISTS. Everything
+// else a run holds is either evidence (`slots`, `pages`) or bookkeeping; a
+// renamed judul, a renamed bagian and a judul added to this one order live
+// nowhere but here, and nothing re-derives them.
+//
+// That is what makes the writer `CaptureLossError` was built for dangerous one
+// level up. A rebuild from `AO_TEMPLATE.sections` emits
+// `overlay: emptyOverlay(...)` exactly as readily as it emits zone-less
+// captures: correct revision, every page, every capture key, every heading
+// reverted, and a resolved promise. These tests pin the refusal, and equally
+// pin the things that are NOT losses -- a rename, a dropped usulan, a deletion
+// that says so -- because a guard that fires on ordinary work is a guard
+// somebody routes around.
+
+/** The operator's own words for two rows of the base form. */
+const RENAMED: TemplateOverlay = {
+  ...emptyOverlay(AO_TEMPLATE),
+  sections: { kb: { title: "PKS Induk" } },
+  slots: { "kb.nomor": { label: "No. PKS" } },
+};
+
+/** A judul this order has and the form does not: typed by a person. */
+const ADDED_ID = "u:00000000-0000-4000-8000-0000000000a1";
+const WITH_ADDED: TemplateOverlay = {
+  ...emptyOverlay(AO_TEMPLATE),
+  added: [
+    {
+      id: ADDED_ID,
+      title: "Lampiran Harga",
+      slots: [{ id: "u:00000000-0000-4000-8000-0000000000a2", label: "Halaman 1" }],
+      origin: "human",
+    },
+  ],
+};
+
+/** A judul the model THINKS is in the bundle. Nobody has ruled on it. */
+const WITH_PROPOSAL: TemplateOverlay = {
+  ...emptyOverlay(AO_TEMPLATE),
+  proposed: [
+    {
+      id: "u:00000000-0000-4000-8000-0000000000b1",
+      title: "Berita Acara Uji Terima",
+      fromSourceId: "src-a",
+      fromPages: [4, 5],
+      cite: { pageIndex: 4, lineRange: [0, 3] },
+    },
+  ],
+};
+
+/**
+ * The `runs` record EXACTLY AS IT SITS ON THE DEVICE, with none of this
+ * module's reads applied to it.
+ *
+ * `getRun` and `listRunMeta` both upgrade a record written before overlays
+ * existed, which is right for a reader and useless for asserting what is
+ * actually stored: every read would report the upgrade whether or not it had
+ * ever been written. A second connection to the same database is the only way
+ * to ask the question these tests are about.
+ */
+function rawRunRecord(id: string): Promise<Record<string, unknown> | undefined> {
+  return new Promise((resolve, reject) => {
+    // No version: this opens whatever is there rather than triggering an
+    // upgrade, and every test in this file has already created the database.
+    const open = indexedDB.open("tv-helper-runs");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const request = db
+        .transaction(["runs"], "readonly")
+        .objectStore("runs")
+        .get(id);
+      request.onsuccess = () => {
+        resolve(request.result as Record<string, unknown> | undefined);
+        db.close();
+      };
+      request.onerror = () => {
+        reject(request.error);
+        db.close();
+      };
+    };
+  });
+}
+
+test("an order's renamed and added judul survive a round trip", async () => {
+  const id = runId("overlay-roundtrip");
+  const overlay: TemplateOverlay = {
+    ...RENAMED,
+    added: WITH_ADDED.added,
+    order: ["kb", "sp"],
+  };
+
+  await putRun({ ...freshRun(id, [page("o0", "src-a", 0)]), overlay });
+  const loaded = await getRun(id);
+
+  assert.ok(loaded);
+  // Field for field, the added bagian's own slot list included. The docx
+  // prints `section.title` verbatim off the resolved template, so an overlay
+  // that came back subtly different is a packet headed with words the operator
+  // never wrote, on a document somebody signs.
+  assert.deepEqual(loaded.overlay, overlay);
+  assert.equal(loaded.overlay.added[0].slots[0].label, "Halaman 1");
+  assert.deepEqual(loaded.overlay.order, ["kb", "sp"]);
+});
+
+test("a record stored before overlays existed reads back empty, and is NOT written back", async () => {
+  /*
+   * THE UPGRADE IS A READ, NOT A REPAIR, and the difference is the whole
+   * reason this test exists. Writing the empty overlay back here would bump
+   * `rev`, which can collide with an ingest running in another tab -- so
+   * "open an order to look at it" would become an operation that can be
+   * refused, on a run nobody touched.
+   */
+  const id = runId("overlay-legacy");
+  // Genuinely absent, not `undefined`: `putRun` spreads the run's own keys into
+  // the record, so a fixture that omits the key stores a record that omits it,
+  // exactly as every run written before the field existed did.
+  const legacy = { ...freshRun(id, [page("l0", "src-a", 0)]) } as Partial<BrowserRun>;
+  delete legacy.overlay;
+  const saved = await putRun(legacy as BrowserRun);
+
+  const stored = await rawRunRecord(id);
+  assert.ok(stored);
+  assert.equal("overlay" in stored, false, "the fixture must store no overlay");
+
+  const loaded = await getRun(id);
+  assert.ok(loaded);
+  assert.deepEqual(loaded.overlay, emptyOverlay(AO_TEMPLATE));
+
+  // Read again. The revision must not have moved and the record must still be
+  // the one that was written -- a read that repaired would show up as both.
+  const again = await getRun(id);
+  assert.equal(again?.rev, saved.rev);
+  assert.equal("overlay" in ((await rawRunRecord(id)) ?? {}), false);
+
+  // And the object read BEFORE that second read still saves, which is the
+  // consequence that actually bites: a write on read would have made this copy
+  // the stale one and thrown.
+  const written = await saveRun(loaded);
+  assert.equal(written.rev, (saved.rev ?? 0) + 1);
+  // The upgrade lands on that ordinary save, so the gap only ever shrinks.
+  assert.deepEqual((await rawRunRecord(id))?.overlay, emptyOverlay(AO_TEMPLATE));
+});
+
+test("renaming a judul is NOT a capture loss, because that guard cannot see a name", async () => {
+  /*
+   * The proof rather than the reassurance. `CaptureLossError`'s whole input is
+   * `slot.key` and `slot.zone`, and a rename is `{ ...run, overlay: next }`:
+   * `run.slots` passes through BY REFERENCE, so the carried map is key for key
+   * and zone for zone identical to what is stored and that check has nothing
+   * to find.
+   *
+   * Worth pinning anyway, because the alternative design -- copying the new
+   * label onto every matching `SlotState` -- is the obvious one to reach for,
+   * and it would look like a rename and arrive shaped like a rebuild.
+   */
+  const id = runId("overlay-rename");
+  const saved = await putRun({
+    ...freshRun(id, [page("r0", "src-a", 0), page("r1", "src-a", 1), page("r2", "src-a", 2)]),
+    slots: [...freshRun(id).slots, discoveredLanjutan],
+  });
+
+  const renamed = await saveRun({ ...saved, overlay: RENAMED });
+  assert.equal(renamed.slots, saved.slots, "a rename must not rebuild the slots");
+
+  const after = await getRun(id);
+  assert.deepEqual(after?.overlay, RENAMED);
+  // Every capture still carries the evidence it carried, the discovered
+  // lanjutan included: the row the operator renamed is the same row.
+  assert.deepEqual(
+    after?.slots.map((s) => s.key),
+    ["kb.nomor", "kb.tanggal", "sp.ttd", "kb.nomor#2"],
+  );
+  assert.deepEqual(after?.slots[0].zone, confirmedSlot.zone);
+  assert.deepEqual(after?.slots[3].zone, discoveredLanjutan.zone);
+});
+
+test("dropping a judul the operator added is refused unless the write names it", async () => {
+  const id = runId("overlay-added-loss");
+  const saved = await putRun({
+    ...freshRun(id, [page("a0", "src-a", 0)]),
+    overlay: WITH_ADDED,
+  });
+
+  // THE WRITE THIS GUARD EXISTS FOR: a slots array and a page list that are
+  // both perfectly correct, at the current revision, carrying a form rebuilt
+  // from the compile-time template. Before the guard this resolved, and the
+  // judul the operator typed was gone with nothing anywhere saying so.
+  await assert.rejects(
+    () => saveRun({ ...saved, overlay: emptyOverlay(AO_TEMPLATE) }),
+    (error: unknown) => {
+      assert.ok(error instanceof SectionLossError);
+      assert.deepEqual(error.missing, [ADDED_ID]);
+      return true;
+    },
+  );
+
+  // Nothing half-applied: the refusal leaves the run exactly as it was.
+  assert.deepEqual((await getRun(id))?.overlay, WITH_ADDED);
+
+  // And deleting it is a real operation, it just has to SAY so -- the same
+  // rule `removing` states for a potongan, on its own opt-in so that neither
+  // can be spent on the other.
+  const stored = await saveRun(
+    { ...saved, overlay: emptyOverlay(AO_TEMPLATE) },
+    { removingSections: [ADDED_ID] },
+  );
+  assert.deepEqual(stored.overlay, emptyOverlay(AO_TEMPLATE));
+  assert.deepEqual((await getRun(id))?.overlay, emptyOverlay(AO_TEMPLATE));
+});
+
+test("dropping a usulan nobody has ruled on is not a loss", async () => {
+  /*
+   * The same line `CaptureLossError` draws between a zone-carrying state and an
+   * empty one, drawn one level up. A `ProposedSection` is a suggestion the
+   * model made and no person has accepted; `resolveTemplate` does not even read
+   * the array. Refusing to drop one would make dismissing a suggestion an
+   * error, and there is nothing to lose: it costs a model call to make again,
+   * not a person's decision.
+   */
+  const id = runId("overlay-proposal");
+  const saved = await putRun({
+    ...freshRun(id, [page("p0", "src-a", 0)]),
+    overlay: WITH_PROPOSAL,
+  });
+
+  const stored = await saveRun({ ...saved, overlay: emptyOverlay(AO_TEMPLATE) });
+  assert.deepEqual(stored.overlay.proposed, []);
+  assert.deepEqual((await getRun(id))?.overlay.proposed, []);
+});
+
+test("reverting a renamed judul is refused unless the write names it", async () => {
+  const id = runId("overlay-revert");
+  const saved = await putRun({
+    ...freshRun(id, [page("v0", "src-a", 0)]),
+    overlay: RENAMED,
+  });
+
+  // DROPPED AND REVERTED ARE ONE SHAPE. The patch IS the name -- an overlay
+  // carries no copy of the base's own title -- so a write that no longer
+  // carries the patch is exactly a write that puts the form's word back on the
+  // heading, whatever it meant to do.
+  await assert.rejects(
+    () => saveRun({ ...saved, overlay: emptyOverlay(AO_TEMPLATE) }),
+    (error: unknown) => {
+      assert.ok(error instanceof SectionLossError);
+      // Both halves. A judul's title and a bagian's label are two independently
+      // typed strings, and each is reported under its own node id.
+      assert.deepEqual(error.missing.slice().sort(), ["kb", "kb.nomor"]);
+      assert.match(error.message, /removingSections/);
+      return true;
+    },
+  );
+
+  assert.deepEqual((await getRun(id))?.overlay, RENAMED);
+
+  // Renaming it to something ELSE is an edit, not a loss, and needs no opt-in.
+  // A guard that fired on ordinary work would be one somebody routes around.
+  const stored = await saveRun({
+    ...saved,
+    overlay: { ...RENAMED, sections: { kb: { title: "Perjanjian Induk" } } },
+  });
+  assert.equal(stored.overlay.sections.kb.title, "Perjanjian Induk");
+});
+
+test("a page appended mid-rename keeps the rename, and says so in what it returns", async () => {
+  /*
+   * `appendPage` writes a run's small half once per page for the length of an
+   * ingest, and it takes that half FROM WHAT IS STORED rather than from its
+   * caller, carrying across only `sources` -- the one part an ingest
+   * legitimately changes. This is the test of that. The caller here holds a
+   * pre-rename overlay at a CURRENT revision, which is precisely the shape
+   * `ingestDocument` builds: it advances `rev` synchronously as it queues each
+   * write and hands `metaOf(run)` down, where `run` was read before the edit.
+   *
+   * THE RETURN MUST MATCH THE WRITE. Handing back the caller's own pre-rename
+   * overlay stamped with the ADVANCED revision would pass all four of
+   * `putRun`'s guards on the next ordinary save and write the stale one back --
+   * the same loss, moved one function outward.
+   */
+  const id = runId("overlay-append");
+  const saved = await putRun(freshRun(id, [page("n0", "src-a", 0)]));
+  const renamed = await saveRun({ ...saved, overlay: RENAMED });
+
+  // The ingest's own copy of the small half: arrays from before the rename, a
+  // revision that is current. Written out field by field the way `metaOf`
+  // writes it, rather than spread off `saved`, so that this fixture says
+  // exactly which stale things are being handed over.
+  const midIngest: RunMeta = {
+    id: saved.id,
+    createdAt: saved.createdAt,
+    rev: renamed.rev,
+    sources: saved.sources,
+    slots: saved.slots,
+    overlay: saved.overlay,
+  };
+  const written = await appendPage(midIngest, page("n1", "src-a", 1), 1);
+
+  assert.deepEqual(written.overlay, RENAMED, "the return carries the STORED overlay");
+  const after = await getRun(id);
+  assert.deepEqual(after?.overlay, RENAMED, "the rename survives the append");
+  assert.deepEqual(
+    after?.pages.map((p) => p.id),
+    ["n0", "n1"],
+  );
 });

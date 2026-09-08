@@ -376,6 +376,122 @@ and looks for the same slots in any document.*
   the vendored `.traineddata.gz` into `process.cwd()` and leaves it there.
   `gzip: true` must agree with what `vendor-ocr.mjs` writes, or the fetch 404s.
 
+### A page read short (`checkPageCompleteness`, `keepShortPage`)
+
+`ocrPageCompletely` compares the recogniser's boxes against the page's own ink
+and refuses a page that leaves a stretch of it unread, because a short page
+yields a plausible wrong line range, a plausible wrong crop and a citation a
+validator signs. Two thresholds, both in `src/lib/pipeline/gemini-ocr.ts`:
+`MIN_INK_COVERAGE` (0.90) and `MAX_UNCOVERED_INK_RUN_SHARE` (0.06).
+
+- **THE THRESHOLDS WERE CALIBRATED ON BUNDLE ONE AND DO NOT GENERALISE
+  CLEANLY.** Measured over all 151 pages of bundle two on 2026-09-04 with Cloud
+  Vision (`pnpm probe:pages`): **7 pages fail** -- 39, 45, 48, 70, 72, 134 and
+  150. There is no empty band
+  to sit in. Uncovered-ink run passes at 5.8%, 5.4%, 5.3%, 5.2%, 5.1%, 4.8% and
+  fails at 6.2% and 6.3%; ink coverage passes at 0.903, 0.905, 0.906, 0.909,
+  0.911 and fails at 0.878 and 0.872. On bundle one the same two estimators
+  separated 0.539 from 0.985-1.016. So a page missing by 0.3 of a percentage
+  point is not distinguishable from a stamp, a signature or a page frame the
+  recogniser correctly declines to transcribe.
+- **AND YET TWO OF THE SEVEN ARE REAL**: one page returned 20 lines covering
+  48% of its ink, and one returned NOTHING over a page carrying ink, which is a
+  drawing. Loosening the numbers enough to pass the marginal ones would pass
+  those two in silence. **Do not retune either constant without re-running the
+  probe over a whole bundle**; a single page proves nothing either way.
+- **THE BROWSER KEEPS A SHORT PAGE AND `pnpm generate` STILL THROWS**, and the
+  difference is whether anybody is there to be told. Every crop in the app is
+  confirmed by a person before it can reach a deliverable; the script writes
+  its files unreviewed. `keepShortPage` in `src/lib/browser/ingest.ts` is the
+  decision, and it lives there rather than in `pipeline.worker.ts` because that
+  module opens with `scope.addEventListener` and no test can import it.
+- **VERIFIED END TO END on 2026-09-04**, driving the real `ingestPdf` and the
+  real `ocrPageOrKeepShort` over the real 151-page document with Cloud Vision:
+  **151 of 151 pages ingested, 7 kept short, 166 recognition calls.** That last
+  number is the arithmetic of the whole design in one line: 151 pages, plus two
+  extra attempts each for the 7 short pages (the ladder is spent before a page
+  is kept), plus exactly one retry that recovered a transport timeout. Before
+  the change the same document stopped at page 39 and stored nothing.
+- **A KEPT PAGE IS NOT A QUIET PAGE.** It carries `PageShortfall` in
+  IndexedDB, its `Denah` draws a `--mark` ring and says `sebagian tidak
+  terbaca`, the film strip counts it and names its page numbers, and every
+  crop cut from it carries an advisory. The Task 7 rule was "never a silent
+  thin page", not "never a thin page".
+- **ONLY A CLEAN LADDER IS KEPT.** If any attempt threw rather than read short
+  (`IncompletePageError.lastError`), the page still ends the document: a 503 or
+  an aborted request may be a broken deploy, and carrying on through one would
+  turn that into a bundle of quietly half-read pages.
+- **`toStoredPage` in `src/lib/storage/runs.ts` maps field by field so a new
+  `StoredPage` field fails to compile there rather than being silently dropped
+  on read. AN OPTIONAL FIELD DEFEATS THAT**, which is how `short` was written,
+  stored and then thrown away on the way back out with nothing failing.
+  `persistence.test.mts` pins the round trip because the type cannot.
+- **Under Cloud Vision the three-attempt ladder is waste.** It was written for
+  Gemini, whose sampling can differ; Vision is deterministic, so
+  `scripts/generate.mjs` passes `attempts: 1` and the browser does not. A page
+  that trips the guard in the browser therefore costs three page charges to be
+  told the same thing three times. Not yet fixed: the browser cannot see which
+  engine the route chose.
+
+### Handing berkas over (`src/lib/browser/intake.ts`)
+
+The operator adds documents ONE AT A TIME WHILE AN EARLIER ONE IS STILL BEING
+READ, and both halves of that sentence are load-bearing.
+
+- **The drop target no longer stands down during an ingest.** It used to be
+  replaced by the progress block, and its key went down with "tunggu sampai
+  pemuatan selesai" on it, so an operator who found the SPLITBA four minutes
+  into a 27-page contract had to stand and watch. Berkas handed over now join
+  an ANTREAN in `operator-app.tsx` and are read in turn.
+- **The invariant that refusal was protecting is kept exactly: ONE INGEST AT A
+  TIME, in the order the berkas were given.** `BrowserRun.pages` is
+  append-only because `Zone.pageIndex` is a position in it, so two concurrent
+  `ingestDocument` calls on one run would interleave their pages and race each
+  other's revisions. `draining` (a ref, not state) is the whole mechanism: every
+  hand-over calls `drain()`, and only the one that finds the flag down runs.
+- **The queue is a REF that the loop consumes and a STATE that the screen
+  draws.** A drop lands while the loop is between two files, and React state
+  read there is a value from a superseded render. Every write sets both, through
+  `setQueueTo`.
+- **A HAND-OVER THAT VANISHES IS THIS PROJECT'S FAILURE CLASS IN THE
+  INTERACTION LAYER.** The operator walks away believing the SPLITBA is in the
+  order and the bagian living in it ship `tidak ditemukan` on the record. So
+  everything accepted and unread is listed BY NAME the moment it is accepted,
+  a failure keeps the rest of the antrean rather than discarding it
+  (`Lanjutkan pemuatan`), and every refusal is printed in prose.
+- **A DOCUMENT THIS ORDER ALREADY HOLDS IS REFUSED, AND IDENTITY IS THE BYTES.**
+  `sha256` of the file, stored as `RunSource.digest`. A renamed copy
+  (`scan (1).pdf` out of a downloads folder) is the same document and a name
+  check cannot see it; two different documents sharing a name
+  (`document.pdf` from two emails) are NOT the same document and refusing the
+  second would ship every bagian inside it as `tidak ditemukan`. That case
+  stays an advisory on the ingest screen, never a refusal.
+- **What a second copy actually costs, which is why this is not tidiness.** The
+  run reads back as a longer bundle, the model gets two identical candidates
+  for every slot and answers correctly with one of them, and then the operator
+  removes the copy: `removeSource` renumbers every surviving zone, and the crop
+  a human accepted was cut from the copy that just went. Nothing crashes.
+- **`digest` is OPTIONAL and absent means UNKNOWN, never "unique".** Runs
+  ingested before this existed have nothing to compare, so they match nothing
+  and block nothing. Matching two blank digests against each other would refuse
+  a document the order does not have.
+- **SCREENED IN THREE PLACES, AND NONE OF THEM IS REDUNDANT.** (1) At the
+  hand-over, against sources + antrean + the berkas being read, which is the
+  refusal the operator experiences. (2) Again at the instant of appending,
+  because hashing is async and two hand-overs a moment apart are each screened
+  against a list neither has been added to yet. (3) In `ingestDocument`, inside
+  the run lock, against what is STORED -- the only one that can see a second
+  tab, and the only one that decides whether bytes land. It throws
+  `DuplicateDocumentError`, which the drain loop catches per-berkas: a refusal
+  stops ONE document, where a real fault stops the loop.
+- **`screenDocuments` and `screenDigested` are one rule split at the hashing**,
+  so passes (1) and (2) cannot come to different answers. A hand-built Map in
+  the component was the first version of pass (2) and was a second rule.
+- **`crypto.subtle` needs a secure context, and so does `crypto.randomUUID`,**
+  which this app already uses for every run, source and page id. That is the
+  whole argument against a fallback digest: a second algorithm would give one
+  document two identities depending on which context read it.
+
 ### On-device storage (`src/lib/storage/runs.ts`)
 
 - **A run carries a `rev`, and a write that is behind is REFUSED.** `putRun`
@@ -860,6 +976,8 @@ src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
                                under browser/ is private to it
 src/lib/browser/types.ts       BrowserRun, StoredPage, SlotState (+ rev)
 src/lib/browser/ingest.ts      the render+OCR page loop, dependencies injected
+src/lib/browser/intake.ts      what counts as the same document, and the
+                               screening a hand-over goes through
 src/lib/browser/pipeline.worker.ts  that loop, in a Web Worker
 src/lib/browser/worker-client.ts    the page's side of it
 src/lib/storage/runs.ts        IndexedDB: runs, pages, PDF bytes; the rev check
@@ -884,6 +1002,10 @@ scripts/vendor-ocr.mjs         pnpm vendor:ocr: wasm + traineddata into public/
 scripts/smoke.mjs              pnpm smoke: reachability, text, streaming, vision, cost
 scripts/reply-cache.mjs        opt-in on-disk model-reply cache, scripts only
 scripts/compare-ocr.mjs        diff two gate transcripts' per-page OCR tables
+scripts/probe-completeness.mjs pnpm probe:pages: every page of one PDF through
+                               the real render + Vision + completeness check,
+                               reporting EVERY page that would stop an ingest
+                               rather than only the first one the app can see
 scripts/test-pipeline.mjs      the pipeline unit suite
 scripts/test-converters.mjs    xlsx/docx extraction
 

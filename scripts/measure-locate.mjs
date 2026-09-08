@@ -1357,9 +1357,14 @@ function askedAs(entry) {
   // The same composition `generate.mjs`'s `slotSearchLabel` makes -- section
   // title without its `(lanjutan)` layout suffix, then the row label -- so
   // this gate asks the question production asks rather than a tidier one.
+  //
+  // OFF `ask`, NOT OFF `title` AND `label`, for the same reason production is:
+  // those two are the operator's and the docx's and are renameable per order,
+  // and a gate that measured a renamed question would report a number about a
+  // prompt nothing sends.
   return {
-    label: `${found.section.title.replace(/\s*\(lanjutan\)\s*$/i, "")} / ${found.slot.label}`,
-    hint: found.slot.hint,
+    label: `${found.section.ask.title.replace(/\s*\(lanjutan\)\s*$/i, "")} / ${found.slot.ask.label}`,
+    hint: found.slot.ask.hint,
   };
 }
 
@@ -2016,11 +2021,11 @@ async function main() {
       // Production never had the defect: `searchRound` and `/api/propose` key
       // on `slot.key`, already a slug (`kbLanjutan.top`). The gate has to key
       // the same way or it is not measuring production.
-      return { key: slugForRow(entry.slot), label, hint };
+      return { key: slugForRow(entry.slot), ask: { label, hint } };
     });
     console.log(
       `Locating ${questions.length} field slot(s) in ONE call over ${pages.length} pages:\n` +
-        questions.map((q) => `  - ${q.key} (asked as "${q.label}")`).join("\n"),
+        questions.map((q) => `  - ${q.key} (asked as "${q.ask.label}")`).join("\n"),
     );
     // One cache entry for the pooled prompt, under a fixed name rather than a
     // slot's. The prompt hash still carries every question, so a changed slot
@@ -2125,9 +2130,11 @@ async function main() {
           const documentPages = pages.filter((page) => page.doc === parentDoc);
           try {
             const walk = await findContinuations({
-              slotLabel: slotDef.slot.label,
-              // THE PRODUCTION HINT, from the template, not one written here.
-              hint: slotDef.slot.hint,
+              // THE PRODUCTION QUESTION, from the template, not one written
+              // here. Handed over whole for the same reason: this row is the
+              // yardstick, so it has to carry the frozen half and nothing the
+              // display name could have moved.
+              slotAsk: slotDef.slot.ask,
               zone: parentZone,
               documentPages,
               furniture: runningFurniture(documentPages),

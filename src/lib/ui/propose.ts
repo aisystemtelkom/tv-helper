@@ -68,6 +68,26 @@ export type ProposeResponse = {
     confidence: "high" | "low";
   }[];
   outstanding: { key: string; reason: string }[];
+  /**
+   * Wanted keys the route DID NOT SEARCH, and why.
+   *
+   * NEVER RENDER THIS AS `tidak ditemukan`. That word is fixed in
+   * `docs/ui-bahasa.md` to mean "searched, no evidence found", and it is what
+   * `outstanding` above means. These keys were not searched at all: the bagian
+   * belongs to a judul this order ADDED (its evidence is taken by hand), or the
+   * key names no bagian in this order's form at all because the operator
+   * deleted the judul it belonged to.
+   *
+   * Before this existed both cases were pushed into `outstanding`, so a judul
+   * an operator deleted was reported back to them, on every Proses, for ever,
+   * as something the tool had looked for and failed to find. That is a false
+   * statement of exactly the class this project is organised against, and it
+   * cost nothing to make true.
+   *
+   * REQUIRED, not optional: a `?` here would let a route that stopped sending
+   * it read as a route that searched everything.
+   */
+  outOfScope: { key: string; reason: string }[];
   continuations: ContinuationAnswer[];
 };
 

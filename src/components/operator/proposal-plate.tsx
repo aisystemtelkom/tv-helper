@@ -80,7 +80,8 @@
  * in front of the person applying it, which is the cheapest defect in the whole
  * slice. It is optional in the type and it is read defensively here: a slot
  * without one renders nothing, and no empty question mark, rather than falling
- * back to `SlotDef.hint`, which is English written for the model.
+ * back to `SlotDef.ask.hint`, which is English written for the model and now
+ * sits behind a type that says so.
  *
  * BOTH ITS HALVES SIT IN ONE HINT, AT THE END OF THE NAME THEY DEFINE.
  * `adalah` restates what the field name has already said; `bukan` names the
@@ -803,6 +804,24 @@ function CaptureRow({
             </div>
 
             {fault ? <Advisory>{fault}</Advisory> : null}
+
+            {/* THE PAGE THIS CROP CAME FROM WAS READ INCOMPLETELY, and this is
+                the moment that matters. The other two places it is said (the
+                film strip and the page plan's own ring) are about the bundle;
+                this one is beside the decision. What the operator can act on
+                is stated rather than implied: the crop is real pixels and can
+                be trusted as a picture, and what cannot be trusted is that the
+                search saw everything on that page -- so a bagian that belongs
+                in the unread part came back "tidak ditemukan" for a reason
+                that has nothing to do with the document. */}
+            {resolved?.page.short ? (
+              <Advisory>
+                Halaman ini hanya terbaca sebagian, jadi ada teks di halaman
+                yang tidak ikut dicari. Potongannya sendiri tetap gambar asli
+                halaman itu. Periksa halaman aslinya kalau bagian ini terasa
+                kurang.
+              </Advisory>
+            ) : null}
 
             {/* A picture on screen under a slot that ships blank is this
                 product's failure class inverted: it looks accepted and the

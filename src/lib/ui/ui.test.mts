@@ -12,7 +12,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SectionDef, Template } from "../forms/template.ts";
+import { emptyOverlay } from "../forms/overlay.ts";
+import { AO_TEMPLATE, type SectionDef, type Template } from "../forms/template.ts";
 import type { Line, Word } from "../pipeline/geometry.ts";
 import type { Box } from "../pipeline/render.ts";
 import {
@@ -43,6 +44,7 @@ import {
   unmatchedStates,
   type PlacedSlot,
 } from "./slots.ts";
+import { blockingItems, planExport } from "./export.ts";
 import {
   clampBox,
   drawZone,
@@ -51,6 +53,13 @@ import {
   linesTouchedBy,
   normalizeBox,
 } from "./snap.ts";
+import {
+  documentDigest,
+  fileDigest,
+  heldDocuments,
+  screenDigested,
+  screenDocuments,
+} from "./runtime.ts";
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -83,6 +92,11 @@ function page(
 const RUN: BrowserRun = {
   id: "run-1",
   createdAt: 0,
+  // An order nobody has renamed anything on. Required rather than optional, so
+  // that no run can quietly lose an operator's naming work; `resolveTemplate`
+  // short-circuits an empty one to the base by identity, so this fixture
+  // behaves exactly as it did before overlays existed.
+  overlay: emptyOverlay(AO_TEMPLATE),
   sources: [
     { id: "s1", name: "SPLITBA_LOP999001.pdf", pageCount: 2 },
     { id: "s2", name: "LOP999001_merged.pdf", pageCount: 3 },
@@ -417,8 +431,15 @@ test("a mis-click is not a zone", () => {
 
 /* -------------------------------------------------------------------- slots */
 
+/**
+ * `id` is derived from the title HERE AND ONLY HERE, because a fixture's
+ * titles are made up on the spot and unique by construction. The production
+ * template writes both by hand for the reason `SectionDef.id` gives: a
+ * transcription gets corrected, and an id that moves with it forks every
+ * stored run.
+ */
 function section(title: string, layout: SectionDef["layout"], slots: SectionDef["slots"]): SectionDef {
-  return { title, layout, slots };
+  return { id: title.toLowerCase(), title, layout, ask: { title }, slots };
 }
 
 const TEMPLATE: Template = {
@@ -430,21 +451,21 @@ const TEMPLATE: Template = {
         key: "one",
         label: "One",
         docType: null,
-        hint: "h",
+        ask: { label: "One", hint: "h" },
         fillable: true,
       },
       {
         key: "two",
         label: "Two",
         docType: null,
-        hint: "h",
+        ask: { label: "Two", hint: "h" },
         fillable: true,
       },
       {
         key: "manual",
         label: "Pasted by hand",
         docType: null,
-        hint: "h",
+        ask: { label: "Pasted by hand", hint: "h" },
         fillable: false,
       },
     ]),
@@ -1006,4 +1027,240 @@ test("a field nothing looked for does not read as a field that was searched", ()
   assert.equal(notFound.warn, false);
   assert.equal(notSearched.warn, false);
   assert.notEqual(notFound.text, notSearched.text);
+});
+
+/* ------------------------------------------------- handing documents over */
+
+/**
+ * WHAT COUNTS AS THE SAME DOCUMENT.
+ *
+ * An operator hands berkas over one at a time while an earlier one is still
+ * being read, so the same one gets handed over twice -- and a run holding one
+ * document twice is this project's failure class, not a tidiness problem: it
+ * offers the model two identical candidates for every bagian, and a crop
+ * confirmed on the copy becomes a picture of a different scan the moment the
+ * copy is removed and the surviving zones are renumbered.
+ *
+ * These tests are the negative ones as much as the positive ones. Refusing a
+ * document the order does NOT have is the same failure pointed the other way:
+ * the bagian living in it ship `tidak ditemukan`, which an operator reads as
+ * "the document does not contain it".
+ */
+
+const scan = (name: string, body: string) =>
+  new File([new TextEncoder().encode(`%PDF-1.7 ${body}`)], name, {
+    type: "application/pdf",
+  });
+
+test("identity is the bytes, so a renamed copy is refused", async () => {
+  // The commonest way this happens: the same attachment downloaded twice.
+  const held = scan("LOP999001_BUNDLE.pdf", "merged contract");
+  const copy = scan("LOP999001_BUNDLE (1).pdf", "merged contract");
+
+  const { accepted, refused } = await screenDocuments(
+    [copy],
+    [{ name: held.name, digest: await fileDigest(held) }],
+  );
+
+  assert.equal(accepted.length, 0);
+  assert.equal(refused.length, 1);
+  // The refusal has to NAME the one already held, because under a byte
+  // identity the two names are routinely different and "you already have this"
+  // is otherwise unanswerable.
+  assert.equal(refused[0].name, "LOP999001_BUNDLE (1).pdf");
+  assert.equal(refused[0].held, "LOP999001_BUNDLE.pdf");
+  assert.equal(refused[0].inSameDrop, false);
+});
+
+test("two different documents sharing a name are both accepted", async () => {
+  // The failure pointed the other way. `document.pdf` out of two different
+  // emails is a merged contract and a SPLITBA, and refusing the second would
+  // ship every bagian inside it as tidak ditemukan.
+  const first = scan("document.pdf", "merged contract");
+  const second = scan("document.pdf", "splitba");
+
+  const { accepted, refused } = await screenDocuments(
+    [second],
+    [{ name: first.name, digest: await fileDigest(first) }],
+  );
+
+  assert.equal(refused.length, 0);
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].name, "document.pdf");
+});
+
+test("the same file twice in ONE hand-over keeps the first and says so", async () => {
+  const one = scan("SPLITBA_LOP999001.pdf", "splitba");
+  const again = scan("SPLITBA_LOP999001.pdf", "splitba");
+
+  const { accepted, refused } = await screenDocuments([one, again], []);
+
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].file, one);
+  assert.equal(refused.length, 1);
+  // Which sentence the operator reads depends on this: a repeat inside one
+  // drop is a slip of the hand, a repeat against the order is a document they
+  // already gave minutes ago.
+  assert.equal(refused[0].inSameDrop, true);
+});
+
+test("a document already QUEUED is a duplicate before it is ever stored", async () => {
+  /*
+   * The one the whole queue exists for. `run.sources` holds what has finished
+   * ingesting; a berkas dropped four minutes ago may still be waiting its turn
+   * or be the one being read right now, and neither is in storage yet.
+   * Screening against storage alone accepts a duplicate of the file on screen.
+   */
+  const waiting = scan("EMAIL_ORDER.pdf", "email print-out");
+  const same = scan("EMAIL_ORDER.pdf", "email print-out");
+
+  const { accepted, refused } = await screenDocuments(
+    [same],
+    [{ name: waiting.name, digest: await fileDigest(waiting) }],
+  );
+
+  assert.equal(accepted.length, 0);
+  assert.equal(refused[0].held, "EMAIL_ORDER.pdf");
+});
+
+test("a source with no digest blocks nothing", async () => {
+  // Runs ingested before sources carried a digest have nothing to compare.
+  // Absent means UNKNOWN, and treating unknown as a match would refuse a
+  // document the order does not have -- the expensive direction.
+  const fresh = scan("LOP999001_BUNDLE.pdf", "merged contract");
+
+  const { accepted, refused } = await screenDocuments(
+    [fresh],
+    heldDocuments([
+      { id: "src-old", name: "LOP999001_BUNDLE.pdf", pageCount: 27 },
+    ]),
+  );
+
+  assert.equal(refused.length, 0);
+  assert.equal(accepted.length, 1);
+});
+
+test("the digest is the plain SHA-256 of the bytes", async () => {
+  // Pinned so the identity cannot quietly change shape: a different digest
+  // format across a release would make every stored source unmatchable and
+  // every duplicate loadable again, silently.
+  const bytes = new TextEncoder().encode("%PDF-1.7 merged contract");
+  const expected = Buffer.from(
+    await crypto.subtle.digest("SHA-256", bytes),
+  ).toString("hex");
+
+  assert.equal(await documentDigest(bytes.buffer as ArrayBuffer), expected);
+  assert.match(expected, /^[0-9a-f]{64}$/);
+});
+
+test("two hand-overs a moment apart cannot both slip into the antrean", async () => {
+  /*
+   * THE RACE THE SECOND SCREENING EXISTS FOR, and it is an ordinary thing to
+   * do rather than an exotic one: pick the berkas with the button, then drag
+   * it in as well to make sure. Hashing is asynchronous, so both hand-overs
+   * are screened against an antrean neither has been added to yet and both
+   * come back accepted. The shell asks again at the instant it appends, which
+   * is the one moment that can see the other's result -- and it asks the same
+   * function, because what "already have it" means has to be one rule.
+   */
+  const file = scan("SPLITBA_LOP999001.pdf", "splitba");
+  const held: { name: string; digest?: string }[] = [];
+
+  const first = await screenDocuments([file], held);
+  const second = await screenDocuments([file], held);
+
+  // Both passed, exactly as they would in the browser.
+  assert.equal(first.accepted.length, 1);
+  assert.equal(second.accepted.length, 1);
+
+  // The first one appends, so by the time the second asks again the antrean
+  // holds it.
+  const queued = first.accepted.map((one) => ({
+    name: one.name,
+    digest: one.digest,
+  }));
+  const late = screenDigested(second.accepted, queued);
+
+  assert.equal(late.accepted.length, 0);
+  assert.equal(late.refused[0].held, "SPLITBA_LOP999001.pdf");
+});
+
+test("screening again re-reads nothing and still keeps the survivors", async () => {
+  // The second pass must not be a filter that quietly drops work: a hand-over
+  // with nothing racing it has to come back whole, and come back as the SAME
+  // records, because the file handle in them is what the drain loop ingests.
+  const a = scan("LOP999001_BUNDLE.pdf", "merged contract");
+  const b = scan("SPLITBA_LOP999001.pdf", "splitba");
+
+  const { accepted } = await screenDocuments([a, b], []);
+  const again = screenDigested(accepted, []);
+
+  assert.equal(again.refused.length, 0);
+  assert.deepEqual(
+    again.accepted.map((one) => one.file),
+    [a, b],
+  );
+});
+
+/* ------------------------------------------------ a potongan with no bagian */
+
+/**
+ * A run holding evidence under a key this template does not declare.
+ *
+ * That happens for one reason today -- a stored run outliving the slot list
+ * that made it -- and per-order judul deletion is about to make it routine.
+ * The exporter places a crop BY KEY, so such a potongan reaches no cell in the
+ * docx however carefully a person accepted it.
+ */
+function runWithOrphan(orphanHasZone: boolean): BrowserRun {
+  return {
+    id: "run-orphan",
+    createdAt: 0,
+    overlay: emptyOverlay(AO_TEMPLATE),
+    sources: [{ id: "s1", name: "LOP999001_merged.pdf", pageCount: 1 }],
+    pages: [page("p0", "s1", 0)],
+    slots: [
+      state("one", "confirmed", true),
+      state("two", "unfilled"),
+      { ...state("gone", "confirmed", orphanHasZone), label: "Lampiran Harga" },
+    ],
+  };
+}
+
+test("a potongan with no bagian to print it in STOPS the export", () => {
+  /*
+   * IT USED TO BE AN ADVISORY BESIDE A LIVE BUTTON. `plan.orphans` was
+   * rendered in a slab and `blockingItems` never read it, so evidence a human
+   * personally accepted could fail to reach the file over a green key -- which
+   * is exactly the argument `kind: "lost"` already makes, on the case
+   * per-order deletion turns from rare into routine.
+   */
+  const plan = planExport(runWithOrphan(true), TEMPLATE);
+  assert.deepEqual(
+    plan.orphans.map((orphan) => orphan.key),
+    ["gone"],
+  );
+
+  const items = blockingItems(plan);
+  // ON ITS OWN. Everything else in the fixture is settled: one bagian ships,
+  // one is unfilled on the record, and the third slot is a cell pasted in by
+  // hand. So the export is held by the orphan and by nothing else.
+  assert.deepEqual(
+    items.map((item) => item.kind),
+    ["orphan"],
+  );
+  assert.equal(items[0].label, "Lampiran Harga");
+  // Filed under the same words the outstanding panel uses for these rows, so
+  // an operator meets one name for one thing.
+  assert.equal(items[0].sectionTitle, "Di luar template ini");
+  assert.equal(items[0].stateIndex, -1);
+});
+
+test("an orphan carrying no potongan does not stop anything", () => {
+  // The same line `CaptureLossError` draws in storage: a row a stored run kept
+  // after the template stopped declaring it costs nothing to leave out, and
+  // blocking on it would teach an operator that the block means nothing.
+  const plan = planExport(runWithOrphan(false), TEMPLATE);
+  assert.equal(plan.orphans.length, 1);
+  assert.deepEqual(blockingItems(plan), []);
 });

@@ -361,10 +361,12 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
  *
  * `stateIndex` is -1 for a fillable slot the run holds no state for at all,
  * which is a real case rather than a defensive one: the template can declare a
- * slot a stored run has never seen.
+ * slot a stored run has never seen. It is -1 for an `orphan` too, for the
+ * mirror-image reason: that state IS in `run.slots`, but under a key no row on
+ * this sheet carries, so there is nothing here to point at either way.
  */
 export type BlockingItem = {
-  kind: "proposed" | "pending" | "lost";
+  kind: "proposed" | "pending" | "lost" | "orphan";
   sectionTitle: string;
   label: string;
   ordinal: number;
@@ -372,6 +374,16 @@ export type BlockingItem = {
   maxOrdinal: number;
   stateIndex: number;
 };
+
+/**
+ * The judul an orphan is filed under on screen, since by definition it has
+ * none.
+ *
+ * The same words the outstanding panel already uses for these rows
+ * (`OUTSIDE_TEMPLATE` in `src/components/operator/outstanding-panel.tsx`), so
+ * an operator meets one name for one thing rather than two for one.
+ */
+const OUTSIDE_TEMPLATE = "Di luar template ini";
 
 /**
  * WHAT STOPS AN EXPORT, AND WHAT MERELY LEAVES IT INCOMPLETE.
@@ -391,6 +403,21 @@ export type BlockingItem = {
  *  - `lost`. Evidence the operator personally accepted that cannot reach the
  *    file. It used to render a stop-toned notice beside a live build button,
  *    which teaches an operator that a stop colour stops nothing.
+ *  - `orphan` CARRYING A ZONE. Exactly `lost`'s argument, applied to the case
+ *    per-order judul deletion makes routine: a potongan stored under a key
+ *    this template does not declare reaches no cell, because the exporter
+ *    places a crop BY KEY. Until now these were shown in an advisory slab
+ *    beside a live build button and `blockingItems` never read them, so
+ *    evidence a human personally accepted could fail to reach the file over a
+ *    green key -- which is the same thing `lost` refuses to let happen, and
+ *    the reason `lost` is not simply reported as `empty`.
+ *
+ *    ONLY WITH A ZONE. An orphan with none is a row a stored run kept after
+ *    the template stopped declaring it, and nothing is lost by printing the
+ *    packet without it -- the same line `CaptureLossError` draws in storage.
+ *    A legitimate judul deletion never manufactures either, because it drops
+ *    the states in the same write; an orphan therefore means a stored run
+ *    genuinely outliving its slot list.
  *
  * NOT blocking, deliberately: `outstanding` and `unfilled`. Both are answers
  * the operator gave. The tambahan loop's whole point is that a slot may ship
@@ -436,6 +463,30 @@ export function blockingItems(plan: ExportPlan): BlockingItem[] {
         });
       }
     }
+  }
+
+  // AFTER the template walk, because an orphan belongs to no section and there
+  // is nowhere in that walk to hang it. `plan.orphans` is already the answer to
+  // "which states does this template have no row for"; all this adds is that a
+  // zone among them stops the export instead of being noted beside a live key.
+  for (const orphan of plan.orphans) {
+    if (!orphan.hasZone) continue;
+    const ordinal = captureOrdinalOf(orphan.key);
+    items.push({
+      kind: "orphan",
+      sectionTitle: OUTSIDE_TEMPLATE,
+      label: orphan.label,
+      ordinal,
+      // Its own ordinal, because nothing here knows the slot's high-water mark:
+      // the slot it was a capture of is not in this template. `captureLabel`
+      // reads the ordinal alone, so the row still names itself correctly.
+      maxOrdinal: ordinal,
+      // -1 the way a fillable slot with no state at all reports it: not a
+      // position that failed to resolve, but a statement that there is no
+      // capture ON THIS SHEET to point at. The remedy is on the outstanding
+      // panel, which addresses these by key.
+      stateIndex: -1,
+    });
   }
 
   return items;

@@ -108,15 +108,18 @@ const TEMPLATE: Template = {
   label: "T",
   sections: [
     {
+      id: "email",
       title: "Email",
       layout: "images",
+      ask: { title: "Email" },
       slots: [
         {
           key: "email.1",
           label: "Email",
           docType: "Email",
-          hint: "the whole printed email page",
+          ask: { label: "Email", hint: "the whole printed email page" },
           fillable: true,
+          pageOrdinal: 0,
         },
       ],
     },

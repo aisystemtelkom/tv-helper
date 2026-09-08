@@ -34,10 +34,7 @@
 
 import * as pdfjs from "pdfjs-dist";
 import type { Line } from "../pipeline/geometry.ts";
-import {
-  ocrPageCompletely,
-  type OcrReport,
-} from "../pipeline/gemini-ocr.ts";
+import type { OcrReport } from "../pipeline/gemini-ocr.ts";
 import {
   DEFAULT_DPI,
   renderPageUpright,
@@ -45,7 +42,12 @@ import {
   type RenderedPage,
 } from "../pipeline/render.ts";
 import { getSource } from "../storage/runs.ts";
-import { ingestPdf, type PdfDocumentLike } from "./ingest.ts";
+import {
+  ingestPdf,
+  ocrPageOrKeepShort,
+  type PdfDocumentLike,
+} from "./ingest.ts";
+import type { PageShortfall } from "./types.ts";
 import type { WorkerRequest, WorkerResponse } from "./protocol.ts";
 
 /**
@@ -308,6 +310,15 @@ async function openDocument(sourceId: string): Promise<pdfjs.PDFDocumentProxy> {
  */
 let shortReads = 0;
 
+/**
+ * How many pages were kept after failing the completeness guard outright.
+ *
+ * Counted separately from `shortReads`, which counts ATTEMPTS that came back
+ * short and were re-read. A recovered page and a page kept short are different
+ * outcomes and a single number would hide the one that matters.
+ */
+let shortPages = 0;
+
 async function messageFrom(res: Response): Promise<string> {
   const where = `POST /api/ocr answered ${res.status}`;
   if (res.redirected || !res.headers.get("content-type")?.includes("json")) {
@@ -360,12 +371,49 @@ async function messageFrom(res: Response): Promise<string> {
  *     made and this change keeps. The device is also the only side that can
  *     re-request a page, which is what the retry does. `ocrPageCompletely`
  *     owns the loop so this worker, `pnpm generate` and `pnpm measure:locate`
- *     cannot drift into three readings of "complete". When the attempts run
- *     out it throws, and this ingest stops on that page rather than committing
- *     a partly-read one -- the deliberate direction, per the Task 7 verdict.
+ *     cannot drift into three readings of "complete".
+ *
+ *     WHAT HAPPENS WHEN THE ATTEMPTS RUN OUT CHANGED ON 2026-09-04, and this
+ *     bullet used to state the old behaviour: that the ingest stopped on that
+ *     page rather than committing a partly-read one, per the Task 7 verdict.
+ *     It no longer stops HERE. The verdict's rule was "never a silent thin
+ *     page", and the page is no longer silent: it is stored carrying
+ *     `PageShortfall`, drawn with a ring on its own page plan, counted on the
+ *     film strip, and flagged beside every crop cut from it. What stopping
+ *     bought instead was discarding 150 finished pages over one, on a bundle
+ *     where 7 pages of 150 fail the guard. `scripts/generate.mjs` still stops,
+ *     because it has no operator to tell. See `keepShortPage` in `ingest.ts`.
  */
-async function ocr(page: RenderedPage): Promise<Line[]> {
-  const { lines } = await ocrPageCompletely(
+async function ocr(
+  page: RenderedPage,
+): Promise<{ lines: Line[]; short?: PageShortfall }> {
+  /*
+   * TWO LINES OF WIRING, AND THAT IS DELIBERATE. The sequence this used to
+   * hold -- the completeness ladder, and the decision about what to do when it
+   * runs out -- is `ocrPageOrKeepShort` in `ingest.ts` now, because nothing in
+   * THIS file can be imported by a test: it opens with `scope.addEventListener`
+   * and constructing it needs a Web Worker. What is left here is the part that
+   * genuinely belongs to the worker, the POST, and it is the only part a test
+   * cannot reach.
+   *
+   * A SHORT PAGE IS KEPT HERE AND THROWN IN `scripts/generate.mjs`, and the
+   * difference is the operator. The guard refuses a page whose returned boxes
+   * leave a stretch of its ink unread, because a short page yields a plausible
+   * wrong line range, a plausible wrong crop and a citation a validator signs.
+   * That refusal is right and it is kept. What was wrong was its blast radius:
+   * it threw, `ingestPdf` stops the document on the first page that throws, and
+   * one page of 151 therefore discarded 150 pages of finished OCR. Measured on
+   * the second client bundle, 2026-09-04: 7 of its 150 pages fail the guard,
+   * deterministically under Cloud Vision, so the bundle could not be ingested
+   * at all and every retry died in the same place.
+   *
+   * Keeping it is safe HERE and only here. Every crop cut in this app is
+   * confirmed by a person in Periksa before it can reach a deliverable, and the
+   * page says on its own record that it was read short -- on the film strip, on
+   * its page plan, and beside any crop taken from it. The headless script has
+   * no such person and writes its files unreviewed, so it still throws.
+   */
+  const result = await ocrPageOrKeepShort(
     page,
     async (image) => {
       const res = await fetch(new URL("/api/ocr", location.origin), {
@@ -376,7 +424,6 @@ async function ocr(page: RenderedPage): Promise<Line[]> {
         // SharedArrayBuffer). Both producers in `pageToPng` -- `encodePng` and
         // `convertToBlob` -- hand back plain ArrayBuffer-backed bytes, so this
         // narrows a fact that already holds rather than asserting a new one.
-        // Same reason as the `ImageData` narrowing inside `pageToPng` itself.
         body: image.bytes as Uint8Array<ArrayBuffer>,
         credentials: "same-origin",
       });
@@ -396,31 +443,32 @@ async function ocr(page: RenderedPage): Promise<Line[]> {
         report: body.report as OcrReport,
       };
     },
-    {
-      // Deliberately not a page number. `IngestDeps.ocr` is
-      // `(page: RenderedPage) => Promise<Line[]>` and carries no index, and a
-      // counter kept here would be right only for as long as the ingest loop
-      // stays serial. The error itself carries the measurement, and the ingest
-      // stops on the page that failed.
-      label: "a page of this document",
-      onShort: (short) => {
-        shortReads += 1;
-        // The worker's only channel to a human is the browser console, and a
-        // guard nobody can see firing is a guard nobody can tell from a guard
-        // that was never armed. The running total is on every line because a
-        // worker's console output is interleaved with the ingest's own.
-        console.warn(
-          `[ocr] SHORT READ, attempt ${short.attempt} of ${short.attempts}: ` +
-            `${short.lines} lines -- ${short.completeness.shortfalls.join("; ")}. ` +
-            // Named, not implied: the re-read sends the same bytes with the same
-            // prompt, so nothing but the model's own sampling can make it differ.
-            "Re-reading the identical page image. " +
-            `${shortReads} short read(s) this ingest.`,
-        );
-      },
+    (short) => {
+      shortReads += 1;
+      // The worker's only channel to a human is the browser console, and a
+      // guard nobody can see firing is a guard nobody can tell from a guard
+      // that was never armed. The running total is on every line because a
+      // worker's console output is interleaved with the ingest's own.
+      console.warn(
+        `[ocr] SHORT READ, attempt ${short.attempt} of ${short.attempts}: ` +
+          `${short.lines} lines -- ${short.completeness.shortfalls.join("; ")}. ` +
+          "Re-reading the identical page image. " +
+          `${shortReads} short read(s) this ingest.`,
+      );
     },
   );
-  return lines;
+
+  if (result.short) {
+    shortPages += 1;
+    console.warn(
+      `[ocr] SHORT PAGE KEPT: ${result.short.shortfalls.join("; ")}. ` +
+        `${result.lines.length} line(s) of it were read and are stored; the ` +
+        "page is marked short for the operator. " +
+        `${shortPages} short page(s) this ingest.`,
+    );
+  }
+
+  return result;
 }
 
 /**

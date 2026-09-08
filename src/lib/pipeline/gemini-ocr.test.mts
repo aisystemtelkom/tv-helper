@@ -1040,13 +1040,24 @@ test("a page whose boxes stop above the ink fails, loudly, after its retries", a
       assert.match(error.message, /merged page 19/);
       assert.match(error.message, /y=120/);
       assert.match(error.message, /y=950/);
+      // WHAT WAS READ RIDES ON THE ERROR. The throw is still a throw and the
+      // pipeline still never receives a short page as a normal return. But
+      // the two callers want opposite things from it -- `pipeline.worker.ts`
+      // keeps the page and marks it short, `scripts/generate.mjs` ends the
+      // run -- and the one that keeps it cannot ask for these lines again
+      // without paying for another read of the same pixels.
+      assert.equal(error.lines.length, 1);
+      assert.equal(error.lines[0].text, "BANK CONTOH NUSANTARA");
+      assert.equal(error.report?.lines, 1);
       return true;
     },
   );
 
-  // Every attempt was spent, every one was reported, and NOTHING was returned.
-  // A short page must never reach the pipeline quietly -- the same rule as
-  // /api/ocr's no-200-with-zero-lines.
+  // Every attempt was spent, every one was reported, and the call still
+  // THREW. A short page must never reach the pipeline quietly -- the same rule
+  // as /api/ocr's no-200-with-zero-lines -- so keeping one is a decision a
+  // caller has to make out loud, in a `catch`, and never something this
+  // function does on anybody's behalf.
   assert.deepEqual(short, [1, 2, 3]);
   assert.equal(images.length, 3);
   // The PNG is encoded once and the same bytes are re-sent. Re-encoding would

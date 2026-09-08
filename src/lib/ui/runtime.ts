@@ -44,11 +44,18 @@ export type { Line, Zone };
  *    count off `run.slots` and never off the template. Recover the template
  *    key with `slotKeyOf` and the capture number with `captureOrdinalOf`, both
  *    re-exported below -- never by splitting the string by hand.
+ *
+ *  - `BrowserRun.overlay` is THIS ORDER'S DIFF against `AO_TEMPLATE`, and it is
+ *    required rather than optional so that a reader cannot forget it exists. A
+ *    screen must render `resolveTemplate(AO_TEMPLATE, run.overlay)` and never
+ *    `AO_TEMPLATE` directly, or it prints the packet under names the operator
+ *    replaced.
  */
 export type {
   SlotStatus,
   SlotState,
   StoredPage,
+  PageShortfall,
   RunSource,
   BrowserRun,
 } from "../browser/runtime.ts";
@@ -86,6 +93,28 @@ export {
   type DiscoveredCapture,
 } from "../browser/captures.ts";
 
+/**
+ * WHETHER THIS ORDER ALREADY HOLDS A BERKAS, and what to say when it does.
+ *
+ * From the leaf module rather than from `../browser/runtime.ts` for the same
+ * reason `slot-key.ts` and `captures.ts` are: the ingest screen screens a
+ * hand-over as it happens, `node --test` drives that logic, and neither should
+ * drag IndexedDB and the Web Worker client in behind it. The runtime re-exports
+ * the same names, so the two cannot fork.
+ */
+export {
+  DuplicateDocumentError,
+  documentDigest,
+  fileDigest,
+  heldDocuments,
+  screenDigested,
+  screenDocuments,
+  type AcceptedDocument,
+  type HeldDocument,
+  type RefusedDocument,
+  type Screening,
+} from "../browser/intake.ts";
+
 import type { BrowserRun, SlotState } from "../browser/runtime.ts";
 import type { PutRunOptions } from "../storage/runs.ts";
 
@@ -119,6 +148,14 @@ export type Runtime = {
    * write that loses a zone-carrying capture without naming it is refused
    * (`CaptureLossError`), because a discovered lanjutan lives nowhere but the
    * stored slot list.
+   *
+   * `options.removingSections` is its twin one level up, and it is a SECOND
+   * opt-in rather than the same one widened: it names overlay node ids whose
+   * stored name or existence this write drops, and a write that reverts a
+   * heading the operator renamed without naming it is refused
+   * (`SectionLossError`). `removing` is about a potongan, this is about a
+   * name; a single option would let a caller discard a crop while meaning to
+   * discard a heading.
    */
   saveRun(run: BrowserRun, options?: PutRunOptions): Promise<BrowserRun>;
   /**

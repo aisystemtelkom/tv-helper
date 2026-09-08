@@ -30,6 +30,11 @@
  *     refused with `CaptureLossError` -- otherwise a routine
  *     rebuild-from-template save deletes a crop the operator accepted, at the
  *     correct revision, with every page present, and reports success.
+ *  1d. NOR IS `overlay`, and it never was. It is the only place a heading the
+ *     operator renamed or a judul they added exists, and the same
+ *     rebuild-from-template save reverts every one of them just as quietly.
+ *     A write that drops one without naming it in `removingSections` is
+ *     refused with `SectionLossError`.
  *  2. INGESTING IS ADDITIVE. A later document can only add pages and fill
  *     slots; it never touches a zone an operator already confirmed. That is
  *     the foundation of the dokumen tambahan loop (2026-08-31 corrections,
@@ -45,6 +50,7 @@
  * reached -- proposes a zone and writes the run back through `saveRun`.
  */
 
+import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE, type Template } from "../forms/template.ts";
 import {
   appendPage,
@@ -58,6 +64,10 @@ import {
   type PutRunOptions,
   type RunMeta,
 } from "../storage/runs.ts";
+import {
+  DuplicateDocumentError,
+  documentDigest,
+} from "./intake.ts";
 import { removeSource } from "./sources.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
@@ -69,6 +79,7 @@ import type {
 
 export type {
   BrowserRun,
+  PageShortfall,
   RunSource,
   SlotState,
   SlotStatus,
@@ -76,7 +87,7 @@ export type {
 } from "./types.ts";
 
 /**
- * The three ways a write is refused, re-exported because they are part of this
+ * The four ways a write is refused, re-exported because they are part of this
  * surface: a UI that treats them as generic failures tells the operator
  * nothing useful, and the one useful thing to say ("this run changed
  * underneath you, reload") is only sayable if the type is reachable.
@@ -84,9 +95,33 @@ export type {
 export {
   CaptureLossError,
   PageLossError,
+  SectionLossError,
   StaleRunWriteError,
 } from "../storage/runs.ts";
 export type { PutRunOptions } from "../storage/runs.ts";
+
+/**
+ * THE FOURTH REFUSAL, and it is a refusal for the same reason the other three
+ * are: what it prevents does not look like a failure.
+ *
+ * A run holding one document twice has twice the pages, offers the model two
+ * identical candidates for every bagian, and turns a crop the operator
+ * accepted into a picture of a different scan the moment the copy is removed.
+ * See `src/lib/browser/intake.ts` for why identity is the bytes rather than
+ * the berkas name, and for the screening a UI does before it ever gets here.
+ */
+export {
+  DuplicateDocumentError,
+  documentDigest,
+  fileDigest,
+  heldDocuments,
+  screenDigested,
+  screenDocuments,
+  type AcceptedDocument,
+  type HeldDocument,
+  type RefusedDocument,
+  type Screening,
+} from "./intake.ts";
 
 /**
  * How a capture's ordinal is separated from its template key, and how the two
@@ -225,10 +260,24 @@ function newRun(id: string): BrowserRun {
     sources: [],
     pages: [],
     slots: seedSlots(),
+    // EMPTY, NEVER ABSENT. `resolveTemplate` returns the base BY IDENTITY for
+    // an empty overlay, so a run nobody has renamed anything on behaves and
+    // renders exactly as it did before overlays existed -- while every reader
+    // is spared a `?.` that would eventually be forgotten somewhere it mattered.
+    overlay: emptyOverlay(AO_TEMPLATE),
   };
 }
 
-/** A run's small half, listed field by field so tsc names anything new. */
+/**
+ * A run's small half, listed field by field so tsc names anything new.
+ *
+ * THE FIELD-BY-FIELD LIST IS THE MECHANISM, not a style. A rest-spread here
+ * would carry whatever `BrowserRun` happens to hold, which reads as
+ * future-proof and is the opposite: the day a field is added, nothing fails,
+ * and the way this project finds out is a device that quietly stopped storing
+ * something. `overlay` is here because the type made it impossible not to
+ * notice, which is exactly why it is required rather than optional.
+ */
 function metaOf(run: BrowserRun): RunMeta {
   return {
     id: run.id,
@@ -236,6 +285,7 @@ function metaOf(run: BrowserRun): RunMeta {
     rev: run.rev,
     sources: run.sources,
     slots: run.slots,
+    overlay: run.overlay,
   };
 }
 
@@ -411,6 +461,11 @@ export async function deleteRun(id: string): Promise<void> {
  * The run is created if `runId` names one that does not exist yet, so a UI
  * can mint an id and ingest in one step.
  *
+ * REFUSES A DOCUMENT THIS RUN ALREADY HOLDS, by content and not by name, with
+ * `DuplicateDocumentError` and without writing anything. See the check inside
+ * the lock below, and `src/lib/browser/intake.ts` for why a second copy is a
+ * wrong-and-quiet failure rather than untidiness.
+ *
  * Each page is persisted as it finishes rather than at the end. A 29-page
  * bundle is minutes of OCR, and a tab reloaded partway through should keep
  * the pages it has already paid for. That also means an interrupted ingest
@@ -446,16 +501,49 @@ export async function ingestDocument(
   const sourceId = crypto.randomUUID();
   const name = file.name || "document.pdf";
 
-  // Stored before the worker is asked for anything: the worker reads the
-  // bytes from IndexedDB itself rather than being sent tens of megabytes
-  // through postMessage on every request.
-  await putSource({ id: sourceId, runId, name, bytes: await file.arrayBuffer() });
+  // Read once, outside the lock, and used twice: the digest below and the
+  // bytes the worker re-renders from are the same buffer. Holding the lock
+  // across a multi-megabyte disk read would serialise every other tab on this
+  // order behind it for no reason.
+  const bytes = await file.arrayBuffer();
+  const digest = await documentDigest(bytes);
 
   return withRunLock(runId, async () => {
     const loaded = await getRun(runId);
     let run: BrowserRun = loaded ?? newRun(runId);
 
-    const source: RunSource = { id: sourceId, name, pageCount: 0 };
+    /*
+     * THE DUPLICATE CHECK IS HERE, INSIDE THE LOCK, AGAINST WHAT IS STORED.
+     *
+     * The ingest screen screens a hand-over before it queues it (see
+     * `screenDocuments`), and that is the check the operator actually
+     * experiences: it refuses in a sentence, instantly, without paying for
+     * anything. This one is not a second copy of it. It is the check that
+     * decides whether bytes land in storage, and it is the only one that can
+     * see a second tab on the same order or a queue that was screened before
+     * the run it was screened against had finished growing.
+     *
+     * A run that holds one document twice does not fail: it reads back as a
+     * longer bundle, offers the model two identical candidates for every
+     * bagian, and turns a crop the operator accepted into a picture of a
+     * different scan as soon as the copy is removed and `removeSource`
+     * renumbers what is left.
+     */
+    const held = run.sources.find((source) => source.digest === digest);
+    if (held) throw new DuplicateDocumentError(name, held.name, digest);
+
+    // Stored before the worker is asked for anything: the worker reads the
+    // bytes from IndexedDB itself rather than being sent tens of megabytes
+    // through postMessage on every request.
+    //
+    // AFTER THE DUPLICATE CHECK, NOT BEFORE IT. This write used to sit above
+    // the lock, which was harmless while nothing could refuse the ingest;
+    // a refusal there would leave the rejected document's bytes on the device
+    // referenced by nothing, counting against an origin quota that a 29-page
+    // bundle already fills tens of megabytes at a time.
+    await putSource({ id: sourceId, runId, name, bytes });
+
+    const source: RunSource = { id: sourceId, name, pageCount: 0, digest };
     run = await putRun({ ...run, sources: [...run.sources, source] });
 
     // Writes are chained rather than awaited inside the callback: the worker
@@ -508,6 +596,11 @@ export async function ingestDocument(
           widthPx: page.widthPx,
           heightPx: page.heightPx,
           lines: page.lines,
+          // Carried through rather than recomputed: this side holds no pixels
+          // and could not measure it a second time even if it wanted to. Only
+          // written when the page actually came back short, so a page that
+          // passed carries no key -- see `PageShortfall`.
+          ...(page.short ? { short: page.short } : {}),
         };
 
         const order = run.pages.length;

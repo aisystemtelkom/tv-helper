@@ -39,9 +39,21 @@ import test from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
 import type { PDFPageProxy } from "pdfjs-dist";
 
+import type { Line } from "../pipeline/geometry.ts";
+import {
+  IncompletePageError,
+  checkPageCompleteness,
+} from "../pipeline/gemini-ocr.ts";
 import { detectRuntime, type RuntimeScope } from "../pipeline/runtime.ts";
 import type { CanvasFactory } from "../pipeline/render.ts";
-import { ingestPdf, type IngestedPage, type PdfDocumentLike } from "./ingest.ts";
+import {
+  IngestPageError,
+  ingestPdf,
+  keepShortPage,
+  ocrPageOrKeepShort,
+  type IngestedPage,
+  type PdfDocumentLike,
+} from "./ingest.ts";
 import {
   captureOrdinalOf,
   nextCaptureOrdinal,
@@ -56,8 +68,21 @@ import {
   type SlotState,
   type StoredPage,
 } from "./runtime.ts";
+import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import { continuationChecked, zoneFingerprint } from "./captures.ts";
+
+/**
+ * An order nobody has renamed anything on.
+ *
+ * `BrowserRun.overlay` is required rather than optional so that a run cannot
+ * quietly lose the operator's naming work; the cost is that every fixture has
+ * to say it holds none. One shared object is safe here because nothing in this
+ * file mutates an overlay -- and `emptyOverlay` rather than a hand-written
+ * `{ sections: {}, ... }` because a fixture that disagreed with the real shape
+ * would be a fixture testing a form the app does not use.
+ */
+const NO_EDITS = emptyOverlay(AO_TEMPLATE);
 
 const nodeContext: CanvasFactory = (w, h) => createCanvas(w, h).getContext("2d");
 
@@ -208,14 +233,16 @@ test("ingestPdf walks every page in order and reports progress per page", async 
       concurrency: 1,
       ocr: async (rendered) => {
         events.push(`ocr:${rendered.width}x${rendered.height}`);
-        return [
-          {
-            i: 0,
-            text: "line",
-            box: { x: 0, y: 0, w: 10, h: 10 },
-            words: [{ text: "line", box: { x: 0, y: 0, w: 10, h: 10 } }],
-          },
-        ];
+        return {
+          lines: [
+            {
+              i: 0,
+              text: "line",
+              box: { x: 0, y: 0, w: 10, h: 10 },
+              words: [{ text: "line", box: { x: 0, y: 0, w: 10, h: 10 } }],
+            },
+          ],
+        };
       },
     },
     (page, done, total) => {
@@ -328,7 +355,7 @@ test("ingestPdf releases pages in ascending index even when OCR finishes backwar
           setTimeout(resolve, (pageCount - pageNumber) * 10),
         );
         ocrInFlight -= 1;
-        return [];
+        return { lines: [] };
       },
     },
     async (page, done, total) => {
@@ -392,7 +419,7 @@ test("a page that fails takes the ingest with it and releases no page past the g
           const pageNumber = started++;
           await new Promise((resolve) => setTimeout(resolve, 5));
           if (pageNumber === 1) throw new Error("OCR blew up on page 1");
-          return [];
+          return { lines: [] };
         },
       },
       (page) => {
@@ -417,6 +444,218 @@ test("a page that fails takes the ingest with it and releases no page past the g
     );
   }
   assert.ok(events.includes("destroy"));
+});
+
+/** A white page with a band of ink across the rows given, for the guard. */
+function inkedPage(width: number, height: number, from: number, to: number) {
+  const data = new Uint8ClampedArray(width * height * 4).fill(255);
+  for (let y = from; y <= to; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 0;
+    }
+  }
+  return { data, width, height };
+}
+
+const oneLine = (y: number, h: number): Line[] => [
+  {
+    i: 0,
+    text: "read",
+    box: { x: 0, y, w: 40, h },
+    words: [{ text: "read", box: { x: 0, y, w: 40, h } }],
+  },
+];
+
+const emptyReport = {} as never;
+
+test("ocrPageOrKeepShort: a complete page, a short page, and a broken one", async () => {
+  /*
+   * THE EXACT SEQUENCE THE BROWSER RUNS PER PAGE, which used to live inside
+   * `pipeline.worker.ts` where no test could reach it. `recognize` is injected
+   * exactly as the worker's POST is, so this drives the real ladder and the
+   * real disposition rather than a copy of them.
+   */
+  const page = inkedPage(40, 100, 10, 89);
+
+  // Boxes that reach the ink: complete, first attempt, no marker at all.
+  let calls = 0;
+  const whole = await ocrPageOrKeepShort(page, async () => {
+    calls += 1;
+    return { lines: oneLine(10, 80), report: emptyReport };
+  });
+  assert.equal(calls, 1);
+  assert.equal(whole.lines.length, 1);
+  assert.ok(!("short" in whole) || whole.short === undefined);
+
+  // Boxes that stop a third of the way down: short on every attempt, and the
+  // page comes back KEPT rather than thrown, carrying what was read and the
+  // measurement that condemned it.
+  const shorts: number[] = [];
+  calls = 0;
+  const kept = await ocrPageOrKeepShort(
+    page,
+    async () => {
+      calls += 1;
+      return { lines: oneLine(10, 20), report: emptyReport };
+    },
+    (short) => shorts.push(short.attempt),
+  );
+  assert.equal(calls, 3, "the ladder is still spent before the page is kept");
+  assert.deepEqual(shorts, [1, 2, 3]);
+  assert.equal(kept.lines.length, 1, "what was read is kept, not discarded");
+  assert.ok(kept.short, "and the page says so on its own record");
+  assert.ok(kept.short.inkCoverage < 0.9);
+  assert.equal(kept.short.attempts, 3);
+
+  // A page whose every attempt FAILED is not a short page: it may be a broken
+  // deploy, and it still ends the document.
+  await assert.rejects(
+    ocrPageOrKeepShort(page, async () => {
+      throw new Error("POST /api/ocr answered 503");
+    }),
+    /answered 503/,
+  );
+});
+
+test("keepShortPage keeps a clean short ladder and rethrows everything else", () => {
+  /*
+   * THE DISPOSITION ITSELF, which decides whether a 151-page bundle survives
+   * one bad page. It lives in `ingest.ts` rather than in `pipeline.worker.ts`
+   * where it is used precisely so that this test can exist: the worker opens
+   * with `scope.addEventListener` and `node --test` cannot import it.
+   */
+  const completeness = checkPageCompleteness([], {
+    rows: new Uint8Array(100),
+    height: 100,
+    inkBottomY: 90,
+  });
+
+  const clean = new IncompletePageError("a page", completeness, 3, undefined, {
+    lines: [],
+  });
+  const kept = keepShortPage(clean);
+  assert.ok(kept, "a clean short ladder is the one case that is kept");
+  assert.equal(kept.short.attempts, 3);
+  assert.equal(kept.short.inkCoverage, completeness.inkCoverage);
+  assert.deepEqual(kept.short.shortfalls, completeness.shortfalls);
+
+  // A ladder where an attempt FAILED rather than read short may be a broken
+  // connection, and carrying on through one would turn a deploy problem into
+  // a bundle of quietly half-read pages.
+  const mixed = new IncompletePageError(
+    "a page",
+    completeness,
+    3,
+    new Error("fetch failed"),
+  );
+  assert.equal(keepShortPage(mixed), null);
+
+  // And nothing else is a page that was read at all.
+  assert.equal(keepShortPage(new Error("the worker died")), null);
+  assert.equal(keepShortPage("some string"), null);
+});
+
+test("a page read short travels with its page instead of ending the run", async () => {
+  // The disposition itself lives in `pipeline.worker.ts`, which decides to
+  // KEEP a short page where `scripts/generate.mjs` still throws. What this
+  // loop owes that decision is a way to carry the verdict: before the pair,
+  // the only thing an `ocr` implementation could say about a badly read page
+  // was to throw, and a throw here discards every page after it.
+  const { document } = fakeDocument(
+    Array.from({ length: 4 }, () => ({ w: 10, h: 10 })),
+  );
+
+  let page = 0;
+  const released: IngestedPage[] = [];
+
+  const pageCount = await ingestPdf(
+    {
+      loadDocument: async () => document,
+      makeContext: nodeContext,
+      dpi: 72,
+      concurrency: 1,
+      ocr: async () => {
+        page += 1;
+        if (page !== 2) return { lines: [] };
+        return {
+          lines: [],
+          short: {
+            inkCoverage: 0.483,
+            uncoveredInkRunShare: 0.104,
+            attempts: 3,
+            shortfalls: ["its returned boxes reach y=1672 against ink to y=3460"],
+          },
+        };
+      },
+    },
+    (released_) => {
+      released.push(released_);
+    },
+  );
+
+  // The whole document, not the two pages before the bad one.
+  assert.equal(pageCount, 4);
+  assert.deepEqual(
+    released.map((one) => one.index),
+    [0, 1, 2, 3],
+  );
+
+  assert.equal(released[1].short?.inkCoverage, 0.483);
+  assert.equal(released[1].short?.attempts, 3);
+
+  // ABSENT, NEVER `undefined`. A page that passed must not be distinguishable
+  // from one whose marker was defaulted, in storage or in a log line.
+  for (const index of [0, 2, 3]) {
+    assert.ok(
+      !("short" in released[index]),
+      `page ${index} passed and must carry no short key`,
+    );
+  }
+});
+
+test("a page failure names the page it happened on", async () => {
+  // WHY THIS IS A TEST AND NOT A LOG LINE. Only `error.message` crosses the
+  // worker boundary (`pipeline.worker.ts` posts the message, never the Error,
+  // because structured clone strips the prototype), and the shell files that
+  // string behind `Detail teknis`. So the page number has to be IN THE
+  // MESSAGE or it does not exist: a 151-page bundle that stops on one page
+  // otherwise reports a failure that could have come from any of them.
+  const { document } = fakeDocument(
+    Array.from({ length: 5 }, () => ({ w: 10, h: 10 })),
+  );
+
+  let page = 0;
+  await assert.rejects(
+    ingestPdf(
+      {
+        loadDocument: async () => document,
+        makeContext: nodeContext,
+        dpi: 72,
+        // Serial, so "the third page" is the third page rather than whichever
+        // of four in flight got there first.
+        concurrency: 1,
+        ocr: async () => {
+          page += 1;
+          if (page === 3) throw new Error("the reply was short");
+          return { lines: [] };
+        },
+      },
+      () => {},
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestPageError);
+      assert.equal(error.pageNumber, 3);
+      assert.equal(error.pageCount, 5);
+      // 1-based and named as such: a reader comparing this against a PDF
+      // viewer must not have to guess which convention it is in.
+      assert.match(error.message, /page 3 of 5/);
+      // The original diagnosis survives the wrapping, name included. It is
+      // the half that says WHAT went wrong.
+      assert.match(error.message, /Error: the reply was short/);
+      return true;
+    },
+  );
 });
 
 test("ingestPdf releases the document even when a page fails", async () => {
@@ -501,6 +740,7 @@ test("a discovered lanjutan is APPENDED, proposed, under a fresh ordinal", () =>
   };
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -537,6 +777,7 @@ test("an answer whose parent lost its zone while the search ran is dropped", () 
   // walk started from, its lanjutan is the continuation of nothing.
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -575,6 +816,7 @@ test("rejecting a lanjutan removes it AND the tail found by walking past it", ()
   };
   const run: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -619,6 +861,7 @@ test("the same block is never appended twice, whatever asks for it", () => {
   const next = { ...zone, pageIndex: 4 };
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -662,6 +905,7 @@ test("a lanjutan the walk already looked past arrives stamped", () => {
   };
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -700,6 +944,7 @@ test("a capture reopened while the search ran is not stamped as checked", () => 
   // what `capturesToWalk` filters on.
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -722,6 +967,7 @@ test("an answer does not re-open a bagian the operator emptied while it ran", ()
   };
   const base: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -746,6 +992,7 @@ test("redrawing a lanjutan takes its tail but keeps the capture itself", () => {
   };
   const run: BrowserRun = {
     id: "run",
+    overlay: NO_EDITS,
     createdAt: 0,
     sources: [],
     pages: [],
@@ -842,6 +1089,7 @@ test("appending a dokumen tambahan's page keeps every earlier page and zone", ()
 
   const before: BrowserRun = {
     id: "run-1",
+    overlay: NO_EDITS,
     createdAt: 1,
     sources: [
       { id: "src-a", name: "bundle.pdf", pageCount: 2 },
@@ -884,6 +1132,7 @@ test("appending a dokumen tambahan's page keeps every earlier page and zone", ()
 test("appending never renumbers the pages a zone already points at", () => {
   let run: BrowserRun = {
     id: "run-2",
+    overlay: NO_EDITS,
     createdAt: 1,
     sources: [{ id: "src-a", name: "a.pdf", pageCount: 2 }],
     pages: [page("p0", "src-a", 0), page("p1", "src-a", 1)],

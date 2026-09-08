@@ -27,6 +27,11 @@ import {
   capturesToWalk,
 } from "../../../lib/ui/propose.ts";
 import type { BrowserRun } from "../../../lib/browser/types.ts";
+import {
+  emptyOverlay,
+  resolveTemplate,
+  type TemplateOverlay,
+} from "../../../lib/forms/overlay.ts";
 import type { SectionDef, Template } from "../../../lib/forms/template.ts";
 import { continuationChecked } from "../../../lib/browser/captures.ts";
 import {
@@ -167,7 +172,7 @@ test("an unauthenticated POST to /api/propose is refused, and the model is never
     gate: () => guard.apiUser(),
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], continuations: [] };
+      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -202,7 +207,7 @@ test("an admitted caller sending within-source page numbers gets a 400, not a se
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], continuations: [] };
+      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -238,7 +243,7 @@ test("a malformed line is refused before the credential is spent", async () => {
     gate: admits,
     search: async (body) => {
       reached.push(body);
-      return { proposals: [], outstanding: [], continuations: [] };
+      return { proposals: [], outstanding: [], outOfScope: [], continuations: [] };
     },
     unreachable: () => new Response("unreachable", { status: 503 }),
   });
@@ -375,7 +380,7 @@ test("ranking is a preference, never a filter: every page stays in the pool", ()
   const byType = new Map([["SP" as const, new Set([2])]]);
 
   const pool = rankedPoolForSlot(
-    { key: "k", label: "L", docType: "SP", hint: "h", fillable: true },
+    { key: "k", label: "L", docType: "SP", ask: { label: "L", hint: "h" }, fillable: true },
     pages,
     byType,
   );
@@ -401,14 +406,16 @@ test("ranking is a preference, never a filter: every page stays in the pool", ()
  * forward and found it.
  */
 const twoCaptureSection: SectionDef = {
+  id: "kb-lanjutan",
   title: "KB (lanjutan)",
   layout: "table",
+  ask: { title: "KB (lanjutan)" },
   slots: [
     {
       key: "kbLanjutan.top",
       label: "ToP",
       docType: null,
-      hint: "the payment clause",
+      ask: { label: "ToP", hint: "the payment clause" },
       fillable: true,
     },
   ],
@@ -520,47 +527,62 @@ const TWO_POOL_TEMPLATE: Template = {
   label: "T",
   sections: [
     {
+      id: "kb",
       title: "KB",
       layout: "table",
+      ask: { title: "KB" },
       slots: [
         {
           key: "kb.nomor",
           label: "Nomor",
           docType: "KB",
-          hint: "the agreement number",
+          ask: { label: "Nomor", hint: "the agreement number" },
           fillable: true,
         },
         {
           key: "kb.ttd",
           label: "TTD Pejabat",
           docType: "KB",
-          hint: "the signature block of the agreement",
+          ask: {
+            label: "TTD Pejabat",
+            hint: "the signature block of the agreement",
+          },
           fillable: true,
         },
       ],
     },
     {
+      id: "kb-lanjutan-2",
       title: "KB (lanjutan)",
       layout: "table",
+      ask: { title: "KB (lanjutan)" },
       slots: [
         {
           key: "kbLanjutan.ttd",
           label: "TTD Pejabat",
           docType: "KB",
-          hint: "the signature block on the continuation page",
+          ask: {
+            label: "TTD Pejabat",
+            hint: "the signature block on the continuation page",
+          },
           fillable: true,
         },
       ],
     },
     {
+      id: "ba-permintaan",
       title: "BA Permintaan",
       layout: "table",
+      ask: { title: "BA Permintaan" },
       slots: [
         {
           key: "ba.nomor",
           label: "Nomor",
           docType: "BAPermintaan",
-          hint: "the number of the berita acara permintaan",
+          ask: {
+            label: "Nomor",
+            hint: "the number of the berita acara permintaan",
+          },
           fillable: true,
         },
       ],
@@ -862,22 +884,29 @@ const IMAGE_TEMPLATE: Template = {
   label: "T",
   sections: [
     {
+      id: "sp",
       title: "SP",
       layout: "images",
+      ask: { title: "SP" },
       slots: [
         {
           key: "sp.1",
           label: "SP",
           docType: "SP",
-          hint: "the whole Surat Penunjukan page",
+          ask: { label: "SP", hint: "the whole Surat Penunjukan page" },
           fillable: true,
+          pageOrdinal: 0,
         },
         {
           key: "sp.2",
           label: "SP (lanjutan)",
           docType: "SP",
-          hint: "the second whole page of the Surat Penunjukan",
+          ask: {
+            label: "SP (lanjutan)",
+            hint: "the second whole page of the Surat Penunjukan",
+          },
           fillable: true,
+          pageOrdinal: 1,
         },
       ],
     },
@@ -984,6 +1013,187 @@ test("re-searching only the second SP slot does not hand it the first one's page
   assert.equal(result.proposals[0].zone.pageIndex, 2);
 });
 
+/* ------------------------------ the DECLARED ordinal, and what is out of scope */
+
+/** The three pages `classifiesSpOnly` labels: KB, then two SP pages. */
+const SP_PAGES = [
+  wirePage(0, "a", "KB page"),
+  wirePage(1, "a", "SP page one"),
+  wirePage(2, "a", "SP page two"),
+];
+
+/**
+ * This order's form, edited the way an operator edits one.
+ *
+ * Built through `resolveTemplate` rather than by hand, because the whole point
+ * of these tests is what the route does with a form that is no longer the
+ * compile-time constant. A hand-written fixture would pin the route against a
+ * shape nothing in production produces.
+ */
+function editedForm(edit: (overlay: TemplateOverlay) => void): Template {
+  const overlay = emptyOverlay(IMAGE_TEMPLATE);
+  edit(overlay);
+  return resolveTemplate(IMAGE_TEMPLATE, overlay);
+}
+
+test("a deleted sibling does not slide the surviving bagian onto its page", async () => {
+  // THE DEFECT THE DECLARED ORDINAL CLOSES, and it is this project's failure
+  // class exactly: `wholePageProposals` used to derive each whole-page slot's
+  // position with a running counter over its section's fillable slots. Delete
+  // `sp.1` for one order and the counter hands `sp.2` position 0, which is the
+  // FIRST SP page -- the page `sp.2` is not, and quite possibly the page a
+  // confirmed crop of `sp.1` was cut from before the operator removed it.
+  // Nothing throws, the packet opens fine, and it carries one picture under two
+  // headings. `SlotDef.pageOrdinal` declares 1 and survives the deletion.
+  const template = editedForm((overlay) => {
+    overlay.slots["sp.1"] = { removed: true };
+  });
+  // The premise, stated rather than assumed: one fillable slot is left in that
+  // section and it is the SECOND page's.
+  assert.deepEqual(
+    template.sections[0].slots.map((slot) => [slot.key, slot.pageOrdinal]),
+    [["sp.2", 1]],
+  );
+
+  const result = await proposeZones(
+    { runId: "r", pages: SP_PAGES, wanted: ["sp.2"] },
+    classifiesSpOnly,
+    template,
+  );
+
+  assert.equal(result.proposals.length, 1);
+  assert.equal(
+    result.proposals[0].zone.pageIndex,
+    2,
+    "sp.2 must still take the second SP page, not the one its deleted sibling held",
+  );
+  assert.deepEqual(result.outstanding, []);
+});
+
+test("a whole-page fillable slot with no pageOrdinal is a template bug, and throws", async () => {
+  // NOT A RUNTIME CONDITION AND NOT A FALLBACK. Counting siblings to fill the
+  // gap is the very derivation the declared ordinal replaced, so a fallback
+  // would reinstate the defect above in precisely the orders that edited their
+  // form, silently. It throws instead, naming the slot.
+  const noOrdinal: Template = {
+    id: "t",
+    label: "T",
+    sections: [
+      {
+        id: "sp",
+        title: "SP",
+        layout: "images",
+        ask: { title: "SP" },
+        slots: [
+          {
+            key: "sp.1",
+            label: "SP",
+            docType: "SP",
+            ask: { label: "SP", hint: "the whole Surat Penunjukan page" },
+            fillable: true,
+            pageOrdinal: 0,
+          },
+          {
+            key: "sp.2",
+            label: "SP (lanjutan)",
+            docType: "SP",
+            ask: { label: "SP (lanjutan)", hint: "the second whole page" },
+            fillable: true,
+          },
+        ],
+      },
+    ],
+    xlsxRows: [],
+    fieldHints: {},
+  };
+
+  await assert.rejects(
+    () =>
+      proposeZones(
+        { runId: "r", pages: SP_PAGES, wanted: ["sp.2"] },
+        classifiesSpOnly,
+        noOrdinal,
+      ),
+    /sp\.2: pageOrdinal is required/,
+  );
+
+  // AND WHEN THE REQUEST NEVER ASKED ABOUT THE BROKEN SLOT. A template bug is
+  // not a fact about what this Proses wanted: a section whose ordinals cannot
+  // be read is one whose pages cannot be handed out at all, and finding that
+  // out only on the round that happens to want `sp.2` is how it would reach an
+  // operator instead of a developer.
+  await assert.rejects(
+    () =>
+      proposeZones(
+        { runId: "r", pages: SP_PAGES, wanted: ["sp.1"] },
+        classifiesSpOnly,
+        noOrdinal,
+      ),
+    /sp\.2: pageOrdinal is required/,
+  );
+});
+
+test("a bagian in an added judul is OUT OF SCOPE, never 'tidak ditemukan'", async () => {
+  // An added judul is captured by hand by construction: `resolveTemplate` gives
+  // it no docType, no hint and a tombstone `ask`, so there is no search to run
+  // and no negative answer to report. Reported as outstanding it would arrive
+  // on EVERY Proses, for ever, on the main path of the feature that adds one,
+  // sending the operator to look for a dokumen tambahan to satisfy evidence
+  // they are holding. `classifiesSpOnly` throws on any prompt but the
+  // classifier's, so this also pins that the model is never asked about it.
+  const template = editedForm((overlay) => {
+    overlay.added.push({
+      id: "u:tambahan",
+      title: "Lampiran Denah Lokasi",
+      slots: [{ id: "u:tambahan-1", label: "Halaman 1" }],
+      origin: "human",
+    });
+  });
+
+  const result = await proposeZones(
+    { runId: "r", pages: SP_PAGES, wanted: ["u:tambahan-1"] },
+    classifiesSpOnly,
+    template,
+  );
+
+  assert.deepEqual(result.proposals, []);
+  assert.deepEqual(
+    result.outstanding,
+    [],
+    "an added bagian must never be reported as searched and not found",
+  );
+  assert.deepEqual(
+    result.outOfScope.map((entry) => entry.key),
+    ["u:tambahan-1"],
+  );
+  assert.match(result.outOfScope[0].reason, /added this judul/);
+});
+
+test("a bagian this order deleted is out of scope, not not-found for ever", async () => {
+  // The same lie in its other spelling. A run's slot states outlive the form:
+  // the operator removes a judul, its `SlotState` is still in `run.slots`, and
+  // the key it names resolves to nothing. "Sudah dicari di seluruh dokumen,
+  // buktinya tidak ada" about a bagian they themselves deleted is a sentence
+  // the tool has no business printing.
+  const template = editedForm((overlay) => {
+    overlay.slots["sp.1"] = { removed: true };
+  });
+
+  const result = await proposeZones(
+    { runId: "r", pages: SP_PAGES, wanted: ["sp.1"] },
+    classifiesSpOnly,
+    template,
+  );
+
+  assert.deepEqual(result.proposals, []);
+  assert.deepEqual(result.outstanding, []);
+  assert.deepEqual(
+    result.outOfScope.map((entry) => entry.key),
+    ["sp.1"],
+  );
+  assert.match(result.outOfScope[0].reason, /no slot with this key/);
+});
+
 /* ------------------------------------------------------ the lanjutan chain */
 
 /**
@@ -1033,6 +1243,11 @@ function chainRun(): BrowserRun {
       lines: page.lines,
     })),
     slots: [{ key: "kbLanjutan.top", label: "ToP", status: "pending" }],
+    // An unedited run against this fixture's own form. `BrowserRun.overlay` is
+    // required rather than optional on purpose (see its doc comment), and
+    // `emptyOverlay` resolves back to the base BY IDENTITY, so this chain
+    // behaves exactly as it did before overlays existed.
+    overlay: emptyOverlay(TEMPLATE),
   };
 }
 

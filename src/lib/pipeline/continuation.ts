@@ -79,6 +79,7 @@ import type { Box } from "./render.ts";
 import { boxForLineRange, type Line } from "./geometry.ts";
 import { extractJson } from "./json.ts";
 import type { Ask } from "./classify.ts";
+import type { SlotAsk } from "../forms/template.ts";
 import {
   CROP_PADDING_PX,
   trimRunningFooter,
@@ -777,8 +778,19 @@ export function endedOnDefinitiveNo(
  * has re-opened it.
  */
 export async function findContinuations(options: {
-  slotLabel: string;
-  hint: string;
+  /**
+   * The slot's FROZEN prompt half, whole, rather than a label and a hint as
+   * two loose strings. `buildContinuationPrompt` quotes both into the
+   * question, so a display name that had been renamed for this order would
+   * otherwise walk straight into a measured prompt: taking a `SlotAsk` makes
+   * that a type error at every call site.
+   *
+   * NAMED `slotAsk` AND NOT `ask` ONLY BECAUSE `ask` IS ALREADY TAKEN below,
+   * by the injected model. Two fields called `ask` meaning two unrelated
+   * things is exactly the mix-up this option bag should not invite, and `Ask`
+   * is what the injected model is called in every other module here.
+   */
+  slotAsk: SlotAsk;
   /** The confirmed capture to walk forward from. */
   zone: Zone;
   /** The lines of the page that zone sits on, for the tail shown to the model. */
@@ -794,8 +806,7 @@ export async function findContinuations(options: {
   stoppedAtCap: boolean;
 }> {
   const {
-    slotLabel,
-    hint,
+    slotAsk,
     documentPages,
     furniture,
     wholePageCapture,
@@ -803,6 +814,12 @@ export async function findContinuations(options: {
     maxChain = MAX_CONTINUATION_CHAIN,
     log = () => {},
   } = options;
+  // Unpacked once, so the prompt builder and the log lines below read the same
+  // as they did when the pair arrived loose. The log is the operator-facing
+  // half and could legitimately name the display label instead; it does not,
+  // because a run log that names a different string from the one the model was
+  // asked with is a diagnosis that sends the next reader to the wrong place.
+  const { label: slotLabel, hint } = slotAsk;
 
   const zones: Zone[] = [];
   const steps: ContinuationStep[] = [];

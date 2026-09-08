@@ -36,6 +36,9 @@
  * main-thread-only global.
  */
 
+import { emptyOverlay } from "../forms/overlay.ts";
+import type { NodeId, TemplateOverlay } from "../forms/overlay.ts";
+import { AO_TEMPLATE } from "../forms/template.ts";
 import type { BrowserRun, StoredPage } from "../browser/types.ts";
 
 const DB_NAME = "tv-helper-runs";
@@ -50,6 +53,50 @@ const BY_RUN = "byRun";
 
 /** A run's small half: everything except the pages and the PDF bytes. */
 export type RunMeta = Omit<BrowserRun, "pages">;
+
+/**
+ * A run's small half AS A RECORD ON THIS DEVICE MAY ACTUALLY BE SHAPED.
+ *
+ * `BrowserRun.overlay` is REQUIRED, and every record written from here on
+ * carries one -- but records written before the field existed do not, and an
+ * `as IDBRequest<RunMeta>` cast over a raw IndexedDB read is a promise this
+ * module makes rather than one the database keeps. Reading those through the
+ * required type would be exactly the lie the type is there to prevent: every
+ * consumer would be told an overlay is present, and the first one to touch it
+ * would meet `undefined` several call frames from the read.
+ *
+ * So the raw reads are typed as this, and `readMeta` is the ONE place the
+ * upgrade happens.
+ */
+type StoredRunMeta = Omit<RunMeta, "overlay"> & { overlay?: TemplateOverlay };
+
+/**
+ * A stored record as the rest of the app is allowed to see it: the revision
+ * this read actually saw, and an overlay that is definitely there.
+ *
+ * UPGRADED ON READ, AND NEVER WRITTEN BACK ON READ. Repairing the record here
+ * would mean a write, a write bumps `rev`, and a bumped `rev` can collide with
+ * an ingest running in another tab -- which would turn "open an order to look
+ * at it" into an operation that can be refused. The upgrade is deterministic
+ * and free (`resolveTemplate` short-circuits an empty overlay to the base by
+ * identity), so it costs nothing to redo on every read and lands on disk with
+ * the next ordinary save.
+ *
+ * `emptyOverlay(AO_TEMPLATE)` is why this file knows the form exists at all.
+ * That is a real coupling and it is the smallest one available: the
+ * alternative is an optional field, which is the defect this whole comment is
+ * about.
+ */
+function readMeta(stored: StoredRunMeta): RunMeta {
+  return {
+    ...stored,
+    // Stamped, not passed through: this is the number a later write is checked
+    // against, so it has to be the one this read actually saw -- including the
+    // 0 that stands for a record written before runs carried a revision.
+    rev: revOf(stored),
+    overlay: stored.overlay ?? emptyOverlay(AO_TEMPLATE),
+  };
+}
 
 /**
  * A write refused because the run moved on underneath the writer.
@@ -180,6 +227,122 @@ export class CaptureLossError extends Error {
 }
 
 /**
+ * A write that would silently drop work the OPERATOR AUTHORED: a judul or a
+ * bagian they renamed, or a judul they added to this order by hand.
+ *
+ * THE FOURTH NET, AND IT GUARDS `overlay` FOR THE REASON `CaptureLossError`
+ * GUARDS `slots`. The writer both were built for is the same one. A rebuild
+ * from `AO_TEMPLATE.sections` emits `overlay: emptyOverlay(...)` exactly as
+ * readily as it emits zone-less captures: it arrives at the CORRECT revision,
+ * carrying EVERY page and EVERY capture key, reverts every heading the operator
+ * renamed, deletes every judul they added, and reports success.
+ *
+ * WHAT INVERTED, and why this is not simply `CaptureLossError` widened. That
+ * class deliberately ignores a state carrying no zone, justified above as "a
+ * capture nobody has found evidence for costs nothing to re-seed". THAT
+ * PREMISE IS STILL TRUE OF `SlotState`, because nothing an operator authors
+ * lives there -- a rename writes a patch, never a state. It is false one level
+ * up: `run.overlay` is the ONLY place their naming work exists, and nothing
+ * re-seeds a name.
+ *
+ * AUTHORSHIP, NOT PRESENCE, which is the same line drawn one level up. A
+ * `ProposedSection` may be dropped freely: it is a usulan nobody has ruled on,
+ * the overlay equivalent of a capture with no zone. Adding `removed: true` is
+ * the operator DELETING, which is a write and not a loss. Reordering loses
+ * nothing.
+ */
+export class SectionLossError extends Error {
+  readonly runId: string;
+  /** Overlay node ids whose stored authorship this write discards. */
+  readonly missing: NodeId[];
+
+  constructor(runId: string, missing: NodeId[]) {
+    super(
+      `run ${runId} would lose ${missing.length} operator-authored name(s) ` +
+        `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}) ` +
+        "because this write does not carry them and did not name them. A run's " +
+        "overlay is the only place a renamed or added judul exists, so a write " +
+        "rebuilt from AO_TEMPLATE reverts every heading at the correct " +
+        "revision with every page and every capture present. If you meant to " +
+        "drop them, name the ids in putRun's `removingSections` option; " +
+        "otherwise re-read the run and re-apply the change.",
+    );
+    this.name = "SectionLossError";
+    this.runId = runId;
+    this.missing = missing;
+  }
+}
+
+/**
+ * Which of `stored`'s authored names `incoming` throws away.
+ *
+ * EVERY REFUSAL NAMES AN ID, and that is a structural requirement rather than
+ * a nicety: `removingSections` is a list of ids, so a loss this function could
+ * not name would be a refusal no legitimate caller could ever opt out of.
+ *
+ * That is exactly why `overlay.order` is NOT compared here. Its ids name
+ * sections that still exist, so a dropped order has no id to hand back, and
+ * "reordering loses nothing" is the rule the design states for it. The
+ * consequence is stated rather than hidden: a writer that drops a stored
+ * `order` while keeping every patch reverts the operator's arrangement, and
+ * nothing here stops it. No writer produces that shape today -- the
+ * rebuild-from-template one drops the patches too, and is caught on those.
+ *
+ * DROPPED AND REVERTED ARE ONE SHAPE, not two. The patch IS the name: an
+ * overlay carries no copy of the base's title to compare against, so losing
+ * the patch is precisely what reverting the heading means. A patch that
+ * carries a DIFFERENT title is an edit, and edits are what this file is for.
+ *
+ * EXPORTED FOR THE STUB RUNTIME, which models this refusal rather than
+ * accepting a write the real store would reject. A fake that is more permissive
+ * than production hides exactly the bug the guard exists to catch, and this app
+ * ran on that fake for an entire track.
+ */
+export function discardedAuthorship(
+  stored: TemplateOverlay,
+  incoming: TemplateOverlay | undefined,
+): NodeId[] {
+  const lost: NodeId[] = [];
+
+  // AN INCOMING RUN WITH NO OVERLAY AT ALL CARRIES NOTHING, so it loses
+  // everything and is refused BY NAME. The type says the field is required, so
+  // this can only arrive from an object that was cast, parsed, or hand-built --
+  // and a property read that threw `Cannot read properties of undefined` from
+  // inside a readwrite transaction would refuse the write with a sentence that
+  // names neither the run nor what it was about to drop.
+  const nextSections = new Map(Object.entries(incoming?.sections ?? {}));
+  // Maps rather than the records themselves, for the reason `resolveTemplate`
+  // gives: a stored id that happens to name something on Object.prototype
+  // ("constructor", "toString") reads back as a value that is not a patch, and
+  // asking it for `.title` answers undefined rather than throwing. That would
+  // report a patch as lost that is sitting right there.
+  for (const [id, patch] of Object.entries(stored.sections)) {
+    if (patch.title === undefined) continue;
+    if (nextSections.get(id)?.title === undefined) lost.push(id);
+  }
+
+  const nextSlots = new Map(Object.entries(incoming?.slots ?? {}));
+  for (const [id, patch] of Object.entries(stored.slots)) {
+    const next = nextSlots.get(id);
+    // Two independently authored strings on one node, so they are checked
+    // independently: a write that keeps the renamed label and drops the
+    // operator's own catatan has still thrown away something they typed, and
+    // reporting the id once is enough to refuse it.
+    const droppedLabel = patch.label !== undefined && next?.label === undefined;
+    const droppedCatatan =
+      patch.catatan !== undefined && next?.catatan === undefined;
+    if (droppedLabel || droppedCatatan) lost.push(id);
+  }
+
+  const kept = new Set((incoming?.added ?? []).map((section) => section.id));
+  for (const section of stored.added) {
+    if (!kept.has(section.id)) lost.push(section.id);
+  }
+
+  return lost;
+}
+
+/**
  * The revision an object was built from, with a missing one read as 0.
  *
  * Absent means either a run built by hand that was never stored, or a record
@@ -216,6 +379,13 @@ export type StoredSource = {
  * dropped, field by field rather than by rest-spread, so that adding a field
  * to `StoredPage` fails to compile here instead of silently not being read
  * back.
+ *
+ * AN OPTIONAL FIELD DEFEATS THAT GUARD, which is worth knowing before you add
+ * one. `short` was added to `StoredPage` as `short?:` and this function
+ * compiled unchanged: the write stored it, this read dropped it, and a page
+ * the device knew it had misread came back looking clean. Nothing failed.
+ * `persistence.test.mts` pins the round trip for exactly that reason -- a
+ * type cannot check this one, so a test has to.
  */
 function toStoredPage(record: PageRecord): StoredPage {
   return {
@@ -225,6 +395,8 @@ function toStoredPage(record: PageRecord): StoredPage {
     widthPx: record.widthPx,
     heightPx: record.heightPx,
     lines: record.lines,
+    // Absent, not `undefined`, when the page passed: see `PageShortfall`.
+    ...(record.short ? { short: record.short } : {}),
   };
 }
 
@@ -351,18 +523,16 @@ async function transact<T>(
 /** Every run's small half, newest first. Never reads a page or a PDF. */
 export async function listRunMeta(): Promise<RunMeta[]> {
   const rows = await transact([RUNS], "readonly", (tx) =>
-    promisify(tx.objectStore(RUNS).getAll() as IDBRequest<RunMeta[]>),
+    promisify(tx.objectStore(RUNS).getAll() as IDBRequest<StoredRunMeta[]>),
   );
-  return rows
-    .map((row) => ({ ...row, rev: revOf(row) }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return rows.map(readMeta).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** A whole run, pages included, or null. PDF bytes are never loaded here. */
 export async function getRun(id: string): Promise<BrowserRun | null> {
   return transact([RUNS, PAGES], "readonly", async (tx) => {
     const meta = await promisify(
-      tx.objectStore(RUNS).get(id) as IDBRequest<RunMeta | undefined>,
+      tx.objectStore(RUNS).get(id) as IDBRequest<StoredRunMeta | undefined>,
     );
     if (!meta) return null;
 
@@ -372,13 +542,10 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
       >,
     );
 
+    // `readMeta` stamps the revision and upgrades a record written before runs
+    // carried an overlay. THE UPGRADE IS NOT WRITTEN BACK: see that function.
     return {
-      ...meta,
-      // Stamped, not passed through: this is the number a later write is
-      // checked against, so it has to be the one this read actually saw --
-      // including the 0 that stands for a record written before runs carried
-      // a revision.
-      rev: revOf(meta),
+      ...readMeta(meta),
       pages: records.sort((a, b) => a.order - b.order).map(toStoredPage),
     };
   });
@@ -428,7 +595,12 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
  *    when a lanjutan became something discovered rather than declared: see the
  *    class comment.
  *
- * All three are refusals, not repairs. Merging the caller's slots onto the
+ * 4. SECTION LOSS. A write that drops a heading the operator renamed or a
+ *    judul they added is refused with `SectionLossError` unless it names those
+ *    node ids in `options.removingSections`. Same shape again, for the one
+ *    place an operator's naming work lives.
+ *
+ * All four are refusals, not repairs. Merging the caller's slots onto the
  * stored pages would let the save appear to succeed while quietly discarding
  * whichever of the two writers' slot edits lost, and a validator signs what
  * comes out of here.
@@ -486,6 +658,30 @@ export type PutRunOptions = {
    * read the arithmetic.
    */
   removingPages?: readonly string[];
+
+  /**
+   * Overlay node ids whose stored NAME or EXISTENCE this write deliberately
+   * discards: a heading the operator renamed and this write un-renames, or a
+   * judul they added and this write drops.
+   *
+   * TWO OPT-INS, NOT ONE, and they are deliberately not folded together.
+   * `removing` is about a POTONGAN -- a picture a human accepted -- and this
+   * is about a NAME. One option covering both would let a caller that meant to
+   * drop a heading quietly discard a crop as well, on an opt-in it had already
+   * written for the other reason. They are different losses and they are
+   * confirmed separately.
+   *
+   * A LIST OF IDS AND NEVER A BOOLEAN, for the reason `removingPages` gives
+   * above: a caller naming ids is saying "I know about exactly these and I
+   * mean them", so a write that ALSO loses a name it never knew about still
+   * fails on the one it did not name.
+   *
+   * Deleting a judul the operator authored is the write this exists for, and
+   * it is the one edit that has to say so out loud -- because dropping a judul
+   * without dropping the states under it leaves those crops orphaned, which is
+   * the loss wearing a different coat.
+   */
+  removingSections?: readonly NodeId[];
 };
 
 export async function putRun(
@@ -507,7 +703,7 @@ export async function putRun(
   await transact([RUNS, PAGES], "readwrite", async (tx) => {
     const runs = tx.objectStore(RUNS);
     const stored = await promisify(
-      runs.get(run.id) as IDBRequest<RunMeta | undefined>,
+      runs.get(run.id) as IDBRequest<StoredRunMeta | undefined>,
     );
 
     if (!stored) {
@@ -520,6 +716,33 @@ export async function putRun(
     // revision is: a check done in a separate transaction cannot see a second
     // tab, and this list is now the only place a discovered capture lives.
     if (stored) {
+      /*
+       * THE SECTION CHECK COMES BEFORE THE CAPTURE CHECK, and the ordering is
+       * an argument rather than a preference.
+       *
+       * The writer both nets were built for -- a rebuild from
+       * `AO_TEMPLATE.sections` -- trips BOTH. Only one error can be thrown, so
+       * the one thrown decides what the next person reads. The overlay is the
+       * ROOT CAUSE (the write was assembled from the compile-time form, so it
+       * could not have carried this order's names) and the captures are the
+       * larger, louder CONSEQUENCE. Reporting the consequence would send a
+       * reader hunting for a lanjutan bug that is not there.
+       *
+       * It is also the cheapest of the three: a handful of object keys against
+       * a walk of every slot and every page.
+       *
+       * A record stored before overlays existed carries none, and something
+       * that never held a name cannot lose one, so it is skipped outright
+       * rather than compared against an invented empty.
+       */
+      if (stored.overlay) {
+        const named = new Set(options.removingSections ?? []);
+        const lost = discardedAuthorship(stored.overlay, run.overlay).filter(
+          (id) => !named.has(id),
+        );
+        if (lost.length > 0) throw new SectionLossError(run.id, lost);
+      }
+
       const allowed = new Set(options.removing ?? []);
       // COMPARED ON THE EVIDENCE, NOT ON THE KEY. A key-presence check catches
       // only the writer that drops a state, and the writer this net was built
@@ -602,26 +825,53 @@ export async function appendPage(
 ): Promise<RunMeta> {
   const expected = revOf(run);
   const next = expected + 1;
+  let written: RunMeta | null = null;
 
   await transact([RUNS, PAGES], "readwrite", async (tx) => {
     const runs = tx.objectStore(RUNS);
-    const stored = await promisify(
-      runs.get(run.id) as IDBRequest<RunMeta | undefined>,
+    const raw = await promisify(
+      runs.get(run.id) as IDBRequest<StoredRunMeta | undefined>,
     );
-    if (!stored) throw new StaleRunWriteError(run.id, expected, null);
-    if (revOf(stored) !== expected) {
-      throw new StaleRunWriteError(run.id, expected, revOf(stored));
+    if (!raw) throw new StaleRunWriteError(run.id, expected, null);
+    if (revOf(raw) !== expected) {
+      throw new StaleRunWriteError(run.id, expected, revOf(raw));
     }
+    // Read through the same upgrade every other read uses, so a run stored
+    // before overlays existed is carried forward as an EMPTY overlay rather
+    // than as a hole. This one is a write anyway -- the revision is advancing
+    // in the same transaction -- so stamping the upgrade costs nothing extra
+    // and is the migration landing where migrations are free.
+    const stored = readMeta(raw);
 
     tx.objectStore(PAGES).put({
       ...page,
       runId: run.id,
       order,
     } satisfies PageRecord);
-    runs.put({ ...run, rev: next } satisfies RunMeta);
+    // THE WRITE COMES FROM `stored`, NOT FROM THE CALLER, and so does the
+    // return below. `run` is a whole `RunMeta`: it carries `slots` and
+    // `overlay` as they were when the ingest STARTED, and an ingest legitimately
+    // changes neither. Writing the caller's copy hands a minutes-old slot array
+    // and a minutes-old overlay back to the store on every page, so an edit made
+    // while a 151-page document is being read is reverted by the next page with
+    // nothing raised: the revision is correct, every page is present, and all
+    // three of `putRun`'s nets are satisfied because this function is not
+    // `putRun`.
+    //
+    // `sources` is the one part an ingest does change (`withAppendedPage`
+    // updates `pageCount`), so it alone is taken from the caller.
+    runs.put({ ...stored, sources: run.sources, rev: next } satisfies RunMeta);
+    written = { ...stored, sources: run.sources, rev: next };
   });
 
-  return { ...run, rev: next };
+  // THE RETURN MUST MATCH THE WRITE. Returning `{ ...run, rev: next }` hands the
+  // caller its own pre-ingest arrays stamped with the ADVANCED revision, which
+  // then passes every guard on the next ordinary save and writes the stale
+  // arrays back. That is the same loss, moved one function outward, and it is
+  // the shape that made this worth fixing before anything could edit a run
+  // mid-ingest.
+  if (!written) throw new Error(`appendPage(${run.id}) committed no run record`);
+  return written;
 }
 
 /** One page by its own id, without loading the run it belongs to. */

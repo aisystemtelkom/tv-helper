@@ -14,11 +14,18 @@
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { Line } from "../pipeline/geometry.ts";
 import {
+  IncompletePageError,
+  ocrPageCompletely,
+  type RecognizePage,
+  type ShortRead,
+} from "../pipeline/gemini-ocr.ts";
+import {
   DEFAULT_DPI,
   renderPageUpright,
   type CanvasFactory,
   type RenderedPage,
 } from "../pipeline/render.ts";
+import type { PageShortfall } from "./types.ts";
 
 /** Just enough of pdf.js's loading task to render a document and let it go. */
 export type PdfDocumentLike = {
@@ -37,8 +44,17 @@ export type IngestDeps = {
   loadDocument(): Promise<PdfDocumentLike>;
   /** A 2D context of the requested size: OffscreenCanvas, or @napi-rs/canvas. */
   makeContext: CanvasFactory;
-  /** Rendered pixels to numbered lines of words with real glyph boxes. */
-  ocr(page: RenderedPage): Promise<Line[]>;
+  /**
+   * Rendered pixels to numbered lines of words with real glyph boxes.
+   *
+   * RETURNS A PAIR, NOT AN ARRAY, and the second half is the reason. This was
+   * `Promise<Line[]>`, so the only thing an implementation could say about a
+   * page it had read badly was to throw -- and a throw here ends the whole
+   * document (see below). `short` lets it say the third thing that is true of
+   * a real bundle: this page was read, incompletely, and here is what was
+   * read and what the guard measured. See `PageShortfall`.
+   */
+  ocr(page: RenderedPage): Promise<{ lines: Line[]; short?: PageShortfall }>;
   /** Defaults to `DEFAULT_DPI` (300). Tests drop it to keep fixtures small. */
   dpi?: number;
   /**
@@ -70,6 +86,132 @@ export type IngestDeps = {
  */
 export const DEFAULT_CONCURRENCY = 4;
 
+/**
+ * A page that could not be read, WITH THE PAGE NAMED.
+ *
+ * Every failure in this loop used to propagate exactly as it was thrown, and
+ * not one of the things that can throw here knows which page it is on:
+ * `renderPageUpright` is handed a page proxy, and `IngestDeps.ocr` is handed
+ * only the rendered pixels and carries no index at all -- so
+ * `pipeline.worker.ts` labels its OCR "a page of this document", deliberately,
+ * because a counter kept there would be wrong the moment the loop stopped
+ * being serial. THIS is the one place that holds the number.
+ *
+ * The cost of not carrying it was measured on a real bundle: a 151-page order
+ * stopped part-way through and reported `IncompletePageError: a page of this
+ * document ...`, which is true of any of the 151 and actionable for none of
+ * them. The operator cannot open the page, and nobody can tell a bad scan from
+ * a bad deploy.
+ *
+ * IT GOES IN THE MESSAGE, not only in the fields. `pipeline.worker.ts` posts
+ * `error.message` and nothing else -- structured clone strips the prototype,
+ * so the class, the fields and the `cause` do not survive the worker boundary
+ * -- and that string is what the shell files behind `Detail teknis`. The
+ * fields are for callers on this side of the boundary; the message is for the
+ * human reading the screen.
+ *
+ * `pageNumber` is 1-BASED and within THIS document, matching what a PDF viewer
+ * shows and what an xlsx note cites, never the run-global position.
+ */
+export class IngestPageError extends Error {
+  readonly pageNumber: number;
+  readonly pageCount: number;
+
+  constructor(pageNumber: number, pageCount: number, cause: unknown) {
+    super(
+      `page ${pageNumber} of ${pageCount} could not be read: ${
+        cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "IngestPageError";
+    this.pageNumber = pageNumber;
+    this.pageCount = pageCount;
+  }
+}
+
+/**
+ * MAY THIS FAILURE BE KEPT AS A SHORT PAGE, OR MUST IT END THE DOCUMENT?
+ *
+ * The decision this whole field exists for, and it lives HERE rather than in
+ * `pipeline.worker.ts` where it is used, because that module opens with
+ * `scope.addEventListener` and cannot be imported by `node --test` at all --
+ * it is the dozen lines of wiring this file's header admits are unexercised.
+ * A policy nothing can test is a policy nobody can change safely, and this one
+ * decides whether a bundle survives.
+ *
+ * `null` means RETHROW. Only one shape is ever kept:
+ *
+ *  - It must be `IncompletePageError`. A render that failed, an unreachable
+ *    route, a signed-out session and a dimension mismatch are not pages that
+ *    were read, and a run that carried on through a broken deploy would be
+ *    the wrong-and-quiet failure this project is organised against.
+ *  - Its ladder must be CLEAN: every attempt answered, and every answer short.
+ *    When some attempt threw outright -- a truncated reply, a 503, an aborted
+ *    request -- what the page demonstrates may be a broken connection rather
+ *    than ink the recogniser declined to read, and keeping it would turn a
+ *    deploy problem into a bundle of quietly half-read pages. That is what
+ *    `IncompletePageError.lastError` records and it is why this is not simply
+ *    an `instanceof` check.
+ *
+ * WHO CALLS THIS IS THE POINT. `pipeline.worker.ts` does, because the browser
+ * has an operator in front of it and every crop is confirmed by hand before it
+ * can reach a deliverable. `scripts/generate.mjs` does NOT, and must not: it
+ * writes its files unreviewed, so a page it knows it misread has to end the
+ * run. Same guard, same measurement, two dispositions, decided by whether
+ * anybody is there to be told.
+ */
+export function keepShortPage(
+  error: unknown,
+): { lines: Line[]; short: PageShortfall } | null {
+  if (!(error instanceof IncompletePageError) || error.lastError) return null;
+  return {
+    lines: error.lines,
+    short: {
+      inkCoverage: error.completeness.inkCoverage,
+      uncoveredInkRunShare: error.completeness.uncoveredInkRunShare,
+      attempts: error.attempts,
+      shortfalls: error.completeness.shortfalls,
+    },
+  };
+}
+
+/**
+ * ONE PAGE, READ THE WAY THE BROWSER READS IT: the completeness ladder, and
+ * then the keep-or-rethrow decision above.
+ *
+ * `pipeline.worker.ts` is two lines of wiring around this, and that is the
+ * whole point of it living here. The worker cannot be imported by
+ * `node --test` -- it opens with `scope.addEventListener` -- so anything left
+ * inside it is untestable by construction, and what was left inside it was the
+ * exact sequence that decides whether a bundle of 151 pages survives one bad
+ * one. `recognize` is injected for the same reason `IngestDeps` injects
+ * everything else: the worker passes a `POST /api/ocr`, a test passes a fake,
+ * and a verification harness can pass Cloud Vision directly and exercise this
+ * function rather than a copy of it that can drift from it.
+ */
+export async function ocrPageOrKeepShort(
+  page: RenderedPage,
+  recognize: RecognizePage,
+  onShort?: (short: ShortRead) => void,
+): Promise<{ lines: Line[]; short?: PageShortfall }> {
+  try {
+    const { lines } = await ocrPageCompletely(page, recognize, {
+      // Deliberately not a page number: this function is handed one rendered
+      // page and no index, and a counter kept here would be right only for as
+      // long as the loop above stayed serial. `IngestPageError` carries the
+      // number, from the one scope that holds it.
+      label: "a page of this document",
+      onShort,
+    });
+    return { lines };
+  } catch (error) {
+    const kept = keepShortPage(error);
+    if (!kept) throw error;
+    return kept;
+  }
+}
+
 /** One page's OCR result. Deliberately carries no pixels; see below. */
 export type IngestedPage = {
   /** 0-based, within this document. */
@@ -77,6 +219,8 @@ export type IngestedPage = {
   widthPx: number;
   heightPx: number;
   lines: Line[];
+  /** Set only when the page was read incompletely and kept anyway. */
+  short?: PageShortfall;
 };
 
 /**
@@ -173,13 +317,25 @@ export async function ingestPdf(
             deps.dpi ?? DEFAULT_DPI,
             deps.makeContext,
           );
-          const lines = await deps.ocr(rendered);
+          const { lines, short } = await deps.ocr(rendered);
           ready.set(pageNumber - 1, {
             index: pageNumber - 1,
             widthPx: rendered.width,
             heightPx: rendered.height,
             lines,
+            // Spread rather than `short: short`, so a page that passed carries
+            // no key at all: `{short: undefined}` and a missing `short` are
+            // the same to a reader and NOT the same to IndexedDB or to a
+            // `JSON.stringify` in a log line.
+            ...(short ? { short } : {}),
           });
+        } catch (error) {
+          // Wrapped here rather than at either thrower, because this is the
+          // only scope that knows both the page and the total. Already
+          // wrapped is left alone so a nested loop cannot label a page twice.
+          throw error instanceof IngestPageError
+            ? error
+            : new IngestPageError(pageNumber, total, error);
         } finally {
           // pdf.js caches the page's operator list and any decoded images on
           // the proxy. Without this the whole document's pixels accumulate

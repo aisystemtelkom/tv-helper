@@ -58,6 +58,8 @@ improvise a synonym.
 | additional document | **dokumen tambahan** | the client's own term, keep it |
 | round (of tambahan) | **putaran** | |
 | the two deliverables | **berkas hasil** | |
+| berkas handed over and not yet read | **antrean** | the operator may keep handing berkas over while one is being read, so the ones waiting are a real object on the Muat screen with a heading of their own ("Menunggu giliran") and a row each. Never "daftar tunggu" and never "queue" |
+| a berkas the order will not take | **tidak dimuat** | said of a duplicate, and the sentence always names the berkas it repeats, because identity is the CONTENT and the two names are routinely different |
 
 ## The four phases
 
@@ -94,6 +96,7 @@ The state name and the verb that produced it must match.
 | Reopen | **Buka lagi** |
 | Undo, review again | **Batalkan, periksa lagi** |
 | Choose PDFs | **Pilih berkas PDF** |
+| Resume loading | **Lanjutkan pemuatan** |
 | Search for these slots | **Cari bagian ini** |
 | Cancel | **Batal** |
 | Use this zone | **Pakai area ini** |

@@ -36,6 +36,7 @@ import {
   slotKeyOf,
   withDiscoveredCaptures,
 } from "../browser/runtime.ts";
+import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import { planExport } from "./export.ts";
 import { liveRuntime } from "./live-runtime.ts";
@@ -165,6 +166,10 @@ function seededRun(slots: SlotState[] = seedSlots(AO_TEMPLATE)): BrowserRun {
     sources: [{ id: "s0", name: "LOP999001_merged.pdf", pageCount: pages.length }],
     pages,
     slots,
+    // Nobody has renamed anything on this order. Required rather than
+    // optional: `metaOf` lists a run's small half field by field so that tsc
+    // names anything new, and an optional field walks straight past that.
+    overlay: emptyOverlay(AO_TEMPLATE),
   };
 }
 

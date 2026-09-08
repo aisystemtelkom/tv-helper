@@ -96,6 +96,30 @@ export type ProposeResult = {
   proposals: Proposal[];
   /** Searched and not found, with why. Drives the dokumen tambahan loop. */
   outstanding: { key: string; reason: string }[];
+  /**
+   * NOT SEARCHED, AND WHY. A different statement from `outstanding`, and the
+   * distance between them is the whole reason this list exists.
+   *
+   * `outstanding` means SEARCHED AND NOT FOUND: the operator sees "tidak
+   * ditemukan", and it drives the dokumen tambahan loop, which asks them to go
+   * and find another document. This list means nothing looked, so there is no
+   * negative answer to report and nothing for the operator to hunt for. It must
+   * NEVER be rendered as "tidak ditemukan".
+   *
+   * Two things land here, and both were reported as a not-found before:
+   *
+   *  - A BAGIAN INSIDE A JUDUL THE OPERATOR ADDED. An added judul is captured by
+   *    hand by construction (`resolveTemplate` gives it no docType, no hint and
+   *    a tombstone `ask`), so a search for it cannot exist. Reported as
+   *    outstanding it would arrive on EVERY Proses, for ever, on the main path
+   *    of the feature that adds one -- telling the operator to go and find a
+   *    document for evidence they are holding.
+   *  - A KEY THE RESOLVED FORM DOES NOT DECLARE. Once a judul can be deleted per
+   *    order, a run's stored slot states outlive the form: the state is still in
+   *    `run.slots` and nothing in the template answers to its key. "Searched, not
+   *    found" about a bagian the operator themselves removed is simply a lie.
+   */
+  outOfScope: { key: string; reason: string }[];
   /** One entry per capture walked forward, found or not. */
   continuations: ContinuationAnswer[];
 };
@@ -192,9 +216,30 @@ function wholePageZone(page: WirePage): Zone {
  * position among its section's same-docType siblings counts only the slots
  * being filled THIS ROUND, because a tambahan round searches only the pages
  * the tambahan supplied. This route is always offered the whole run, so the
- * position is the slot's FIXED ordinal in the template instead. Counting only
- * the wanted ones here would hand `sp.2` the very page `sp.1` already holds
- * whenever the operator re-runs the search with `sp.1` confirmed.
+ * position is the slot's FIXED ordinal instead. Counting only the wanted ones
+ * here would hand `sp.2` the very page `sp.1` already holds whenever the
+ * operator re-runs the search with `sp.1` confirmed.
+ *
+ * ## THE ORDINAL IS READ FROM THE SLOT, NOT COUNTED OFF ITS SIBLINGS
+ *
+ * This used to advance a running counter over the section's fillable slots,
+ * keyed by docType, deliberately including the ones this request did not want
+ * -- which bought exactly the property in the paragraph above while the section
+ * list was a compile-time constant.
+ *
+ * IT STOPPED BEING SAFE THE DAY A RUN CAN EDIT ITS OWN FORM. Delete `sp.1` for
+ * one order and the counter SLIDES `sp.2` onto the first SP page; restore
+ * `sp.1` and it slides back, while `sp.2` may still be holding a CONFIRMED crop
+ * of that very page. Two headings over one picture, silently, in a document a
+ * validator signs -- this project's whole failure class, arriving on the happy
+ * path of a feature whose entire point is that the form varies per order.
+ * `SlotDef.pageOrdinal` declares the number, so it survives a sibling being
+ * removed and a sibling coming back.
+ *
+ * A fillable whole-page slot that declares none is a TEMPLATE BUG and throws.
+ * There is deliberately NO fallback to the counter: a fallback is how the
+ * defect above survives a rewrite, quietly, in exactly the orders that edited
+ * their form.
  */
 function wholePageProposals(
   section: SectionDef,
@@ -204,14 +249,31 @@ function wholePageProposals(
   proposals: Proposal[],
   outstanding: { key: string; reason: string }[],
 ): void {
-  const fillable = section.slots.filter((slot) => slot.fillable);
-  const seenOfType = new Map<DocType | null, number>();
+  for (const slot of section.slots) {
+    if (!slot.fillable) continue;
 
-  for (const slot of fillable) {
-    // Advanced for EVERY fillable sibling, wanted or not, so the ordinal is
-    // the slot's place in the template rather than in this request.
-    const position = seenOfType.get(slot.docType) ?? 0;
-    seenOfType.set(slot.docType, position + 1);
+    // AN ADDED BAGIAN NEVER PICKS A PAGE. It has no docType (`resolveTemplate`
+    // gives it none), so the branch below would report it "whole-page slot with
+    // no document type to identify its page" on every Proses for ever -- a
+    // not-found about evidence the operator is holding in their hand. It is
+    // reported instead as OUT OF SCOPE, by the routing pass in `proposeZones`
+    // that runs over every wanted key; reporting it here as well would name it
+    // twice. `section.added` is belt and braces for a template built by hand.
+    if (slot.added || section.added) continue;
+
+    // See the header. Read, never counted, and a missing one is a bug in the
+    // template rather than a fact about this order's documents.
+    if (slot.pageOrdinal === undefined) {
+      throw new Error(
+        `${slot.key}: pageOrdinal is required for a whole-page fillable slot ` +
+          `(section "${section.id}", layout "images"), because such a slot ` +
+          "picks its page BY POSITION among its document type's pages. " +
+          "Declare it on the slot; there is deliberately no fallback to " +
+          "counting siblings, which slides onto the wrong page the moment an " +
+          "order removes one.",
+      );
+    }
+    const position = slot.pageOrdinal;
 
     const keys = captureKeys.get(slot.key);
     if (!keys) continue;
@@ -366,8 +428,7 @@ async function walkContinuations(
     }
 
     const walk = await findContinuations({
-      slotLabel: entry.slot.label,
-      hint: entry.slot.hint,
+      slotAsk: entry.slot.ask,
       zone: capture.zone,
       documentPages,
       furniture,
@@ -511,6 +572,10 @@ export async function proposeZones(
 
   const proposals: Proposal[] = [];
   const outstanding: { key: string; reason: string }[] = [];
+  // Keys this route did NOT search, and why. See `ProposeResult.outOfScope`:
+  // every one of these used to be reported as a not-found, which is a
+  // different and false statement about a bagian nothing ever looked for.
+  const outOfScope: { key: string; reason: string }[] = [];
 
   const defs = new Map(
     template.sections.flatMap((section) =>
@@ -522,12 +587,13 @@ export async function proposeZones(
   // confirmed can still have captures nobody has looked past, which is the
   // whole point of a second Proses after the operator drew a zone by hand.
   if (body.pages.length === 0) {
-    return { proposals, outstanding, continuations: [] };
+    return { proposals, outstanding, outOfScope, continuations: [] };
   }
   if (body.wanted.length === 0) {
     return {
       proposals,
       outstanding,
+      outOfScope,
       continuations: await walkContinuations(
         body.captures ?? [],
         body.pages,
@@ -552,12 +618,21 @@ export async function proposeZones(
   // Whole-page sections first, and out of the model's way entirely. Handled
   // per SECTION rather than per slot because "SP" and "SP (lanjutan)" mean
   // consecutive pages of one document, which is a fact about the section.
+  //
+  // A JUDUL THE OPERATOR ADDED IS SKIPPED HERE ENTIRELY, and it is `layout:
+  // "images"` too -- every added judul is, by construction, because that is the
+  // only layout `AddedSection` can resolve to. What it has not got is a docType,
+  // so `wholePageProposals` could only report it as a whole-page slot whose page
+  // cannot be identified. It is answered by hand and reported out of scope by
+  // the routing pass below instead.
   const imageSections = new Set(
     [...wantedBySlot.keys()]
       .map((key) => defs.get(key)?.section)
       .filter(
         (section): section is SectionDef =>
-          section !== undefined && section.layout === "images",
+          section !== undefined &&
+          section.layout === "images" &&
+          section.added === undefined,
       ),
   );
   for (const section of imageSections) {
@@ -579,21 +654,51 @@ export async function proposeZones(
   const NO_DOC_TYPE = "(no docType)";
   const byPool = new Map<string, { slot: SlotDef; captureKeys: string[] }[]>();
 
+  // THIS LOOP IS ALSO THE ROUTING PASS: it walks EVERY wanted key, including
+  // the whole-page ones the section loop above has already answered, so it is
+  // the one place that can say a key reached no list at all. The order of the
+  // branches is load-bearing and reads worst-news-first: out of scope, then
+  // already answered, then not searchable, then searched.
   for (const [slotKey, captureKeys] of wantedBySlot) {
     const entry = defs.get(slotKey);
-    const slot = entry?.slot;
+
+    // NOT SEARCHED IS NOT NOT-FOUND, and these two were reported as not-found
+    // until this diff. See `ProposeResult.outOfScope`. They are tested BEFORE
+    // the `layout: "images"` skip below, which is the whole reason an added
+    // bagian does not fall silently out of both lists: its section is excluded
+    // from `imageSections`, so nothing else in this function would ever mention
+    // it again.
+    if (!entry) {
+      for (const key of captureKeys) {
+        // Kept verbatim from where this used to be pushed as outstanding: the
+        // sentence was right, the list it went in was not.
+        outOfScope.push({ key, reason: "no slot with this key in the template" });
+      }
+      continue;
+    }
+    if (entry.slot.added || entry.section.added) {
+      for (const key of captureKeys) {
+        outOfScope.push({
+          key,
+          reason:
+            "the operator added this judul to this order, so its evidence is " +
+            "taken by hand rather than searched for",
+        });
+      }
+      continue;
+    }
+
+    const slot = entry.slot;
     // Already answered above, deterministically. Sending it on to the model is
     // the defect `wholePageProposals` exists to stop, and it must be stopped
     // HERE rather than by the model declining: asking for a region inside a
     // page that IS the capture returns a plausible-looking fragment every time.
-    if (entry?.section.layout === "images") continue;
-    if (!slot || !slot.fillable) {
+    if (entry.section.layout === "images") continue;
+    if (!slot.fillable) {
       for (const key of captureKeys) {
         outstanding.push({
           key,
-          reason: slot
-            ? "this slot is completed by hand, not from a document"
-            : "no slot with this key in the template",
+          reason: "this slot is completed by hand, not from a document",
         });
       }
       continue;
@@ -631,17 +736,20 @@ export async function proposeZones(
     // ranking never drops a page, so this pool always has something in it.
     const pool = rankedPoolForSlot(group[0].slot, body.pages, byType);
 
-    // ASKED WITH `slot.label`, NOT WITH A SECTION-PREFIXED ONE, and that is a
-    // deliberate difference from `scripts/generate.mjs`. Changing what the
+    // ASKED WITH `slot.ask.label`, NOT WITH A SECTION-PREFIXED ONE, and that
+    // is a deliberate difference from `scripts/generate.mjs`. Changing what the
     // model is asked is a prompt change, and AGENTS.md's rule is that a prompt
     // change is not made without re-running the measurement gate. The reply is
     // keyed by `slot.key`, which is unique, so two slots sharing a label ("TTD
     // Pejabat" appears twice in `AO_TEMPLATE`) still cannot have their answers
     // merged.
+    //
+    // `slot.ask` IS HANDED OVER WHOLE, not spread into a label and a hint. It
+    // is the frozen half of the slot; `slot.label` is the operator's, is about
+    // to be renameable per order, and must never reach this call.
     const questions: SlotQuestion[] = group.map(({ slot }) => ({
       key: slot.key,
-      label: slot.label,
-      hint: slot.hint,
+      ask: slot.ask,
     }));
 
     let outcomes: Map<string, SlotOutcome>;
@@ -757,7 +865,7 @@ export async function proposeZones(
     defs,
   );
 
-  return { proposals, outstanding, continuations };
+  return { proposals, outstanding, outOfScope, continuations };
 }
 
 export type ProposeDeps = {

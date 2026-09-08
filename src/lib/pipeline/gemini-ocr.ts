@@ -1450,12 +1450,36 @@ export class IncompletePageError extends Error {
   readonly attempts: number;
   /** The last attempt's throw, when one of them failed rather than read short. */
   readonly lastError?: unknown;
+  /**
+   * WHAT THE LAST ATTEMPT DID READ, which is not nothing and is not a
+   * consolation prize.
+   *
+   * The lines here are real: they are the recogniser's own boxes over the part
+   * of the page it did transcribe, and they are the same lines a complete read
+   * would have produced for that part. What is missing is the rest.
+   *
+   * Carried because the two callers of `ocrPageCompletely` need opposite
+   * things from the same failure. `scripts/generate.mjs` has no operator to
+   * tell and must not write a deliverable over a page it knows it misread, so
+   * it lets this throw and ends the run. The BROWSER has an operator standing
+   * in front of it, every crop is confirmed by hand before it can be exported,
+   * and the alternative to keeping these lines is discarding the other 150
+   * pages of a bundle -- so `pipeline.worker.ts` catches this, keeps what was
+   * read, and marks the page short on the record. Neither of them can do that
+   * with an error that threw the lines away.
+   *
+   * Empty when every attempt failed outright rather than reading short.
+   */
+  readonly lines: Line[];
+  /** The last attempt's report, for the same reason. */
+  readonly report?: OcrReport;
 
   constructor(
     label: string,
     completeness: PageCompleteness,
     attempts: number,
     lastError?: unknown,
+    kept?: { lines: Line[]; report?: OcrReport },
   ) {
     super(
       `${label}: OCR came back short on all ${attempts} attempts -- ` +
@@ -1477,6 +1501,8 @@ export class IncompletePageError extends Error {
     this.completeness = completeness;
     this.attempts = attempts;
     this.lastError = lastError;
+    this.lines = kept?.lines ?? [];
+    this.report = kept?.report;
     // A MIXED LADDER IS NOT A SHORT PAGE, and saying so sends the reader to the
     // pixels when the answer is in the reply. When some attempt threw -- a
     // truncated reply, an unusable one -- the message above is true of the
@@ -1585,6 +1611,9 @@ export async function ocrPageCompletely(
 
   let last: PageCompleteness | null = null;
   let lastError: unknown = null;
+  // The last SHORT attempt's reading, handed to the error below. See
+  // `IncompletePageError.lines` for who needs it and why.
+  let kept: { lines: Line[]; report: OcrReport } | undefined;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     // A FAILED ATTEMPT IS NOT A FAILED LADDER, and getting that wrong cost a
     // 29-page gate run at page 26. The guard correctly caught a short read and
@@ -1612,6 +1641,7 @@ export async function ocrPageCompletely(
     }
     const completeness = checkPageCompleteness(lines, ink);
     last = completeness;
+    kept = { lines, report };
     if (completeness.complete) {
       return {
         lines,
@@ -1642,5 +1672,6 @@ export async function ocrPageCompletely(
     last as PageCompleteness,
     attempts,
     lastError,
+    kept,
   );
 }
