@@ -12,8 +12,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyOverlay } from "../forms/overlay.ts";
-import { AO_TEMPLATE, type SectionDef, type Template } from "../forms/template.ts";
+import { applySectionEdit } from "../browser/sections.ts";
+import {
+  emptyOverlay,
+  resolveTemplate,
+  type TemplateOverlay,
+} from "../forms/overlay.ts";
+import {
+  AO_TEMPLATE,
+  type SectionDef,
+  type SlotDef,
+  type Template,
+} from "../forms/template.ts";
 import type { Line, Word } from "../pipeline/geometry.ts";
 import type { Box } from "../pipeline/render.ts";
 import {
@@ -45,6 +55,12 @@ import {
   type PlacedSlot,
 } from "./slots.ts";
 import { blockingItems, planExport } from "./export.ts";
+import {
+  hiddenSections,
+  packetPosition,
+  provenanceOf,
+  sectionRemovalCost,
+} from "./headings.ts";
 import {
   clampBox,
   drawZone,
@@ -1263,4 +1279,300 @@ test("an orphan carrying no potongan does not stop anything", () => {
   const plan = planExport(runWithOrphan(false), TEMPLATE);
   assert.equal(plan.orphans.length, 1);
   assert.deepEqual(blockingItems(plan), []);
+});
+
+/* ----------------------------------------------------------------- headings */
+
+/**
+ * A form with three judul: one holding work, one whole-page, one that ships
+ * blank.
+ *
+ * THE THIRD IS THE INTERESTING ONE. It declares no slot, so the lembar periksa
+ * demotes it into the "Diisi manual" register at the BOTTOM of the screen
+ * while it may sit anywhere in the packet, which is the whole reason the judul
+ * controls print a packet position rather than relying on the operator seeing
+ * a row move.
+ */
+function judulSlot(key: string, label: string, fillable = true): SlotDef {
+  return {
+    key,
+    label,
+    docType: null,
+    ask: { label, hint: "h" },
+    fillable,
+    ...(fillable ? { pageOrdinal: 0 } : {}),
+  };
+}
+
+const HEADINGS_BASE: Template = {
+  id: "HEADINGS",
+  label: "HEADINGS",
+  sections: [
+    section("Satu", "table", [judulSlot("a", "A"), judulSlot("b", "B")]),
+    section("Dua", "images", [judulSlot("c", "C")]),
+    section("Tiga", "table", []),
+  ],
+  xlsxRows: [],
+  fieldHints: {},
+};
+
+function headingsRun(
+  overlay: TemplateOverlay = emptyOverlay(HEADINGS_BASE),
+  slots: SlotState[] = [],
+): BrowserRun {
+  return {
+    id: "run-judul",
+    createdAt: 0,
+    overlay,
+    sources: [{ id: "s1", name: "LOP999001_merged.pdf", pageCount: 1 }],
+    pages: [page("p0", "s1", 0)],
+    slots,
+  };
+}
+
+/** Deterministic ids, so a test can name the judul it just added. */
+function minter(): () => string {
+  let n = 0;
+  return () => `u:mint-${(n += 1)}`;
+}
+
+test("the cost of removing a judul counts the potongan the write would drop", () => {
+  const run = headingsRun(undefined, [
+    state("a", "confirmed", true),
+    // A LANJUTAN, keyed `<slot>#2`. Counting the TEMPLATE's slots instead of
+    // the run's states would miss it entirely, and a discovered capture is
+    // exactly the evidence that lives nowhere but the stored list.
+    state("a#2", "proposed", true),
+    state("b", "pending"),
+  ]);
+
+  const cost = sectionRemovalCost(run, "satu", HEADINGS_BASE);
+  // Two zone-carriers go; `b` carries no evidence, so it costs nothing to
+  // re-seed and the operator is not asked about it. That is `putRun`'s own
+  // test, because it is `putRun`'s own list.
+  assert.equal(cost.captures, 2);
+  assert.equal(cost.confirmed, 1);
+  assert.equal(cost.added, false);
+  assert.equal(cost.origin, null);
+});
+
+test("the cost and the edit are one computation, not two", () => {
+  /*
+   * The point of `sectionRemovalCost` calling the real edit. A confirmation
+   * that counted potongan its own way would agree on every ordinary judul and
+   * under-report the day it stopped agreeing, on the one act that cannot be
+   * undone.
+   */
+  const run = headingsRun(undefined, [
+    state("a", "confirmed", true),
+    state("a#2", "confirmed", true),
+    state("a#3", "outstanding"),
+    state("b", "proposed", true),
+  ]);
+
+  const { removing } = applySectionEdit(
+    run,
+    { tag: "remove-section", id: "satu" },
+    minter(),
+    HEADINGS_BASE,
+  );
+  assert.equal(
+    sectionRemovalCost(run, "satu", HEADINGS_BASE).captures,
+    removing.length,
+  );
+});
+
+test("a judul that is already hidden costs nothing to hide again", () => {
+  // `removeSection` returns the run BY IDENTITY for a tombstoned judul, so
+  // there is nothing to drop and nothing to warn about. A second tab, or a
+  // double click, must not raise a dialog naming potongan that already went.
+  const overlay = emptyOverlay(HEADINGS_BASE);
+  overlay.sections = { satu: { removed: true } };
+  const cost = sectionRemovalCost(
+    headingsRun(overlay, [state("a", "confirmed", true)]),
+    "satu",
+    HEADINGS_BASE,
+  );
+  assert.equal(cost.captures, 0);
+  assert.equal(cost.confirmed, 0);
+});
+
+test("a judul nobody can find costs nothing rather than throwing", () => {
+  // Asked while deciding how loudly to ask. Raising here would take down the
+  // sheet over a question that is never put to anybody.
+  const cost = sectionRemovalCost(headingsRun(), "tidak-ada", HEADINGS_BASE);
+  assert.deepEqual(cost, {
+    captures: 0,
+    confirmed: 0,
+    added: false,
+    origin: null,
+  });
+});
+
+test("an added judul reports who put it there, so the dialog can say so", () => {
+  const { run } = applySectionEdit(
+    headingsRun(),
+    { tag: "add-section", title: "Lampiran Harga" },
+    minter(),
+    HEADINGS_BASE,
+  );
+  const cost = sectionRemovalCost(run, "u:mint-1", HEADINGS_BASE);
+  assert.equal(cost.added, true);
+  assert.equal(cost.origin, "human");
+  // Its bagian is seeded `pending` with no zone, so the ONLY thing removing it
+  // costs is the name, which is why an added judul asks anyway.
+  assert.equal(cost.captures, 0);
+});
+
+test("the hidden list is the base minus what this order prints", () => {
+  const overlay = emptyOverlay(HEADINGS_BASE);
+  // Renamed FIRST and hidden after, which is what an operator does when they
+  // decide a judul is not theirs. `restoreSection` keeps the title patch, so
+  // the row has to offer back the name they typed and not the form's.
+  overlay.sections = { dua: { title: "Kesepakatan Bersama", removed: true } };
+  const run = headingsRun(overlay);
+
+  const hidden = hiddenSections(
+    run,
+    resolveTemplate(HEADINGS_BASE, overlay),
+    HEADINGS_BASE,
+  );
+  assert.deepEqual(hidden, [{ id: "dua", title: "Kesepakatan Bersama" }]);
+});
+
+test("nothing is hidden on an order nobody has edited", () => {
+  assert.deepEqual(
+    hiddenSections(headingsRun(), HEADINGS_BASE, HEADINGS_BASE),
+    [],
+  );
+});
+
+test("an added judul never appears in the hidden list", () => {
+  /*
+   * It is DROPPED rather than tombstoned, so there is nothing to restore and
+   * `restore-section` would throw on its id. A row offering it back would be a
+   * key that fails every time it is pressed.
+   */
+  const { run } = applySectionEdit(
+    headingsRun(),
+    { tag: "add-section", title: "Lampiran Harga" },
+    minter(),
+    HEADINGS_BASE,
+  );
+  const { run: without } = applySectionEdit(
+    run,
+    { tag: "remove-section", id: "u:mint-1" },
+    minter(),
+    HEADINGS_BASE,
+  );
+  assert.deepEqual(
+    hiddenSections(
+      without,
+      resolveTemplate(HEADINGS_BASE, without.overlay),
+      HEADINGS_BASE,
+    ),
+    [],
+  );
+});
+
+test("the packet position is the packet's order, not the sheet's", () => {
+  /*
+   * `Tiga` declares no slot, so the lembar periksa draws it at the BOTTOM in
+   * the "Diisi manual" register whatever the packet says. Here it is FIRST in
+   * the packet: an operator pressing Naikkan on `Satu` moves it past a judul
+   * that is nowhere near it on screen, and the figure is the only thing that
+   * reports the move.
+   */
+  const overlay = emptyOverlay(HEADINGS_BASE);
+  overlay.order = ["tiga", "satu", "dua"];
+  const resolved = resolveTemplate(HEADINGS_BASE, overlay);
+
+  assert.deepEqual(packetPosition(resolved, "tiga"), { at: 1, of: 3 });
+  assert.deepEqual(packetPosition(resolved, "satu"), { at: 2, of: 3 });
+  assert.deepEqual(packetPosition(resolved, "dua"), { at: 3, of: 3 });
+  // 0, never a -1 dressed up as a position: a judul that is not in the packet
+  // has no place in it.
+  assert.equal(packetPosition(resolved, "tidak-ada").at, 0);
+});
+
+test("a judul the form declares and nobody renamed says nothing", () => {
+  assert.deepEqual(
+    provenanceOf(headingsRun(), HEADINGS_BASE.sections[0], HEADINGS_BASE),
+    { kind: "declared" },
+  );
+});
+
+test("a renamed judul reports what the form calls it, derived from the base", () => {
+  const overlay = emptyOverlay(HEADINGS_BASE);
+  overlay.sections = { satu: { title: "Kesepakatan Bersama" } };
+  const resolved = resolveTemplate(HEADINGS_BASE, overlay);
+
+  assert.deepEqual(
+    provenanceOf(headingsRun(overlay), resolved.sections[0], HEADINGS_BASE),
+    { kind: "renamed", wasCalled: "Satu" },
+  );
+});
+
+test("an accepted usulan names the berkas it was read out of", () => {
+  const overlay: TemplateOverlay = {
+    ...emptyOverlay(HEADINGS_BASE),
+    added: [
+      {
+        id: "u:llm",
+        title: "Lampiran Harga",
+        slots: [{ id: "u:llm-1", label: "Halaman 1" }],
+        origin: "llm",
+        fromSourceId: "s1",
+      },
+    ],
+  };
+  const resolved = resolveTemplate(HEADINGS_BASE, overlay);
+
+  assert.deepEqual(
+    provenanceOf(
+      headingsRun(overlay),
+      resolved.sections[resolved.sections.length - 1],
+      HEADINGS_BASE,
+    ),
+    { kind: "llm", sourceName: "LOP999001_merged.pdf" },
+  );
+
+  /*
+   * AND IT DOES NOT INVENT ONE WHEN THE BERKAS IS GONE. Removing a document
+   * takes its pages and leaves an accepted judul behind; the heading is still
+   * the model's suggestion, and WHICH document it came from is the half that
+   * stopped being true. Null, so the screen drops that clause instead of
+   * naming a file the order no longer holds.
+   */
+  const orphaned: TemplateOverlay = {
+    ...overlay,
+    added: [{ ...overlay.added[0], fromSourceId: "sudah-dihapus" }],
+  };
+  const after = resolveTemplate(HEADINGS_BASE, orphaned);
+  assert.deepEqual(
+    provenanceOf(
+      headingsRun(orphaned),
+      after.sections[after.sections.length - 1],
+      HEADINGS_BASE,
+    ),
+    { kind: "llm", sourceName: null },
+  );
+});
+
+test("a judul the operator typed is not attributed to the model", () => {
+  const { run } = applySectionEdit(
+    headingsRun(),
+    { tag: "add-section", title: "Lampiran Harga" },
+    minter(),
+    HEADINGS_BASE,
+  );
+  const resolved = resolveTemplate(HEADINGS_BASE, run.overlay);
+  assert.deepEqual(
+    provenanceOf(
+      run,
+      resolved.sections[resolved.sections.length - 1],
+      HEADINGS_BASE,
+    ),
+    { kind: "human" },
+  );
 });

@@ -225,6 +225,23 @@ export function aggregateStatus(states: PlacedSlot[]): SlotAggregateStatus {
 }
 
 export type SheetSection = {
+  /**
+   * THE JUDUL AS THE RESOLVED FORM DECLARES IT, carried whole.
+   *
+   * `title` and `layout` were the only two things a screen needed while a
+   * judul was a fixed transcription nobody could touch. A judul is now
+   * renamed, moved, hidden and added PER ORDER, and every one of those edits
+   * addresses it by `SectionDef.id` -- so a sheet that knows only the title
+   * cannot name the thing the operator is pointing at. It cannot even key a
+   * React list safely any more: two judul may legitimately carry one title
+   * once a person is typing them.
+   *
+   * `def.added` comes with it for the same reason: whether this judul was
+   * declared by the form, typed by the operator, or accepted from a usulan is
+   * a fact about provenance that the screen prints and that nothing else can
+   * reconstruct.
+   */
+  def: SectionDef;
   title: string;
   layout: SectionDef["layout"];
   entries: SlotAggregate[];
@@ -258,6 +275,7 @@ export function sheetSections(
   });
 
   return template.sections.map((section) => ({
+    def: section,
     title: section.title,
     layout: section.layout,
     entries: section.slots.map((slot) => {

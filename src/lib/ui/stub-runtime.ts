@@ -21,7 +21,11 @@
  * public and has leaked twice.
  */
 
-import { seedSlots, withDiscoveredCaptures } from "../browser/runtime.ts";
+import {
+  applySectionEdit,
+  seedSlots,
+  withDiscoveredCaptures,
+} from "../browser/runtime.ts";
 import { removeSource, sourceRemovalCost } from "../browser/sources.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
@@ -334,7 +338,12 @@ export function createStubRuntime(): Runtime {
   const seeded = seedRun();
   runs.set(seeded.id, seeded);
 
-  return {
+  // NAMED, so `editSections` below can go through this object's own `saveRun`
+  // rather than writing to the map directly. A section edit is the one gesture
+  // that trips both modelled refusals at once, and a stub that wrote past its
+  // own guards would be more permissive than production for exactly the write
+  // those guards exist for.
+  const runtime: Runtime = {
     outstandingSlots(run) {
       return run.slots.filter((slot) => slot.status === "outstanding");
     },
@@ -404,6 +413,30 @@ export function createStubRuntime(): Runtime {
       return stored;
     },
 
+    /*
+     * The section edit, through the SAME pure engine the live runtime uses.
+     *
+     * Not re-implemented here, for the reason `removeDocument` below gives
+     * about `removeSource`: the interesting part of removing a judul is that
+     * every `SlotState` under it goes in the same write and the two opt-ins are
+     * computed rather than guessed, and a stub that merely edited the overlay
+     * would let a screen look correct against a model that leaves orphans --
+     * which is the one thing this edit must never do.
+     *
+     * READS THE STORED RUN, exactly as the live one does: an edit is a value
+     * with no revision precisely so that it can be applied to whatever is
+     * current, and a stub that took the caller's run would teach the screens
+     * the habit the real runtime refuses.
+     */
+    async editSections(runId, edit) {
+      const stored = runs.get(runId);
+      if (!stored) throw new Error(`no run ${runId}`);
+
+      const { run, removing, removingSections } = applySectionEdit(stored, edit);
+      if (run === stored) return stored;
+      return runtime.saveRun(run, { removing, removingSections });
+    },
+
     async ingestDocument(runId, file, onProgress) {
       const existing = runs.get(runId) ?? {
         id: runId,
@@ -467,4 +500,6 @@ export function createStubRuntime(): Runtime {
       return await drawPage(page);
     },
   };
+
+  return runtime;
 }

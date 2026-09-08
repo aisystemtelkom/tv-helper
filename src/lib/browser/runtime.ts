@@ -68,6 +68,7 @@ import {
   DuplicateDocumentError,
   documentDigest,
 } from "./intake.ts";
+import { applySectionEdit, type SectionEdit } from "./sections.ts";
 import { removeSource } from "./sources.ts";
 import { ingestSource, renderPageBitmap } from "./worker-client.ts";
 import type {
@@ -163,6 +164,21 @@ export {
  * this arithmetic plus two storage writes.
  */
 export { sourceRemovalCost, type SourceRemoval } from "./sources.ts";
+
+/**
+ * One operator gesture on this order's form, as a VALUE.
+ *
+ * Pure, and re-exported for the reason `captures.ts` and `sources.ts` are: the
+ * arithmetic is testable where IndexedDB is not, and `editSections` below is
+ * the two storage calls around it. A screen composes a `SectionEdit` and hands
+ * it over; it never composes a run.
+ */
+export {
+  applySectionEdit,
+  type MintId,
+  type SectionEdit,
+  type SectionEditResult,
+} from "./sections.ts";
 
 /**
  * EXACTLY ONE `SlotState` PER FILLABLE SLOT, all `"pending"`.
@@ -397,6 +413,62 @@ export async function removeDocument(
     });
     await deleteSource(sourceId);
     return saved;
+  });
+}
+
+/**
+ * One edit to this order's own form: a heading renamed, a judul moved, removed,
+ * restored, added, or a usulan ruled on.
+ *
+ * ## IT TAKES AN EDIT, NOT A RUN, AND THAT IS THE WHOLE DESIGN
+ *
+ * The natural API is for the screen to build `{ ...run, overlay: next }` and
+ * call `saveRun`. It fails in the one situation the operator is most likely to
+ * be in. `ingestDocument` holds the run lock for MINUTES over a 151-page
+ * document and advances the revision once per page, so a `BrowserRun` React is
+ * holding while that runs is dozens of revisions stale -- and `putRun` refuses
+ * it with `StaleRunWriteError`. The operator would be told the order changed
+ * underneath them for renaming a heading while a document was being read, and
+ * the rename would be lost.
+ *
+ * A `SectionEdit` carries no revision. It is applied to whatever is STORED at
+ * the moment the lock is taken, which turns a refused write into a QUEUED one.
+ * That is also why the run is re-read here rather than accepted as an argument,
+ * exactly as `removeDocument` re-reads for its own (different) reason.
+ *
+ * ## THE CALLER MUST KEEP WHAT COMES BACK
+ *
+ * It is the stored run, revision advanced. The object the screen was holding is
+ * one revision behind the moment this resolves, and saving that one throws:
+ *
+ *     setRun(await editSections(run.id, { tag: "rename-section", id, title }));
+ *
+ * The two opt-ins `putRun` needs are computed by `applySectionEdit` and passed
+ * straight through, never invented here. A judul removal drops the states under
+ * it (`removing`) and discards the operator's own naming work (`removingSections`),
+ * and both refusals exist precisely so that a write which loses something has
+ * to say what.
+ */
+export async function editSections(
+  runId: string,
+  edit: SectionEdit,
+): Promise<BrowserRun> {
+  return withRunLock(runId, async () => {
+    const stored = await getRun(runId);
+    if (!stored) {
+      throw new Error(
+        `Order ${runId} tidak ada lagi, jadi judulnya tidak bisa diubah.`,
+      );
+    }
+
+    const { run, removing, removingSections } = applySectionEdit(stored, edit);
+    // Identity means the edit asked for something the order already is -- a
+    // judul moved past the end of the packet, a removal of something already
+    // removed. Writing anyway would advance the revision and refuse whatever
+    // the screen is holding, which is a real cost for a press that did nothing.
+    if (run === stored) return stored;
+
+    return putRun(run, { removing, removingSections });
   });
 }
 

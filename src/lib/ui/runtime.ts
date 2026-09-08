@@ -115,7 +115,19 @@ export {
   type Screening,
 } from "../browser/intake.ts";
 
+/**
+ * ONE OPERATOR GESTURE ON THIS ORDER'S FORM, as a value.
+ *
+ * Type-only here, and from the leaf module rather than from
+ * `../browser/runtime.ts`, so a screen can name the edit it is about to make
+ * without pulling IndexedDB and the Web Worker client into a `node --test`
+ * process. The engine that applies it (`applySectionEdit`) is imported from
+ * `../browser/sections.ts` by whatever actually needs to run it.
+ */
+export type { SectionEdit } from "../browser/sections.ts";
+
 import type { BrowserRun, SlotState } from "../browser/runtime.ts";
+import type { SectionEdit } from "../browser/sections.ts";
 import type { PutRunOptions } from "../storage/runs.ts";
 
 export type { PutRunOptions };
@@ -158,6 +170,26 @@ export type Runtime = {
    * discard a heading.
    */
   saveRun(run: BrowserRun, options?: PutRunOptions): Promise<BrowserRun>;
+  /**
+   * One edit to this order's own form, applied to what is STORED.
+   *
+   * IT TAKES AN EDIT AND NOT A RUN, and a screen must not route around it with
+   * `saveRun({ ...run, overlay: next })`. `ingestDocument` holds the run lock
+   * for minutes over a long document and advances the revision once per page,
+   * so a run React is holding while that runs is many revisions stale and the
+   * write is refused -- the operator would be told the order changed underneath
+   * them for renaming a heading, and lose the rename. An edit carries no
+   * revision, so it is applied to the current record instead of being compared
+   * against it.
+   *
+   * It also computes both of `putRun`'s opt-ins itself. Removing a judul drops
+   * every capture under it and discards the operator's naming work, and a
+   * screen assembling that write by hand would have to know about
+   * `CaptureLossError` and `SectionLossError` to get it past storage.
+   *
+   * Returns the STORED run, revision advanced. The caller must keep it.
+   */
+  editSections(runId: string, edit: SectionEdit): Promise<BrowserRun>;
   /**
    * Renders + OCRs every page of `file` in a Web Worker and appends them to
    * the run. `onProgress` reports page-level progress so the UI can show a bar.

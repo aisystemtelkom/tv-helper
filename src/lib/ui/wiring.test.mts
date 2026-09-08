@@ -26,7 +26,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as browserRuntime from "../browser/runtime.ts";
@@ -36,11 +37,17 @@ import {
   slotKeyOf,
   withDiscoveredCaptures,
 } from "../browser/runtime.ts";
-import { emptyOverlay } from "../forms/overlay.ts";
+import { emptyOverlay, resolveTemplate } from "../forms/overlay.ts";
+import type { TemplateOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 import { planExport } from "./export.ts";
 import { liveRuntime } from "./live-runtime.ts";
-import { applyProposals, buildProposeRequest, wantedKeys } from "./propose.ts";
+import {
+  applyProposals,
+  buildProposeRequest,
+  capturesToWalk,
+  wantedKeys,
+} from "./propose.ts";
 import type { BrowserRun, SlotState, StoredPage } from "./runtime.ts";
 import {
   describeOutstanding,
@@ -151,7 +158,10 @@ test("the stub's runs carry production's slot keys and per-source page numbers",
  * holding one page can carry no continuation at all, and `planExport` would
  * drop the crop as citing a page the run does not have.
  */
-function seededRun(slots: SlotState[] = seedSlots(AO_TEMPLATE)): BrowserRun {
+function seededRun(
+  slots: SlotState[] = seedSlots(AO_TEMPLATE),
+  overlay: TemplateOverlay = emptyOverlay(AO_TEMPLATE),
+): BrowserRun {
   const pages: StoredPage[] = [0, 1].map((index) => ({
     id: `p${index}`,
     sourceId: "s0",
@@ -166,10 +176,10 @@ function seededRun(slots: SlotState[] = seedSlots(AO_TEMPLATE)): BrowserRun {
     sources: [{ id: "s0", name: "LOP999001_merged.pdf", pageCount: pages.length }],
     pages,
     slots,
-    // Nobody has renamed anything on this order. Required rather than
-    // optional: `metaOf` lists a run's small half field by field so that tsc
-    // names anything new, and an optional field walks straight past that.
-    overlay: emptyOverlay(AO_TEMPLATE),
+    // Nobody has renamed anything on this order by default. Required rather
+    // than optional: `metaOf` lists a run's small half field by field so that
+    // tsc names anything new, and an optional field walks straight past that.
+    overlay,
   };
 }
 
@@ -293,7 +303,7 @@ test("the propose request numbers pages by POSITION IN THE RUN, not within their
   ];
   const run: BrowserRun = { ...seededRun(), pages };
 
-  const request = buildProposeRequest(run);
+  const request = buildProposeRequest(run, AO_TEMPLATE);
 
   assert.deepEqual(
     request.pages.map((p) => p.index),
@@ -326,6 +336,7 @@ test("a decision made while the search ran is not overwritten by its answer", ()
       { key: "c", zone: ZONE, text: "late", confidence: "high" },
     ],
     outstanding: [],
+    outOfScope: [],
   });
 
   assert.equal(applied.slots[0].status, "confirmed");
@@ -336,16 +347,174 @@ test("a decision made while the search ran is not overwritten by its answer", ()
 });
 
 test("only unsearched and not-found slots are offered to the search", () => {
+  // REAL TEMPLATE KEYS, and that is not cosmetic any more: `wantedKeys` filters
+  // on `isSearchable`, so a fixture keyed "a".."e" would now come back empty
+  // for the right reason and prove nothing about the status filter it is here
+  // to test.
   const slots: SlotState[] = [
-    { key: "a", label: "A", status: "confirmed", zone: ZONE },
-    { key: "b", label: "B", status: "pending" },
-    { key: "c", label: "C", status: "outstanding" },
-    { key: "d", label: "D", status: "proposed", zone: ZONE },
-    { key: "e", label: "E", status: "unfilled" },
+    { key: "kb.nomor", label: "Nomor", status: "confirmed", zone: ZONE },
+    { key: "kb.tanggal", label: "Tanggal", status: "pending" },
+    { key: "kb.jangkaWaktu", label: "Jangka Waktu", status: "outstanding" },
+    { key: "kbLanjutan.detail", label: "Detail", status: "proposed", zone: ZONE },
+    { key: "email.1", label: "Email", status: "unfilled" },
   ];
 
   // `outstanding` is included: that IS the dokumen tambahan loop. `proposed`
   // is not -- it is already waiting on a person, and re-answering it would
   // discard the thing they were about to rule on.
-  assert.deepEqual(wantedKeys(seededRun(slots)), ["b", "c"]);
+  assert.deepEqual(wantedKeys(seededRun(slots), AO_TEMPLATE), [
+    "kb.tanggal",
+    "kb.jangkaWaktu",
+  ]);
+});
+
+/* ------------------------------------------------ the form the ORDER carries */
+
+/**
+ * One order's edits: a base judul deleted, and a judul of the operator's own
+ * added beside it.
+ *
+ * Both halves matter and they fail in opposite directions. A DELETED judul
+ * leaves its bagian's state sitting in `run.slots` for ever (`seedSlots` runs
+ * once and the array only grows), so the key names nothing in this order's
+ * form. An ADDED judul is `layout: "images"` by construction, captured by hand,
+ * and its bagian carry the frozen `ADDED_SLOT_ASK` placeholder -- the literal
+ * string "added bagian, never searched" -- so there is no question to ask about
+ * one.
+ */
+const EDITED_OVERLAY: TemplateOverlay = {
+  ...emptyOverlay(AO_TEMPLATE),
+  sections: { email: { removed: true } },
+  added: [
+    {
+      id: "u:lampiran",
+      title: "Lampiran teknis",
+      origin: "human",
+      slots: [{ id: "u:lampiran-1", label: "Halaman 1" }],
+    },
+  ],
+};
+
+const EDITED_TEMPLATE = resolveTemplate(AO_TEMPLATE, EDITED_OVERLAY);
+
+test("a bagian nothing will ever search is not offered to the search", () => {
+  const slots: SlotState[] = [
+    { key: "kb.nomor", label: "Nomor", status: "pending" },
+    // Its judul was deleted from this order. The state stays; the question
+    // stops being askable.
+    { key: "email.1", label: "Email", status: "outstanding" },
+    // The operator's own judul. Nothing can search it, by design.
+    { key: "u:lampiran-1", label: "Halaman 1", status: "pending" },
+  ];
+  const run = seededRun(slots, EDITED_OVERLAY);
+
+  // THE DEFECT, STATED FIRST: read the compile-time form and both of the last
+  // two go up as `wanted`, the route finds no def for either, and both come
+  // back as "tidak ditemukan" -- a word fixed to mean SEARCHED AND NOT FOUND --
+  // on every reading pass, for ever.
+  assert.deepEqual(wantedKeys(run, AO_TEMPLATE), ["kb.nomor", "email.1"]);
+  assert.deepEqual(wantedKeys(run, EDITED_TEMPLATE), ["kb.nomor"]);
+
+  // And the request carries the filtered list, not a second opinion.
+  assert.deepEqual(buildProposeRequest(run, EDITED_TEMPLATE).wanted, [
+    "kb.nomor",
+  ]);
+});
+
+test("a capture on an added bagian is never walked for a lanjutan", () => {
+  // A hand-drawn area on the operator's own judul is ordinary and reaches
+  // `capturesToWalk` unfiltered. The route would then build a continuation
+  // prompt out of `ADDED_SLOT_ASK`, ask a model where "added bagian, never
+  // searched" continues, and append whatever came back to a bagian the operator
+  // is capturing themselves.
+  const slots: SlotState[] = [
+    { key: "kb.nomor", label: "Nomor", status: "confirmed", origin: "llm", zone: ZONE },
+    {
+      key: "u:lampiran-1",
+      label: "Halaman 1",
+      status: "confirmed",
+      origin: "human",
+      zone: LANJUTAN_ZONE,
+    },
+  ];
+  const run = seededRun(slots, EDITED_OVERLAY);
+
+  assert.deepEqual(
+    capturesToWalk(run, EDITED_TEMPLATE).map((capture) => capture.key),
+    ["kb.nomor"],
+  );
+});
+
+test("an out-of-scope key is left EXACTLY as the answer found it", () => {
+  const slots: SlotState[] = [
+    { key: "u:lampiran-1", label: "Halaman 1", status: "pending" },
+  ];
+  const run = seededRun(slots, EDITED_OVERLAY);
+
+  // A route that reports the same key BOTH ways is the case worth pinning:
+  // out-of-scope has to win, or the operator is told the tool searched a bagian
+  // nobody ever asked it about.
+  const applied = applyProposals(run, {
+    proposals: [],
+    outstanding: [{ key: "u:lampiran-1", reason: "tidak ditemukan" }],
+    outOfScope: [{ key: "u:lampiran-1", reason: "bagian ini ditambahkan" }],
+  });
+
+  assert.equal(applied.slots[0].status, "pending");
+});
+
+/* ------------------------------------ the form is resolved, never assumed */
+
+/**
+ * Strips comments so a screen may DISCUSS the compile-time template without
+ * failing this test. `contact-sheet.tsx` does exactly that ("`AO_TEMPLATE`
+ * declares 24 slots"), and a prose mention is not a read.
+ *
+ * `//` only when it is not preceded by `:`, so a `https://` inside a string
+ * does not eat the rest of its line.
+ */
+function withoutComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+test("no operator screen reads the compile-time template, bar the xlsx row count", () => {
+  /*
+   * THE RULE THIS PINS. `BrowserRun.overlay` is this order's diff against
+   * `AO_TEMPLATE`, so a screen reading the module constant renders the packet
+   * under names the operator replaced, lists bagian they deleted as work still
+   * owed, and plans an export that does not match the sheet they signed off.
+   * All three open fine and look complete.
+   *
+   * THE ONE EXCEPTION IS NOT A LOOPHOLE. `export-panel.tsx` prints
+   * `AO_TEMPLATE.xlsxRows.length` as screen copy about the ORDER_Config sheet,
+   * which is NOT per order: an added judul is evidence-only and
+   * `resolveTemplate` passes `xlsxRows` through untouched, so resolving it here
+   * would print the same number with a false implication.
+   *
+   * Source text rather than an import, for the reason the live-runtime test
+   * above gives: node's type stripping does not handle JSX, so a `.tsx` cannot
+   * be imported into `node --test`.
+   */
+  const dir = fileURLToPath(
+    new URL("../../components/operator/", import.meta.url),
+  );
+  const offenders: string[] = [];
+
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".tsx")) continue;
+    const lines = withoutComments(readFileSync(join(dir, name), "utf8")).split(
+      "\n",
+    );
+    lines.forEach((line, i) => {
+      if (!/\bAO_TEMPLATE\b/.test(line)) return;
+      const allowed =
+        name === "export-panel.tsx" &&
+        (/^\s*import\s/.test(line) || /\bAO_TEMPLATE\.xlsxRows\b/.test(line));
+      if (!allowed) offenders.push(`${name}:${i + 1} ${line.trim()}`);
+    });
+  }
+
+  assert.deepEqual(offenders, []);
 });

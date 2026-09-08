@@ -59,7 +59,6 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { getSession, signOut } from "next-auth/react";
 
-import { AO_TEMPLATE } from "@/lib/forms/template";
 import { liveRuntime } from "@/lib/ui/live-runtime";
 import { applyResponse, requestProposals, wantedKeys } from "@/lib/ui/propose";
 import {
@@ -68,6 +67,7 @@ import {
   heldDocuments,
   screenDigested,
   screenDocuments,
+  slotKeyOf,
   withoutCapture,
   withoutCapturesAfter,
 } from "@/lib/ui/runtime";
@@ -75,12 +75,14 @@ import type {
   BrowserRun,
   HeldDocument,
   RefusedDocument,
+  SectionEdit,
   SlotState,
 } from "@/lib/ui/runtime";
 import { runFragment, runIdFromHash } from "@/lib/ui/run-address";
 import { RuntimeProvider, useRuntime } from "@/lib/ui/runtime-context";
 import { outstandingIndexes, progressOf } from "@/lib/ui/slots";
 import type { ExtractedField } from "@/lib/ui/extract";
+import { useRunTemplate } from "@/lib/ui/use-run-template";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
 import { ContactSheet } from "./contact-sheet";
@@ -285,9 +287,15 @@ function saveFault(problem: unknown): Fault {
           // is also the wrong remedy for it.
           name === "CaptureLossError"
           ? "penyimpanan menolak tulisan yang akan menghapus potongan yang sudah membawa bukti. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda; potongan yang tersimpan tetap utuh."
-          : name === "QuotaExceededError"
-            ? "penyimpanan peramban ini penuh. Kosongkan order lama, lalu ulangi keputusan terakhir Anda."
-            : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
+          : // The fourth net, and it guards the judul the way the third guards
+            // the potongan: a judul yang Anda beri nama sendiri lives nowhere
+            // but this order, so a write that would revert it is refused rather
+            // than performed. Same remedy, different thing saved.
+            name === "SectionLossError"
+            ? "penyimpanan menolak tulisan yang akan membuang nama judul yang Anda tulis sendiri. Muat ulang halaman ini, lalu ulangi perubahan terakhir Anda; judul yang tersimpan tetap utuh."
+            : name === "QuotaExceededError"
+              ? "penyimpanan peramban ini penuh. Kosongkan order lama, lalu ulangi keputusan terakhir Anda."
+              : "penyimpanan di perangkat ini menolak tulisan terakhir. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda.";
 
   return {
     origin: "save",
@@ -357,6 +365,21 @@ function Workspace({
    * address bar points at, which is `loadRun`, below.
    */
   const [run, setRun] = useState<BrowserRun | null>(null);
+  /**
+   * THIS ORDER'S FORM, resolved once for the whole shell.
+   *
+   * The shell asks the form two questions -- how much is decided
+   * (`progressOf`) and how much a round would look for (`wantedKeys`) -- and
+   * both used to read the module constant. Against an order whose judul list
+   * the operator had edited, that counted bagian they deleted as work still
+   * owed, so the timeline never went quiet, and it sent deleted keys up as
+   * `wanted` on every press of Baca dengan AI, which the route can only answer
+   * with a miss.
+   *
+   * Null while no order is open, which `useRunTemplate` answers with the base
+   * form: nothing is being drawn, and the alternative is a conditional hook.
+   */
+  const template = useRunTemplate(run);
   const say = useSay();
   /*
    * THE EXTRACTED VALUES, HELD BY THE SHELL RATHER THAN BY THE EXPORT SCREEN.
@@ -617,6 +640,52 @@ function Workspace({
           if (previous) setRun(previous);
           setFault(saveFault(problem));
         });
+    },
+    [run, runtime],
+  );
+
+  /**
+   * ONE JUDUL EDIT, APPLIED TO WHAT IS STORED.
+   *
+   * IT DOES NOT GO THROUGH `commit`, and the difference is the whole reason
+   * `SectionEdit` is a value rather than a run. `commit` saves a `BrowserRun`
+   * this component is holding, and `ingestDocument` advances the revision once
+   * per page across MINUTES: a rename composed off a React-held run during a
+   * 151-page read is dozens of revisions stale by the time it reaches storage
+   * and is refused, correctly, with a sentence about the order changing
+   * underneath the operator -- for the crime of renaming a heading while a
+   * document was being read. `editSections` re-reads inside the run lock, so
+   * the same edit is a QUEUED write instead of a refused one.
+   *
+   * IT IS ALSO NOT OPTIMISTIC. Nothing is put on screen until the write lands,
+   * which is what lets the rename field hold the operator's words at 40%
+   * opacity until the decision is real, exactly as a paraf does.
+   *
+   * THE TWO INDEX SETS ARE CLEARED, for the reason `removeDocument` clears
+   * them: they are POSITIONS IN `run.slots`, and a judul edit legitimately
+   * drops rows (removal) and appends them (restore, add). Every position after
+   * the first change then names a different capture, so a paraf drawn at 40%
+   * would sit on somebody else's evidence.
+   *
+   * THE REJECTION IS RE-THROWN so the field that started the edit can keep
+   * what the operator typed. The sentence they read is the `Interruption` this
+   * sets, not anything that control prints.
+   */
+  const editSections = useCallback(
+    async (edit: SectionEdit) => {
+      const open = runRef.current ?? run;
+      if (!open) return;
+      try {
+        const stored = await runtime.editSections(open.id, edit);
+        runRef.current = stored;
+        setRun(stored);
+        setSavedAt(Date.now());
+        setPending(new Set());
+        setFresh(new Set());
+      } catch (problem) {
+        setFault(saveFault(problem));
+        throw problem;
+      }
     },
     [run, runtime],
   );
@@ -1039,7 +1108,7 @@ function Workspace({
     setSearchNote(null);
     setFault(null);
     try {
-      const response = await requestProposals(run);
+      const response = await requestProposals(run, template);
       const found = response.proposals.length;
       const missed = response.outstanding.length;
       // Lanjutan usulan, counted separately because they are a different kind
@@ -1201,6 +1270,54 @@ function Workspace({
   };
 
   /**
+   * "Buang potongan ini": the only way out of a potongan stored under a key
+   * this order's form does not declare.
+   *
+   * THE REMEDY FOR A BLOCK THAT OTHERWISE HAS NONE. `blockingItems` stops the
+   * export on an orphan CARRYING A ZONE, for exactly the reason it stops on a
+   * `lost` capture: the exporter places a crop BY KEY, so a picture filed under
+   * a key no row declares reaches no cell in the deliverable, and shipping it
+   * unmentioned is evidence a human accepted going missing from a packet that
+   * opens fine. Every other blocking kind has a control -- accept it, draw it,
+   * empty it -- and this one had none, so an operator could reach a permanently
+   * blocked export screen with nothing on any screen to press.
+   *
+   * IT IS NOT "Kosongkan". `onUnfill` leaves the zone in place (see
+   * `PlannedCapture.strandedZone`), so emptying an orphan changes its word and
+   * not its standing: it still carries a rectangle, so it still blocks. The
+   * only thing that clears the block is dropping the state.
+   *
+   * NOT `withoutCapture`, EITHER, and the difference is the whole reason this
+   * is written out. That helper exempts capture 1 -- "capture 1 survives as the
+   * slot's own row" -- which is right for a template bagian and wrong here:
+   * there IS no row, the form does not declare this key, and leaving capture 1
+   * behind would leave the block exactly where it was while reporting success.
+   *
+   * The tail goes with it, for the reason `rejectCapture` gives: `#3` was found
+   * by asking what follows `#2`, so once `#2` is gone `#3` continues nothing.
+   */
+  const discardOrphan = (index: number) => {
+    if (!run) return;
+    const target = run.slots[index];
+    if (!target) return;
+
+    const key = slotKeyOf(target.key);
+    const from = captureOrdinalOf(target.key);
+    const removed: string[] = [];
+    const slots = run.slots.filter((slot) => {
+      if (slotKeyOf(slot.key) !== key) return true;
+      if (captureOrdinalOf(slot.key) < from) return true;
+      removed.push(slot.key);
+      return false;
+    });
+
+    // No `touched`: the rows are gone, so there is no position left to draw a
+    // paraf on, and a mark owed to a slot index that no longer exists would sit
+    // pending for ever.
+    commit({ ...run, slots }, [], removed);
+  };
+
+  /**
    * "Gambar ulang", and a redraw is a NEW RECTANGLE, not an annotation on the
    * old one.
    *
@@ -1270,13 +1387,13 @@ function Workspace({
     [run, runtime],
   );
 
-  const counts = run ? progressOf(run, AO_TEMPLATE) : null;
+  const counts = run ? progressOf(run, template) : null;
 
   // Bagian the model has not been asked about yet, or was asked and missed:
   // exactly what the next `Baca dengan AI` would look for. Nothing else in the app
   // produces a usulan, so this is the figure the Muat screen quotes before the
   // operator commits to minutes of model calls.
-  const wanted = run ? wantedKeys(run).length : 0;
+  const wanted = run ? wantedKeys(run, template).length : 0;
 
   // Whether a reading pass has already run over this order. Derived from the
   // run, never from a boolean this component keeps, so a reload does not
@@ -1385,6 +1502,7 @@ function Workspace({
         onDraw={(index) => actions.onRedraw(index)}
         onUnfill={(index) => patchSlot(index, { status: "unfilled" })}
         onReopen={(index) => actions.onReopen(index)}
+        onDiscard={(index) => discardOrphan(index)}
         onSearch={() => void search()}
         searching={searching}
         onUnfillAll={(indexes) =>
@@ -1583,6 +1701,11 @@ function Workspace({
             actions={actions}
             pending={pending}
             fresh={fresh}
+            /* The judul controls: rename, move, hide, restore, add. They act
+               on THIS order's form, which lives in `run.overlay` and nowhere
+               else, so every one of them goes through the run lock rather
+               than through a run this component is holding. */
+            onSectionEdit={editSections}
             /* What is missing, and the question about a dokumen tambahan, at
                the TOP of the sheet rather than on a phase of their own. */
             head={outstandingHead}

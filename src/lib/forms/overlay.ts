@@ -835,7 +835,46 @@ export function resolveTemplate(
     const resolved = patchedSection(section, sections, slots);
     if (resolved !== null) out.push(resolved);
   }
-  for (const add of overlay.added) out.push(resolveAdded(add));
+
+  // AN ADDED ID MAY NOT COLLIDE WITH ONE THE BASE ALREADY DECLARES, and the
+  // check lives HERE rather than in `assertOverlay` because this is the only
+  // place that holds both halves. `assertOverlay` validates an overlay against
+  // itself, on the wire, with no template in hand: it can refuse two added
+  // sections sharing an id, and does, but it cannot see that an added id is
+  // also `kb`.
+  //
+  // What it produces if unchecked is the quiet kind. Two `SectionDef`s carrying
+  // id "kb" both resolve, both emit a heading, and `findSlot` returns whichever
+  // comes first for every key under either -- so a crop the operator accepted
+  // against one lands under the other's heading, in a document that opens
+  // cleanly. Nothing in the UI can reach this (`add-section` mints `u:` ids),
+  // but `scripts/generate.mjs --sections` takes a hand-written JSON overlay,
+  // and a hand-written file is exactly where a reused id comes from.
+  const declared = new Set<NodeId>();
+  for (const section of base.sections) {
+    declared.add(section.id);
+    for (const slot of section.slots) declared.add(slot.key);
+  }
+  for (const add of overlay.added) {
+    if (declared.has(add.id)) {
+      throw new OverlayError(
+        `overlay.added: "${brief(add.id)}" is already declared by the form, so ` +
+          "adding it would emit two judul under one id and file crops under " +
+          "whichever the lookup reached first. Added ids are minted (\"u:...\") " +
+          "and must never reuse a section id or a bagian key.",
+      );
+    }
+    for (const slot of add.slots) {
+      if (declared.has(slot.id)) {
+        throw new OverlayError(
+          `overlay.added: bagian "${brief(slot.id)}" reuses a key the form ` +
+            "already declares, so its evidence would be filed against the " +
+            "form's own bagian.",
+        );
+      }
+    }
+    out.push(resolveAdded(add));
+  }
 
   // `xlsxRows`, `fieldHints`, `fieldLists`, `id` and `label` pass through
   // untouched, by construction rather than by copying them one at a time. The

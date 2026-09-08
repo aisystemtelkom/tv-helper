@@ -101,9 +101,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, Ref } from "react";
 
-import { AO_TEMPLATE } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
+import {
+  hiddenSections,
+  packetPosition,
+  provenanceOf,
+  sectionRemovalCost,
+} from "@/lib/ui/headings";
 import type { BrowserRun, SlotState } from "@/lib/ui/runtime";
+import { useRunTemplate } from "@/lib/ui/use-run-template";
 import {
   proposedIndexesIn,
   sheetSections,
@@ -125,7 +131,16 @@ import {
 } from "./chrome";
 import { Denah, Missing } from "./denah";
 import { Paraf, Potongan } from "./icons";
+import {
+  BagianName,
+  JudulBar,
+  JudulDisembunyikan,
+  TambahJudul,
+  type JudulSubject,
+  type SectionEditor,
+} from "./judul";
 import { ProposalPlate, type PlateActions } from "./proposal-plate";
+import { useSay } from "./toast";
 import { useCropThumbs } from "./use-crop-thumbs";
 
 /* ------------------------------------------------------------------ *
@@ -374,6 +389,17 @@ type SheetProps = {
   run: BrowserRun;
   actions: PlateActions;
   onAcceptSection: (slotIndexes: number[]) => void;
+  /**
+   * ONE EDIT AT A TIME, APPLIED TO WHAT IS STORED, and the promise is what
+   * says it landed.
+   *
+   * Required, not optional: the judul controls exist nowhere else in the
+   * product, so a caller that omitted this would render a sheet whose keys
+   * silently do nothing. It resolves when the write has reached IndexedDB and
+   * rejects when storage refused it, which is what lets a rename field hold
+   * the operator's words at 40% until the decision is real.
+   */
+  onSectionEdit: SectionEditor;
   /** Captures whose write has not resolved yet: the paraf stays unfinished. */
   pending?: ReadonlySet<number>;
   /** Captures decided in this session: the paraf draws once, on the click. */
@@ -396,14 +422,51 @@ function Sheet({
   run,
   actions,
   onAcceptSection,
+  onSectionEdit,
   pending,
   fresh,
   head,
 }: SheetProps) {
   const thumbs = useCropThumbs(run);
-  const sections = useMemo(() => sheetSections(run, AO_TEMPLATE), [run]);
-  const orphans = useMemo(() => unmatchedStates(run, AO_TEMPLATE), [run]);
+  /* The transient host, which is a different channel from `say` below: that
+     one is this sheet's own live region for keyboard feedback, and this one is
+     the product's toast. A judul hidden by a click is not keyboard feedback. */
+  const toast = useSay();
+  // THIS ORDER'S FORM, not the compile-time one. A judul the operator renamed,
+  // deleted or added lives in `run.overlay` and nowhere else, so a sheet built
+  // from the module constant lists bagian they removed as work still owed and
+  // omits the ones they added -- and then the export screen, reading the same
+  // constant, plans a packet that does not match the sheet they signed off.
+  const template = useRunTemplate(run);
+  const sections = useMemo(() => sheetSections(run, template), [run, template]);
+  const orphans = useMemo(
+    () => unmatchedStates(run, template),
+    [run, template],
+  );
+  /* Derived from the base minus what this order still prints, never stored.
+     See `hiddenSections`. */
+  const hidden = useMemo(() => hiddenSections(run, template), [run, template]);
   const offset = useStickyOffset();
+
+  /**
+   * A judul hidden without losing anything, said once and offered back.
+   *
+   * The undo is a convenience rather than the remedy: the row is at the foot
+   * of this sheet whether or not anybody sees this, which is exactly what
+   * makes a toast the right register for it. It never promises the potongan
+   * back, because "Kembalikan" cannot return them.
+   */
+  const sayHidden = useCallback(
+    (section: JudulSubject) => {
+      toast(`Judul ${section.title} disembunyikan.`, {
+        label: "Batalkan",
+        onAction: () => {
+          void onSectionEdit({ tag: "restore-section", id: section.id });
+        },
+      });
+    },
+    [onSectionEdit, toast],
+  );
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headRef = useRef<HTMLDivElement | null>(null);
@@ -970,10 +1033,16 @@ function Sheet({
         );
 
         return (
+          /* KEYED AND ANCHORED BY ID, NEVER BY TITLE. Two judul may carry one
+             title the moment a person is typing them, and a title changes
+             under a rename: a React key that moved would throw away the
+             cursor, the open plate and every field on that slab, and an
+             anchor derived from it would break every link into the section
+             the operator had just renamed. */
           <Slab
-            key={section.title}
-            id={`bagian-${slug(section.title)}`}
-            headingId={`judul-${slug(section.title)}`}
+            key={section.def.id}
+            id={`bagian-${slug(section.def.id)}`}
+            headingId={`judul-${slug(section.def.id)}`}
             title={section.title}
             owes={
               faults > 0
@@ -1001,6 +1070,22 @@ function Sheet({
               )
             }
           >
+            {/* THE JUDUL'S OWN CONTROLS, at the head of the block they act on
+                and always present. The judgement "this judul is not in this
+                order" forms while reading what sits under the heading, so the
+                keys are here rather than on a screen of their own. */}
+            <div className="mb-4">
+              <JudulBar
+                section={{ id: section.def.id, title: section.title }}
+                position={packetPosition(template, section.def.id).at}
+                total={template.sections.length}
+                provenance={provenanceOf(run, section.def)}
+                cost={sectionRemovalCost(run, section.def.id)}
+                onEdit={onSectionEdit}
+                onHidden={sayHidden}
+              />
+            </div>
+
             <ul className="flex flex-col gap-2">
               {section.entries.map((entry) => {
                 const open = expandAll
@@ -1048,36 +1133,47 @@ function Sheet({
                           : "transparent",
                       }}
                     >
-                      {!entry.def.fillable ? (
-                        <ManualRow label={displayLabel(entry.def.label)} />
-                      ) : open ? (
-                        <ProposalPlate
-                          run={run}
-                          entry={entry}
-                          thumbs={thumbs}
-                          actions={routed}
-                          pending={pending}
-                          fresh={fresh}
-                          expanded={expandAll}
-                        />
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          {rowsFor(entry, section.title).map((row) => (
-                            <CaptureLine
-                              key={`${row.plateKey}-${row.ordinal}`}
-                              run={run}
-                              row={row}
-                              pending={pending}
-                              cropFailed={
-                                row.capture
-                                  ? cropFailed(row.capture.slotIndex)
-                                  : false
-                              }
-                              onOpen={openRow}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      {/* The bagian's own name is editable per order too, and
+                          the key sits BESIDE the bagian rather than under it:
+                          eleven fillable bagian times a 44px line each is half
+                          a screen of chrome on the one surface whose argument
+                          is that the evidence gets the space. */}
+                      <BagianName
+                        slotKey={entry.def.key}
+                        label={displayLabel(entry.def.label)}
+                        onEdit={onSectionEdit}
+                      >
+                        {!entry.def.fillable ? (
+                          <ManualRow label={displayLabel(entry.def.label)} />
+                        ) : open ? (
+                          <ProposalPlate
+                            run={run}
+                            entry={entry}
+                            thumbs={thumbs}
+                            actions={routed}
+                            pending={pending}
+                            fresh={fresh}
+                            expanded={expandAll}
+                          />
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            {rowsFor(entry, section.title).map((row) => (
+                              <CaptureLine
+                                key={`${row.plateKey}-${row.ordinal}`}
+                                run={run}
+                                row={row}
+                                pending={pending}
+                                cropFailed={
+                                  row.capture
+                                    ? cropFailed(row.capture.slotIndex)
+                                    : false
+                                }
+                                onOpen={openRow}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </BagianName>
                     </div>
                   </li>
                 );
@@ -1089,7 +1185,7 @@ function Sheet({
                 signed document, so it is not the first thing the eye lands on
                 in a section. */}
             {waiting.length > 0 ? (
-              confirming === section.title ? (
+              confirming === section.def.id ? (
                 <div className="mt-4">
                   <BulkConfirm
                     ref={confirmBoxRef}
@@ -1108,7 +1204,7 @@ function Sheet({
                 </div>
               ) : (
                 <div className="mt-4 flex justify-end">
-                  <Btn onClick={() => setConfirming(section.title)}>
+                  <Btn onClick={() => setConfirming(section.def.id)}>
                     {/* Terima leaves a paraf in the mark box, so the button
                         that accepts several at once draws the several parafs it
                         is about to leave. */}
@@ -1130,8 +1226,13 @@ function Sheet({
           voice="app"
           style={{ scrollMarginTop: offset + 16 }}
           meta={
+            /* JUDUL, NOT BAGIAN, and the correction is the glossary's rather
+               than a preference. Each row here is a whole heading of the
+               DOKUMEN VALIDASI with its own bagian under it; "7 bagian" over a
+               list of seven headings named the wrong object, which now matters
+               because the operator can act on a judul from this very list. */
             <>
-              <KopFigure>{manualSections.length}</KopFigure> bagian
+              <KopFigure>{manualSections.length}</KopFigure> judul
             </>
           }
           hint={
@@ -1151,6 +1252,7 @@ function Sheet({
         >
           <ManualLines
             rows={manualSections.map((section) => ({
+              id: section.def.id,
               title: section.title,
               fields:
                 section.entries.length === 0
@@ -1158,10 +1260,52 @@ function Sheet({
                   : section.entries
                       .map((entry) => displayLabel(entry.def.label))
                       .join(", "),
+              /* THE SAME CLUSTER, ON THE JUDUL NOBODY SEARCHES. These are the
+                 likeliest ones to be taken out of an order: the packet ships
+                 them blank, so a judul the operator's paperwork does not have
+                 is a heading over an empty box in the deliverable. Demoting
+                 them to one line each was about the space they take, never
+                 about whether they are part of the order. */
+              controls: (
+                <JudulBar
+                  section={{ id: section.def.id, title: section.title }}
+                  position={packetPosition(template, section.def.id).at}
+                  total={template.sections.length}
+                  provenance={provenanceOf(run, section.def)}
+                  cost={sectionRemovalCost(run, section.def.id)}
+                  divided={false}
+                  onEdit={onSectionEdit}
+                  onHidden={sayHidden}
+                />
+              ),
             }))}
           />
         </Slab>
       ) : null}
+
+      {/* THE FOOT: what this order's packet contains, and the two things that
+          change it wholesale. It sits BELOW the work and above the integrity
+          notice, because adding a judul and bringing one back are both
+          answers to "something is missing from this packet", which is a
+          question an operator asks after reading the sheet rather than
+          before. */}
+      <Slab
+        id="bagian-judul-order"
+        headingId="judul-judul-order"
+        title="Judul di order ini"
+        voice="app"
+        style={{ scrollMarginTop: offset + 16 }}
+        meta={
+          <>
+            <KopFigure>{template.sections.length}</KopFigure> judul
+          </>
+        }
+      >
+        <div className="flex flex-col gap-6">
+          <TambahJudul onEdit={onSectionEdit} />
+          <JudulDisembunyikan rows={hidden} onEdit={onSectionEdit} />
+        </div>
+      </Slab>
 
       {orphans.length > 0 ? (
         <Orphans run={run} states={orphans} offset={offset} />
@@ -1474,8 +1618,19 @@ function BulkConfirm({
  * carrying the same headings and the same weight as the five that hold work.
  * They are still ACCOUNTED FOR, by name, because they do appear in the
  * exported packet and the operator is the one who fills them.
+ *
+ * EACH ROW CARRIES ITS OWN JUDUL CONTROLS, and that is not an exception to the
+ * demotion: what was demoted is the SPACE these judul take, never their
+ * standing in the packet. They are printed, so they can be renamed, moved and
+ * taken out like any other, and they are the ones an operator is most likely
+ * to want out -- a heading over an empty box for paperwork this order does not
+ * have.
  */
-function ManualLines({ rows }: { rows: { title: string; fields: string }[] }) {
+function ManualLines({
+  rows,
+}: {
+  rows: { id: string; title: string; fields: string; controls: ReactNode }[];
+}) {
   return (
     <ul className="flex flex-col">
       {/* A HAIRLINE, NOT A 2px RULE. `--line` is separation between content and
@@ -1483,17 +1638,20 @@ function ManualLines({ rows }: { rows: { title: string; fields: string }[] }) {
           hard edge the material rejects. Seven of these stacked at 2px read as
           a stamped grid; at 1px they read as a register, which is what a list
           of sections the operator fills in by hand is. */}
-      {rows.map((row, i) => (
+      {rows.map((row) => (
         <li
-          key={`${row.title}-${i}`}
-          className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b border-line py-2 last:border-b-0"
+          key={row.id}
+          className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0"
         >
-          <span className="lt-figure text-[0.875rem] text-ink-2">
-            {row.title}
-          </span>
-          <span className="lt-figure text-[0.8125rem] text-ink-3">
-            {row.fields}
-          </span>
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+            <span className="lt-figure text-[0.875rem] text-ink-2">
+              {row.title}
+            </span>
+            <span className="lt-figure text-[0.8125rem] text-ink-3">
+              {row.fields}
+            </span>
+          </div>
+          {row.controls}
         </li>
       ))}
     </ul>

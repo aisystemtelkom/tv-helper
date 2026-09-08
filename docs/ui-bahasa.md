@@ -31,6 +31,28 @@ For an empty cell write `(belum diisi)`, never a lone dash.
 An action keeps the same word through the whole flow: the button that says
 **Terima** produces the state **Diterima**.
 
+## Two voices, and a rename does not change which is which
+
+The mono face is the DOCUMENT's voice and the sans is the app's. Judul titles
+and bagian labels are transcriptions of the operator's paperwork, so they are
+mono. Nothing offered to rename them until an order could carry its own form,
+and the rule survives that intact:
+
+1. **A judul title and a bagian label are mono, before and after a rename.** A
+   renamed judul is still a quotation; it quotes a different order's paperwork.
+2. **The input the operator types a name into is mono.** `.lt-input` is set in
+   `--font-figure` for exactly this: they are writing in the document's voice,
+   and what they type is printed as a heading in the DOKUMEN VALIDASI.
+3. **Everything the app says around it is sans, at 13px or larger.** Keys
+   (`Ganti nama`, `Simpan`, `Batal`), field labels (`Judul`, `Nama bagian`),
+   the helper under the field, and the confirmation sentences.
+4. **A quoted name inside an app sentence stays mono.** "Hapus judul X?" is
+   the app asking, so the sentence is sans and X is not.
+5. **The app never invents a name.** Rename is seeded with what is already
+   there; `Tambah judul` starts EMPTY behind the placeholder *"Salin judul dari
+   halaman"*, which says where the words come from: the document in front of
+   them. A heading the app made up is a heading nobody transcribed.
+
 ## Glossary
 
 The whole UI must use one word per concept. Pick from this table, do not
@@ -40,6 +62,8 @@ improvise a synonym.
 | --- | --- | --- |
 | a run (one order being worked) | **order** | "Belum ada order yang dibuka". It WAS `pekerjaan`, and the operator's objection was that the word "sounds soo awkward" next to how they actually think: one session is one order. The collision is real and deliberate: the packet's header table has a row transcribed as `Order` and another as `Jenis Order`, so the word now names both the session and a field on it. Context separates them, because the field only ever appears inside a quoted table set in the mono voice, and the session only ever appears in the app's own voice. If that stops being true, the field keeps the name and the session gives it up |
 | a slot (one cell needing evidence) | **bagian** | |
+| a section (one heading of the packet, WITH the bagian under it) | **judul** | one heading of the DOKUMEN VALIDASI together with everything filed beneath it. NEVER "bagian", which is one cell needing evidence: `KB` is a judul and `Nomor` is a bagian inside it. The word was needed the day a section became something an order could rename, move, hide and add, because until then a section had no operator-facing name at all. The manual register's kop counts **judul**, not bagian, for the same reason |
+| a judul this order is not printing | **disembunyikan dari order ini** | a judul the FORM declares that this order took out. It is hidden rather than deleted: the form still declares it, the row is at the foot of the lembar periksa, and **Kembalikan** brings the NAME back. It never promises the potongan back, because removing the judul dropped them |
 | a zone (the rectangle) | **area** | |
 | a crop (the cut picture) | **potongan** | |
 | evidence | **bukti** | |
@@ -83,6 +107,14 @@ The state name and the verb that produced it must match.
 | `outstanding` | **tidak ditemukan** | searched, no evidence found |
 | `unfilled` | **sengaja dikosongkan** | you decided it ships empty |
 
+And one word for a blank that is none of the six, on the outstanding block:
+**belum digambar**, for a bagian under a judul the operator added themselves.
+Nothing will ever search it (`isSearchable` is false for every bagian under an
+added judul), so it is not "tidak ditemukan", which is fixed above to mean
+SEARCHED AND NOT FOUND. Reporting it that way told the operator, on every
+reading pass for ever, that the tool had hunted for something nobody asked it
+about, in the one place they go to decide whether to fetch another document.
+
 ## Verbs
 
 | English | Bahasa |
@@ -94,6 +126,15 @@ The state name and the verb that produced it must match.
 | Draw it by hand | **Gambar sendiri** |
 | Ship empty | **Kosongkan** |
 | Reopen | **Buka lagi** |
+| Rename (a judul, or a bagian) | **Ganti nama** |
+| Move one place up the packet | **Naikkan** |
+| Move one place down the packet | **Turunkan** |
+| Take a judul out of this order | **Hapus judul** |
+| Delete it with the crops it holds | **Hapus judul dan N potongannya** |
+| Add a judul this order has | **Tambah judul** |
+| Put a hidden judul back | **Kembalikan** |
+| Undo what a toast just announced, beside it | **Batalkan** |
+| Save a name | **Simpan** |
 | Undo, review again | **Batalkan, periksa lagi** |
 | Choose PDFs | **Pilih berkas PDF** |
 | Resume loading | **Lanjutkan pemuatan** |

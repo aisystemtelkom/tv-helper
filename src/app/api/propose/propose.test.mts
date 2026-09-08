@@ -1273,7 +1273,7 @@ test("a second Proses over a walked chain adds nothing: no duplicate captures, n
 
   const run = chainRun();
   const first = await proposeZones(
-    buildProposeRequest(run),
+    buildProposeRequest(run, TEMPLATE),
     counted,
     TEMPLATE,
   );
@@ -1290,11 +1290,11 @@ test("a second Proses over a walked chain adds nothing: no duplicate captures, n
     afterFirst.slots.map((slot) => continuationChecked(slot)),
     [true, true, true],
   );
-  assert.deepEqual(capturesToWalk(afterFirst), []);
+  assert.deepEqual(capturesToWalk(afterFirst, TEMPLATE), []);
 
   const callsAfterFirst = calls;
   const second = await proposeZones(
-    buildProposeRequest(afterFirst),
+    buildProposeRequest(afterFirst, TEMPLATE),
     counted,
     TEMPLATE,
   );
@@ -1315,7 +1315,7 @@ test("a chain re-walked from an unstamped link does not append the block twice",
   // takes a fresh one -- so the guard has to be on the zone itself.
   const run = chainRun();
   const first = await proposeZones(
-    buildProposeRequest(run),
+    buildProposeRequest(run, TEMPLATE),
     walksTheWholeDocument,
     TEMPLATE,
   );
@@ -1330,12 +1330,12 @@ test("a chain re-walked from an unstamped link does not append the block twice",
     ),
   };
   assert.deepEqual(
-    capturesToWalk(unstamped).map((capture) => capture.key),
+    capturesToWalk(unstamped, TEMPLATE).map((capture) => capture.key),
     ["kbLanjutan.top#2"],
   );
 
   const again = await proposeZones(
-    buildProposeRequest(unstamped),
+    buildProposeRequest(unstamped, TEMPLATE),
     walksTheWholeDocument,
     TEMPLATE,
   );

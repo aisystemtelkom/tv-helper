@@ -56,11 +56,28 @@ import {
   type ReactNode,
 } from "react";
 
+import { Btn } from "./chrome";
 import { Tutup } from "./icons";
 
-type Toast = { id: number; text: string };
+/**
+ * ONE OPTIONAL KEY ON A TOAST, AND ONE ONLY, FOR TAKING BACK WHAT JUST
+ * HAPPENED.
+ *
+ * This does not widen what a toast may carry: the test at the top of this file
+ * is unchanged, and an act that NEEDS this key to be pressed still may not be
+ * a toast. It exists for the reverse case -- an act that is already recoverable
+ * somewhere on the page, where the toast merely saves the operator the walk.
+ * Hiding a judul is exactly that: the row comes back from the foot of the
+ * lembar periksa whether or not anybody sees this, so an operator who misses it
+ * entirely is no worse off, which is the line this file draws.
+ */
+export type ToastAction = { label: string; onAction: () => void };
 
-const ToastContext = createContext<((text: string) => void) | null>(null);
+type Toast = { id: number; text: string; action?: ToastAction };
+
+type Say = (text: string, action?: ToastAction) => void;
+
+const ToastContext = createContext<Say | null>(null);
 
 /**
  * Announce something transient.
@@ -69,7 +86,7 @@ const ToastContext = createContext<((text: string) => void) | null>(null);
  * says "saved" is not a screen that should fail to render in a test harness
  * that did not wrap it, and the alternative is every caller writing a guard.
  */
-export function useSay(): (text: string) => void {
+export function useSay(): Say {
   return useContext(ToastContext) ?? noop;
 }
 
@@ -81,13 +98,13 @@ export function ToastHost({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const next = useRef(0);
 
-  const say = useCallback((text: string) => {
+  const say = useCallback<Say>((text, action) => {
     const id = (next.current += 1);
     // ONE AT A TIME. A stack of these covers the corner of a contact sheet,
     // and two facts that are each not worth a line of layout are not worth
     // two floating cards either. The newest wins, because it is the one that
     // describes what just happened.
-    setToasts([{ id, text }]);
+    setToasts([{ id, text, action }]);
   }, []);
 
   useEffect(() => {
@@ -111,6 +128,21 @@ export function ToastHost({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div key={toast.id} className="lt-toast pointer-events-auto">
             <span className="flex-1">{toast.text}</span>
+            {/* THE KEY GOES WITH THE MESSAGE IT BELONGS TO. Dismissing after
+                pressing it would leave a sentence on screen describing a state
+                the press has just undone. */}
+            {toast.action ? (
+              <Btn
+                data-flat="true"
+                onClick={() => {
+                  const act = toast.action;
+                  setToasts([]);
+                  act?.onAction();
+                }}
+              >
+                {toast.action.label}
+              </Btn>
+            ) : null}
             {/* DISMISSIBLE, even though it leaves on its own. A toast sits
                 over the bottom of the page, and the bottom of the page on the
                 review sheet is evidence. Five seconds is a long time to wait

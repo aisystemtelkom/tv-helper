@@ -1129,3 +1129,38 @@ test("a rename of a real section moves no question the gate measured", () => {
     }
   }
 });
+
+test("an added judul may not reuse an id the form already declares", () => {
+  // Not reachable from the UI, which mints "u:" ids. It IS reachable from
+  // `generate.mjs --sections`, which reads a hand-written JSON overlay, and a
+  // hand-written file is exactly where a reused id comes from.
+  const overlay = emptyOverlay(AO_TEMPLATE);
+  overlay.added = [
+    {
+      id: "kb",
+      title: "Bukan KB",
+      slots: [{ id: "u:only", label: "Satu" }],
+      origin: "human",
+    },
+  ];
+  assert.throws(
+    () => resolveTemplate(AO_TEMPLATE, overlay),
+    /already declared by the form/,
+  );
+});
+
+test("an added bagian may not reuse a key the form already declares", () => {
+  const overlay = emptyOverlay(AO_TEMPLATE);
+  overlay.added = [
+    {
+      id: "u:judul",
+      title: "Judul tambahan",
+      slots: [{ id: "kb.nomor", label: "Satu" }],
+      origin: "human",
+    },
+  ];
+  assert.throws(
+    () => resolveTemplate(AO_TEMPLATE, overlay),
+    /reuses a key the form already declares/,
+  );
+});

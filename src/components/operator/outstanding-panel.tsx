@@ -52,15 +52,28 @@
  * Manual selection is the designed terminal state, not a fallback, which is why
  * it sits beside "Kosongkan" as an equal choice rather than behind it.
  *
- * FOUR KINDS OF BLANK, ONE VOCABULARY. Never searched, searched and not found,
- * you rejected the usulan, you chose to ship it empty. The old screen printed
- * one hardcoded chip on every row, so all four read alike, and the reason is
- * the only fact that decides whether adding a document will help at all. Each
- * kind keeps its own `Mark` shape and its own word, and the block counts them
- * apart. The four SENTENCES that gloss those words are behind a question mark,
- * once each, because they read the same on every order for the life of this
- * product; twelve rows carrying four repeated paragraphs is the bulk that made
- * this a screen in the first place.
+ * FIVE KINDS OF BLANK, ONE VOCABULARY. Never searched, searched and not found,
+ * you rejected the usulan, nothing will ever search it because the judul is
+ * your own, you chose to ship it empty. The old screen printed one hardcoded
+ * chip on every row, so all of them read alike, and the reason is the only fact
+ * that decides whether adding a document will help at all. Each kind keeps its
+ * own `Mark` shape and its own word, and the block counts them apart. The
+ * SENTENCES that gloss those words are behind a question mark, once each,
+ * because they read the same on every order for the life of this product;
+ * twelve rows carrying repeated paragraphs is the bulk that made this a screen
+ * in the first place.
+ *
+ * THE FIFTH IS "belum digambar" AND IT IS NOT A FAILURE. A judul the operator
+ * added is captured by hand by design (`AddedSection` carries no layout;
+ * `isSearchable` is false for every bagian under one), so no berkas and no
+ * round can ever fill it. It had been reported as "tidak ditemukan" -- a word
+ * fixed in `docs/ui-bahasa.md` to mean SEARCHED AND NOT FOUND -- which told the
+ * operator, on every reading pass, for ever, that the tool had hunted for
+ * something nobody had ever asked it about, in the one place they go to decide
+ * whether to fetch another document.
+ *
+ * AND ONE THING THAT IS NOT A BLANK AT ALL: a potongan stored under a key this
+ * order's form does not declare. See `Stray`.
  *
  * WHAT MOVED OUT rather than being deleted, all of it still counted here:
  *
@@ -88,7 +101,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AO_TEMPLATE } from "@/lib/forms/template";
+import { isSearchable } from "@/lib/forms/overlay";
+import type { Template } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
 import { wantedKeys } from "@/lib/ui/propose";
 import { slotKeyOf } from "@/lib/ui/runtime";
@@ -100,6 +114,7 @@ import type {
 } from "@/lib/ui/runtime";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
 import { templateSlots } from "@/lib/ui/slots";
+import { useRunTemplate } from "@/lib/ui/use-run-template";
 
 import {
   Btn,
@@ -149,12 +164,13 @@ export type RoundLog = {
  * below falls back to "tidak ditemukan", which is the weaker and still-true
  * claim, never the stronger one.
  */
-type Reason = "unsearched" | "notfound" | "rejected" | "emptied";
+type Reason = "unsearched" | "notfound" | "rejected" | "undrawn" | "emptied";
 
 const REASON_WORD: Record<Reason, string> = {
   unsearched: "belum dicari",
   notfound: "tidak ditemukan",
   rejected: "usulan ditolak",
+  undrawn: "belum digambar",
   emptied: "sengaja dikosongkan",
 };
 
@@ -163,6 +179,10 @@ const REASON_MARK: Record<Reason, SlotAggregateStatus> = {
   unsearched: "pending",
   notfound: "outstanding",
   rejected: "outstanding",
+  // The same shape as `unsearched`, because it is the same standing: nothing
+  // has been looked for, nothing has failed. What differs is WHY, and that is
+  // what the word and the sentence carry.
+  undrawn: "pending",
   emptied: "unfilled",
 };
 
@@ -172,12 +192,30 @@ const REASON_SENTENCE: Record<Reason, string> = {
   notfound: "Sudah dicari di seluruh halaman yang ada, buktinya tidak ketemu.",
   rejected:
     "Anda menolak usulannya, dan areanya ikut dibuang. Bagian ini kembali kosong.",
+  undrawn: "Judul ini Anda buat sendiri, jadi potongannya Anda ambil sendiri.",
   emptied:
     "Dikosongkan atas keputusan Anda, bukan karena terlewat. Selnya tetap muncul kosong di DOKUMEN VALIDASI.",
 };
 
-/** The order the counts state them in: the three that owe a decision first. */
-const REASON_ORDER: Reason[] = ["notfound", "rejected", "unsearched", "emptied"];
+/**
+ * The order the counts state them in: the four that owe a decision first.
+ *
+ * `undrawn` SITS LAST OF THE FOUR AND IS NOT A KIND OF FAILURE. The three
+ * before it are things that went a certain way -- nobody has looked, the look
+ * failed, you refused the answer -- and every one of them is a reason to
+ * consider loading another document. This one is not: a judul the operator
+ * created is captured by hand by design, so no berkas and no round can ever
+ * change it. It is listed with them because it is still a decision they owe,
+ * and it is ranked below them because it is the only one where the tool has
+ * nothing left to offer.
+ */
+const REASON_ORDER: Reason[] = [
+  "notfound",
+  "rejected",
+  "unsearched",
+  "undrawn",
+  "emptied",
+];
 
 /**
  * Why every decision on this block is refused while a document is being loaded.
@@ -196,8 +234,24 @@ const REASON_ORDER: Reason[] = ["notfound", "rejected", "unsearched", "emptied"]
  */
 const LOADING_HOLD = "Tunggu pemuatan dokumen selesai.";
 
-function reasonOf(state: SlotState): Reason {
+/**
+ * `searchable` IS `isSearchable(template, key)`, ASKED PER BAGIAN AND PASSED
+ * IN, never re-derived here and never a run-wide relabel.
+ *
+ * When it is false the answer is `undrawn` and nothing else, because none of
+ * the other four can be true of a bagian nothing will ever search: it cannot
+ * have been searched and missed, and there was no usulan to refuse. The one
+ * that CAN still be true is `emptied`, which is a decision rather than an
+ * outcome, so it is tested first and keeps its word.
+ *
+ * It is a parameter rather than a `Template` argument so that the caller has to
+ * ask the question about the RIGHT KEY. Only the caller knows whether it is
+ * holding a bagian this order's form declares or a state left over from one it
+ * does not, and the two want different answers to the same predicate.
+ */
+function reasonOf(state: SlotState, searchable: boolean): Reason {
   if (state.status === "unfilled") return "emptied";
+  if (!searchable) return "undrawn";
   if (state.status === "pending") return "unsearched";
   return state.origin === "llm" ? "rejected" : "notfound";
 }
@@ -220,6 +274,36 @@ type Blank = {
 
 const OUTSIDE_TEMPLATE = "Di luar template ini";
 
+/**
+ * A potongan stored under a key this order's form does not declare.
+ *
+ * IT IS NOT A BLANK AND IT USED TO BE FILED AS ONE. These rows were pushed into
+ * `blanks` with `OUTSIDE_TEMPLATE` as their sectionTitle, which put them in a
+ * list built by walking the template, counted them under a reason word that
+ * describes a search, and offered them the blank's two remedies -- neither of
+ * which does anything here. "Gambar sendiri" draws a new rectangle under a key
+ * that still reaches no cell, and "Kosongkan" changes the word while leaving
+ * the zone in place (`PlannedCapture.strandedZone`), so the export stays
+ * blocked and the screen says the bagian was settled.
+ *
+ * Worse, the filing HID the ones that actually block: `isBlank` is false for a
+ * capture that carries a zone, so a confirmed orphan -- the only kind
+ * `blockingItems` stops the export on -- appeared on no list at all. An
+ * operator could reach a permanently blocked export screen with nothing
+ * anywhere to press.
+ *
+ * So every one of them is listed here, whatever its status, with the one remedy
+ * that is true: drop it.
+ */
+type Stray = {
+  /** Position in `run.slots`. Always known: a stray IS a stored state. */
+  index: number;
+  key: string;
+  label: string;
+  status: SlotState["status"];
+  zone: Zone | null;
+};
+
 /** Is this capture a blank the operator still owes a decision on? */
 function isBlank(state: SlotState, reported: boolean): boolean {
   // A UNION, never an intersection. Dropping a capture the runtime reported
@@ -241,11 +325,20 @@ function isBlank(state: SlotState, reported: boolean): boolean {
  * every row after it: the row labelled `TTD Pejabat` fired Gambar sendiri or
  * Kosongkan on a different bagian, silently, and the packet still looked
  * complete. Index and state are one object here and are never re-paired.
+ *
+ * `template` IS THIS ORDER'S RESOLVED FORM, and passing the module constant
+ * here is the whole defect this parameter exists to close. The walk below IS
+ * the list of judul the operator is looking at: read the constant and a judul
+ * they deleted is walked as though it were still there (its bagian reported as
+ * work owed, for ever) while a judul they added is walked past entirely, so its
+ * bagian -- the ones that can ONLY be captured by hand -- appear on no list
+ * anywhere.
  */
 function collectBlanks(
   run: BrowserRun,
   reportedOutstanding: Set<number>,
-): { blanks: Blank[]; emptied: Blank[] } {
+  template: Template,
+): { blanks: Blank[]; emptied: Blank[]; strays: Stray[] } {
   const captures = new Map<string, { state: SlotState; index: number }[]>();
   run.slots.forEach((state, index) => {
     const key = slotKeyOf(state.key);
@@ -256,12 +349,18 @@ function collectBlanks(
 
   const blanks: Blank[] = [];
   const emptied: Blank[] = [];
+  const strays: Stray[] = [];
   const declared = new Set<string>();
 
-  for (const { section, slot } of templateSlots(AO_TEMPLATE)) {
+  for (const { section, slot } of templateSlots(template)) {
     declared.add(slot.key);
     if (!slot.fillable) continue;
 
+    // ASKED ONCE PER BAGIAN, on the template key, and handed to every row this
+    // slot produces. False means the model is never asked where this bagian is
+    // -- the judul is one the operator added, so its potongan is theirs to take
+    // -- which is a fifth kind of blank and not a fifth flavour of failure.
+    const searchable = isSearchable(template, slot.key);
     const group = captures.get(slot.key) ?? [];
     // The captures the run HOLDS, never a count the template declares. Nothing
     // declares one any more: a lanjutan is discovered, and the row that used
@@ -282,7 +381,9 @@ function collectBlanks(
         key: slot.key,
         label: slot.label,
         sectionTitle: section.title,
-        reason: "unsearched",
+        // "belum dicari" would be a promise here: it says a round can still
+        // find this. On a judul the operator added no round ever will.
+        reason: searchable ? "unsearched" : "undrawn",
         required: 1,
         found: 0,
         zone: null,
@@ -315,38 +416,33 @@ function collectBlanks(
 
       blanks.push({
         ...base,
-        reason: reasonOf(state),
+        reason: reasonOf(state, searchable),
         zone: state.zone ?? sibling,
         zoneIsSibling: !state.zone && sibling !== null,
       });
     }
   }
 
-  // Slot states the run holds under a key this template no longer declares.
-  // Listed rather than dropped: the tool is document-agnostic and a template
-  // can be edited between runs, so a stored run can outlive the slot list that
-  // made it, and hiding those captures would hide real work.
+  // Slot states the run holds under a key this order's form does not declare.
+  // Listed rather than dropped: the tool is document-agnostic, an operator can
+  // delete a judul mid-order, and a stored run can outlive the slot list that
+  // made it, so hiding these captures would hide real work.
+  //
+  // EVERY ONE OF THEM, WHATEVER ITS STATUS, which is the change: `isBlank` is
+  // false for a capture carrying a zone, so the very orphans `blockingItems`
+  // stops the export on were the ones this block never showed.
   run.slots.forEach((state, index) => {
     if (declared.has(slotKeyOf(state.key))) return;
-    const base = {
+    strays.push({
       index,
       key: state.key,
       label: state.label || state.key,
-      sectionTitle: OUTSIDE_TEMPLATE,
-      required: 1,
-      found: state.zone ? 1 : 0,
+      status: state.status,
       zone: state.zone ?? null,
-      zoneIsSibling: false,
-    };
-    if (state.status === "unfilled") {
-      emptied.push({ ...base, reason: "emptied" });
-      return;
-    }
-    if (!isBlank(state, reportedOutstanding.has(index))) return;
-    blanks.push({ ...base, reason: reasonOf(state) });
+    });
   });
 
-  return { blanks, emptied };
+  return { blanks, emptied, strays };
 }
 
 type PanelProps = {
@@ -390,6 +486,17 @@ type PanelProps = {
    */
   onReopen?: (slotIndex: number) => void;
   /**
+   * "Buang potongan ini": drop a `Stray` outright.
+   *
+   * REQUIRED, unlike `onSearch`, because there is no honest degraded shape for
+   * it. A block that lists a potongan the deliverable cannot carry, states that
+   * it stops the export, and offers no way to clear it is worse than one that
+   * never mentioned it: the operator is told they are stuck and not told what
+   * to press. The shell's handler must name the dropped keys in `saveRun`'s
+   * `removing`, or storage refuses the write as a capture loss.
+   */
+  onDiscard: (slotIndex: number) => void;
+  /**
    * Optional. Adding a document proposes nothing on its own, so a round is
    * still owed afterwards; without this the block still SAYS so, it just cannot
    * start one, which is the right shape when the shell offers the round itself.
@@ -423,15 +530,28 @@ function Panel({
   onDraw,
   onUnfill,
   onUnfillAll,
+  onDiscard,
   onSearch,
   searching = false,
 }: PanelProps) {
   /**
+   * THIS ORDER'S FORM. Every list on this block is built from it, and reading
+   * the module constant instead is what made a judul the operator deleted come
+   * back as work owed on every visit.
+   */
+  const template = useRunTemplate(run);
+  /**
    * IS A ROUND OWED? A document has been read into this order and nothing
    * has searched it yet. Computed before any state because the list's opening
    * position depends on it: see `expanded` below.
+   *
+   * `wantedKeys` NOW FILTERS ON THE FORM, so this figure is what a round would
+   * genuinely look for. It used to count bagian nothing would ever search --
+   * the operator's own judul, and judul they had deleted -- so a order with
+   * nothing left to find still offered "Baca dengan AI" over a count that could
+   * only come back as a miss.
    */
-  const searchable = wantedKeys(run).length;
+  const searchable = wantedKeys(run, template).length;
   const owesRound = rounds.length > 0 && searchable > 0;
 
   /** Is the dokumen tambahan dialog open? */
@@ -488,13 +608,18 @@ function Panel({
     wasBusy.current = busy;
   }, [busy, fault]);
 
-  const { blanks, emptied } = collectBlanks(run, new Set(outstandingKeys));
+  const { blanks, emptied, strays } = collectBlanks(
+    run,
+    new Set(outstandingKeys),
+    template,
+  );
   const actionable = blanks.filter((b) => b.index !== null);
 
   const counts: Record<Reason, number> = {
     notfound: blanks.filter((b) => b.reason === "notfound").length,
     rejected: blanks.filter((b) => b.reason === "rejected").length,
     unsearched: blanks.filter((b) => b.reason === "unsearched").length,
+    undrawn: blanks.filter((b) => b.reason === "undrawn").length,
     emptied: emptied.length,
   };
 
@@ -569,7 +694,11 @@ function Panel({
    * an absent warning is not a confirmation, which is the rule this whole
    * product is built on.
    */
-  if (blanks.length === 0) {
+  //
+  // A STRAY IS NOT "NOTHING LEFT". It stops the export outright
+  // (`blockingItems`), and the only control that clears it is on this block, so
+  // it can never fall into the branch that reports the work finished.
+  if (blanks.length === 0 && strays.length === 0) {
     const nothingPending =
       emptied.length === 0 && rounds.length === 0 && !busy && fault === null;
     if (nothingPending) return null;
@@ -615,18 +744,38 @@ function Panel({
           from across the room. Nothing else on the block has to carry that
           signal, and none of it can be collapsed. */}
       <div className="lt-kop" data-owes={fault ? "fault" : "decision"}>
-        <h2 id="tambahan-head">Bagian tanpa bukti</h2>
-        <span className="lt-figure lt-kop-right">{blanks.length}</span>
+        {/* THE KOP NAMES WHICHEVER DEBT IT IS COUNTING. A order can reach this
+            branch on strays alone -- every bagian decided, and a potongan left
+            over under a key the form no longer declares -- and heading that
+            "Bagian tanpa bukti / 0" would be a figure contradicting its own
+            list. The strays carry their own count on their own register either
+            way, so nothing is hidden in the case where both are present. */}
+        <h2 id="tambahan-head">
+          {blanks.length > 0 ? "Bagian tanpa bukti" : "Potongan di luar template ini"}
+        </h2>
+        <span className="lt-figure lt-kop-right">
+          {blanks.length > 0 ? blanks.length : strays.length}
+        </span>
       </div>
 
       <div className="lt-slab-body flex flex-col gap-4">
         {/* The count changes as decisions are taken, with no navigation. */}
         <p aria-live="polite" className="sr-only">
           {blanks.length} bagian belum ada buktinya. {emptied.length} bagian
-          sudah Anda kosongkan.
+          sudah Anda kosongkan.{" "}
+          {strays.length > 0
+            ? `${strays.length} potongan tidak punya tempat di dokumen ini.`
+            : ""}
         </p>
 
         {errorHere}
+
+        {/* ABOVE EVERYTHING, AND NEVER BEHIND THE FOLD. This is the one control
+            in the product that can clear a blocked export, it appears on no
+            other screen, and the rule this block states about its own
+            disclosure is that a control existing nowhere else stands outside
+            it. */}
+        <Strays rows={strays} run={run} busy={busy} onDiscard={onDiscard} />
 
         {/* THE HOLD DURING A READ TRAVELS ON THE CONTROLS IT HOLDS. It was a
             standing amber notice here saying "Keputusan ditahan sampai
@@ -769,6 +918,122 @@ function ReasonCounts({ counts }: { counts: Record<Reason, number> }) {
           ))}
         </dl>
       </Hint>
+    </div>
+  );
+}
+
+/**
+ * POTONGAN THAT CANNOT REACH THE BERKAS, and the one key that clears them.
+ *
+ * WHY THIS IS A STOP AND NOT AN ADVISORY. `blockingItems` refuses the export on
+ * any of these that carries an area, for the reason it refuses a `lost`
+ * capture: the exporter places a potongan BY KEY, so one filed under a key this
+ * order's form does not declare reaches no cell at all. It is evidence a person
+ * accepted, going missing from a packet that opens fine.
+ *
+ * WHY "Buang potongan ini" AND NOT "Kosongkan". Emptying leaves the area in
+ * place and only changes the word, so the export stays blocked while the screen
+ * reports the bagian settled -- the reassuring half of a contradiction, which is
+ * the half that gets a packet signed. Dropping the state is the only thing that
+ * actually clears it, so it is the only thing offered.
+ *
+ * IT DOES NOT ASK TWICE. The bulk write-off below is guarded by a confirmation
+ * because it settles every remaining bagian at once and reads as one click; this
+ * is one named row at a time, and the alternative to pressing it is an export
+ * that cannot be produced. What it costs is stated on the row rather than in a
+ * dialog: the area is named, its page is named, and the sentence above says
+ * plainly that these cannot go into the berkas.
+ */
+function Strays({
+  rows,
+  run,
+  busy,
+  onDiscard,
+}: {
+  rows: Stray[];
+  run: BrowserRun;
+  busy: boolean;
+  onDiscard: (slotIndex: number) => void;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* THE EXPORT SCREEN'S OWN WORDS, deliberately. It already says
+          "potongan tidak punya tempat di dokumen ini" and "Belum bisa
+          diekspor" about exactly these rows, and an operator who meets the
+          block there and the remedy here must meet one name for one thing. */}
+      <Notice tone="stop">
+        <span className="flex flex-wrap items-baseline gap-2">
+          <span className="lt-figure">{rows.length}</span>
+          <span>
+            potongan tidak punya tempat di dokumen ini: bagiannya sudah tidak
+            ada di order ini. Selama potongan ini masih tersimpan, order ini
+            belum bisa diekspor.
+          </span>
+        </span>
+      </Notice>
+
+      <ul
+        aria-label={OUTSIDE_TEMPLATE}
+        className="border-line flex flex-col border-t"
+      >
+        {rows.map((row) => {
+          const resolved = row.zone ? resolvePage(run, row.zone.pageIndex) : null;
+          return (
+            <li
+              key={`${row.key}-${row.index}`}
+              className="border-line flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-2"
+            >
+              {/* The state's OWN mark, not a reason shape: this row is not one
+                  of the five kinds of blank, and lending it their vocabulary
+                  would say a search had something to do with it. */}
+              <Mark status={row.status} />
+              <span className="lt-figure text-ink-3 text-[0.8125rem]">
+                {OUTSIDE_TEMPLATE}
+              </span>
+              <span className="lt-figure font-bold">{row.label}</span>
+
+              {resolved ? (
+                <span className="flex items-center gap-2">
+                  <span className="lt-label">area</span>
+                  <span className="lt-kotak" title={resolved.sourceName}>
+                    hal {resolved.pageInDoc + 1}/{resolved.pagesInDoc}
+                  </span>
+                </span>
+              ) : row.zone ? (
+                <span className="text-gap text-[0.8125rem]">
+                  Halamannya sudah tidak ada di order ini.
+                </span>
+              ) : null}
+
+              <span className="ms-auto">
+                {/* NO GLYPH. `Kosongkan`'s icon is the double rule a clerk
+                    leaves in a cell that stays blank, which is precisely what
+                    this does NOT do: the bagian is not in the packet at all, so
+                    nothing is left blank anywhere. And every row here carries
+                    the same single control, so an icon on all of them
+                    discriminates nothing -- the same rule `BlankRow` states
+                    about its own pair. */}
+                <Btn
+                  tone="reject"
+                  disabled={busy}
+                  reason={LOADING_HOLD}
+                  onClick={() => onDiscard(row.index)}
+                >
+                  Buang potongan ini
+                </Btn>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* The machine keys, behind the one disclosure this product uses for
+          deployer-facing text, exactly as the blanks list files its own. */}
+      <TechnicalDetail>
+        {rows.map((row) => row.key).join("\n")}
+      </TechnicalDetail>
     </div>
   );
 }

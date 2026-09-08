@@ -14,6 +14,8 @@
 import { captureOrdinalOf, withDiscoveredCaptures } from "./runtime.ts";
 import type { BrowserRun, DiscoveredCapture, SlotState } from "./runtime.ts";
 import { continuationChecked } from "../browser/captures.ts";
+import { isSearchable } from "../forms/overlay.ts";
+import type { Template } from "../forms/template.ts";
 
 type Zone = NonNullable<SlotState["zone"]>;
 
@@ -102,8 +104,24 @@ export type ProposeResponse = {
  *
  * `outstanding` IS included, because that is the dokumen tambahan loop: the
  * slot was searched and not found, and a document ingested since may hold it.
+ *
+ * AND THE FORM DECIDES WHETHER THE KEY MAY BE ASKED ABOUT AT ALL, which is the
+ * filter this function did without for as long as every run shared one form.
+ * `run.slots` is seeded once and then only grown, so it outlives any edit the
+ * operator makes to the judul list: a bagian whose judul they DELETED still has
+ * its state sitting in the array, and a bagian in a judul they ADDED has one
+ * too. Neither is searchable -- one names nothing in this order's form, the
+ * other is a tangkapan satu halaman taken by hand -- so sending either as
+ * `wanted` bought a route call that could only fail, and the failure came back
+ * as "tidak ditemukan", on every reading pass, for ever. That word is fixed in
+ * `docs/ui-bahasa.md` to mean SEARCHED AND NOT FOUND, so it was a false
+ * statement about work nobody had done, printed to the operator in the one
+ * place they go to decide whether to hunt for another document.
+ *
+ * `isSearchable` strips a capture ordinal itself, so this is safe on any
+ * `SlotState.key`.
  */
-export function wantedKeys(run: BrowserRun): string[] {
+export function wantedKeys(run: BrowserRun, template: Template): string[] {
   return run.slots
     .filter(
       (slot) =>
@@ -115,7 +133,8 @@ export function wantedKeys(run: BrowserRun): string[] {
         // (the wide call answered page 20 lines 5-16 against the human's 0-15).
         // A continuation that lost its zone is removed rather than re-searched,
         // so one reaching here at all is a leftover from an older run.
-        captureOrdinalOf(slot.key) === 1,
+        captureOrdinalOf(slot.key) === 1 &&
+        isSearchable(template, slot.key),
     )
     .map((slot) => slot.key);
 }
@@ -136,12 +155,26 @@ export function wantedKeys(run: BrowserRun): string[] {
  * `proposed` captures from an earlier round are included deliberately: the walk
  * asks about the BLOCK, and whether a person has ruled on the block yet does
  * not change where the page ends.
+ *
+ * AND THE FORM FILTERS THIS LIST TOO, for a reason that is NOT the same as
+ * `wantedKeys`'s and is worse. A capture on a bagian in an ADDED judul holds a
+ * zone the operator drew by hand and can perfectly well reach here, and the
+ * route would then build a lanjutan prompt out of `ADDED_SLOT_ASK` -- the
+ * frozen placeholder `../forms/overlay.ts` says is never sent anywhere,
+ * literally the string "added bagian, never searched". A model asked where
+ * that continues answers something, and the something is a rectangle appended
+ * to a bagian the operator is capturing by hand. A capture under a judul they
+ * DELETED is the same shape with no def to build a prompt from at all.
  */
-export function capturesToWalk(run: BrowserRun): { key: string; zone: Zone }[] {
+export function capturesToWalk(
+  run: BrowserRun,
+  template: Template,
+): { key: string; zone: Zone }[] {
   return run.slots.flatMap((slot) =>
     slot.zone &&
     !continuationChecked(slot) &&
-    (slot.status === "proposed" || slot.status === "confirmed")
+    (slot.status === "proposed" || slot.status === "confirmed") &&
+    isSearchable(template, slot.key)
       ? [{ key: slot.key, zone: slot.zone }]
       : [],
   );
@@ -158,8 +191,18 @@ export function capturesToWalk(run: BrowserRun): { key: string; zone: Zone }[] {
  * here would compile, work perfectly for a single-document run, and point
  * every zone at the wrong page from the second document onward. The route
  * re-checks this and answers 400 rather than trusting it.
+ *
+ * `template` IS THIS ORDER'S RESOLVED FORM, never the module constant. It is a
+ * parameter rather than an import because this module is pure and is driven by
+ * `node --test`, and because the caller is the one holding the run whose
+ * overlay decides the answer: `resolveTemplate(AO_TEMPLATE, run.overlay)`, or
+ * `useRunTemplate(run)` from a screen. Reading the constant here would send the
+ * route a `wanted` list describing a form the operator is not looking at.
  */
-export function buildProposeRequest(run: BrowserRun): ProposeRequest {
+export function buildProposeRequest(
+  run: BrowserRun,
+  template: Template,
+): ProposeRequest {
   return {
     runId: run.id,
     pages: run.pages.map((page, position) => ({
@@ -169,8 +212,8 @@ export function buildProposeRequest(run: BrowserRun): ProposeRequest {
       height: page.heightPx,
       lines: page.lines,
     })),
-    wanted: wantedKeys(run),
-    captures: capturesToWalk(run),
+    wanted: wantedKeys(run, template),
+    captures: capturesToWalk(run, template),
   };
 }
 
@@ -190,17 +233,37 @@ export function buildProposeRequest(run: BrowserRun): ProposeRequest {
  * a caller hand this function a `continuations` list and reasonably believe it
  * had been applied, and the symptom would be a discovered lanjutan that
  * vanishes silently -- evidence missing from a packet that looks complete.
+ *
+ * THE PICK IS WIDENED, NOT DROPPED, and `outOfScope` is in it because this
+ * function is the only thing that can act on it. It is the half of the answer
+ * that says "these keys were NOT searched": a bagian in a judul the operator
+ * added, whose potongan they take by hand, or a key naming no bagian in this
+ * order's form at all. The right treatment is to change nothing about them --
+ * not to mark them `outstanding` (which is fixed in `docs/ui-bahasa.md` to mean
+ * SEARCHED AND NOT FOUND, and would print a false report of work nobody did),
+ * and not to reset them to `pending` either, which would throw away a decision
+ * the operator has already taken on a bagian they are capturing themselves.
+ * The early return below is that rule stated once rather than left to fall out
+ * of the fact that the route also omits them from `outstanding`.
  */
 export function applyProposals(
   run: BrowserRun,
-  response: Pick<ProposeResponse, "proposals" | "outstanding">,
+  response: Pick<ProposeResponse, "proposals" | "outstanding" | "outOfScope">,
 ): BrowserRun {
   const proposals = new Map(response.proposals.map((p) => [p.key, p]));
   const outstanding = new Map(response.outstanding.map((o) => [o.key, o]));
+  // `?? []` so a hand-built response in a test, or a route mid-deploy that
+  // predates the field, leaves every slot alone rather than throwing. The wire
+  // type keeps it REQUIRED; this is about the value actually arriving.
+  const outOfScope = new Set((response.outOfScope ?? []).map((o) => o.key));
 
   return {
     ...run,
     slots: run.slots.map((slot) => {
+      // EXACTLY AS FOUND. Nothing the route declined to search may be moved by
+      // its answer, whatever else that answer happens to name.
+      if (outOfScope.has(slot.key)) return slot;
+
       // Only a slot still waiting to be searched may be changed by an answer.
       const open = slot.status === "pending" || slot.status === "outstanding";
       if (!open || slot.zone) return slot;
@@ -289,6 +352,11 @@ export function applyContinuations(
  * `applyProposals` first, because a continuation the route found by walking a
  * proposal it made in the same request names a capture that only exists once
  * that proposal has been applied.
+ *
+ * The whole response goes into `applyProposals`, which is what carries
+ * `outOfScope` to the one place that can honour it. Narrowing the argument here
+ * would compile and would silently drop the half of the answer that says which
+ * keys were never searched.
  */
 export function applyResponse(
   run: BrowserRun,
@@ -308,12 +376,13 @@ export function applyResponse(
  */
 export async function requestProposals(
   run: BrowserRun,
+  template: Template,
   signal?: AbortSignal,
 ): Promise<ProposeResponse> {
   const response = await fetch("/api/propose", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildProposeRequest(run)),
+    body: JSON.stringify(buildProposeRequest(run, template)),
     signal,
   });
 

@@ -136,6 +136,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import type { HeaderFields } from "@/lib/export/docx";
+/**
+ * THE MODULE CONSTANT, AND IT IS READ EXACTLY ONCE IN THIS FILE: the number of
+ * rows in the ORDER_Config sheet, printed as screen copy about that sheet.
+ *
+ * Everything ELSE here reads this order's resolved form through
+ * `useRunTemplate`. The xlsx row list does not, because it is NOT per order: an
+ * operator-created judul is evidence-only (`AddedSection` carries no layout and
+ * `resolveTemplate` passes `xlsxRows` through untouched), so it can never add,
+ * remove or fill a row of column E. Swapping this read for the resolved
+ * template would print the same number with a false implication -- that editing
+ * the judul list changes the spreadsheet.
+ */
 import { AO_TEMPLATE } from "@/lib/forms/template";
 import { deriveIdsFromFilenames } from "@/lib/pipeline/fields";
 import {
@@ -164,6 +176,7 @@ import type { BrowserRun } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
 import { captureLabel, progressOf } from "@/lib/ui/slots";
+import { useRunTemplate } from "@/lib/ui/use-run-template";
 
 import {
   Btn,
@@ -1192,7 +1205,17 @@ export function ExportPanel({
   }>({ docx: false, xlsx: false });
 
   const [barRef, barHeight] = useBarHeight();
-  const plan = useMemo(() => planExport(run, AO_TEMPLATE), [run]);
+  /**
+   * THE FORM THE OPERATOR JUST SIGNED OFF ON, not the compile-time one.
+   *
+   * This screen is the last thing anybody reads before a validator signs, so a
+   * plan built from the module constant is the worst place in the app for the
+   * two to disagree: it would list a bagian whose judul they deleted as still
+   * owed, drop the judul they added out of the packet entirely, and print the
+   * whole inventory under headings they replaced. All three open fine.
+   */
+  const template = useRunTemplate(run);
+  const plan = useMemo(() => planExport(run, template), [run, template]);
   /**
    * How much of "lengkap" was ever tested.
    *
@@ -1206,7 +1229,7 @@ export function ExportPanel({
    * block that fires every time somebody drew an area by hand teaches people
    * that the block means nothing.
    */
-  const progress = useMemo(() => progressOf(run, AO_TEMPLATE), [run]);
+  const progress = useMemo(() => progressOf(run, template), [run, template]);
   const thumbs = useExportThumbs(run.id, plan.crops);
   const names = deliverableNames(header, run.id);
   const { tally } = plan;
@@ -1217,11 +1240,24 @@ export function ExportPanel({
    * The header fields and the exact set of rectangles that will be cut. Any
    * difference means the files on this screen no longer describe what the
    * screen says, so they are withheld rather than handed over.
+   *
+   * AND THE HEADINGS, which the crop list cannot stand in for. Renaming a judul
+   * changes what `buildDocx` prints and changes NOT ONE rectangle, so a stamp
+   * made of crops alone reads a rename as "nothing happened" and hands over a
+   * packet titled with the name the operator just replaced. Titles rather than
+   * the whole template: `ask`, `docType` and the rest cannot move within an
+   * order, and hashing them would only add noise to a comparison whose whole
+   * job is to be exact about what changed.
    */
   const stamp = useMemo(
     () =>
       JSON.stringify({
         header,
+        headings: template.sections.map((section) => [
+          section.id,
+          section.title,
+          section.slots.map((slot) => [slot.key, slot.label]),
+        ]),
         crops: plan.crops.map((crop) => ({
           key: crop.key,
           ordinal: crop.ordinal,
@@ -1229,7 +1265,7 @@ export function ExportPanel({
           box: crop.box,
         })),
       }),
-    [header, plan],
+    [header, plan, template],
   );
   // Narrowed once, so the two file slabs can be rendered outside the branch
   // that proves the bytes exist.
@@ -1276,7 +1312,7 @@ export function ExportPanel({
     setHandedOver({ docx: false, xlsx: false });
     try {
       const { buildDeliverables } = await import("@/lib/ui/export");
-      const files = await buildDeliverables(run, AO_TEMPLATE, header, plan, {
+      const files = await buildDeliverables(run, template, header, plan, {
         pageBitmap: runtime.pageBitmap,
         onProgress: (done, total) => setState({ kind: "working", done, total }),
         /*

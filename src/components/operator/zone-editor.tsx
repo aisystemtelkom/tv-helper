@@ -115,7 +115,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { AO_TEMPLATE } from "@/lib/forms/template";
 import { unionBoxes } from "@/lib/pipeline/geometry";
 import type { Line } from "@/lib/pipeline/geometry";
 import { CROP_PADDING_PX } from "@/lib/pipeline/locate";
@@ -132,6 +131,7 @@ import type { BrowserRun, StoredPage, Zone } from "@/lib/ui/runtime";
 import { captureOrdinalOf, slotKeyOf } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
 import { templateSlots } from "@/lib/ui/slots";
+import { useRunTemplate } from "@/lib/ui/use-run-template";
 import {
   drawZone,
   isMeaningfulDrag,
@@ -709,10 +709,17 @@ export function ZoneEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [requestCancel]);
 
+  /**
+   * THIS ORDER'S FORM. The bagian being drawn may exist only here: a judul the
+   * operator added lives in `run.overlay`, so looking the key up in the module
+   * constant finds nothing and the editor loses the name, the catatan and the
+   * section title for exactly the captures that are ALWAYS taken by hand.
+   */
+  const template = useRunTemplate(run);
   const slotDef = useMemo(() => {
     const key = slotKeyOf(target.slotKey);
-    return templateSlots(AO_TEMPLATE).find((entry) => entry.slot.key === key);
-  }, [target.slotKey]);
+    return templateSlots(template).find((entry) => entry.slot.key === key);
+  }, [target.slotKey, template]);
 
   // WHICH capture of its bagian is being drawn, read through the shared rule
   // rather than by splitting the key here. The key itself never reaches the
