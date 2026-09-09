@@ -137,7 +137,7 @@ export function rankedPoolForDocTypes<P extends { index: number }>(
  * Maps a citation's pool POSITION back to that page's true document index.
  * Returns undefined -- drop the citation -- when the position is not one the
  * pool actually holds, instead of the old `pool[i]?.index ?? i` fallback,
- * which wrote the raw local position into the workbook as a bundle-global
+ * which recorded the raw local position as though it were a bundle-global
  * page number whenever the model cited a position outside the pool.
  */
 export function remapCitedPageIndex(
@@ -402,8 +402,8 @@ export async function extractTextFields(
         // the pool it validated against and the pool remapped here ever stop
         // being the same array. They are the same array today; the cost of
         // saying so anyway is one comparison, and the cost of being wrong is
-        // a raw pool position written into the workbook as though it were a
-        // bundle-global page number.
+        // a raw pool position recorded as though it were a bundle-global
+        // page number.
         values.push({
           fieldKey: value.fieldKey,
           value: value.value,

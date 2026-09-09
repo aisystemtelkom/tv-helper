@@ -413,7 +413,7 @@ export function planExport(run: BrowserRun, template: Template): ExportPlan {
 }
 
 /**
- * One thing standing between this run and its two files.
+ * One thing standing between this run and its deliverable.
  *
  * `stateIndex` is -1 for a fillable slot the run holds no state for at all,
  * which is a real case rather than a defensive one: the template can declare a
