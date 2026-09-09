@@ -9,6 +9,7 @@
  * failures that LOOK fine in the deliverable.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -139,6 +140,8 @@ const RUN: BrowserRun = {
   // short-circuits an empty one to the base by identity, so this fixture
   // behaves exactly as it did before overlays existed.
   overlay: emptyOverlay(AO_TEMPLATE),
+  konfigurasi: emptyConfigCheck(),
+  epic: emptyEpicCheck(),
   sources: [
     { id: "s1", name: "SPLITBA_LOP999001.pdf", pageCount: 2 },
     { id: "s2", name: "LOP999001_merged.pdf", pageCount: 3 },
@@ -1329,6 +1332,8 @@ function runWithOrphan(orphanHasZone: boolean): BrowserRun {
     id: "run-orphan",
     createdAt: 0,
     overlay: emptyOverlay(AO_TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     sources: [{ id: "s1", name: "LOP999001_merged.pdf", pageCount: 1 }],
     pages: [page("p0", "s1", 0)],
     slots: [
@@ -1498,6 +1503,8 @@ function headingsRun(
     id: "run-judul",
     createdAt: 0,
     overlay,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     sources: [{ id: "s1", name: "LOP999001_merged.pdf", pageCount: 1 }],
     pages: [page("p0", "s1", 0)],
     slots,
@@ -1891,6 +1898,8 @@ const CHAIN_RUN: BrowserRun = {
   id: "run-lanjutan",
   createdAt: 0,
   overlay: emptyOverlay(AO_TEMPLATE),
+  konfigurasi: emptyConfigCheck(),
+  epic: emptyEpicCheck(),
   sources: [
     { id: "s1", name: "LOP999001_merged.pdf", pageCount: 4 },
     { id: "s2", name: "SPLITBA_LOP999001.pdf", pageCount: 1 },

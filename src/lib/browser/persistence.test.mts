@@ -58,11 +58,25 @@ import {
   putSource,
   deleteRun,
   CaptureLossError,
+  CONFIG_RESEARCHED_ID,
+  DecisionLossError,
+  EPIC_BASIS_ID,
   PageLossError,
   SectionLossError,
   StaleRunWriteError,
+  configEntryId,
+  discardedDecisions,
+  epicEntryId,
   type RunMeta,
 } from "../storage/runs.ts";
+import {
+  emptyConfigCheck,
+  emptyEpicCheck,
+  type ConfigCheck,
+  type ConfigEntry,
+  type EpicCheck,
+  type EpicEntry,
+} from "../config/types.ts";
 import { continuationChecked } from "./captures.ts";
 import {
   DuplicateDocumentError,
@@ -106,6 +120,25 @@ const runId = (name: string) => `test-${name}-${(counter += 1)}`;
  * own structured clone rather than this reference.
  */
 const NO_EDITS: TemplateOverlay = emptyOverlay(AO_TEMPLATE);
+
+/**
+ * An order that has not reached Checkpoint 2 or Checkpoint 3.
+ *
+ * `konfigurasi` and `epic` are REQUIRED on `BrowserRun` for the same reason
+ * `overlay` is, and that is why every fixture in this file has to say so out
+ * loud: an optional field walks straight past `metaOf`'s field-by-field list,
+ * which is how `StoredPage.short` was written, stored and then thrown away on
+ * the way back out with nothing failing. What would be forgotten here is a
+ * person's answer rather than a page marker.
+ *
+ * Built fresh per fixture rather than shared, unlike `NO_EDITS`: several tests
+ * below write decisions into these and a shared object would leak one test's
+ * rulings into the next one's assertions.
+ */
+const noCheckpoints = () => ({
+  konfigurasi: emptyConfigCheck(),
+  epic: emptyEpicCheck(),
+});
 
 /**
  * A page with real-looking OCR geometry.
@@ -157,6 +190,7 @@ function freshRun(id: string, pages: StoredPage[] = []): BrowserRun {
     sources: [{ id: "src-a", name: "LOP999001_BUNDLE.pdf", pageCount: pages.length }],
     pages,
     overlay: NO_EDITS,
+    ...noCheckpoints(),
     slots: [
       confirmedSlot,
       { key: "kb.tanggal", label: "Tanggal", status: "outstanding" },
@@ -748,7 +782,15 @@ test("appendPage refuses a page for a run that is not stored", async () => {
   await assert.rejects(
     () =>
       appendPage(
-        { id, createdAt: 1, rev: 0, sources: [], slots: [], overlay: NO_EDITS },
+        {
+          id,
+          createdAt: 1,
+          rev: 0,
+          sources: [],
+          slots: [],
+          overlay: NO_EDITS,
+          ...noCheckpoints(),
+        },
         page("o0", "src-a", 0),
         0,
       ),
@@ -1026,6 +1068,7 @@ function twoDocumentRun(id: string): BrowserRun {
     id,
     createdAt: 1,
     overlay: NO_EDITS,
+    ...noCheckpoints(),
     sources: [
       { id: "src-a", name: "KONTRAK.pdf", pageCount: 2 },
       { id: "src-b", name: "SPLITBA.pdf", pageCount: 2 },
@@ -1335,6 +1378,7 @@ test("a run whose sources predate the digest still accepts documents", async () 
     pages: [],
     slots: [],
     overlay: NO_EDITS,
+    ...noCheckpoints(),
   });
 
   const after = await ingestDocument(id, pdf("LOP999001_BUNDLE.pdf"), undefined, {
@@ -1643,6 +1687,8 @@ test("a page appended mid-rename keeps the rename, and says so in what it return
     sources: saved.sources,
     slots: saved.slots,
     overlay: saved.overlay,
+    konfigurasi: saved.konfigurasi,
+    epic: saved.epic,
   };
   const written = await appendPage(midIngest, page("n1", "src-a", 1), 1);
 
@@ -1679,6 +1725,7 @@ function twoBerkasRun(id: string): BrowserRun {
     ],
     pages: [page("q-a0", "src-a", 0), page("q-a1", "src-a", 1), page("q-b0", "src-b", 0)],
     overlay: NO_EDITS,
+    ...noCheckpoints(),
     slots: [confirmedSlot],
   };
 }

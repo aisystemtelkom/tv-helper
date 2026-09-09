@@ -249,7 +249,40 @@ export type Stage =
   | "locate"
   | "extract"
   | "verify"
-  | "continuation";
+  | "continuation"
+  /**
+   * CHECKPOINT 2: reading the operator's EPIC order-configuration workbook and
+   * checking every field of it against the scans.
+   *
+   * TWO QUESTIONS, ONE ROW, and the merge is deliberate where `sections` split.
+   * Interpreting the workbook is one small call over a cell listing; comparing
+   * is one large call carrying the same page listing `locate` sends. They are
+   * billed together because they are spent together -- an operator who hands
+   * over a workbook always pays for both, and neither is separately gated. What
+   * this row answers is "what did checking the konfigurasi cost", which is the
+   * question a deployment actually asks before turning the checkpoint on.
+   *
+   * IT IS BILLED PER WORKBOOK, NOT PER RUN. An order that never reaches
+   * Checkpoint 2 spends nothing here, and the row reads zero rather than
+   * absent, which is the distinction `formatLedger` already draws.
+   */
+  | "config"
+  /**
+   * CHECKPOINT 3: checking the operator's EPIC screen captures against the
+   * workbook.
+   *
+   * ITS OWN ROW RATHER THAN FOLDED INTO `config`, for the reason `sections` is
+   * not folded into `classify`: the yardstick has swapped. `config` asks
+   * whether the workbook matches the SCANS; this asks whether EPIC matches the
+   * WORKBOOK. They are reached from different screens, one is optional after
+   * the other, and a merged row could not say which of the two an order
+   * actually spent on.
+   *
+   * NOTE THE OCR IT DOES NOT CARRY. A screen capture is recognised through
+   * `/api/ocr` like any page, so its recognition bills to `ocr`. This row is
+   * the reasoning call only.
+   */
+  | "epic";
 
 export const STAGES: readonly Stage[] = [
   "ocr",
@@ -259,6 +292,8 @@ export const STAGES: readonly Stage[] = [
   "extract",
   "verify",
   "continuation",
+  "config",
+  "epic",
 ];
 
 /** Every stage's tally, plus which model each stage was served by. */
@@ -285,6 +320,8 @@ export function emptyLedger(batch = false): CostLedger {
       extract: emptyTally(),
       verify: emptyTally(),
       continuation: emptyTally(),
+      config: emptyTally(),
+      epic: emptyTally(),
     },
     models: {},
     batch,

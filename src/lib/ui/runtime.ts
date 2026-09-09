@@ -126,7 +126,29 @@ export {
  */
 export type { SectionEdit } from "../browser/sections.ts";
 
+/**
+ * ONE OPERATOR GESTURE AT CHECKPOINT 2 OR CHECKPOINT 3, as a value.
+ *
+ * Type-only and from the leaf module, exactly as `SectionEdit` above is and for
+ * the same reason: a screen names the edit it is about to make without pulling
+ * IndexedDB and the Web Worker client into a `node --test` process.
+ *
+ * `configEntryId` and `epicEntryId` are VALUES and come from the storage layer,
+ * because they are the identity the `DecisionLossError` guard itself uses. A
+ * screen that addressed a row by any other spelling would compose a decision
+ * the guard could not recognise, and the opt-in protecting it could never name
+ * it.
+ */
+export type { ConfigEdit, EpicEdit } from "../browser/config.ts";
+export {
+  CONFIG_RESEARCHED_ID,
+  EPIC_BASIS_ID,
+  configEntryId,
+  epicEntryId,
+} from "../storage/runs.ts";
+
 import type { BrowserRun, SlotState } from "../browser/runtime.ts";
+import type { ConfigEdit, EpicEdit } from "../browser/config.ts";
 import type { SectionEdit } from "../browser/sections.ts";
 import type { PutRunOptions } from "../storage/runs.ts";
 
@@ -190,6 +212,48 @@ export type Runtime = {
    * Returns the STORED run, revision advanced. The caller must keep it.
    */
   editSections(runId: string, edit: SectionEdit): Promise<BrowserRun>;
+  /**
+   * One edit to this order's CHECKPOINT 2 state: the workbook it was handed,
+   * what the scans said about each isian, and what the operator ruled.
+   *
+   * IT TAKES AN EDIT AND NOT A RUN, on `editSections`' argument exactly. A
+   * screen holds a `BrowserRun` for as long as the operator is looking at it,
+   * an ingest advances the revision once per page across minutes, and
+   * Checkpoint 2 is a screen of amber rows the operator works down while the
+   * tool is still busy -- so `saveRun({ ...run, konfigurasi: next })` is
+   * refused as stale on the ordinary path, not on a corner case.
+   *
+   * It computes `putRun`'s `removingDecisions` itself, by calling the same
+   * `discardedDecisions` the storage guard runs. Replacing a workbook
+   * legitimately discards every ruling made about the old one, and a screen
+   * assembling that write by hand would have to know about `DecisionLossError`
+   * to get it past storage.
+   *
+   * Returns the STORED run, revision advanced. The caller must keep it.
+   */
+  editConfig(runId: string, edit: ConfigEdit): Promise<BrowserRun>;
+  /** The same, one checkpoint up: the EPIC basis, its captures, its findings. */
+  editEpic(runId: string, edit: EpicEdit): Promise<BrowserRun>;
+  /**
+   * The bytes of the operator's workbook, or of one tangkapan layar EPIC.
+   *
+   * They go in the SAME blob store the PDFs do, under their own id with this
+   * run's id alongside, so `deleteRun` sweeps them with the order and there is
+   * no second cleanup path to forget. They are NOT added to
+   * `BrowserRun.sources`: a workbook is not a berkas of the order, nothing
+   * renders or crops it, and listing it there would put it on the film strip
+   * and into `Zone.pageIndex`'s arithmetic.
+   */
+  putCheckpointFile(
+    runId: string,
+    id: string,
+    name: string,
+    bytes: ArrayBuffer,
+  ): Promise<void>;
+  /** Those bytes back, for the download. Null when they are gone. */
+  getCheckpointFile(
+    id: string,
+  ): Promise<{ name: string; bytes: ArrayBuffer } | null>;
   /**
    * Renders + OCRs every page of `file` in a Web Worker and appends them to
    * the run. `onProgress` reports page-level progress so the UI can show a bar.

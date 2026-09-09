@@ -31,6 +31,7 @@
  * 1209990001, Budi Contoh.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -100,6 +101,8 @@ function twoBerkas(overlay: TemplateOverlay, slots: SlotState[] = []): BrowserRu
     ],
     slots,
     overlay,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 

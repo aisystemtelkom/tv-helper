@@ -34,6 +34,7 @@
  *    the canvas as arguments and why the append is its own function.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
@@ -741,6 +742,8 @@ test("a discovered lanjutan is APPENDED, proposed, under a fresh ordinal", () =>
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -778,6 +781,8 @@ test("an answer whose parent lost its zone while the search ran is dropped", () 
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -817,6 +822,8 @@ test("rejecting a lanjutan removes it AND the tail found by walking past it", ()
   const run: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -862,6 +869,8 @@ test("the same block is never appended twice, whatever asks for it", () => {
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -906,6 +915,8 @@ test("a lanjutan the walk already looked past arrives stamped", () => {
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -945,6 +956,8 @@ test("a capture reopened while the search ran is not stamped as checked", () => 
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -968,6 +981,8 @@ test("an answer does not re-open a bagian the operator emptied while it ran", ()
   const base: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -993,6 +1008,8 @@ test("redrawing a lanjutan takes its tail but keeps the capture itself", () => {
   const run: BrowserRun = {
     id: "run",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 0,
     sources: [],
     pages: [],
@@ -1090,6 +1107,8 @@ test("appending a dokumen tambahan's page keeps every earlier page and zone", ()
   const before: BrowserRun = {
     id: "run-1",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 1,
     sources: [
       { id: "src-a", name: "bundle.pdf", pageCount: 2 },
@@ -1133,6 +1152,8 @@ test("appending never renumbers the pages a zone already points at", () => {
   let run: BrowserRun = {
     id: "run-2",
     overlay: NO_EDITS,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
     createdAt: 1,
     sources: [{ id: "src-a", name: "a.pdf", pageCount: 2 }],
     pages: [page("p0", "src-a", 0), page("p1", "src-a", 1)],

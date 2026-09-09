@@ -23,6 +23,7 @@
  * complete, and is missing evidence a human validator then signs.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -187,6 +188,8 @@ function seededRun(
     // than optional: `metaOf` lists a run's small half field by field so that
     // tsc names anything new, and an optional field walks straight past that.
     overlay,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 

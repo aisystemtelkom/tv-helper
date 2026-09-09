@@ -22,6 +22,8 @@
  */
 
 import {
+  applyConfigEdit,
+  applyEpicEdit,
   applySectionEdit,
   seedSlots,
   withDiscoveredCaptures,
@@ -31,6 +33,7 @@ import {
   sourceRemovalCost,
   withSourceAi,
 } from "../browser/sources.ts";
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
 // The REAL comparison storage refuses writes with, not a second one written
@@ -276,6 +279,15 @@ function seedRun(): BrowserRun {
     // here would carry the wrong `version` or a stale `baseFingerprint` the
     // day either changes, and every screen would be developed against it.
     overlay: emptyOverlay(AO_TEMPLATE),
+    // Seeded through the real empties for the same reason `overlay` is. THE
+    // STUB DELIBERATELY INVENTS NO KONFIGURASI: Checkpoint 2 begins when the
+    // operator hands a real workbook over, and a stub that arrived holding
+    // fabricated isian would let those screens be developed against a shape
+    // no real order can reach -- every field already interpreted, every
+    // address already valid, and none of the refusals that make the real one
+    // trustworthy ever exercised.
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
   return lanjutanStub({ ...run, slots: searchStub(run, pages) });
 }
@@ -341,6 +353,18 @@ export function createStubRuntime(): Runtime {
   const runs = new Map<string, BrowserRun>();
   const seeded = seedRun();
   runs.set(seeded.id, seeded);
+
+  /**
+   * The workbook and tangkapan layar bytes, keyed as the blob store keys them.
+   *
+   * `runId` is held but unused, deliberately: it is what the live store uses to
+   * sweep these away with `deleteRun`, and dropping it here would make this a
+   * model of a simpler thing than the one being stubbed.
+   */
+  const checkpointFiles = new Map<
+    string,
+    { runId: string; name: string; bytes: ArrayBuffer }
+  >();
 
   // NAMED, so `editSections` below can go through this object's own `saveRun`
   // rather than writing to the map directly. A section edit is the one gesture
@@ -441,6 +465,59 @@ export function createStubRuntime(): Runtime {
       return runtime.saveRun(run, { removing, removingSections });
     },
 
+    /*
+     * CHECKPOINT 2 AND 3, THROUGH THE SAME PURE FUNCTIONS THE LIVE RUNTIME
+     * USES, for the reason `editSections` above borrows `applySectionEdit`: a
+     * stub may invent pages and pixels, but never the RULES. The rule these two
+     * carry is `removingDecisions` -- which operator rulings a write discards --
+     * and it is computed inside `applyConfigEdit` by calling the same
+     * `discardedDecisions` that storage will judge the write by. A stub that
+     * re-derived that opt-in here would be a second copy of the one rule whose
+     * whole design is that it cannot have one, and the day the two disagreed
+     * every screen would have been developed against the wrong answer.
+     */
+    async editConfig(runId, edit) {
+      const stored = runs.get(runId);
+      if (!stored) throw new Error(`no run ${runId}`);
+
+      const { run, removingDecisions } = applyConfigEdit(stored, edit);
+      // Identity, not deep equality: the pure functions promise the SAME
+      // OBJECT for a no-op, and a stub that saved anyway would hide a wasted
+      // write behind a revision bump the screens would never notice.
+      if (run === stored) return stored;
+      return runtime.saveRun(run, { removingDecisions });
+    },
+
+    async editEpic(runId, edit) {
+      const stored = runs.get(runId);
+      if (!stored) throw new Error(`no run ${runId}`);
+
+      const { run, removingDecisions } = applyEpicEdit(stored, edit);
+      if (run === stored) return stored;
+      return runtime.saveRun(run, { removingDecisions });
+    },
+
+    /*
+     * THE WORKBOOK BYTES, IN A MAP, AND THAT IS THE HONEST STUB OF THEM.
+     *
+     * The live pair puts them in the `sources` blob store under the run's id so
+     * `deleteRun` sweeps them; there is nothing to model there but "they come
+     * back out". What IS worth keeping is the null: `getCheckpointFile` returns
+     * null for bytes that are gone, and the download screen has to say
+     * something useful when the workbook it was going to patch is missing --
+     * which is reachable in production the moment an operator clears site data
+     * in another tab. A stub that always answered would let that path ship
+     * untried.
+     */
+    async putCheckpointFile(runId, id, name, bytes) {
+      checkpointFiles.set(id, { runId, name, bytes });
+    },
+
+    async getCheckpointFile(id) {
+      const held = checkpointFiles.get(id);
+      return held ? { name: held.name, bytes: held.bytes } : null;
+    },
+
     async ingestDocument(runId, file, onProgress) {
       const existing = runs.get(runId) ?? {
         id: runId,
@@ -449,6 +526,8 @@ export function createStubRuntime(): Runtime {
         pages: [],
         slots: emptySlots(),
         overlay: emptyOverlay(AO_TEMPLATE),
+        konfigurasi: emptyConfigCheck(),
+        epic: emptyEpicCheck(),
       };
 
       const sourceId = `src-${existing.sources.length}-${file.name}`;

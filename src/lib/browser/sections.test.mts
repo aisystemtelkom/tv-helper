@@ -34,6 +34,7 @@
  * why the fake is a spec implementation rather than a hand-rolled Map.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import "fake-indexeddb/auto";
 
 import assert from "node:assert/strict";
@@ -154,6 +155,8 @@ function runWithEvidence(id: string): BrowserRun {
       },
     ],
     overlay: emptyOverlay(AO_TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 
@@ -1074,6 +1077,8 @@ test("a rename survives a CONCURRENT ingest, which the obvious API cannot", asyn
     sources: [...held.sources, { id: "src-b", name: "TAMBAHAN.pdf", pageCount: 2 }],
     slots: held.slots,
     overlay: held.overlay,
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
   const afterFirstPage = await appendPage(midIngest, page("b0", "src-b", 0), 3);
 

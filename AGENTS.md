@@ -20,38 +20,72 @@ rather than a text quote.
 The headless pipeline that produces it is built and merged. `pnpm generate`
 runs it end to end with no UI and no browser involved.
 
-## THERE IS NO EXCEL, IN EITHER DIRECTION
+## THE PROGRAM NEVER AUTHORS A SPREADSHEET, AND NOW AMENDS ONE
 
-**This program must never generate, write, offer or read a spreadsheet**, and
-that is a product decision recorded 2026-09-09, not a gap waiting to be filled.
+**This section reversed on 2026-09-09 and the previous version is quoted below,
+because the half that survived is the half a reader is likeliest to drop.**
 
-It used to do both. It wrote `<ID EPIC>_ORDER_Config.xlsx`, the EPIC
-order-entry sheet with column E filled from the scans, and it could take the
-EPIC order request as an `.xlsx` INPUT (`--request`, `--service`,
-`src/lib/pipeline/order-request.ts`), which supplied values deterministically
-and removed those keys from what the model was asked for. The client confirmed
-the workbook was a miscommunication and that Excel was never meant to be an
-input either. All of it is gone: `src/lib/export/xlsx.ts`, the order-request
-reader, the `answered` parameter on `/api/extract` that only that reader
-produced, the browser's second download plate, the attachment path's
+It used to say: *this program must never generate, write, offer or read a
+spreadsheet*. That was recorded the same day the client's next instruction
+narrowed it, and the two are not in conflict once the subject is named. The
+banned thing was a **deliverable the tool authored from nothing**:
+`<ID EPIC>_ORDER_Config.xlsx`, the EPIC order-entry sheet with column E filled
+from the scans, plus an `.xlsx` INPUT path (`--request`, `--service`,
+`src/lib/pipeline/order-request.ts`) that supplied values deterministically and
+removed those keys from what the model was asked for. The client confirmed the
+workbook was a miscommunication and that Excel was never meant to be an input
+*of that kind*. All of that is still gone: `src/lib/export/xlsx.ts`, the
+order-request reader, the `answered` parameter on `/api/extract` that only that
+reader produced, the browser's second download plate, the attachment path's
 spreadsheet converter, and the `exceljs` dependency itself.
 
-- **`exceljs` is NOT in `package.json` and must not come back.** Neither must
-  `xlsx` (SheetJS), which is separately disqualified: frozen on npm at 0.18.5
-  with two unpatched HIGH advisories whose fixes ship only from the vendor's
-  own CDN.
-- **`Template.fieldRows` is the surviving half and is NOT a sheet.** It was
-  `xlsxRows` and was renamed with the workbook. `fieldKey` declares which
+**What Checkpoint 2 does instead is not that.** The operator hands over the EPIC
+order-configuration workbook they already have; the tool reads it, checks every
+field of it against the scans, and offers back **their own file with named cells
+amended**. It never authors a workbook, never decides its structure, and never
+fills a cell nobody ruled on.
+
+- **`exceljs` IS STILL NOT IN `package.json` AND MUST NOT COME BACK.** Neither
+  must `xlsx` (SheetJS), which is separately disqualified and whose
+  disqualification the reversal does not touch: frozen on npm at 0.18.5 with two
+  unpatched HIGH advisories whose fixes ship only from the vendor's own CDN.
+  `src/lib/xlsx/` reads and patches OOXML directly over `jszip`, which the
+  lockfile already pinned for `docx` and which moved to `dependencies` for this.
+- **THE WORKBOOK IS PATCHED, NEVER REBUILT**, and that is the load-bearing half.
+  `patchWorkbook` edits the named cells inside the operator's own bytes and
+  leaves every other zip part alone, so the formatting, the data validations and
+  the print settings EPIC's template carries all survive. A regenerated workbook
+  would lose them in a file that opens cleanly, which is this project's failure
+  class wearing a spreadsheet.
+- **THE MODEL NEVER INVENTS A CELL.** `locate.ts` shows OCR lines and takes a
+  LINE RANGE back; this shows the workbook's real cells with their real
+  addresses and takes a CELL ADDRESS back. Every address is checked against the
+  grid, and a label whose text is not the text standing at the address it cites
+  is dropped with a reason -- the same anti-fabrication rule
+  `src/lib/pipeline/sections.ts` applies to a judul title.
+- **"STRUKTUR EXCEL RANDOM" IS THE CLIENT'S OWN WORDING AND IT IS LITERALLY
+  TRUE.** Three real workbooks read on 2026-09-09 are laid out three different
+  ways: labels down column C with values in column E; headers across row 2 with
+  one data row per service; and fully transposed, with `Nomor`/`Item I`/`Item
+  II`/`Keterangan` as ROW labels down column B and the field names running
+  ACROSS columns E to AN. Nothing hard-codes any of them and nothing may. One of
+  them stores dates as serials (`46255`), so the reader resolves number formats
+  through `styles.xml` or the operator meets a five-digit integer where a date
+  belongs.
+- **`Template.fieldRows` is a different thing and is still NOT a sheet.** It was
+  `xlsxRows` and was renamed with the deleted workbook. `fieldKey` declares which
   values a document may be searched for; `nomor`/`itemI`/`itemII`/`keterangan`
   are the operator-facing NAME of the row, which is how an outstanding entry
-  says "Contact Last Name" rather than "picContacts".
+  says "Contact Last Name" rather than "picContacts". It is not derived from,
+  and does not derive, the operator's workbook.
 - **Extraction stayed**, because the docx HEADER TABLE is filled from it
   (`namaProyek`, `cc`). Two declared keys, `picContacts` and `alamat`, are
   still extracted and now reach nothing; that is known and was accepted rather
   than overlooked.
 - `Konfigurasi (Excel dari EPIC)` is a JUDUL of the packet -- a whole-page
-  capture of the client's own EPIC screen -- and has nothing to do with any of
-  this. Do not "clean it up".
+  capture of the client's own EPIC screen -- and is still unrelated to any of
+  this. It is evidence in the DOKUMEN VALIDASI; Checkpoint 2's workbook is an
+  input to a different check. Do not merge them.
 
 **`pnpm dev` now serves the OPERATOR UI, not the chat.** `src/app/page.tsx`
 renders `<OperatorApp />` behind the auth gate. The assistant-ui chat that used
@@ -807,10 +841,21 @@ READ, and both halves of that sentence are load-bearing.
 - **Use `Packer.toArrayBuffer`, not `toBuffer`.** `toBuffer` asks JSZip for a
   "nodebuffer", which throws in a browser with no `Buffer` polyfill, and this
   pipeline is meant to run in the browser.
-- **Never add a spreadsheet library.** Not `exceljs`, and not `xlsx`
-  (SheetJS). See "THERE IS NO EXCEL, IN EITHER DIRECTION" above; SheetJS is
-  additionally frozen on npm at 0.18.5 with two unpatched HIGH advisories whose
-  fixes ship only from the vendor's CDN.
+- **Never add a spreadsheet library**, and note that Checkpoint 2 shipping
+  `.xlsx` support did NOT relax this. Not `exceljs`, and not `xlsx` (SheetJS).
+  See "THE PROGRAM NEVER AUTHORS A SPREADSHEET, AND NOW AMENDS ONE" above;
+  SheetJS is additionally frozen on npm at 0.18.5 with two unpatched HIGH
+  advisories whose fixes ship only from the vendor's CDN. `src/lib/xlsx/` is
+  about 400 lines over `jszip` and does the only two things this product needs:
+  read every cell with its address, and patch named cells inside bytes it did
+  not author.
+- **`patchWorkbook` VERIFIES ITSELF AFTER PATCHING, and that check is the module's
+  whole point.** A cell-matching regex that misses does not fail; it appends a
+  second `<row r="9">` holding a second `E9`, and Excel opens the result. So the
+  writer re-scans what it produced and refuses unless every edited ref occurs
+  exactly once holding exactly the intended value, with no duplicated row index.
+  That defect was written, hit and fixed during the first spike of this feature;
+  do not remove the check because the happy path passes without it.
 - **A citation must name the source file and its own page number**, not this
   run's bundle-global page index. That global index is 0-based across every PDF
   on the command line, so for every page after the first source file it sent a
@@ -978,14 +1023,37 @@ rule, and a never-searched capture draws a third, different silhouette.
 already refuses stale and page-losing writes and the operator previously had no
 signal that a decision reached disk.
 
-**The flow is three phases, not four**: `1 Muat`, `2 Periksa`, `3 Berkas`. The
-search runs from Muat, and Periksa is gated until it has run. The tambahan loop
-is no longer a phase: it is the head of Periksa, and answering "yes" opens the
-ingest drop in a dialog.
+**The flow is FIVE phases**: `1 Muat`, `2 Periksa`, `3 Checkpoint 1`,
+`4 Checkpoint 2`, `5 Checkpoint 3`. It was three until the client's instruction
+of 2026-09-09 renamed `Berkas` and added two checks after it; this paragraph
+said "three phases, not four" for the sensible reason that `Tambahan` had been
+folded into Periksa, and that half is still true. The search runs from Muat, and
+Periksa is gated until it has run. The tambahan loop is not a phase: it is the
+head of Periksa, and answering "yes" opens the ingest drop in a dialog.
 
-**The phases are drawn as a TIMELINE, not as three buttons**, and the
-difference is a fact rather than a style. Three keys side by side say these are
-three things, equally available, pick one; they are not. They are one route
+- **`3 Checkpoint 1`** is the old `Berkas` under the client's own word for it.
+  What it does did not change: it builds and hands over the DOKUMEN VALIDASI.
+- **`4 Checkpoint 2`** takes the operator's EPIC order-configuration workbook,
+  checks every isian in it against the scans, and hands back THEIR OWN FILE with
+  the cells they approved amended. See "THE PROGRAM NEVER AUTHORS A
+  SPREADSHEET" above before touching any of it.
+- **`5 Checkpoint 3`** takes screen captures of EPIC itself and checks them
+  against that workbook, and produces a ringkasan rather than a file.
+
+**NEITHER NEW CHECKPOINT IS IN `pnpm generate`, DELIBERATELY**, and this follows
+the precedent this file already records twice. Discovery ships the detection
+half only and continuations are found but never cropped, both because a headless
+run has NO OPERATOR TO REJECT ANYTHING. Checkpoint 2 is nothing but a queue of
+recommendations a person approves or rejects one at a time, so a headless
+version of it would either write an unreviewed workbook -- amending the
+operator's own file from a model's answer, silently -- or write nothing and only
+look like a feature. If a bulk path is ever wanted, the shape to copy is
+`--discover-sections`: emit a file of PROPOSALS that a human edits and feeds
+back, never a deliverable.
+
+**The phases are drawn as a TIMELINE, not as buttons**, and the
+difference is a fact rather than a style. Keys side by side say these are
+things, equally available, pick one; they are not. They are one route
 with an order, a position on it, and a gate part way along. `.lt-timeline` is a
 node per phase with a rail between them that fills behind you, which is the
 progress three separate buttons could not show. A reachable phase is still a
@@ -1187,22 +1255,43 @@ src/lib/pipeline/locate.ts     slot -> line range -> box
 src/lib/pipeline/fields.ts     header values with validated citations; reconcile
 src/lib/pipeline/abbrev.ts     do two spellings denote one thing (see gotchas)
 src/lib/pipeline/json.ts       the one extractJson every model reply goes through
+src/lib/pipeline/config-interpret.ts  what isian does this workbook hold; every
+                               cited address checked against the real grid
+src/lib/pipeline/config-compare.ts    Checkpoint 2: does each isian agree with
+                               the scans (one call carries every field)
+src/lib/pipeline/epic-compare.ts      Checkpoint 3: does EPIC agree with the
+                               workbook. THE YARDSTICK IS THE OTHER WAY ROUND
 src/lib/export/png.ts          dependency-free PNG encoder
 src/lib/export/crop.ts         sub-rectangle out of a rendered page
 src/lib/export/docx.ts         the DOKUMEN VALIDASI packet, the one output
 
+src/lib/xlsx/grid.ts           A1 addresses and the cells one sheet holds
+src/lib/xlsx/read.ts           OOXML -> that grid, over jszip. NO SPREADSHEET
+                               LIBRARY, and none may be added
+src/lib/xlsx/write.ts          named cells patched inside the operator's OWN
+                               bytes, and VERIFIED after patching
+src/lib/xlsx/listing.ts        the sheet as the text a model reads, addresses
+                               and all: buildLocatePrompt's device, for cells
+src/lib/config/types.ts        Checkpoint 2 and 3 as data; the contract
+src/lib/config/effective.ts    decisions -> the cells the download writes
+
 src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
                                under browser/ is private to it
 src/lib/browser/types.ts       BrowserRun, StoredPage, SlotState (+ rev),
-                               RunSource.ai (dibaca AI / tanpa AI)
+                               RunSource.ai (dibaca AI / tanpa AI),
+                               konfigurasi + epic (both REQUIRED, see the file)
 src/lib/browser/sections.ts    one operator gesture on the judul list, as a value
+src/lib/browser/config.ts      one operator gesture on the konfigurasi, as a
+                               value; each computes its own putRun opt-in
 src/lib/browser/ingest.ts      the render+OCR page loop, dependencies injected
 src/lib/browser/intake.ts      what counts as the same document, and the
                                screening a hand-over goes through
 src/lib/browser/pipeline.worker.ts  that loop, in a Web Worker
 src/lib/browser/worker-client.ts    the page's side of it
 src/lib/storage/runs.ts        IndexedDB: runs, pages, PDF bytes; the rev check
-                               and the three loss nets (pages, captures, judul)
+                               and the FOUR loss nets (pages, captures, judul,
+                               decisions). The count in this line has been wrong
+                               once already; check `putRun` before quoting it
 src/lib/storage/indexeddb.ts   the chat scaffolding's separate key/value DB
 
 src/app/globals.css            THE DESIGN SYSTEM: tokens, materials, marks

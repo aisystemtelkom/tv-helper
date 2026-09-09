@@ -87,14 +87,51 @@ improvise a synonym.
 | the AI may propose out of this berkas | **dibaca AI** | THE DEFAULT FOR EVERY BERKAS, and a berkas nobody has decided anything about wears it. The key that carries it is selected and petrol, never amber: no decision is owed here |
 | the AI may not propose out of this berkas | **tanpa AI** | NEVER "gagal", never "dilewati", never "tidak ditemukan". The berkas IS still read -- every halaman is rendered, recognised, counted and drawn as a denah, and the operator can still cut a potongan out of it by hand and cite its baris. What stops is the model proposing. The sentence that rides under it says the doing half first: "Halaman berkas ini tetap terbaca dan bisa Anda potong sendiri, tapi AI tidak mencari apa pun di dalamnya." A bagian in such an order is still honestly **belum dicari** or **tidak ditemukan**; the fence is reported once, by name, at the head of the lembar periksa, and steals none of those words |
 
-## The four phases
+## Checkpoint 2 and Checkpoint 3
+
+The words the konfigurasi checks added. `konfigurasi` is the operator's EPIC
+order-configuration workbook, which they hand over and get back amended; it is
+NOT the packet's judul `Konfigurasi (Excel dari EPIC)`, which is a whole-page
+capture of an EPIC screen and is evidence rather than an input.
+
+| Concept | Bahasa | Exact meaning |
+| --- | --- | --- |
+| the EPIC order-configuration workbook | **konfigurasi** | the file itself is **berkas konfigurasi**. Never "excel" in a sentence the operator reads: the app names documents by what they are for |
+| one field of the workbook | **isian** | one name and the cell that holds its value. The workbook's own `Isi` instruction is where the word comes from, which is why it is not "kolom" (a column is many isian) or "baris" (reserved for OCR lines) |
+| which cell an isian lives in | **sel** | always mono, always the real address (`E9`), and it is the workbook's half of a **sumber**. An operator checking a recommendation opens their own file at that address |
+| the scans agree with the workbook | **cocok** | |
+| the scans say something else | **belum sesuai** | on screen. An empty cell the scans can fill wears the same word, because the operator's move is the same. Never "salah": the workbook may well be right and the scan misread |
+| searched the scans, not there | **tidak ditemukan** | unchanged, and still fixed to mean SEARCHED AND NOT FOUND. It is the only verdict the one re-search is offered for |
+| take the recommendation | **Terima** | produces **Diterima**, the same pair the potongan keys use |
+| keep what the workbook says | **Tolak** | produces **Ditolak**. NOT "Bukan ini", which belongs to a potongan: there is no picture here to reject |
+| type a value yourself | **Ketik sendiri** | matches **Gambar sendiri**. The field opens seeded with what is there, because the app never invents a value |
+| spend the one re-search | **Cari sekali lagi** | once spent: *"Pencarian ulang hanya sekali untuk tiap order."* The cap is the client's, and it is on the order rather than on the tab so a reload does not refill it |
+| the amended workbook | **konfigurasi terbaru** | the operator's own file with the accepted cells changed. Never "konfigurasi baru": nothing was authored |
+| a screen capture of EPIC | **tangkapan layar EPIC** | any number of them. They are read for their text only; no halaman is made of them and nothing is cropped out of them |
+| EPIC shows something the workbook has no isian for | **tidak ada di konfigurasi** | NEVER "tidak ditemukan", which is reserved for the other direction. This is a finding ABOUT the workbook, and the operator's move is to add the isian, not to fetch another document |
+| the list of everything still wrong at the end | **ringkasan** | the client asked for it by name. It counts, it names, and every line in it goes to the isian it is about |
+
+## The phases
 
 | # | English | Bahasa | Screen heading |
 | --- | --- | --- | --- |
 | 1 | Ingest | **Muat** | "Muat dokumen order" |
 | 2 | Review | **Periksa** | "Periksa usulan" |
-| 3 | Outstanding | **Tambahan** | "Yang belum ditemukan" |
-| 4 | Export | **Berkas** | "Buat berkas hasil" |
+| 3 | Export | **Checkpoint 1** | "Buat berkas hasil" |
+| 4 | Config check | **Checkpoint 2** | "Cocokkan konfigurasi dengan dokumen" |
+| 5 | EPIC check | **Checkpoint 3** | "Cocokkan EPIC dengan konfigurasi" |
+
+**"Checkpoint" is English inside a Bahasa interface, and that is the client's own
+word**, given in their instruction for step 3 ("ubah jadi checkpoint 1 aja") and
+carried forward to the two checks that follow it. It is a proper noun for a
+stage of their process, like `BA Permintaan` or `ID EPIC`, not a label this
+project chose and should translate. **Muat** and **Periksa** keep their names
+because those describe what the operator does; the checkpoints are named after
+where they sit in the client's flow.
+
+**Tambahan is not in this table and has not been since the rehaul.** It was a
+phase of its own; the dokumen tambahan question is now the head of Periksa, and
+answering "yes" opens the ingest drop in a dialog.
 
 ## The six slot states
 

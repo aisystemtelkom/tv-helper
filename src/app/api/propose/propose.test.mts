@@ -20,6 +20,10 @@ import {
   type ApiGate,
   type SessionLike,
 } from "../../../lib/auth/guard.ts";
+import {
+  emptyConfigCheck,
+  emptyEpicCheck,
+} from "../../../lib/config/types.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import {
   applyDiscoveries,
@@ -1341,6 +1345,8 @@ function chainRun(): BrowserRun {
     // `emptyOverlay` resolves back to the base BY IDENTITY, so this chain
     // behaves exactly as it did before overlays existed.
     overlay: emptyOverlay(TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 
@@ -1699,6 +1705,8 @@ function twoBerkasRun(ai?: boolean): BrowserRun {
     })),
     slots: [{ key: "kbLanjutan.top", label: "ToP", status: "pending" }],
     overlay: emptyOverlay(TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 

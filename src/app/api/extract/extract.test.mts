@@ -26,6 +26,10 @@ import type { Template } from "../../../lib/forms/template.ts";
 import type { Line } from "../../../lib/pipeline/geometry.ts";
 import { citationOutcome } from "../../../lib/pipeline/fields.ts";
 import type { WirePage } from "../../../lib/api/wire.ts";
+import {
+  emptyConfigCheck,
+  emptyEpicCheck,
+} from "../../../lib/config/types.ts";
 import { emptyOverlay } from "../../../lib/forms/overlay.ts";
 import { AO_TEMPLATE } from "../../../lib/forms/template.ts";
 import type { BrowserRun } from "../../../lib/browser/types.ts";
@@ -777,6 +781,8 @@ function twoBerkasRun(ai?: boolean): BrowserRun {
     })),
     slots: [],
     overlay: emptyOverlay(AO_TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 

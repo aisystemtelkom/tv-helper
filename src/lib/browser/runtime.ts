@@ -9,7 +9,7 @@
  * than this file is an implementation detail, and `src/lib/storage/runs.ts`
  * is the IndexedDB layer under it.
  *
- * Four invariants hold this together. Each of them exists because breaking
+ * Five invariants hold this together. Each of them exists because breaking
  * it produces a run that still opens, still looks complete, and carries the
  * wrong evidence:
  *
@@ -35,6 +35,14 @@
  *     rebuild-from-template save reverts every one of them just as quietly.
  *     A write that drops one without naming it in `removingSections` is
  *     refused with `SectionLossError`.
+ *  1e. NOR ARE `konfigurasi` AND `epic`. They hold what the operator RULED at
+ *     Checkpoint 2 and Checkpoint 3 -- a recommendation taken or refused, a
+ *     value they typed, the one re-search this order is allowed -- and nothing
+ *     anywhere re-derives a judgement. The same rebuild-from-template save
+ *     reverts every one of them just as quietly, and a lost `setuju` is a cell
+ *     that silently stays wrong in a workbook the operator hands back to EPIC.
+ *     A write that drops one without naming it in `removingDecisions` is
+ *     refused with `DecisionLossError`.
  *  2. INGESTING IS ADDITIVE. A later document can only add pages and fill
  *     slots; it never touches a zone an operator already confirmed. That is
  *     the foundation of the dokumen tambahan loop (2026-08-31 corrections,
@@ -50,12 +58,14 @@
  * reached -- proposes a zone and writes the run back through `saveRun`.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE, type Template } from "../forms/template.ts";
 import {
   appendPage,
   getPage,
   getRun,
+  getSource,
   listRunMeta,
   putRun,
   putSource,
@@ -64,6 +74,13 @@ import {
   type PutRunOptions,
   type RunMeta,
 } from "../storage/runs.ts";
+import {
+  applyConfigEdit,
+  applyEpicEdit,
+  checkpointFileIds,
+  type ConfigEdit,
+  type EpicEdit,
+} from "./config.ts";
 import {
   DuplicateDocumentError,
   documentDigest,
@@ -88,13 +105,14 @@ export type {
 } from "./types.ts";
 
 /**
- * The four ways a write is refused, re-exported because they are part of this
+ * The five ways a write is refused, re-exported because they are part of this
  * surface: a UI that treats them as generic failures tells the operator
  * nothing useful, and the one useful thing to say ("this run changed
  * underneath you, reload") is only sayable if the type is reachable.
  */
 export {
   CaptureLossError,
+  DecisionLossError,
   PageLossError,
   SectionLossError,
   StaleRunWriteError,
@@ -183,6 +201,36 @@ export {
   type SectionEdit,
   type SectionEditResult,
 } from "./sections.ts";
+
+/**
+ * One operator gesture at Checkpoint 2 or Checkpoint 3, as a VALUE.
+ *
+ * Pure, and re-exported for the reason `sections.ts` is: the arithmetic is
+ * testable where IndexedDB is not, and `editConfig`/`editEpic` below are the two
+ * storage calls around it. A screen composes a `ConfigEdit`; it never composes
+ * a run.
+ *
+ * `configEntryId` and `epicEntryId` come from the STORAGE layer rather than
+ * being restated here, because they are the identity `discardedDecisions`
+ * itself uses to decide whether a write drops a ruling. One spelling, in one
+ * place, is what stops a screen addressing a row by a name the guard would not
+ * recognise.
+ */
+export {
+  ConfigEditError,
+  applyConfigEdit,
+  applyEpicEdit,
+  checkpointFileIds,
+  type ConfigEdit,
+  type ConfigEditResult,
+  type EpicEdit,
+} from "./config.ts";
+export {
+  CONFIG_RESEARCHED_ID,
+  EPIC_BASIS_ID,
+  configEntryId,
+  epicEntryId,
+} from "../storage/runs.ts";
 
 /**
  * EXACTLY ONE `SlotState` PER FILLABLE SLOT, all `"pending"`.
@@ -285,6 +333,12 @@ function newRun(id: string): BrowserRun {
     // renders exactly as it did before overlays existed -- while every reader
     // is spared a `?.` that would eventually be forgotten somewhere it mattered.
     overlay: emptyOverlay(AO_TEMPLATE),
+    // EMPTY, NEVER ABSENT, on the same rule. An order that has not reached
+    // Checkpoint 2 has no workbook and no rulings, and that is a real state
+    // rather than a missing one -- so it is a value every reader can walk,
+    // never a key they have to remember might not be there.
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
   };
 }
 
@@ -297,6 +351,14 @@ function newRun(id: string): BrowserRun {
  * and the way this project finds out is a device that quietly stopped storing
  * something. `overlay` is here because the type made it impossible not to
  * notice, which is exactly why it is required rather than optional.
+ *
+ * `konfigurasi` and `epic` are here for the same reason and arrived the same
+ * way: both were declared required on `BrowserRun`, and this function stopped
+ * compiling until they were listed. That is the mechanism working, not a
+ * coincidence. Both belong in the SMALL half -- `listRunMeta` reads it for
+ * every run on the device -- so nothing page-scale may be added to either; see
+ * the note on `BrowserRun.epic` for the one field that can grow and where its
+ * bytes actually live.
  */
 function metaOf(run: BrowserRun): RunMeta {
   return {
@@ -306,6 +368,8 @@ function metaOf(run: BrowserRun): RunMeta {
     sources: run.sources,
     slots: run.slots,
     overlay: run.overlay,
+    konfigurasi: run.konfigurasi,
+    epic: run.epic,
   };
 }
 
@@ -474,6 +538,132 @@ export async function editSections(
 
     return putRun(run, { removing, removingSections });
   });
+}
+
+/**
+ * The two checkpoint edits, which are `editSections` wearing different words.
+ *
+ * ## RE-READ INSIDE THE LOCK, FOR THE REASON `editSections` GIVES
+ *
+ * `ingestDocument` holds the run lock for MINUTES over a 151-page document and
+ * advances the revision once per page, so a `BrowserRun` React is holding while
+ * that runs is dozens of revisions stale and `putRun` refuses it. Checkpoint 2
+ * is a screen of amber rows the operator works down while the tool is still
+ * busy, so this is not a corner case here -- it is the ordinary path. An edit
+ * carries no revision and is applied to whatever is STORED at the moment the
+ * lock is taken, which turns a refused write into a QUEUED one.
+ *
+ * ## THE OPT-IN IS COMPUTED BY THE EDIT, NEVER INVENTED HERE
+ *
+ * `applyConfigEdit` / `applyEpicEdit` derive `removingDecisions` by calling
+ * `discardedDecisions`, which is the very function `putRun` runs to decide
+ * whether to refuse the write. A screen assembling that list by hand would have
+ * to know about `DecisionLossError` to get an ordinary workbook replacement
+ * past storage.
+ *
+ * ## THE BYTES ARE SWEPT AFTER THE RUN WRITE, NOT BEFORE IT
+ *
+ * A replaced workbook, or a capture the operator removed, leaves bytes in the
+ * `sources` blob store that nothing references any more. They go in a second
+ * write, ordered AFTER the run write for exactly the reason `removeDocument`
+ * gives: the bytes are re-suppliable input rather than evidence, so a failure
+ * after the run write leaves a few megabytes nothing points at, which
+ * `deleteRun` collects. The reverse order would leave the run naming bytes that
+ * are gone, and a download the operator is about to press would fail.
+ *
+ * THE CALLER MUST KEEP WHAT COMES BACK. It is the stored run, revision
+ * advanced, and the object the screen was holding is one behind the moment this
+ * resolves.
+ */
+async function editCheckpoint(
+  runId: string,
+  gone: string,
+  apply: (stored: BrowserRun) => { run: BrowserRun; removingDecisions: string[] },
+): Promise<BrowserRun> {
+  return withRunLock(runId, async () => {
+    const stored = await getRun(runId);
+    if (!stored) throw new Error(gone);
+
+    const { run, removingDecisions } = apply(stored);
+    // Identity means the order already is what the press asked for -- the same
+    // workbook handed over twice, a decision pressed twice, a capture removed
+    // in another tab. Writing anyway would advance the revision and refuse
+    // whatever the screen is holding, for a press that did nothing.
+    if (run === stored) return stored;
+
+    const kept = new Set(checkpointFileIds(run));
+    const orphaned = checkpointFileIds(stored).filter((id) => !kept.has(id));
+
+    const saved = await putRun(run, { removingDecisions });
+    for (const id of orphaned) await deleteSource(id);
+    return saved;
+  });
+}
+
+export async function editConfig(
+  runId: string,
+  edit: ConfigEdit,
+): Promise<BrowserRun> {
+  return editCheckpoint(
+    runId,
+    `Order ${runId} tidak ada lagi, jadi konfigurasinya tidak bisa diubah.`,
+    (stored) => applyConfigEdit(stored, edit),
+  );
+}
+
+export async function editEpic(
+  runId: string,
+  edit: EpicEdit,
+): Promise<BrowserRun> {
+  return editCheckpoint(
+    runId,
+    `Order ${runId} tidak ada lagi, jadi pemeriksaan EPIC-nya tidak bisa diubah.`,
+    (stored) => applyEpicEdit(stored, edit),
+  );
+}
+
+/**
+ * The bytes of one checkpoint file: the operator's workbook, or one tangkapan
+ * layar EPIC.
+ *
+ * ## THE EXISTING `sources` BLOB STORE, KEYED BY THIS RUN
+ *
+ * Not a fourth object store, and not `BrowserRun.sources`. The store already
+ * holds "bytes belonging to a run, read only on demand", which is exactly what
+ * these are, and it carries a `byRun` index -- so `deleteRun` sweeps a
+ * workbook and every screenshot away with the order they belong to and THERE IS
+ * NO NEW CLEANUP PATH TO FORGET. A new store would need its own sweep in
+ * `deleteRun`, and the day somebody forgot it an abandoned order would keep
+ * paying for the origin's quota until a write failed on an order the operator
+ * did care about.
+ *
+ * `BrowserRun.sources` is the other half of that sentence and is deliberately
+ * untouched. A workbook is NOT a berkas of the order: no page of it is
+ * rendered, nothing crops it, and listing it there would put it on the film
+ * strip, into `Zone.pageIndex`'s arithmetic and into every search pool. The
+ * `sources` STORE is a place to keep bytes; `BrowserRun.sources` is a claim
+ * about what documents this order is made of.
+ *
+ * `id` is the caller's own -- `ConfigWorkbook.id` or `EpicCapture.id` -- so the
+ * record and the thing that names it agree by construction. `runId` is what
+ * makes the sweep work, and passing the wrong one would leave the bytes to be
+ * collected by a run that does not use them.
+ */
+export async function putCheckpointFile(
+  runId: string,
+  id: string,
+  name: string,
+  bytes: ArrayBuffer,
+): Promise<void> {
+  await putSource({ id, runId, name, bytes });
+}
+
+/** Those bytes back, for a download or a re-read. Null when they are gone. */
+export async function getCheckpointFile(
+  id: string,
+): Promise<{ name: string; bytes: ArrayBuffer } | null> {
+  const stored = await getSource(id);
+  return stored ? { name: stored.name, bytes: stored.bytes } : null;
 }
 
 /**

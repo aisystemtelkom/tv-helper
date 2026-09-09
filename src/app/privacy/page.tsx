@@ -29,7 +29,7 @@
  * ## Keep it TRUE
  *
  * Everything below is a claim about what the code does, and a privacy policy
- * that drifts from the code is worse than none. Three load-bearing sentences:
+ * that drifts from the code is worse than none. Five load-bearing sentences:
  *
  *   - The PDF never leaves the device. pdf.js renders it in the tab, the run
  *     lives in IndexedDB, and every evidence crop is cut from the device's own
@@ -38,6 +38,17 @@
  *     `/api/ocr`, which forwards it to the Gemini API for text recognition.
  *   - Finding a field inside those pages is text only: numbered OCR lines go
  *     up, a line range comes back.
+ *   - THE ORDER-CONFIGURATION WORKBOOK DOES NOT LEAVE EITHER. Checkpoint 2
+ *     opens the `.xlsx` in the tab (`src/lib/xlsx/read.ts` over `jszip`) and
+ *     sends only each cell's TEXT and its ADDRESS; the amended workbook is
+ *     patched back into the operator's own bytes on the device. That is the
+ *     same shape as the line-range step, one document type along.
+ *   - THE EPIC SCREEN CAPTURES DO LEAVE, AS IMAGES. They go to `/api/ocr` like
+ *     a rendered page, and they are the first thing this app sends that the
+ *     operator supplied as a picture rather than rendered from their own PDF.
+ *     Section 3 says so plainly rather than folding them into the page-image
+ *     sentence, because "your files stay on the device" would otherwise read
+ *     as covering them.
  *
  * THIS PAGE IS NOW THE ONLY PLACE THOSE THREE SENTENCES LIVE, and that is a
  * decision rather than an accident of drafting. The operator's objection to
@@ -131,7 +142,7 @@ export const metadata = {
 };
 
 /** When this policy was last revised. */
-const UPDATED = "2 September 2026";
+const UPDATED = "9 September 2026";
 
 const CONTACT = "aisystemtelkom@gmail.com";
 
@@ -434,7 +445,8 @@ export default function PrivacyPage() {
 
             <Section id="layanan-model">
               <p>
-                Ada dua jenis kiriman, dan keduanya melalui server aplikasi ini:
+                Ada empat jenis kiriman, dan semuanya melalui server aplikasi
+                ini:
               </p>
               <p>
                 <strong>Pertama, gambar halaman untuk pengenalan teks.</strong>{" "}
@@ -449,6 +461,28 @@ export default function PrivacyPage() {
                 bukan gambar, lalu menerima jawaban berupa rentang baris.
                 Pemotongan gambar bukti tetap dilakukan di perangkat Anda
                 berdasarkan koordinat baris tersebut.
+              </p>
+              <p>
+                <strong>
+                  Ketiga, isi sel berkas konfigurasi untuk dicocokkan dengan
+                  dokumen.
+                </strong>{" "}
+                Berkas konfigurasi (.xlsx) yang Anda muat di Checkpoint 2 tidak
+                diunggah. Berkas itu dibuka di dalam peramban Anda, dan yang
+                dikirim hanyalah teks setiap sel beserta alamat selnya
+                (misalnya <Code>E9</Code>). Jawaban yang kembali berupa alamat
+                sel dan nilai usulan; berkas konfigurasi yang sudah diperbarui
+                disusun kembali di perangkat Anda dari berkas asli Anda sendiri.
+              </p>
+              <p>
+                <strong>
+                  Keempat, tangkapan layar EPIC untuk pengenalan teks.
+                </strong>{" "}
+                Tangkapan layar yang Anda muat di Checkpoint 3 dikirim sebagai
+                gambar ke server aplikasi ini, lalu diteruskan ke Google Gemini
+                API untuk dibaca teksnya, dengan cara yang sama seperti gambar
+                halaman. Kirimkan hanya tangkapan layar yang memang perlu
+                diperiksa.
               </p>
               <p>
                 Google bertindak sebagai pemroses untuk keperluan inferensi ini.
@@ -558,6 +592,17 @@ export default function PrivacyPage() {
                   processor for this inference. Requests are made from the server,
                   not from your browser, and the API credential never reaches the
                   browser.
+                </p>
+                <p>
+                  Two later checks add to that list. The order-configuration
+                  workbook you load at Checkpoint 2 is <em>not</em> uploaded: it
+                  is opened in your browser and only each cell&apos;s text and
+                  its address (<Code>E9</Code>) are sent, with cell addresses and
+                  suggested values coming back; the updated workbook is rebuilt
+                  on your device from your own original file. The EPIC screen
+                  captures you load at Checkpoint 3 <em>are</em> sent as images,
+                  the same way a rendered page image is, so that their text can
+                  be recognised.
                 </p>
               </EnItem>
 

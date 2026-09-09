@@ -8,6 +8,7 @@
  * should import from there and never from this file.
  */
 
+import type { ConfigCheck, EpicCheck } from "../config/types.ts";
 import type { TemplateOverlay } from "../forms/overlay.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import type { Zone } from "../pipeline/locate.ts";
@@ -307,4 +308,58 @@ export type BrowserRun = {
    * why a write on read is not a free repair.
    */
   overlay: TemplateOverlay;
+  /**
+   * CHECKPOINT 2: the EPIC order-configuration workbook the operator handed
+   * over, what the scans said about each of its isian, and WHAT THE OPERATOR
+   * RULED on each recommendation. See `src/lib/config/types.ts`.
+   *
+   * REQUIRED, NOT OPTIONAL, FOR EXACTLY THE REASON `overlay` IS, and the scar
+   * is the same one. `metaOf` in `src/lib/browser/runtime.ts` lists a run's
+   * small half field by field so that `tsc` names anything new; an optional
+   * field walks straight past that, which is how `StoredPage.short` was
+   * written, stored, and then thrown away on the way back out by a
+   * field-by-field reader that compiled unchanged. What would be forgotten here
+   * is not a page marker but a person's answer: a device that recorded
+   * "Terima" on eleven isian and then quietly forgot would offer the operator
+   * the same eleven questions again, or -- worse -- hand back a workbook with
+   * none of the amendments they approved, in a file that opens cleanly.
+   *
+   * A FRESH RUN CARRIES `emptyConfigCheck()`, never `undefined`. An order that
+   * has not reached Checkpoint 2 is a real state and it is modelled as an empty
+   * VALUE rather than as an absent key, so no reader needs a `?.` that would
+   * eventually be forgotten somewhere it mattered. A record STORED before this
+   * field existed is upgraded to the same thing on read (`readMeta`), and never
+   * written back there.
+   */
+  konfigurasi: ConfigCheck;
+  /**
+   * CHECKPOINT 3: which workbook EPIC is being judged against, the operator's
+   * screen captures of EPIC, and their ruling on each disagreement.
+   *
+   * Required for the reason above, plus one of its own: `EpicCheck.basis`
+   * records that the operator was ASKED whether a newer workbook exists. An
+   * absent `epic` would make "not asked yet" and "the field was dropped on the
+   * way out of storage" the same reading, and Checkpoint 3 would then judge
+   * EPIC against a workbook the operator had already replaced -- every verdict
+   * confidently wrong, nothing on screen contradicting it.
+   *
+   * ## BOTH OF THESE LIVE IN THE SMALL HALF, SO KEEP THEM SMALL
+   *
+   * `RunMeta` is `Omit<BrowserRun, "pages">` and `listRunMeta` reads it for
+   * EVERY run on the device to draw the list of saved orders. Page-scale data
+   * must never be put here: that is what the `pages` store exists for, and a
+   * meta record dragging a bundle's OCR along would turn "open the order list"
+   * into "load every order ever made".
+   *
+   * THE ONE THING HERE THAT CAN GROW IS `EpicCheck.captures`, and it is worth
+   * naming rather than hoping about. Each capture carries the OCR `lines` of
+   * one EPIC screenshot -- tens of lines, not the hundreds a 300 DPI A4 scan
+   * yields -- and the operator takes a handful of screenshots, not a bundle. So
+   * the practical ceiling is single-digit captures of screen-sized text, which
+   * is the same order of magnitude as one page's lines. THE BYTES ARE NOT HERE:
+   * a capture's PNG and a workbook's `.xlsx` live in the `sources` blob store
+   * under their own id with this run's id in `runId`, so `deleteRun` sweeps
+   * them and no meta read ever touches them.
+   */
+  epic: EpicCheck;
 };

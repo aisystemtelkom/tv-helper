@@ -36,6 +36,13 @@
  * main-thread-only global.
  */
 
+import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
+import type {
+  ConfigCheck,
+  ConfigEntry,
+  EpicCheck,
+  EpicEntry,
+} from "../config/types.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import type { NodeId, TemplateOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
@@ -67,8 +74,18 @@ export type RunMeta = Omit<BrowserRun, "pages">;
  *
  * So the raw reads are typed as this, and `readMeta` is the ONE place the
  * upgrade happens.
+ *
+ * `konfigurasi` and `epic` join it on the same terms and for the same reason.
+ * Every order written before Checkpoint 2 and Checkpoint 3 existed genuinely
+ * has neither, and there are real ones on real devices; the honest shape of
+ * the record is optional and the honest shape of the type every consumer sees
+ * is required, which is what this pair of declarations buys.
  */
-type StoredRunMeta = Omit<RunMeta, "overlay"> & { overlay?: TemplateOverlay };
+type StoredRunMeta = Omit<RunMeta, "overlay" | "konfigurasi" | "epic"> & {
+  overlay?: TemplateOverlay;
+  konfigurasi?: ConfigCheck;
+  epic?: EpicCheck;
+};
 
 /**
  * A stored record as the rest of the app is allowed to see it: the revision
@@ -86,6 +103,12 @@ type StoredRunMeta = Omit<RunMeta, "overlay"> & { overlay?: TemplateOverlay };
  * That is a real coupling and it is the smallest one available: the
  * alternative is an optional field, which is the defect this whole comment is
  * about.
+ *
+ * `emptyConfigCheck()` and `emptyEpicCheck()` are cheaper still -- they read
+ * nothing and depend on nothing -- but they are governed by the same two rules.
+ * UPGRADED HERE AND ONLY HERE, and NOT WRITTEN BACK. An order that predates
+ * Checkpoint 2 has no workbook and no rulings, so the empty value is not a
+ * guess about what it held; it is what it held.
  */
 function readMeta(stored: StoredRunMeta): RunMeta {
   return {
@@ -95,6 +118,8 @@ function readMeta(stored: StoredRunMeta): RunMeta {
     // 0 that stands for a record written before runs carried a revision.
     rev: revOf(stored),
     overlay: stored.overlay ?? emptyOverlay(AO_TEMPLATE),
+    konfigurasi: stored.konfigurasi ?? emptyConfigCheck(),
+    epic: stored.epic ?? emptyEpicCheck(),
   };
 }
 
@@ -337,6 +362,236 @@ export function discardedAuthorship(
   const kept = new Set((incoming?.added ?? []).map((section) => section.id));
   for (const section of stored.added) {
     if (!kept.has(section.id)) lost.push(section.id);
+  }
+
+  return lost;
+}
+
+/**
+ * A write that would silently drop something the OPERATOR DECIDED at
+ * Checkpoint 2 or Checkpoint 3: a recommendation they took, one they refused, a
+ * value they typed themselves, or the one re-search this order is allowed.
+ *
+ * THE FIFTH NET, AND IT GUARDS A RULING WHERE `SectionLossError` GUARDS A NAME
+ * AND `CaptureLossError` GUARDS A PICTURE. The writer all three were built for
+ * is still the same one: anything that rebuilds a run from the compile-time
+ * form -- a migration, a "reset this order", a helper that maps over
+ * `AO_TEMPLATE.sections` -- emits `konfigurasi: emptyConfigCheck()` and
+ * `epic: emptyEpicCheck()` exactly as readily as it emits `emptyOverlay(...)`.
+ * It arrives at the CORRECT revision, carrying every page, every capture and
+ * every heading, and simply short every answer a person gave.
+ *
+ * WHAT THAT COSTS, WHICH IS WHY IT IS ITS OWN NET. `run.konfigurasi.entries` is
+ * the only place a decision on an isian exists. `pendingEdits` reads them to
+ * decide which cells of the operator's workbook to amend, so a lost `setuju` is
+ * a cell that silently stays wrong in a workbook the operator downloads and
+ * hands back to EPIC; a lost `tolak` is a question they already answered being
+ * put to them again, in a screen whose amber count is supposed to mean "a
+ * decision is owed here"; and a lost `manual` is a value they TYPED, which no
+ * model call and no re-search can reconstruct at all.
+ *
+ * `researched` is in the same class for a different reason. It is a spent
+ * budget -- the client's instruction says the re-search may be paid for once
+ * per order -- so a write that quietly turns it back to `false` does not lose
+ * data, it refunds money that was already spent and invites the operator to
+ * spend it again.
+ */
+export class DecisionLossError extends Error {
+  readonly runId: string;
+  /** Decision ids whose stored ruling this write discards. */
+  readonly missing: string[];
+
+  constructor(runId: string, missing: string[]) {
+    super(
+      `run ${runId} would lose ${missing.length} operator decision(s) ` +
+        `(${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", ..." : ""}) ` +
+        "because this write does not carry them and did not name them. A " +
+        "ruling on an isian, and a value the operator typed, live nowhere but " +
+        "run.konfigurasi and run.epic, so a write rebuilt from the template " +
+        "reverts every one of them at the correct revision with every page, " +
+        "every capture and every heading present. If you meant to discard " +
+        "them -- a replacement workbook is the case this exists for -- name " +
+        "the ids in putRun's `removingDecisions` option; otherwise re-read the " +
+        "run and re-apply the change.",
+    );
+    this.name = "DecisionLossError";
+    this.runId = runId;
+    this.missing = missing;
+  }
+}
+
+/**
+ * The two namespaces a decision id is minted in, so the halves cannot collide.
+ *
+ * A `ConfigField.id` is minted per order when a workbook is interpreted and
+ * this module knows nothing about its shape, so the namespace has to do the
+ * separating rather than a hoped-for difference between two id alphabets.
+ */
+const CONFIG_ENTRY_PREFIX = "konfigurasi/entry/";
+const EPIC_ENTRY_PREFIX = "epic/entry/";
+
+/**
+ * The two SENTINEL ids, for the losses that are a field moving backwards rather
+ * than a row going missing.
+ *
+ * Every refusal has to name an id, because `removingDecisions` is a list of
+ * ids: a loss this module could not name would be a refusal no legitimate
+ * caller could ever opt out of. `researched` and `basis` are single fields with
+ * no row of their own, so they are given a stable name here rather than being
+ * left unnameable. Stable is the operative word -- these strings are written
+ * into an opt-in by callers and compared here, so they are constants and not
+ * something either side spells out by hand.
+ */
+export const CONFIG_RESEARCHED_ID = "konfigurasi/researched";
+export const EPIC_BASIS_ID = "epic/basis";
+
+/** How one Checkpoint 2 isian is addressed, in an opt-in and in an edit alike. */
+export function configEntryId(entry: ConfigEntry): string {
+  return `${CONFIG_ENTRY_PREFIX}${entry.field.id}`;
+}
+
+/**
+ * How one Checkpoint 3 finding is addressed.
+ *
+ * `fieldId` WHEN THERE IS ONE, THE LABEL WHEN THERE IS NOT, and the second half
+ * is forced by the domain rather than chosen: a `tidak-ada-di-excel` entry is
+ * EPIC showing something the workbook has no field for, so there is no
+ * `ConfigField.id` to point at -- that absence is the whole content of the
+ * finding. The two are kept in separate sub-namespaces (`f:` and `l:`) so a
+ * field id and a label that happen to read alike cannot answer to one string.
+ *
+ * THE COST, STATED RATHER THAN HIDDEN: two `tidak-ada-di-excel` findings
+ * carrying the SAME label are one id, so a decision on either reads as a
+ * decision on both. `EpicEntry` has no id field in the contract
+ * (`src/lib/config/types.ts`), and inventing a positional one here would be
+ * worse -- a re-comparison that reordered the findings would silently move
+ * every ruling onto a different row. Adding an `id` to `EpicEntry`, minted
+ * where the entries are, is the real fix and is a change to that file.
+ */
+export function epicEntryId(entry: EpicEntry): string {
+  return entry.fieldId === undefined
+    ? `${EPIC_ENTRY_PREFIX}l:${entry.label}`
+    : `${EPIC_ENTRY_PREFIX}f:${entry.fieldId}`;
+}
+
+/** Everything `discardedDecisions` needs, which a `BrowserRun` satisfies. */
+export type DecisionRecord = {
+  konfigurasi?: ConfigCheck;
+  epic?: EpicCheck;
+};
+
+/**
+ * Which of `stored`'s operator decisions `incoming` throws away.
+ *
+ * ## THE AUTHORSHIP LINE, DRAWN EXPLICITLY
+ *
+ * This is `discardedAuthorship`'s line one field over, and the same sentence
+ * settles it: what did a PERSON decide, versus what costs only a model call to
+ * make again.
+ *
+ * GUARDED, because a person did it:
+ *  - a `ConfigEntry` or `EpicEntry` whose `decision` is anything but `"belum"`.
+ *    That is precisely "somebody ruled on this": `setuju` and `tolak` are a
+ *    pair and neither is a default, and `manual` is a value they typed.
+ *  - a `manual` entry carried back without its `manualValue`, which is the
+ *    same loss wearing the decision's clothes. `discardedAuthorship` checks a
+ *    patch's `label` and `catatan` independently for exactly this reason.
+ *  - `ConfigCheck.researched === true` turning back to false. A spent budget
+ *    that silently comes back is not a budget, and the client named it: the
+ *    re-search may be paid for once per order.
+ *  - `EpicCheck.basis` moving AWAY from an answered value back to `"belum"`.
+ *    The operator answered a question -- is there a newer workbook -- and a
+ *    write that forgets the answer does not merely re-ask it: while `basis`
+ *    stands at `"belum"` Checkpoint 3 has no yardstick, and the repair a
+ *    hurried operator reaches for is "lanjutkan", which judges EPIC against
+ *    Checkpoint 2's workbook whether or not that is the one they meant.
+ *
+ * FREE TO DROP, because nothing a person did is in it:
+ *  - an entry still at `"belum"`, and every `verdict`, `documentValue`,
+ *    `epicValue`, `citation` and `reason` on ANY entry. Those are the model's
+ *    answers. They cost a call to make again, not a person's decision, which is
+ *    the same line `overlay.proposed` is on one level up and the same line
+ *    `CaptureLossError` draws between a capture carrying a zone and one that
+ *    does not.
+ *  - `ConfigCheck.workbook` and `EpicCheck.captures`. Both are INPUT the
+ *    operator can hand over again, exactly as a berkas is, and neither carries
+ *    a judgement. The residual is real and is stated rather than hidden: a
+ *    write that drops every capture while no ruling has been made yet is not
+ *    refused here, and what it costs is the operator taking the screenshots
+ *    again. Guarding them would mean refusing `removeEpicCapture`, which is a
+ *    gesture the operator makes on purpose.
+ *
+ * EXPORTED, so `src/lib/browser/config.ts` computes each edit's opt-in BY
+ * CALLING THIS -- the very function `putRun` will run to decide whether to
+ * refuse the write. Deriving the opt-in from the guard is what makes it
+ * impossible for the two to disagree, and it is why `sections.ts` calls
+ * `discardedAuthorship` rather than hand-listing ids.
+ *
+ * AN INCOMING RUN WITH NEITHER FIELD CARRIES NOTHING, so it loses everything
+ * and is refused BY NAME. The type says both are required, so that can only
+ * arrive from an object that was cast, parsed or hand-built -- and a property
+ * read that threw from inside a readwrite transaction would refuse the write
+ * with a sentence naming neither the run nor what it was about to drop.
+ */
+export function discardedDecisions(
+  stored: DecisionRecord,
+  incoming: DecisionRecord | undefined,
+): string[] {
+  const lost: string[] = [];
+
+  // GUARDED ON THE STORED HALF FIRST, per field. A record written before
+  // Checkpoint 2 existed holds no `konfigurasi` at all, and something that
+  // never held a decision cannot lose one -- so it is skipped outright rather
+  // than compared against an invented empty, exactly as `putRun` skips a
+  // pre-overlay record.
+  if (stored.konfigurasi) {
+    const next = incoming?.konfigurasi;
+    const carried = new Map(
+      (next?.entries ?? []).map((entry) => [configEntryId(entry), entry]),
+    );
+    for (const entry of stored.konfigurasi.entries) {
+      if (entry.decision === "belum") continue;
+      const id = configEntryId(entry);
+      const kept = carried.get(id);
+      // DROPPED AND REVERTED ARE ONE SHAPE, as they are for an overlay patch.
+      // The entry IS the ruling: there is no copy of it anywhere else, so
+      // carrying the row back at `"belum"` is precisely what un-deciding it
+      // means. A DIFFERENT decision is an edit, and edits are ordinary work.
+      if (!kept || kept.decision === "belum") {
+        lost.push(id);
+        continue;
+      }
+      if (entry.decision === "manual" && kept.manualValue === undefined) {
+        lost.push(id);
+      }
+    }
+    // `!== true` rather than `=== false`: an incoming half that is missing
+    // entirely has not kept the budget either.
+    if (stored.konfigurasi.researched && next?.researched !== true) {
+      lost.push(CONFIG_RESEARCHED_ID);
+    }
+  }
+
+  if (stored.epic) {
+    const next = incoming?.epic;
+    const carried = new Map(
+      (next?.entries ?? []).map((entry) => [epicEntryId(entry), entry]),
+    );
+    for (const entry of stored.epic.entries) {
+      if (entry.decision === "belum") continue;
+      const id = epicEntryId(entry);
+      const kept = carried.get(id);
+      if (!kept || kept.decision === "belum") {
+        lost.push(id);
+        continue;
+      }
+      if (entry.decision === "manual" && kept.manualValue === undefined) {
+        lost.push(id);
+      }
+    }
+    if (stored.epic.basis !== "belum" && (next?.basis ?? "belum") === "belum") {
+      lost.push(EPIC_BASIS_ID);
+    }
   }
 
   return lost;
@@ -600,7 +855,14 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
  *    node ids in `options.removingSections`. Same shape again, for the one
  *    place an operator's naming work lives.
  *
- * All four are refusals, not repairs. Merging the caller's slots onto the
+ * 5. DECISION LOSS. A write that drops a ruling the operator made at
+ *    Checkpoint 2 or Checkpoint 3 -- a recommendation taken or refused, a value
+ *    they typed, the one re-search this order is allowed, or their answer to
+ *    "is there a newer workbook" -- is refused with `DecisionLossError` unless
+ *    it names those ids in `options.removingDecisions`. Same shape a fourth
+ *    time, for the one place an operator's judgements about the workbook live.
+ *
+ * All five are refusals, not repairs. Merging the caller's slots onto the
  * stored pages would let the save appear to succeed while quietly discarding
  * whichever of the two writers' slot edits lost, and a validator signs what
  * comes out of here.
@@ -682,6 +944,35 @@ export type PutRunOptions = {
    * the loss wearing a different coat.
    */
   removingSections?: readonly NodeId[];
+
+  /**
+   * Decision ids whose stored RULING this write deliberately discards: an
+   * isian the operator had ruled on and this write returns to `belum`, a value
+   * they typed and this write drops, the spent re-search, or their answer to
+   * "is there a newer workbook".
+   *
+   * A THIRD OPT-IN, NOT A WIDENING OF EITHER OF THE OTHER TWO, and the
+   * argument is the one `removingSections` already makes against being folded
+   * into `removing`. `removing` is about a POTONGAN, `removingSections` is
+   * about a NAME, and this is about a JUDGEMENT. One option covering two of
+   * them would let a caller that meant to replace a workbook quietly discard a
+   * crop or a heading as well, on an opt-in it had already written for the
+   * other reason. They are different losses and they are confirmed separately.
+   *
+   * A LIST OF IDS AND NEVER A BOOLEAN, for the reason `removingPages` gives:
+   * a caller naming ids is saying "I know about exactly these and I mean
+   * them", so a write that ALSO loses a decision it never knew about still
+   * fails on the one it did not name.
+   *
+   * THE WRITE THIS EXISTS FOR is the operator handing over a REPLACEMENT
+   * workbook. Every ruling was made about the cells of the old one, so they
+   * genuinely do not survive it -- and that is a decision a person takes with
+   * their eyes open, which is exactly the kind of loss that has to say so out
+   * loud rather than being a side effect of writing a shorter array. Mint the
+   * ids with `configEntryId` / `epicEntryId`, or let
+   * `src/lib/browser/config.ts` compute them by calling `discardedDecisions`.
+   */
+  removingDecisions?: readonly string[];
 };
 
 export async function putRun(
@@ -741,6 +1032,35 @@ export async function putRun(
           (id) => !named.has(id),
         );
         if (lost.length > 0) throw new SectionLossError(run.id, lost);
+      }
+
+      /*
+       * THE DECISION CHECK SITS BETWEEN THEM, on the same argument.
+       *
+       * The rebuild-from-template writer trips all three, and only one error
+       * can be thrown. The overlay above is the ROOT CAUSE and is reported
+       * first. Of the two consequences that remain, this one is the smaller
+       * and quieter -- a handful of rulings against a walk of every slot -- and
+       * the captures are the larger, louder one, so they stay last for the
+       * reason they were already last.
+       *
+       * It also earns its place ahead of the capture check for a second
+       * reason: nothing about `konfigurasi` or `epic` is derivable from
+       * `AO_TEMPLATE` at all, so a write that carries the right overlay and
+       * still drops these was assembled by something in Checkpoint 2 or
+       * Checkpoint 3 -- and naming that, rather than a lanjutan that is fine,
+       * points the next reader at the code that produced the write.
+       *
+       * Guarded per field inside `discardedDecisions`: an order stored before
+       * either checkpoint existed holds neither, and something that never held
+       * a decision cannot lose one.
+       */
+      if (stored.konfigurasi || stored.epic) {
+        const named = new Set(options.removingDecisions ?? []);
+        const lost = discardedDecisions(stored, run).filter(
+          (id) => !named.has(id),
+        );
+        if (lost.length > 0) throw new DecisionLossError(run.id, lost);
       }
 
       const allowed = new Set(options.removing ?? []);
@@ -849,14 +1169,16 @@ export async function appendPage(
       order,
     } satisfies PageRecord);
     // THE WRITE COMES FROM `stored`, NOT FROM THE CALLER, and so does the
-    // return below. `run` is a whole `RunMeta`: it carries `slots` and
-    // `overlay` as they were when the ingest STARTED, and an ingest legitimately
-    // changes neither. Writing the caller's copy hands a minutes-old slot array
-    // and a minutes-old overlay back to the store on every page, so an edit made
+    // return below. `run` is a whole `RunMeta`: it carries `slots`, `overlay`,
+    // `konfigurasi` and `epic` as they were when the ingest STARTED, and an
+    // ingest legitimately changes none of them. Writing the caller's copy hands
+    // a minutes-old slot array, a minutes-old overlay and a minutes-old set of
+    // Checkpoint 2 rulings back to the store on every page, so an edit made
     // while a 151-page document is being read is reverted by the next page with
-    // nothing raised: the revision is correct, every page is present, and all
-    // three of `putRun`'s nets are satisfied because this function is not
-    // `putRun`.
+    // nothing raised: the revision is correct, every page is present, and every
+    // one of `putRun`'s nets is satisfied because this function is not
+    // `putRun`. Taking all four from `stored` is what makes an operator's
+    // Terima, pressed during an ingest, survive the next page.
     //
     // `sources` is the one part an ingest does change (`withAppendedPage`
     // updates `pageCount`), so it alone is taken from the caller.
