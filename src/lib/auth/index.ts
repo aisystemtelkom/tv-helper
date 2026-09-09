@@ -29,8 +29,8 @@
  * `pnpm test`, and re-checking the served sign-in HTML for external hosts (see
  * `pages` in `./config.ts`), not just watching the build pass.
  *
- * Same rule, same reason, as the frozen `xlsx` entry in AGENTS.md: the version
- * number is a decision, not a default.
+ * Same rule, same reason, as every other pinned dependency in AGENTS.md: the
+ * version number is a decision, not a default.
  */
 
 import NextAuth from "next-auth";

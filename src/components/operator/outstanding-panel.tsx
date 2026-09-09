@@ -899,8 +899,7 @@ function Panel({
  * ## A USULAN IS NOT A JUDUL, AND THE CODE SAYS SO RATHER THAN THIS COMMENT
  *
  * These rows live in `overlay.proposed`, and `resolveTemplate` does not read
- * that array at all. Nothing here is in the packet, in the xlsx, or on the
- * outstanding list; there is no code path from a heading the model invented to
+ * that array at all. Nothing here is in the packet or on the outstanding list; there is no code path from a heading the model invented to
  * a deliverable that does not pass through "Terima". That is why this block can
  * afford to show what a model said in the DOCUMENT'S OWN MONO VOICE: the title
  * is a transcription (`src/lib/pipeline/sections.ts` refuses one that is not

@@ -120,7 +120,7 @@ async function extract(body: ExtractBody): Promise<ExtractResult> {
   } finally {
     console.log(
       `[extract] cost ${MODEL_ID} run=${body.runId} pages=${body.pages.length} ` +
-        `answered=${body.answered?.length ?? 0} calls=${calls - startedCalls} ` +
+        `calls=${calls - startedCalls} ` +
         `in=${promptTokens - startedIn} out=${outputTokens - startedOut} ` +
         `(thoughts=${thoughtTokens - startedThoughts}) ` +
         `total=${totalTokens - startedTotal} ` +

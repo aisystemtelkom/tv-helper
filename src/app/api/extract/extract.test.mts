@@ -8,9 +8,9 @@
  *
  * What these protect is the thing a human validator signs. The route's whole
  * job is to say WHICH KIND of answer each cell holds: a value the model cited
- * and a value whose citation was a hallucination look identical in a
- * spreadsheet, and one of them is evidence while the other is a guess with a
- * page number stapled to it.
+ * and a value whose citation was a hallucination look identical in a header
+ * table, and one of them is evidence while the other is a guess with a page
+ * number stapled to it.
  */
 
 import assert from "node:assert/strict";
@@ -93,7 +93,7 @@ function extractRequest(body: unknown): Request {
 }
 
 /**
- * A row of the template's xlsx list, built by assertion.
+ * A row of the template's field list, built by assertion.
  *
  * `Template` is `src/lib/forms/template.ts`'s, and a row carries more than a
  * fieldKey; nothing here reads the rest, so the cast says "this is the part
@@ -101,7 +101,7 @@ function extractRequest(body: unknown): Request {
  * kept in step with the real one.
  */
 const row = (fieldKey: string) =>
-  ({ fieldKey, itemI: fieldKey, itemII: fieldKey }) as Template["xlsxRows"][number];
+  ({ fieldKey, itemI: fieldKey, itemII: fieldKey }) as Template["fieldRows"][number];
 
 /**
  * Three backed keys, two ranking groups.
@@ -132,7 +132,7 @@ const TEMPLATE: Template = {
       ],
     },
   ],
-  xlsxRows: [row("cc"), row("quote"), row("namaProyek")],
+  fieldRows: [row("cc"), row("quote"), row("namaProyek")],
   fieldHints: {
     cc: "the customer named as the subscriber on an order request, explicitly not a name appearing in an email header",
   },
@@ -262,7 +262,7 @@ test("a malformed line is refused before the credential is spent", async () => {
       { ...wirePage(0, "a", "one"), width: 0, height: 0 },
     ],
     // The two fields that reach an operator VERBATIM. `toFieldPages` copies
-    // them into the citation and `buildXlsx` renders the note as
+    // them into the citation, which a reviewer reads as
     // `${sourceName} p${pageInDoc + 1}`, so unchecked they printed
     // "s1 pnot a number1" -- and, worse, a numeric-but-wrong page number that
     // reads perfectly and does not exist in that file.
@@ -443,34 +443,6 @@ test("a key the documents do not answer is 'not-found', not silently missing", a
   assert.match(quote?.reason ?? "", /searched every page/);
 });
 
-test("a key the order request answered is 'not-searched', and is not sent to the model", async () => {
-  const prompts: string[] = [];
-  const spy = async (prompt: string): Promise<string> => {
-    prompts.push(prompt);
-    return prompt.includes("segmenting")
-      ? SPANS
-      : JSON.stringify({ values: [{ fieldKey: "cc", value: "X", pageIndex: 0, from: 0, to: 0 }] });
-  };
-
-  const result = await extractValues(
-    { runId: "r", pages: PAGES, answered: ["quote"] },
-    spy,
-    TEMPLATE,
-  );
-
-  const quote = byKey(result.fields).get("quote");
-  assert.equal(quote?.status, "not-searched");
-  assert.match(quote?.reason ?? "", /order request supplies this value/);
-  // NOT ASKED FOR, not merely ignored. A value the request already supplies
-  // must not also be hunted for in the scans: the hunt can succeed plausibly
-  // and then two answers have to be reconciled by machinery that cannot know
-  // the request is the authority.
-  assert.ok(
-    prompts.every((prompt) => !/^Fields:.*\bquote\b/m.test(prompt)),
-    "quote must not appear in any extraction prompt's Fields line",
-  );
-});
-
 test("no pages means every key is 'not-searched', and the model is never called", async () => {
   const result = await extractValues(
     { runId: "r", pages: [] },
@@ -622,8 +594,8 @@ test("pageInDoc is derived per source document, and restarts for the second file
  *
  * `/api/propose` is the visible half: the operator fences a berkas off, no
  * usulan comes out of it, and the screen says so. This route is the quiet half.
- * Left unfiltered it would read the fenced document anyway and fill xlsx column
- * E and the docx header table from it -- with a citation that PASSES
+ * Left unfiltered it would read the fenced document anyway and fill the docx
+ * header table from it -- with a citation that PASSES
  * validation and points straight into the one document they were told would not
  * be checked. Nothing looks wrong anywhere, and a validator signs it.
  *

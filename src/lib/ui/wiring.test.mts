@@ -486,7 +486,7 @@ function withoutComments(source: string): string {
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-test("no operator screen reads the compile-time template, bar the xlsx row count", () => {
+test("no operator screen reads the compile-time template, with no exception", () => {
   /*
    * THE RULE THIS PINS. `BrowserRun.overlay` is this order's diff against
    * `AO_TEMPLATE`, so a screen reading the module constant renders the packet
@@ -494,11 +494,14 @@ test("no operator screen reads the compile-time template, bar the xlsx row count
    * owed, and plans an export that does not match the sheet they signed off.
    * All three open fine and look complete.
    *
-   * THE ONE EXCEPTION IS NOT A LOOPHOLE. `export-panel.tsx` prints
-   * `AO_TEMPLATE.xlsxRows.length` as screen copy about the ORDER_Config sheet,
-   * which is NOT per order: an added judul is evidence-only and
-   * `resolveTemplate` passes `xlsxRows` through untouched, so resolving it here
-   * would print the same number with a false implication.
+   * IT USED TO CARRY ONE EXCEPTION AND NOW CARRIES NONE, which is the whole
+   * reason this comment is here. `export-panel.tsx` printed
+   * the field list's length as screen copy about the EPIC ORDER_Config sheet;
+   * that sheet is gone and so is the read. An allowance kept past the thing it
+   * allowed is not inert -- it would let a genuine per-order read into the one
+   * file most likely to want one, under a name that reads as settled. So the
+   * allowance went with the workbook, and adding one back means arguing for it
+   * again.
    *
    * Source text rather than an import, for the reason the live-runtime test
    * above gives: node's type stripping does not handle JSX, so a `.tsx` cannot
@@ -515,11 +518,9 @@ test("no operator screen reads the compile-time template, bar the xlsx row count
       "\n",
     );
     lines.forEach((line, i) => {
-      if (!/\bAO_TEMPLATE\b/.test(line)) return;
-      const allowed =
-        name === "export-panel.tsx" &&
-        (/^\s*import\s/.test(line) || /\bAO_TEMPLATE\.xlsxRows\b/.test(line));
-      if (!allowed) offenders.push(`${name}:${i + 1} ${line.trim()}`);
+      if (/\bAO_TEMPLATE\b/.test(line)) {
+        offenders.push(`${name}:${i + 1} ${line.trim()}`);
+      }
     });
   }
 

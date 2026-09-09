@@ -121,8 +121,8 @@ export type AddedSection = {
  * A bagian the model thinks this bundle contains and the form does not name.
  *
  * A SUGGESTION, AND NOTHING MORE. `resolveTemplate` does not read this array,
- * so a proposal cannot reach the exporter, cannot reach the xlsx, and cannot be
- * counted as outstanding work. Accepting one means constructing an
+ * so a proposal cannot reach the exporter and cannot be counted as outstanding
+ * work. Accepting one means constructing an
  * `AddedSection` from it, which is a human act by construction.
  */
 export type ProposedSection = {
@@ -795,8 +795,8 @@ function ordered(sections: SectionDef[], order: NodeId[] | undefined): SectionDe
  *
  * `overlay.proposed` IS NOT READ HERE, and that is the point of it being a
  * separate array rather than a flag on `added`. A heading the model invented
- * cannot reach the docx exporter, the xlsx, or the outstanding list without a
- * human moving it into `added` first. There is no code path from a proposal to
+ * cannot reach the docx exporter or the outstanding list without a human
+ * moving it into `added` first. There is no code path from a proposal to
  * a deliverable.
  */
 export function resolveTemplate(
@@ -876,10 +876,10 @@ export function resolveTemplate(
     out.push(resolveAdded(add));
   }
 
-  // `xlsxRows`, `fieldHints`, `fieldLists`, `id` and `label` pass through
+  // `fieldRows`, `fieldHints`, `fieldLists`, `id` and `label` pass through
   // untouched, by construction rather than by copying them one at a time. The
   // overlay edits the DOCX SECTION LIST and nothing else, so no operator edit
-  // can blank an xlsx cell or move a field hint the gate scores.
+  // can drop a declared field or move a field hint the gate scores.
   return { ...base, sections: ordered(out, overlay.order) };
 }
 

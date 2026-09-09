@@ -1,15 +1,15 @@
 /**
- * Cutting the confirmed zones and writing the two deliverables, in the tab.
+ * Cutting the confirmed zones and writing the deliverable, in the tab.
  *
  * THE FILTER ON `status === "confirmed"` IS THE PRODUCT RULE, not a detail.
  * The design is explicit: a human confirms or corrects every proposed region
- * before either file is written, and the app never emits an unreviewed zone.
+ * before the file is written, and the app never emits an unreviewed zone.
  * A proposal that reaches the docx is a picture nobody checked sitting in a
  * document somebody signs.
  *
- * Both files are built here rather than on the server because the documents
- * never leave the device. `docx` and `exceljs` are loaded on demand so a run
- * that never exports never pays for them.
+ * It is built here rather than on the server because the documents never
+ * leave the device. `docx` is loaded on demand so a run that never exports
+ * never pays for it.
  *
  * THE PLAN IS AN INVENTORY, NOT AN EXCEPTION REPORT. It used to answer three
  * questions (which crops, which zones cannot be resolved, which fillable slots
@@ -24,7 +24,6 @@
  */
 
 import type { HeaderFields } from "../export/docx.ts";
-import type { FieldValue } from "../pipeline/fields.ts";
 import type { SectionDef, Template } from "../forms/template.ts";
 import type { Box } from "../pipeline/render.ts";
 import { resolvePage } from "./evidence.ts";
@@ -561,7 +560,7 @@ export function displayLabel(label: string, quote: string): string {
   return label.replace("{{quote}}", quote);
 }
 
-export type Deliverables = { docx: Uint8Array; xlsx: Uint8Array };
+export type Deliverables = { docx: Uint8Array };
 
 /**
  * `pageBitmap` is asked for each page ONCE and its crops are all cut before it
@@ -576,25 +575,11 @@ export async function buildDeliverables(
   deps: {
     pageBitmap: (runId: string, pageId: string) => Promise<ImageBitmap>;
     onProgress?: (done: number, total: number) => void;
-    /**
-     * The extracted values for column E, when the caller has them.
-     *
-     * OPTIONAL, AND THE DEFAULT IS STILL AN EMPTY COLUMN, because a blank the
-     * operator was warned about is the posture this file already takes for
-     * rows no PDF can back. What changed is that the blank is no longer
-     * MANDATORY: this used to pass `[]` unconditionally with a comment saying
-     * the browser runtime carried no field values, which was true and stopped
-     * being true when `/api/extract` shipped. It stayed passing `[]` anyway,
-     * so every run's column E was empty by construction whatever the
-     * documents said.
-     */
-    values?: readonly FieldValue[];
   },
 ): Promise<Deliverables> {
   const { bitmapToRenderedPage } = await import("./crops.ts");
   const { cropToPng } = await import("../export/crop.ts");
   const { buildDocx } = await import("../export/docx.ts");
-  const { buildXlsx } = await import("../export/xlsx.ts");
 
   const order = new Map(plan.crops.map((crop, i) => [crop, i]));
   const byPage = new Map<string, PlannedCrop[]>();
@@ -637,33 +622,21 @@ export async function buildDeliverables(
       heightPx: Math.round(crop.box.h),
     }));
 
-  return {
-    docx: await buildDocx(template, header, filled),
-    // Column E, from whatever the caller extracted. A row with no value still
-    // ships VISIBLY BLANK rather than guessed at, which is the posture this
-    // design takes for every row no document can back, and the export screen
-    // says which rows those are: a blank column nobody was warned about is
-    // the failure this project cares most about.
-    xlsx: await buildXlsx(template, [...(deps.values ?? [])]),
-  };
+  return { docx: await buildDocx(template, header, filled) };
 }
 
 /** `Form_Validasi_<LOP>_<QUOTE>.docx`, falling back to the run id. */
 export function deliverableNames(header: HeaderFields, runId: string): {
   docx: string;
-  xlsx: string;
 } {
   const stem = [header.idEpic, header.quote].filter(Boolean).join("_") || runId;
-  return {
-    docx: `Form_Validasi_${stem}.docx`,
-    xlsx: `${stem}_ORDER_Config.xlsx`,
-  };
+  return { docx: `Form_Validasi_${stem}.docx` };
 }
 
 /**
- * True when both names fall back to the run id, which is a UUID.
+ * True when the name falls back to the run id, which is a UUID.
  *
- * An operator files these by name and a UUID is unfileable. The screen used to
+ * An operator files this by name and a UUID is unfileable. The screen used to
  * show the name only on the Save button, after the build, so the fallback was
  * discovered at the point where fixing it means building again.
  */

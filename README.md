@@ -1,13 +1,15 @@
 # tv-helper
 
-Turns a bundle of scanned Indonesian telecom order documents into two
-deliverables:
+Turns a bundle of scanned Indonesian telecom order documents into one
+deliverable:
 
 - **`<ID EPIC>_DOKUMEN_VALIDASI.docx`**, a validation packet whose evidence is
   cropped pictures of the source pages, the way a person would screenshot them.
-- **`<ID EPIC>_ORDER_Config.xlsx`**, the EPIC order-entry sheet, filled only
-  where a source document backs the value, with every filled cell carrying a
-  note naming the file, page, and line range it came from.
+
+**It never produces a spreadsheet, and it never reads one.** An earlier version
+also wrote `<ID EPIC>_ORDER_Config.xlsx` and could take the EPIC order request
+as an `.xlsx` input; both were a misread of what the client asked for and are
+gone, along with the `exceljs` dependency. The docx is the product.
 
 The scans have no text layer and are stored sideways (`/Rotate 270`), so the
 pipeline renders each page upright at 300 DPI, OCRs it into words with pixel
@@ -51,9 +53,8 @@ pnpm generate documents/<bundle>.pdf documents/<splitba>.pdf
 pnpm generate documents/<bundle>.pdf --tambahan documents/<extra>.pdf
 ```
 
-Writes three files into `out/` (override with `--out <dir>`): the docx, the
-xlsx, and `<ID EPIC>_OUTSTANDING.json` naming every slot and field it could
-not fill. The whole run is one command with no browser involved: render, OCR,
+Writes two files into `out/` (override with `--out <dir>`): the docx and
+`<ID EPIC>_OUTSTANDING.json`, naming every slot and field it could not fill. The whole run is one command with no browser involved: render, OCR,
 classify, locate, crop, extract, export. Expect several minutes on a first
 run, most of it OCR.
 
@@ -83,7 +84,7 @@ to `<ID EPIC>_OUTSTANDING.json`.
 
 ### What it does not do yet
 
-`pnpm generate` writes all three files unreviewed. There is no confirmation
+`pnpm generate` writes both files unreviewed. There is no confirmation
 UI, no manual zone selection, and nothing prompts you for a *dokumen
 tambahan*: the loop is you reading the `OUTSTANDING` block and re-running the
 command with `--tambahan`. Read that block before handing the deliverables to
@@ -231,7 +232,7 @@ box directly would be one call per slot and no OCR dependency, but on a 3507px
 page a one percent error is 35 pixels, about a line of text, and several crops
 in the sample are a single strip where a one-line error is simply the wrong
 answer. Deriving the box from real glyph positions makes it exact by
-construction, and the OCR text is what the xlsx needs anyway.
+construction, and the OCR text is what the header fields need anyway.
 
 **Whole-page slots skip the model entirely.** A `layout: "images"` section in
 the template is a full-page capture, so `pnpm generate` takes the page directly.
@@ -244,9 +245,11 @@ put an unapproved third party in the browser's request path.
 `scripts/vendor-ocr.mjs` copies them out of `node_modules` into
 `public/tesseract`, which is gitignored regenerated output.
 
-**`exceljs`, not `xlsx`.** SheetJS on npm is frozen at 0.18.5 with two unpatched
-HIGH advisories whose fixes ship only from the vendor's own CDN, and we parse
-untrusted user files.
+**No spreadsheet library at all.** Neither `exceljs` nor `xlsx` (SheetJS) is a
+dependency, and neither should become one: Excel is not an output of this tool
+and not an input to it. SheetJS is separately disqualified -- frozen on npm at
+0.18.5 with two unpatched HIGH advisories whose fixes ship only from the
+vendor's own CDN, against a threat model that is parsing untrusted user files.
 
 **The API call is server-side.** The key is read in `src/lib/model.ts`, has no
 `NEXT_PUBLIC_` prefix, and never reaches the client bundle. With the app open,
@@ -292,27 +295,26 @@ stops working.
 
 ```
 src/lib/model.ts               the provider boundary: model, cost, credential
-src/lib/forms/template.ts      AO_TEMPLATE: docx sections + xlsx rows
+src/lib/forms/template.ts      AO_TEMPLATE: docx sections + field rows
 src/lib/pipeline/render.ts     pdf.js, /Rotate, upright at 300 DPI
 src/lib/pipeline/ocr.ts        tesseract worker, words with pixel boxes
 src/lib/pipeline/geometry.ts   words -> numbered lines, union, pad, box
 src/lib/pipeline/classify.ts   document-type spans from OCR text
 src/lib/pipeline/locate.ts     slot -> line range -> box
-src/lib/pipeline/fields.ts     xlsx values with validated citations
+src/lib/pipeline/fields.ts     header values with validated citations
 src/lib/export/png.ts          dependency-free PNG encoder
 src/lib/export/crop.ts         sub-rectangle out of a rendered page
 src/lib/export/docx.ts         the DOKUMEN VALIDASI packet
-src/lib/export/xlsx.ts         the EPIC order-config sheet
 
 scripts/generate.mjs           pnpm generate
 scripts/measure-locate.mjs     pnpm measure:locate
 scripts/vendor-ocr.mjs         pnpm vendor:ocr
 scripts/smoke.mjs              pnpm smoke
 scripts/test-pipeline.mjs      pipeline unit suite
-scripts/test-converters.mjs    xlsx/docx extraction
+scripts/test-converters.mjs    docx text extraction
 
 src/app/                       the leftover assistant-ui chat scaffolding
-src/lib/attachments/           its in-browser PDF/xlsx/docx conversion
+src/lib/attachments/           its in-browser PDF/docx conversion
 src/lib/threads/, storage/     its IndexedDB session persistence
 ```
 

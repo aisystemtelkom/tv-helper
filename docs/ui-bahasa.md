@@ -81,7 +81,7 @@ improvise a synonym.
 | the review sheet | **lembar periksa** | |
 | additional document | **dokumen tambahan** | the client's own term, keep it |
 | round (of tambahan) | **putaran** | |
-| the two deliverables | **berkas hasil** | |
+| the deliverable | **berkas hasil** | ONE file, the DOKUMEN VALIDASI docx. It was two until the EPIC workbook was dropped as a miscommunication, so any copy still saying "kedua berkas" is stale |
 | berkas handed over and not yet read | **antrean** | the operator may keep handing berkas over while one is being read, so the ones waiting are a real object on the Muat screen with a heading of their own ("Menunggu giliran") and a row each. Never "daftar tunggu" and never "queue" |
 | a berkas the order will not take | **tidak dimuat** | said of a duplicate, and the sentence always names the berkas it repeats, because identity is the CONTENT and the two names are routinely different |
 | the AI may propose out of this berkas | **dibaca AI** | THE DEFAULT FOR EVERY BERKAS, and a berkas nobody has decided anything about wears it. The key that carries it is selected and petrol, never amber: no decision is owed here |
@@ -144,7 +144,7 @@ about, in the one place they go to decide whether to fetch another document.
 | Cancel | **Batal** |
 | Use this zone | **Pakai area ini** |
 | Snap to lines | **Kunci ke baris** |
-| Build the two files | **Buat kedua berkas** |
+| Build the file | **Buat berkasnya** |
 | Save `<name>` | **Simpan `<name>`** |
 | Back to the review sheet | **Kembali ke lembar periksa** |
 | Start a different run | **Mulai order lain** |

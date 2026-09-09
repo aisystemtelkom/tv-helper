@@ -388,8 +388,9 @@ export function shortenFileName(name: string, max = 34): string {
  *
  * `page` is the page's number INSIDE ITS OWN SOURCE FILE, never the run-global
  * index a zone is stored by. Those two numbering systems have already shipped a
- * wrong page reference once, in the xlsx exporter, and this is the only one of
- * them that helps a reviewer open the right document.
+ * wrong page reference once, in a cell note that named this run's
+ * bundle-global index, and this is the only one of them that helps a reviewer
+ * open the right document.
  */
 export function Cite({ cite }: { cite: Citation | null }) {
   if (!cite) {

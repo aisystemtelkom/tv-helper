@@ -155,10 +155,10 @@ export function assertWirePages(pages: WirePage[]): void {
       );
     }
     // `sourceName` and `pageInDoc` are the two fields on `WirePage` that reach
-    // an operator VERBATIM: `/api/extract` copies them into the citation and
-    // `src/lib/export/xlsx.ts` renders the cell note as
-    // `${sourceName} p${pageInDoc + 1}`. Unchecked, `pageInDoc: "not a number"`
-    // was accepted and printed "s1 pnot a number1"; the interesting case is a
+    // an operator VERBATIM: `/api/extract` copies them into the citation, which
+    // a reviewer reads as `${sourceName} p${pageInDoc + 1}`. Unchecked,
+    // `pageInDoc: "not a number"` was accepted and printed
+    // "s1 pnot a number1"; the interesting case is a
     // wrong-but-numeric one, which prints a page number that reads perfectly
     // and does not exist in that file. Every other field on this type was
     // validated on exactly that argument -- a page numbered any other way

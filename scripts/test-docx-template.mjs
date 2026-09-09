@@ -278,7 +278,7 @@ const FORM = {
       slots: [slot("gamma.quote", "{{quote}}"), slot("gamma.lainnya", "Lainnya")],
     },
   ],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 

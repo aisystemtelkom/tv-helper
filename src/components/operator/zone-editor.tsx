@@ -54,7 +54,7 @@
  *    number INSIDE ITS OWN SOURCE FILE, which is the only number a reviewer
  *    can act on; the number that gets STORED is the run-global position, via
  *    `zonePageRef`. Confusing those two has already shipped a wrong page
- *    reference once, in the xlsx exporter.
+ *    reference once, in a cell note that named the run-global index.
  *  - The readout is the same citation register the review plate shows
  *    (`Cite` + `CiteAdvisories` over a real `Citation`), so a hand-drawn zone
  *    is held to the SAME visible standard as a machine-proposed one. It used

@@ -34,7 +34,7 @@
  *  2. GEMINI CONFABULATES SMALL PRINT confidently, deterministically and
  *     invisibly at whole-page resolution, while reading the same region
  *     perfectly as a crop. Nothing in this module can catch that; the
- *     crop-level second pass on values bound for the xlsx is what does. Do not
+ *     crop-level second pass on the header's values is what does. Do not
  *     read a clean `report` here as a statement about text quality.
  */
 
@@ -1093,7 +1093,7 @@ export async function ocrPageWithGemini(
 // wrong about the terminal case in a way worth correcting rather than quietly
 // fixing. After COMPLETENESS_ATTEMPTS this throws `IncompletePageError`, no
 // caller catches it, and all three abort: `scripts/generate.mjs` ends the
-// bundle with no docx, no xlsx and no OUTSTANDING report; `pipeline.worker.ts`
+// bundle with no docx and no OUTSTANDING report; `pipeline.worker.ts`
 // stops the ingest; `scripts/measure-locate.mjs` kills the gate. The false
 // positive costs the run, not the call. That IS the behaviour the Task 7
 // verdict ordered -- "after retries exhaust, fail loudly (never a silent thin

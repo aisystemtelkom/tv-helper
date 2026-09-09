@@ -52,21 +52,20 @@
 //      *told* the answer out of band -- the client says "this one is an MO" in
 //      a WhatsApp message that is not in the bundle -- and because every step
 //      below is an inference that must be overridable when it is wrong.
-//   2. THE ORDER REQUEST, when one was supplied. Second because it is the
-//      document that *states* the requested order type as a field rather than
-//      mentioning it in prose: bundle two ships it as an xlsx with a
-//      "Jenis order (yang diminta)" column. It ranks below the operator only
-//      because a request can be superseded and the operator knows that.
-//      Reading it is item 3 of the plan and belongs to the next agent in this
-//      chain; `resolveJenisOrder` takes it as an already-parsed object so that
-//      landing the reader is a one-line change at the call site.
-//   3. INFERENCE FROM THE DOCUMENTS, narrowly. Third because it reads a label
+//      THERE USED TO BE A SECOND STEP HERE and it is worth naming, because its
+//      absence is a decision rather than an oversight. The ORDER REQUEST states
+//      the requested order type as a field rather than mentioning it in prose,
+//      which made it the best inference available -- but it reached us as a
+//      spreadsheet, and this product neither reads nor writes one. The reader,
+//      the `"order-request"` origin and the parameter that carried it are all
+//      gone; restoring them means restoring an Excel input first.
+//   2. INFERENCE FROM THE DOCUMENTS, narrowly. Second because it reads a label
 //      somebody printed rather than a field somebody filled, so it can pick up
 //      a mention of a DIFFERENT order (a renewal's base agreement naming the
 //      original activation) or an unticked list of options. The guards below
-//      exist for exactly those two cases and it stays last of the three that
+//      exist for exactly those two cases and it stays last of the two that
 //      can produce a value.
-//   4. BLANK, reported outstanding by name. There is deliberately NO default.
+//   3. BLANK, reported outstanding by name. There is deliberately NO default.
 //      Same argument as `NEVER_EXTRACTED`'s `namaProyek`: a blank invites the
 //      operator to fill it in, a plausible wrong value gets signed.
 // ---------------------------------------------------------------------------
@@ -98,8 +97,6 @@ export type JenisOrderOrigin =
   | "flag"
   /** The `JENIS_ORDER` environment variable. Same trust as the flag. */
   | "env"
-  /** A field somebody FILLED on the order request. The best inferred source. */
-  | "order-request"
   /** A label somebody PRINTED, read off the scans. Weakest of the answers. */
   | "documents"
   /** Read something that looked like an answer and would not trust it. */
@@ -279,12 +276,10 @@ export function jenisOrderCandidates(
 export function resolveJenisOrder({
   flag,
   env,
-  orderRequest,
   pages = [],
 }: {
   flag?: unknown;
   env?: unknown;
-  orderRequest?: { jenisOrder?: unknown } | null;
   pages?: JenisOrderPage[];
 } = {}): JenisOrder {
   // Explicit values are taken VERBATIM apart from whitespace. The operator may
@@ -302,15 +297,6 @@ export function resolveJenisOrder({
   const fromEnv = explicit(env);
   if (fromEnv) {
     return { value: fromEnv, origin: "env", detail: "given as JENIS_ORDER" };
-  }
-
-  const fromRequest = explicit(orderRequest?.jenisOrder);
-  if (fromRequest) {
-    return {
-      value: fromRequest,
-      origin: "order-request",
-      detail: "read from the order request",
-    };
   }
 
   const candidates = jenisOrderCandidates(pages);

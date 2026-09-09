@@ -4,11 +4,9 @@
  * WHY THIS FILE DID NOT EXIST UNTIL NOW, which is worth writing down because
  * the absence was invisible and expensive. `/api/extract` has been built,
  * tested and gated for some time, and NOTHING IN THE APP CALLED IT. The only
- * two fetch sites in the browser were `propose.ts` and the ingest worker, and
- * `src/lib/ui/export.ts` built the workbook with `buildXlsx(template, [])` --
- * a literally empty array. So the header table sat blank and the whole of
- * xlsx column E shipped empty BY CONSTRUCTION, for every run, whatever the
- * documents said.
+ * two fetch sites in the browser were `propose.ts` and the ingest worker, so
+ * the docx header table sat blank BY CONSTRUCTION, for every run, whatever
+ * the documents said.
  *
  * That was not a bug in extraction. It was a missing wire, and it read to an
  * operator exactly like extraction failing: they asked why so little was
@@ -25,7 +23,6 @@
 // `propose.ts` imports it that way: this module is pure and is driven by
 // `node --test`, which has neither IndexedDB nor a Web Worker.
 import { aiExcludedSources } from "../browser/sources.ts";
-import type { FieldValue } from "../pipeline/fields.ts";
 import type { BrowserRun } from "./runtime.ts";
 
 /** Mirrors `ExtractBody` in `src/app/api/extract/handler.ts`. */
@@ -44,7 +41,6 @@ export type ExtractRequest = {
      */
     searchable?: false;
   }[];
-  answered?: string[];
 };
 
 /** Mirrors `FieldDisposition`. Six outcomes, and none of them collapse. */
@@ -101,8 +97,8 @@ export type ExtractResponse = { fields: ExtractedField[] };
  *
  * This function sent every page unconditionally, and that was the quiet half
  * of the whole feature: an operator fences a berkas off, the search obeys, and
- * the EXTRACTION reads it anyway -- filling xlsx column E and the docx header
- * table with a value carrying a citation that PASSES VALIDATION and points
+ * the EXTRACTION reads it anyway -- filling the docx header table with a
+ * value carrying a citation that PASSES VALIDATION and points
  * into the one document they were told would not be checked. Nothing looks
  * wrong anywhere, and a validator signs it. The two routes take the same wire
  * contract, so they take the same fence.
@@ -112,14 +108,11 @@ export type ExtractResponse = { fields: ExtractedField[] };
  * carry `searchable: false`, which the route filters on.
  *
  * NO OVERLAY IS SENT, unlike `buildProposeRequest`. `resolveTemplate` passes
- * `xlsxRows` and `fieldHints` through untouched, so this order's form cannot
+ * `fieldRows` and `fieldHints` through untouched, so this order's form cannot
  * change which keys are asked for or how; the reasoning is written out on
  * `extractValues`' `template` parameter.
  */
-export function buildExtractRequest(
-  run: BrowserRun,
-  answered: readonly string[] = [],
-): ExtractRequest {
+export function buildExtractRequest(run: BrowserRun): ExtractRequest {
   const nameOf = new Map(run.sources.map((s) => [s.id, s.name]));
   const fenced = aiExcludedSources(run);
   return {
@@ -136,7 +129,6 @@ export function buildExtractRequest(
         ...(closed ? { searchable: false as const } : {}),
       };
     }),
-    ...(answered.length > 0 ? { answered: [...answered] } : {}),
   };
 }
 
@@ -154,7 +146,7 @@ export function buildExtractRequest(
  *   2. They go back, mark one berkas Tanpa AI (or delete it outright).
  *   3. They return to Berkas and export.
  *
- * Column E and the docx header table then ship values mined from that berkas,
+ * The docx header table then ships values mined from that berkas,
  * each carrying a citation that PASSES VALIDATION and points into the very
  * document the operator fenced off. The screen says the AI does not look
  * inside that berkas; the deliverable proves it did. Nothing is broken
@@ -218,13 +210,12 @@ export function usableExtraction(
 
 export async function requestExtraction(
   run: BrowserRun,
-  answered: readonly string[] = [],
   signal?: AbortSignal,
 ): Promise<ExtractResponse> {
   const response = await fetch("/api/extract", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildExtractRequest(run, answered)),
+    body: JSON.stringify(buildExtractRequest(run)),
     signal,
   });
 
@@ -340,13 +331,13 @@ export function noteForField(field: ExtractedField): FieldNote {
 /**
  * The fields that may be written into a cell, and the ones that may not.
  *
- * THE TRAP THIS FUNCTION EXISTS FOR: `not-searched` arrives with an EMPTY
- * value, and it arrives for two different reasons. One is `namaProyek`, which
- * nothing ever searches. The other is a key THE ORDER REQUEST ALREADY
- * ANSWERED, where the run genuinely holds a value and the route was told not
- * to go hunting for a second one. Writing an empty string into that cell
- * because the status was not `cited` would erase a value the operator gave
- * us, which is worse than never having asked.
+ * THE TRAP THIS FUNCTION EXISTS FOR: a field can arrive with an EMPTY value
+ * under a status that is not a failure -- `not-searched` for `namaProyek`,
+ * which nothing ever searches, and `conflict`, which ships blank on purpose
+ * with both spellings recorded. Writing an empty string into the cell because
+ * the status was not `cited` would erase whatever the operator or the
+ * filename-derived guess had already put there, which is worse than never
+ * having asked.
  *
  * So only a field that actually carries text is ever written, and every other
  * status leaves whatever is already in the cell alone.
@@ -360,40 +351,4 @@ export function fillableValues(
     out.set(field.fieldKey, field.value);
   }
   return out;
-}
-
-/**
- * Column E of the workbook, as `buildXlsx` takes it.
- *
- * THE CITATION TRAVELS WITH THE VALUE, and it did not. The export screen built
- * this list inline and copied across `fieldKey`, `value` and `conflict` only,
- * so `buildXlsx`'s whole note-writing branch (`else if (value?.source)`) was
- * dead in the browser: EVERY cell of the workbook an operator actually
- * produces shipped with no note at all, while the headless `pnpm generate`
- * wrote one on each. AGENTS.md states the rule flatly -- an xlsx cell note
- * must name the source file and its own page number -- and the deliverable
- * that reaches a validator was the one without the audit trail.
- *
- * It is exactly the wrong-and-quiet shape: the number in the cell is the same
- * either way, so the missing half is invisible until somebody tries to check
- * one and finds there is nothing to check it against.
- *
- * `source` IS SET ONLY FOR A VALIDATED CITATION. `/api/extract` fills it on
- * `cited` and on nothing else -- not on `citation-invalid`, where the model
- * named a place and the place was wrong. So a note written from it never
- * points a reviewer at a page the model confabulated, and a cell with no note
- * is a cell with no citation rather than one whose citation was dropped in
- * transit.
- *
- * EVERY FIELD IS CARRIED, blanks included, because `buildXlsx` writes
- * `value?.value ?? ""` and a conflict entry is deliberately a blank value plus
- * both spellings. Dropping those here would take the conflict with them.
- */
-export function columnEValues(fields: readonly ExtractedField[]): FieldValue[] {
-  return fields.map((field) => ({
-    fieldKey: field.fieldKey,
-    value: field.value,
-    ...(field.conflict ? { conflict: field.conflict } : {}),
-    ...(field.source ? { source: field.source } : {}),
-  }));
 }

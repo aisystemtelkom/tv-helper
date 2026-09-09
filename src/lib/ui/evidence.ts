@@ -7,7 +7,7 @@
  * glance. That only works if the citation names the document the reviewer
  * would actually open -- its file name and its own page number -- rather than
  * a number that is only meaningful inside this run. The same mistake was
- * already made and fixed once in the xlsx exporter (task-11 finding 2), and
+ * already made and fixed once in a cell note (task-11 finding 2), and
  * this module exists so the contact sheet does not make it a second time.
  *
  * Everything here is pure so `src/lib/ui/ui.test.mts` can drive it.

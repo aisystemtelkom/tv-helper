@@ -9,9 +9,8 @@
 # See docs/runbook-deploy.md. Building the wrong architecture produces an image
 # that pushes fine and then fails to start on Cloud Run.
 
-# Debian slim rather than alpine: pdfjs-dist and exceljs are both
-# JS/wasm, but Next ships a native SWC binary per platform and glibc is the
-# combination upstream tests. Alpine saves ~40MB and buys a musl variant matrix
+# Debian slim rather than alpine: pdfjs-dist is JS/wasm, but Next ships a
+# native SWC binary per platform and glibc is the combination upstream tests. Alpine saves ~40MB and buys a musl variant matrix
 # on every future dependency.
 FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm

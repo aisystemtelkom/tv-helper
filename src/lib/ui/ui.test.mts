@@ -47,7 +47,6 @@ import {
 } from "./continuation.ts";
 import {
   buildExtractRequest,
-  columnEValues,
   extractionSignature,
   fillableValues,
   noteForField,
@@ -161,7 +160,7 @@ test("resolvePage names the file a reviewer would open, and its own page number"
   assert.ok(resolved);
   assert.equal(resolved.sourceName, "LOP999001_merged.pdf");
   // Run-global page 3 is the SECOND page of the second document. Reporting
-  // "3" here is the mistake the xlsx exporter already had to fix once.
+  // "3" here is the mistake a cell note already had to fix once.
   assert.equal(resolved.pageInDoc, 1);
   assert.equal(resolved.pagesInDoc, 3);
 });
@@ -513,7 +512,7 @@ const TEMPLATE: Template = {
       },
     ]),
   ],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 
@@ -913,19 +912,14 @@ test("the extract request numbers pages by POSITION IN THE RUN, and names their 
   // sourceId, which is unambiguous and unreadable.
   assert.equal(request.pages[0].sourceName, "SPLITBA_LOP999001.pdf");
   assert.equal(request.pages[4].sourceName, "LOP999001_merged.pdf");
-
-  // `answered` is omitted rather than sent empty: the route treats its
-  // presence as "the order request already covered these".
-  assert.equal(request.answered, undefined);
-  assert.deepEqual(buildExtractRequest(RUN, ["cc"]).answered, ["cc"]);
 });
 
 test("a blank value never overwrites a cell, whatever its status says", () => {
-  // THE TRAP THIS PINS. `not-searched` arrives with an empty value for two
-  // different reasons: the key nothing ever searches (namaProyek), and a key
-  // THE ORDER REQUEST ALREADY ANSWERED, where the run genuinely holds a
-  // value and the route was told not to hunt for a second one. Writing "" in
-  // because the status was not `cited` would erase what the operator gave us.
+  // THE TRAP THIS PINS. A field can arrive with an empty value under a status
+  // that is not a failure -- `not-searched` for the key nothing ever searches
+  // (namaProyek), and `conflict`, which ships blank on purpose with both
+  // spellings recorded. Writing "" in because the status was not `cited` would
+  // erase what the operator, or the filename-derived guess, already put there.
   const values = fillableValues([
     { fieldKey: "cc", value: "", status: "not-searched", confidence: "low" },
     { fieldKey: "order", value: "", status: "not-found", confidence: "low" },
@@ -1080,10 +1074,10 @@ test("fencing a berkas retires the reading that was taken with it", () => {
    * back does not re-bill a reading of every page in the bundle. It was keyed
    * BY RUN ID ALONE, and neither marking a berkas "Tanpa AI" nor deleting one
    * invalidated it. So: read the values, go back, fence a berkas, return, and
-   * export. Column E and the docx header table then carry values mined out of
-   * that berkas, each with a citation that PASSES VALIDATION and points into
-   * the one document the screen promised would not be read. The packet opens
-   * fine and a validator signs it.
+   * export. The docx header table then carries values mined out of that
+   * berkas, each with a citation that PASSES VALIDATION and points into the
+   * one document the screen promised would not be read. The packet opens fine
+   * and a validator signs it.
    */
   const fields: ExtractedField[] = [
     { fieldKey: "cc", value: "BANK CONTOH NUSANTARA", status: "cited", confidence: "high" },
@@ -1145,67 +1139,6 @@ test("the signature moves for the berkas set and for nothing else", () => {
     }),
     before,
   );
-});
-
-test("every cell of column E carries the citation behind it", () => {
-  /*
-   * THE DEFECT THIS PINS. The export screen built column E inline and copied
-   * across `fieldKey`, `value` and `conflict` only. `buildXlsx` writes its note
-   * from `value.source`, so that branch never fired in the browser: every cell
-   * of the workbook an operator actually hands over had NO NOTE AT ALL, while
-   * the headless `pnpm generate` wrote one on each. AGENTS.md states the rule
-   * flatly -- a cell note must name the source file and its own page number --
-   * and the deliverable that reaches a validator was the one without the audit
-   * trail. The number in the cell is identical either way, which is why it went
-   * unnoticed.
-   */
-  const values = columnEValues([
-    {
-      fieldKey: "quote",
-      value: "1-70000000001",
-      status: "cited",
-      confidence: "high",
-      source: {
-        pageIndex: 3,
-        lineRange: [12, 14],
-        sourceName: "LOP999001_merged.pdf",
-        pageInDoc: 1,
-      },
-    },
-    // A confabulated citation, which `/api/extract` deliberately does NOT put
-    // in `source`. It must not acquire one on the way to the sheet: a note
-    // pointing at a page the model invented is worse than no note.
-    {
-      fieldKey: "cc",
-      value: "BANK CONTOH NUSANTARA",
-      status: "citation-invalid",
-      confidence: "low",
-      claimed: { pageIndex: 99, from: 1, to: 2 },
-    },
-    // A conflict: blank value, both spellings kept. Carried rather than
-    // dropped, because dropping it would take the conflict with it.
-    {
-      fieldKey: "alamat",
-      value: "",
-      status: "conflict",
-      confidence: "low",
-      conflict: ["Jl. Contoh 1", "Jl. Contoh 1, Jakarta"],
-    },
-  ]);
-
-  const quote = values.find((v) => v.fieldKey === "quote");
-  assert.deepEqual(quote?.source, {
-    pageIndex: 3,
-    lineRange: [12, 14],
-    sourceName: "LOP999001_merged.pdf",
-    pageInDoc: 1,
-  });
-
-  assert.equal(values.find((v) => v.fieldKey === "cc")?.source, undefined);
-
-  const alamat = values.find((v) => v.fieldKey === "alamat");
-  assert.equal(alamat?.value, "");
-  assert.deepEqual(alamat?.conflict, ["Jl. Contoh 1", "Jl. Contoh 1, Jakarta"]);
 });
 
 /* ------------------------------------------------- handing documents over */
@@ -1480,7 +1413,7 @@ test("a bagian the search failed on is not counted as a decision the operator ma
         slot("ships"),
       ]),
     ],
-    xlsxRows: [],
+    fieldRows: [],
     fieldHints: {},
   };
 
@@ -1553,7 +1486,7 @@ const HEADINGS_BASE: Template = {
     section("Dua", "images", [judulSlot("c", "C")]),
     section("Tiga", "table", []),
   ],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 
