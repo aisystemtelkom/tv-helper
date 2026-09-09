@@ -50,7 +50,7 @@ import type { BrowserRun, StoredPage, Zone } from "./runtime.ts";
  * `pageIndex` is the RUN-GLOBAL position, which is what `Zone.pageIndex` means;
  * `pageInDoc` is the page's own number inside its berkas, which is the only
  * number a reviewer can act on. Confusing those two has already shipped a wrong
- * page reference once, in the xlsx exporter, which is why both are carried
+ * page reference once, in a cell note, which is why both are carried
  * rather than one being re-derived at the call site.
  */
 export type NextPage = {

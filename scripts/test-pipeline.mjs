@@ -889,18 +889,18 @@ test("the KB table splits in two as the sample does", () => {
     ["Detail", "ToP", "TTD Pejabat"]);
 });
 
-test("the xlsx row list holds the sample's 34 data rows", () => {
+test("the field row list holds the sample's 34 rows", () => {
   // The sample sheet is 35 rows: one header, then 34 data rows. The header is
   // emitted by the exporter, so the template carries data rows only.
-  assert.equal(AO_TEMPLATE.xlsxRows.length, 34);
-  assert.equal(AO_TEMPLATE.xlsxRows[0].itemI, "Lead");
-  assert.equal(AO_TEMPLATE.xlsxRows[0].itemII, "Description");
-  assert.equal(AO_TEMPLATE.xlsxRows[0].keterangan, "Isi");
+  assert.equal(AO_TEMPLATE.fieldRows.length, 34);
+  assert.equal(AO_TEMPLATE.fieldRows[0].itemI, "Lead");
+  assert.equal(AO_TEMPLATE.fieldRows[0].itemII, "Description");
+  assert.equal(AO_TEMPLATE.fieldRows[0].keterangan, "Isi");
 });
 
-test("EPIC-only xlsx rows carry no fieldKey, so nothing can fill them", () => {
+test("EPIC-only rows carry no fieldKey, so nothing can fill them", () => {
   const byItemII = (name) =>
-    AO_TEMPLATE.xlsxRows.find((r) => r.itemII === name);
+    AO_TEMPLATE.fieldRows.find((r) => r.itemII === name);
   for (const name of ["Customer Account", "Billing Account", "Sales Team",
                       "LatLong"]) {
     assert.equal(byItemII(name).fieldKey, undefined, `${name} must stay blank`);
@@ -1360,7 +1360,7 @@ test("buildDocx omits a slotless table section instead of emitting an empty tabl
           { id: "kosong", title: "Kosong", layout: "table",
             ask: { title: "Kosong" }, slots: [] },
         ],
-        xlsxRows: [],
+        fieldRows: [],
       },
       AO_HEADER,
       [],
@@ -1492,33 +1492,6 @@ test("extractFields numbers its listing by position, not by the page's true docu
   assert.deepEqual(values[0].source, { pageIndex: 0, lineRange: [0, 0] });
 });
 
-import { buildXlsx } from "../src/lib/export/xlsx.ts";
-import exceljs from "exceljs";
-
-test("buildXlsx fills only backed rows and cites their provenance", async () => {
-  const bytes = await buildXlsx(AO_TEMPLATE, [
-    { fieldKey: "alamat", value: "Jalan Contoh Nusantara Raya No.1",
-      source: { pageIndex: 0, lineRange: [7, 9] } },
-  ]);
-
-  const wb = new exceljs.Workbook();
-  await wb.xlsx.load(bytes);
-  const sheet = wb.worksheets[0];
-
-  // One header row plus the template's 34 data rows.
-  assert.equal(sheet.rowCount, 35);
-
-  let filled = 0;
-  sheet.eachRow((row) => { if (row.getCell(5).value) filled += 1; });
-  // Exactly the one backed value. Every other row, including the EPIC-only
-  // ones, stays blank.
-  assert.equal(filled, 1);
-
-  const cell = sheet.getCell("E7");
-  assert.ok(String(cell.value).includes("Contoh Nusantara"));
-  assert.ok(JSON.stringify(cell.note ?? "").includes("lines 7-9"));
-});
-
 import {
   FIELD_DOC_TYPES,
   groupKeysByDocTypes,
@@ -1536,7 +1509,7 @@ test("remapCitedPageIndex drops a citation to a pool position that was never off
 
   // Position 5 doesn't exist in a two-element pool. The old
   // `pool[i]?.index ?? i` fallback returned 5 here -- the raw LOCAL position,
-  // written into the workbook as if it were a bundle-global page number.
+  // recorded as if it were a bundle-global page number.
   assert.equal(remapCitedPageIndex(5, pool), undefined);
 });
 
@@ -1788,7 +1761,7 @@ const TINY_TEMPLATE = {
       ],
     },
   ],
-  xlsxRows: [
+  fieldRows: [
     { nomor: 1, itemI: "Lead", itemII: "Description", fieldKey: "namaProyek" },
     { itemII: "Account", fieldKey: "cc" },
     { itemII: "Nothing a PDF backs" },
@@ -2085,7 +2058,7 @@ test("continuationChecks stamps EVERY capture, including the ones that do not co
   // Each entry names the source and the page a human would open, not only the
   // run's global page number -- and the NEXT page is resolved out of the run's
   // page list rather than derived from the current page's own number, which is
-  // the off-by-one an xlsx cell note already cost this project once.
+  // the off-by-one a cell note already cost this project once.
   assert.equal(checks[1].sourceName, "bundle.pdf");
   assert.equal(checks[1].pageInDoc, 1);
   assert.equal(checks[1].nextPageIndex, 2);
@@ -2166,13 +2139,13 @@ test("outstandingContinuations reports the cut-off captures and names where to l
   assert.match(outstanding[0].reason, /does not crop a lanjutan/);
 });
 
-test("outstandingFields names every backed xlsx row that came back blank", () => {
+test("outstandingFields names every backed row that came back blank", () => {
   const outstanding = outstandingFields(TINY_TEMPLATE, [
     { fieldKey: "cc", value: "BANK CONTOH NUSANTARA" },
     { fieldKey: "namaProyek", value: "   " },
   ]);
 
-  // A whitespace-only value is blank: the workbook cell would look empty and
+  // A whitespace-only value is blank: the cell would look empty and
   // an empty cell nobody tried to fill is indistinguishable from one where
   // the evidence does not exist.
   assert.deepEqual(outstanding.map((o) => o.key), ["namaProyek"]);
@@ -2387,7 +2360,7 @@ const CC_ONLY_TEMPLATE = {
       ],
     },
   ],
-  xlsxRows: [{ nomor: 1, itemI: "Customer", itemII: "Name", fieldKey: "cc" }],
+  fieldRows: [{ nomor: 1, itemI: "Customer", itemII: "Name", fieldKey: "cc" }],
   fieldHints: { cc: AO_TEMPLATE.fieldHints.cc },
 };
 
@@ -2474,7 +2447,7 @@ test("without the cc definition the same pool yields the email header value", as
 test("namaProyek is never sent to the model, and its blank says why", () => {
   // Reverted mitigation (task brief item 1). On the full pool it answered
   // with the master contract's scope title, carrying a citation that PASSED
-  // validation, in the docx header's `NAMA Proyek :` cell and its xlsx row.
+  // validation, in the docx header's `NAMA Proyek :` cell.
   // A blank invites the operator to fill it in; a plausible wrong value does
   // not. Re-enabling needs a reproducible run that yields the right value.
   assert.ok(NEVER_EXTRACTED.has("namaProyek"));
@@ -2656,10 +2629,10 @@ test("every whole-page slot DECLARES which page of its type it takes, densely an
 test("AO_TEMPLATE.fieldHints tell cc apart from an email header, and namaProyek from the contract title", () => {
   const { fieldHints } = AO_TEMPLATE;
 
-  // Every backed xlsx row has a definition; a key without one reaches the
+  // Every backed row has a definition; a key without one reaches the
   // model as its bare name, which is the state that shipped a wrong customer.
   const backed = [
-    ...new Set(AO_TEMPLATE.xlsxRows.map((row) => row.fieldKey).filter(Boolean)),
+    ...new Set(AO_TEMPLATE.fieldRows.map((row) => row.fieldKey).filter(Boolean)),
   ];
   for (const key of backed) {
     assert.ok(fieldHints[key], `${key} has no fieldHint`);
@@ -3023,7 +2996,7 @@ test("extractTextFields reconciles, so a model answering cc twice cannot ship bo
     "]}";
 
   const values = await extractTextFields(
-    { ...TINY_TEMPLATE, xlsxRows: [{ itemII: "Account", fieldKey: "cc" }] },
+    { ...TINY_TEMPLATE, fieldRows: [{ itemII: "Account", fieldKey: "cc" }] },
     byType,
     pages,
     ask,
@@ -3211,23 +3184,13 @@ test("resolveJenisOrder never defaults, and says so in a sentence an operator ca
   );
 });
 
-test("resolveJenisOrder prefers the operator, then the order request, then the documents", () => {
+test("resolveJenisOrder prefers the operator, then the documents", () => {
   const pages = [textPage(["JENIS ORDER : AO"])];
-  const orderRequest = { jenisOrder: "DO" };
 
   // Every source present: the flag wins, because it is the only one the
   // operator can be told out of band.
-  assert.equal(
-    resolveJenisOrder({ flag: "MO", env: "RO", orderRequest, pages }).value,
-    "MO",
-  );
-  assert.equal(
-    resolveJenisOrder({ env: "RO", orderRequest, pages }).value,
-    "RO",
-  );
-  const fromRequest = resolveJenisOrder({ orderRequest, pages });
-  assert.equal(fromRequest.value, "DO");
-  assert.equal(fromRequest.origin, "order-request");
+  assert.equal(resolveJenisOrder({ flag: "MO", env: "RO", pages }).value, "MO");
+  assert.equal(resolveJenisOrder({ env: "RO", pages }).value, "RO");
 
   // The documents answer only when nothing better did, and the answer carries
   // the page and line it was read off -- an inferred header cell nobody can
@@ -3395,36 +3358,28 @@ test("parseArgs takes --jenis-order and refuses a value that is another option",
 // ---------------------------------------------------------------------------
 // A VALUE WITH NOWHERE TO LAND.
 //
-// `buildXlsx` keys values by fieldKey and walks `template.xlsxRows`, so a key
-// with no row is simply never written. `AO_TEMPLATE` declares four
-// fieldKey-bearing rows; `REQUEST_COLUMN_FIELD_KEYS` maps sixteen columns. The
-// drop used to be silent in all three places an operator looks, while the run
-// log and `report.orderRequest.answered` both presented the key as answered.
+// A value whose fieldKey names no row the form declares reaches no deliverable
+// at all, and the drop used to be silent in every place an operator looks: the
+// run log printed it beside the keys that did ship, and `outstandingFields`
+// walks the form's own rows, so a key with no row can never appear there.
+//
+// NOTHING IN THE TREE CAN PRODUCE ONE TODAY -- `extractableFieldKeys` derives
+// what to search for from the form's own rows -- and the guard is kept because
+// that is an invariant somewhere else. These tests hold it to its contract by
+// handing it values no current caller could produce.
 // ---------------------------------------------------------------------------
 
 import { unmappedFieldValues } from "./generate.mjs";
 
-const requestValue = (fieldKey, value) => ({
-  fieldKey,
-  value,
-  requestSource: {
-    file: "request.xlsx",
-    sheet: "Sheet1",
-    rows: [3],
-    column: "K",
-    header: "Term of Payment",
-  },
-});
+const readValue = (fieldKey, value) => ({ fieldKey, value });
 
-test("unmappedFieldValues names exactly the values the workbook cannot carry", async () => {
+test("unmappedFieldValues names exactly the values no form row can carry", () => {
   const values = [
-    // Backed by an xlsxRow in AO_TEMPLATE, so it lands and is not reported.
-    requestValue("alamat", "Jl Contoh 1"),
-    // No row anywhere in the form. Measured before this guard: the run logged
-    // it as a shipped value, listed it under orderRequest.answered, and the
-    // workbook carried no such cell.
-    requestValue("termOfPayment", "Monthly postpaid"),
-    requestValue("bandwidth", "172 Mbps"),
+    // Declared by AO_TEMPLATE, so it lands and is not reported.
+    readValue("alamat", "Jl Contoh 1"),
+    // No row anywhere in the form, so the value goes nowhere at all.
+    readValue("termOfPayment", "Monthly postpaid"),
+    readValue("bandwidth", "172 Mbps"),
   ];
 
   const outstanding = unmappedFieldValues(AO_TEMPLATE, values);
@@ -3433,26 +3388,19 @@ test("unmappedFieldValues names exactly the values the workbook cannot carry", a
     ["termOfPayment", "bandwidth"],
   );
   assert.equal(outstanding[0].kind, "unmapped");
-  // The reason has to carry the value itself: the workbook does not, so this
+  // The reason has to carry the value itself: no deliverable does, so this
   // report is the only place the operator can read what was found.
   assert.match(outstanding[0].reason, /Monthly postpaid/);
-  assert.match(outstanding[0].reason, /no xlsx row/);
-  // And where it came from, so they know which input to fix.
-  assert.match(outstanding[0].reason, /order request \(K, "Term of Payment"\)/);
+  assert.match(outstanding[0].reason, /declares no row for it/);
 
-  // The claim is measured against the exporter rather than asserted: every
-  // key this function does NOT report is a key that reaches column E, and
-  // every key it does report reaches no cell at all.
-  const workbook = new exceljs.Workbook();
-  await workbook.xlsx.load(await buildXlsx(AO_TEMPLATE, values));
-  const columnE = [];
-  workbook.getWorksheet("Order Config").eachRow((row) => {
-    const text = String(row.getCell(5).value ?? "");
-    if (text !== "") columnE.push(text);
-  });
-  assert.ok(columnE.includes("Jl Contoh 1"));
-  assert.ok(!columnE.includes("Monthly postpaid"));
-  assert.ok(!columnE.includes("172 Mbps"));
+  // The claim is measured against the form rather than asserted: every key
+  // this function does NOT report is a key the form declares a row for.
+  const declared = new Set(
+    AO_TEMPLATE.fieldRows.map((row) => row.fieldKey).filter(Boolean),
+  );
+  assert.ok(declared.has("alamat"));
+  assert.ok(!declared.has("termOfPayment"));
+  assert.ok(!declared.has("bandwidth"));
 });
 
 test("unmappedFieldValues reports nothing for a blank or a blanked conflict", () => {
@@ -3467,11 +3415,10 @@ test("unmappedFieldValues reports nothing for a blank or a blanked conflict", ()
     [],
   );
 
-  // One entry per key, not one per value: a key answered by two rows of a
-  // multi-service request is one gap.
+  // One entry per key, not one per value: a key answered twice is one gap.
   const twice = unmappedFieldValues(AO_TEMPLATE, [
-    requestValue("layanan", "METRO E"),
-    requestValue("layanan", "METRO E"),
+    readValue("layanan", "METRO E"),
+    readValue("layanan", "METRO E"),
   ]);
   assert.equal(twice.length, 1);
 });

@@ -122,7 +122,7 @@ function baseTemplate(): Template {
         slots: [],
       },
     ],
-    xlsxRows: [
+    fieldRows: [
       { nomor: 1, itemI: "Lead", itemII: "Description", keterangan: "Isi",
         fieldKey: "namaProyek" },
     ],
@@ -546,7 +546,7 @@ test("order places an added bagian among the base's own sections", () => {
   assert.deepEqual(titles(resolved), ["Lampiran Teknis", "KB", "Email", "MOM"]);
 });
 
-test("the xlsx half of the template passes through untouched", () => {
+test("the field half of the template passes through untouched", () => {
   const base = baseTemplate();
   const resolved = resolveTemplate(
     base,
@@ -556,9 +556,9 @@ test("the xlsx half of the template passes through untouched", () => {
     }),
   );
 
-  // By identity: no operator edit can blank an xlsx cell, move a field hint the
+  // By identity: no operator edit can drop a declared field, move a hint the
   // gate scores, or change which keys hold a list.
-  assert.equal(resolved.xlsxRows, base.xlsxRows);
+  assert.equal(resolved.fieldRows, base.fieldRows);
   assert.equal(resolved.fieldHints, base.fieldHints);
   assert.equal(resolved.fieldLists, base.fieldLists);
   assert.equal(resolved.id, base.id);

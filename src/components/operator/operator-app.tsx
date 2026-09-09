@@ -444,8 +444,8 @@ function Workspace({
    * The run id alone was not enough and the gap was traceable end to end.
    * Neither `setDocumentAi` nor `removeDocument` invalidated this, so an
    * operator could read the values, go back and mark a berkas "Tanpa AI" (or
-   * delete it), return, and export a column E and a docx header table filled
-   * from that berkas -- every value carrying a citation that PASSES VALIDATION
+   * delete it), return, and export a docx header table filled from that
+   * berkas -- every value carrying a citation that PASSES VALIDATION
    * and points into the one document the screen promised would not be read.
    *
    * `usableExtraction` is what decides, so the comparison lives in one place

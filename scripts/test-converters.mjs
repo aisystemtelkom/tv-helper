@@ -1,56 +1,14 @@
 /**
  * Unit tests for the attachment converters.
  *
- * These run in Node against the real libraries, so a breaking upgrade of
- * exceljs or mammoth fails here rather than in the browser. PDF rasterization
- * is covered in scripts/test-pipeline.mjs instead, using @napi-rs/canvas as
- * the Node-side canvas.
+ * These run in Node against the real library, so a breaking upgrade of
+ * mammoth fails here rather than in the browser. PDF rasterization is covered
+ * in scripts/test-pipeline.mjs instead, using @napi-rs/canvas as the Node-side
+ * canvas.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import exceljs from "exceljs";
 import mammothPkg from "mammoth";
-
-const { Workbook } = exceljs;
-
-test("exceljs reads a workbook back as rows", async () => {
-  const workbook = new Workbook();
-  const sheet = workbook.addWorksheet("Invoices");
-  sheet.addRow(["item", "qty", "price"]);
-  sheet.addRow(["router", 2, 450000]);
-  sheet.addRow(["modem", 1, 300000]);
-
-  const buffer = await workbook.xlsx.writeBuffer();
-
-  const reloaded = new Workbook();
-  await reloaded.xlsx.load(buffer);
-
-  const rows = [];
-  reloaded.getWorksheet("Invoices").eachRow({ includeEmpty: false }, (row) => {
-    rows.push(row.values.slice(1).join(","));
-  });
-
-  assert.equal(rows.length, 3, "all three rows survive the round trip");
-  assert.equal(rows[0], "item,qty,price");
-  assert.equal(rows[1], "router,2,450000");
-});
-
-test("exceljs surfaces formula results, not formula source", async () => {
-  const workbook = new Workbook();
-  const sheet = workbook.addWorksheet("Totals");
-  sheet.getCell("A1").value = { formula: "SUM(1,2)", result: 3 };
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const reloaded = new Workbook();
-  await reloaded.xlsx.load(buffer);
-
-  const cell = reloaded.getWorksheet("Totals").getCell("A1").value;
-  assert.equal(
-    typeof cell === "object" ? cell.result : cell,
-    3,
-    "a formula cell exposes its computed result",
-  );
-});
 
 test("mammoth extracts text from a docx", async () => {
   // Minimal valid .docx: a zip with the two parts Word requires.

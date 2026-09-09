@@ -111,7 +111,7 @@ export const DEFAULT_CONCURRENCY = 4;
  * human reading the screen.
  *
  * `pageNumber` is 1-BASED and within THIS document, matching what a PDF viewer
- * shows and what an xlsx note cites, never the run-global position.
+ * shows and what a citation names, never the run-global position.
  */
 export class IngestPageError extends Error {
   readonly pageNumber: number;

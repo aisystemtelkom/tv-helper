@@ -156,7 +156,7 @@ test("reOcrCrop parses a fenced JSON reply", async () => {
 
 test("reOcrCrop throws on an unusable reply rather than returning a blank", async () => {
   // A blank reading would disagree with every value and blank every cell in
-  // the workbook. That deserves an exception, not a quietly emptied deliverable.
+  // the packet. That deserves an exception, not a quietly emptied deliverable.
   await assert.rejects(
     reOcrCrop({ bytes: new Uint8Array([1]), mediaType: "image/png" }, async () => "sorry, no"),
   );
@@ -224,7 +224,7 @@ test("a value already blanked by a reconcile conflict is left alone", async () =
 
 test("a failed verification call ships the value and names it, rather than blanking it", async () => {
   // An unreachable model is not evidence that a value is wrong. Blanking on it
-  // would empty a workbook over a network blip -- the wrong-and-quiet shape
+  // would empty a header table over a network blip -- the wrong-and-quiet shape
   // pointed the other way.
   const values = [cited("cc", "BANK CONTOH NUSANTARA", 0)];
   const { values: out, report } = await verifyCitedValues(values, [PAGE], {

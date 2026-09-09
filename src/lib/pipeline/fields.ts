@@ -5,39 +5,6 @@ import type { Ask } from "./classify.ts";
 import type { OcrPage } from "./locate.ts";
 
 /**
- * Where a value read out of the ORDER REQUEST came from, in the shape an xlsx
- * cell note can print: a file, a sheet, a column and the rows it was read
- * from. Built by `src/lib/pipeline/order-request.ts`, which is also where the
- * argument for having this at all is written down.
- *
- * IT IS NOT A CITATION AND DOES NOT GO THROUGH `citedSource`. A citation is a
- * claim a model made about a page, which is why the one below is validated
- * before it is trusted; this is a cell reference into a spreadsheet the
- * operator supplied, so there is nothing to hallucinate and nothing to check.
- * Kept as a separate field rather than folded into `source` for exactly that
- * reason -- `source` promises a `pageIndex` and a `lineRange`, and inventing
- * either for a value that came from a spreadsheet would be a false citation,
- * which this file's own `citedSource` docstring calls worse than none.
- */
-export type RequestSource = {
-  /** The request file's base name, as the operator passed it. */
-  file: string;
-  sheet: string;
-  /**
-   * 1-based worksheet rows, as Excel itself numbers them.
-   *
-   * A LIST rather than a number: a multi-service request that agrees on a
-   * field is backed by every row that carries it, and naming only the first
-   * would understate the evidence.
-   */
-  rows: number[];
-  /** Column letter, as Excel itself letters it. */
-  column: string;
-  /** The header text the request prints over the column, verbatim. */
-  header: string;
-};
-
-/**
  * A citation that survived validation: the page and lines a value was read
  * from, plus the page's identity outside this run's bundle-global numbering.
  *
@@ -88,7 +55,7 @@ export type CitationClaim = {
  *
  * ADDITIVE ON PURPOSE. `source` still means exactly what it always meant and
  * is still set only for a citation that checked out, so every existing
- * consumer (the xlsx cell note, the docx header, `verify.ts`) is unchanged.
+ * consumer (the docx header, `verify.ts`) is unchanged.
  * This is the extra channel `/api/extract` reports to the operator UI on.
  */
 export type CitationOutcome =
@@ -156,19 +123,11 @@ export type FieldValue = {
   /**
    * What became of the citation the model offered, INCLUDING the two cases
    * `source` cannot tell apart. Optional because a `FieldValue` can be built
-   * by hand or by a producer that never asked a model (the order-request
-   * reader, `reconcileFieldValues`' conflict entries); absent means nothing
-   * is claimed either way.
+   * by hand or by a producer that never asked a model
+   * (`reconcileFieldValues`' conflict entries); absent means nothing is
+   * claimed either way.
    */
   citation?: CitationOutcome;
-  /**
-   * Set instead of `source` when the value came from the order request rather
-   * than from a scanned page. The two are mutually exclusive in practice --
-   * `scripts/generate.mjs` removes a key the request answered from the list it
-   * asks the model for, so no key is searched for twice -- and every consumer
-   * that prints provenance reads `source` first and falls back to this.
-   */
-  requestSource?: RequestSource;
 };
 
 /**
@@ -286,11 +245,11 @@ export async function extractFields(
  * each answer the same key, and a dokumen tambahan round adds documents that
  * answer keys an earlier round already answered. Every consumer downstream
  * then builds `new Map(values.map(v => [v.fieldKey, v]))` -- the docx header
- * and the xlsx exporter both do -- and a Map keeps the LAST entry. So the
- * duplicates survived all the way to the deliverable and were then resolved
- * by array order, silently, with the losing spelling never mentioned
- * anywhere. That is the wrong-and-quiet shape exactly: a workbook that opens
- * fine, carrying one of two answers, with no record that there were two.
+ * does -- and a Map keeps the LAST entry. So the duplicates survived all the
+ * way to the deliverable and were then resolved by array order, silently,
+ * with the losing spelling never mentioned anywhere. That is the
+ * wrong-and-quiet shape exactly: a packet that opens fine, carrying one of
+ * two answers, with no record that there were two.
  *
  * WHAT IT DOES INSTEAD. Entries for one key are compared with `sameEntity`,
  * so `PT Bank Contoh Nusantara Tbk`, `Bank Contoh Nusantara` and `BCN` count
@@ -394,11 +353,10 @@ export function reconcileFieldValues(
     // earlier pass cannot ride along on a key this pass settled: running this
     // over an already-reconciled list has to leave it settled.
     //
-    // Which means every field worth keeping has to be named here. `source` was
-    // the only one until the order-request reader landed, and a value that
-    // arrived through this function without its `requestSource` would ship a
-    // cell whose note says nothing -- provenance lost silently, which is the
-    // half of "wrong and quiet" that survives even when the value is right.
+    // Which means every field worth keeping has to be named here. A value that
+    // arrives through this function without its provenance ships a cell whose
+    // note says nothing -- provenance lost silently, which is the half of
+    // "wrong and quiet" that survives even when the value is right.
     const settled: FieldValue = { fieldKey, value: canonical };
     if (carrier.source) settled.source = carrier.source;
     // Carried for the same reason `source` is, and from the same entry: the
@@ -408,7 +366,6 @@ export function reconcileFieldValues(
     // a value whose citation was in fact rejected -- re-collapsing the
     // distinction this file just drew.
     if (carrier.citation) settled.citation = carrier.citation;
-    if (carrier.requestSource) settled.requestSource = carrier.requestSource;
     reconciled.push(settled);
   }
 
@@ -458,19 +415,13 @@ function joinListValue(
     settled.citation = { status: "cited", source: sources[0] };
   } else settled.citation = { status: "uncited" };
 
-  // Provenance for the request-supplied case, taken from the first carrier
-  // that has it for the same reason `source` is: it is a reference into a
-  // spreadsheet cell, and there is only one field to put it in.
-  const requestSource = carriers.find((carrier) => carrier.requestSource);
-  if (requestSource?.requestSource) settled.requestSource = requestSource.requestSource;
-
   return settled;
 }
 
 /**
  * Trusts a citation only after it checks out, because it flows straight into
- * an xlsx cell note a reviewer relies on: a hallucinated page, an
- * out-of-range line, or a reversed range must not read as a real citation.
+ * provenance a reviewer relies on: a hallucinated page, an out-of-range line,
+ * or a reversed range must not read as a real citation.
  * The value itself survives a bad citation -- dropping the whole entry over
  * one bad citation would discard a good extracted value for no reason, and
  * a false citation is worse than none, since a reviewer cannot tell it apart

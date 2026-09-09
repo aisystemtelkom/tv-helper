@@ -238,12 +238,31 @@ export type SectionDef = {
   added?: { id: NodeId; origin: "human" | "llm"; fromSourceId?: string };
 };
 
-export type XlsxRowDef = {
+/**
+ * One row of the order's field list: what it is called, and whether a document
+ * can back it.
+ *
+ * IT WAS `XlsxRowDef` AND IT DESCRIBED A SPREADSHEET ROW. This product used to
+ * emit an EPIC ORDER_Config workbook alongside the packet, and these rows were
+ * that sheet's rows; `nomor`, `itemI`, `itemII` and `keterangan` are still that
+ * sheet's columns, transcribed from the sample. The workbook was a misread of
+ * what the client asked for and is gone, and the type was renamed with it --
+ * a field named for a file this program must never produce is the exact stale
+ * name this repo keeps paying for.
+ *
+ * WHAT SURVIVES IS THE ONE THING THAT WAS NEVER ABOUT THE SHEET: `fieldKey` is
+ * the declaration of which values a document can be searched for, and it is
+ * still what `extractableFieldKeys` derives the model's question from and what
+ * `outstandingFields` reports a blank against. The other four are the
+ * operator-facing NAME of the row, and they are why an outstanding entry can
+ * say "Contact Last Name" rather than "picContacts".
+ */
+export type FieldRowDef = {
   nomor?: number;
   itemI?: string;
   itemII?: string;
   keterangan?: "Isi" | "Pilih" | "Klik";
-  /** Undefined means no PDF can back this row, so it stays blank. */
+  /** Undefined means no PDF can back this row, so nothing is searched for. */
   fieldKey?: string;
 };
 
@@ -251,9 +270,9 @@ export type Template = {
   id: string;
   label: string;
   sections: SectionDef[];
-  xlsxRows: XlsxRowDef[];
+  fieldRows: FieldRowDef[];
   /**
-   * What each `xlsxRows[].fieldKey` means, keyed by that fieldKey.
+   * What each `fieldRows[].fieldKey` means, keyed by that fieldKey.
    *
    * `SlotAsk.hint` does this job for the crops; this does it for the text
    * values, and for exactly the same reason. `extractFields` is given bare
@@ -288,10 +307,10 @@ export type Template = {
 
 /**
  * Transcribed from `Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx`
- * (word/document.xml) and `LOP999001_ORDER_Config_VPN_PSB_KCP_Contoh.xlsx`.
- * This is a transcription, not a redesign: section names, row labels, order,
- * the empty sections, and the KB table's two-part split all match the
- * sample as it stands.
+ * (word/document.xml), with `fieldRows` transcribed from the order sheet that
+ * accompanied it. This is a transcription, not a redesign: section names, row
+ * labels, order, the empty sections, and the KB table's two-part split all
+ * match the sample as it stands.
  *
  * Every section here is one of two kinds (the Task 7 finding this encodes):
  *   - "images": a human filling the sample screenshots the whole page.
@@ -808,12 +827,18 @@ export const AO_TEMPLATE: Template = {
       slots: [],
     },
   ],
-  // Transcribes the sample workbook's 34 data rows (sheet rows 2-35). The
-  // header row is emitted by the exporter, not stored here. Only rows a PDF
-  // can back carry a fieldKey; every other row -- including the four
-  // EPIC-only rows below and duplicate occurrences of an already-backed
-  // value -- stays undefined so it is blank by construction.
-  xlsxRows: [
+  // The 34 rows of the order's field list, transcribed from the sample's own
+  // order sheet in its order. Only rows a PDF can back carry a fieldKey; every
+  // other row -- including the four EPIC-only rows below and duplicate
+  // occurrences of an already-backed value -- stays undefined, so nothing is
+  // ever searched for on their account.
+  //
+  // THE UNBACKED ROWS ARE KEPT DELIBERATELY, now that no file is generated
+  // from this list. They are what lets `outstandingFields` and the operator's
+  // own screens name a row the way the order names it, and dropping them would
+  // turn this into a bare list of four keys that no longer says what the order
+  // is made of.
+  fieldRows: [
     // generate.mjs's NEVER_EXTRACTED keeps this fieldKey from ever being
     // sent to the model: on the full order-paperwork pool it reliably named
     // the master contract's scope title, not this order's project name, and

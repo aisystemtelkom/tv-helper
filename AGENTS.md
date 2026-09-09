@@ -10,18 +10,48 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # tv-helper
 
-Turns a bundle of scanned Indonesian telecom order documents into two
-deliverables that reproduce a human-authored sample:
+Turns a bundle of scanned Indonesian telecom order documents into one
+deliverable that reproduces a human-authored sample:
 
-1. `<ID EPIC>_DOKUMEN_VALIDASI.docx`, a validation packet whose evidence is
-   **cropped pictures** of the source pages, in the manner of a screen capture
-   rather than a text quote.
-2. `<ID EPIC>_ORDER_Config.xlsx`, the EPIC order-entry sheet, with column E
-   filled only where a source document backs the value and every filled cell
-   carrying a note naming the file, page, and line range it came from.
+`<ID EPIC>_DOKUMEN_VALIDASI.docx`, a validation packet whose evidence is
+**cropped pictures** of the source pages, in the manner of a screen capture
+rather than a text quote.
 
-The headless pipeline that produces both is built and merged. `pnpm generate`
+The headless pipeline that produces it is built and merged. `pnpm generate`
 runs it end to end with no UI and no browser involved.
+
+## THERE IS NO EXCEL, IN EITHER DIRECTION
+
+**This program must never generate, write, offer or read a spreadsheet**, and
+that is a product decision recorded 2026-09-09, not a gap waiting to be filled.
+
+It used to do both. It wrote `<ID EPIC>_ORDER_Config.xlsx`, the EPIC
+order-entry sheet with column E filled from the scans, and it could take the
+EPIC order request as an `.xlsx` INPUT (`--request`, `--service`,
+`src/lib/pipeline/order-request.ts`), which supplied values deterministically
+and removed those keys from what the model was asked for. The client confirmed
+the workbook was a miscommunication and that Excel was never meant to be an
+input either. All of it is gone: `src/lib/export/xlsx.ts`, the order-request
+reader, the `answered` parameter on `/api/extract` that only that reader
+produced, the browser's second download plate, the attachment path's
+spreadsheet converter, and the `exceljs` dependency itself.
+
+- **`exceljs` is NOT in `package.json` and must not come back.** Neither must
+  `xlsx` (SheetJS), which is separately disqualified: frozen on npm at 0.18.5
+  with two unpatched HIGH advisories whose fixes ship only from the vendor's
+  own CDN.
+- **`Template.fieldRows` is the surviving half and is NOT a sheet.** It was
+  `xlsxRows` and was renamed with the workbook. `fieldKey` declares which
+  values a document may be searched for; `nomor`/`itemI`/`itemII`/`keterangan`
+  are the operator-facing NAME of the row, which is how an outstanding entry
+  says "Contact Last Name" rather than "picContacts".
+- **Extraction stayed**, because the docx HEADER TABLE is filled from it
+  (`namaProyek`, `cc`). Two declared keys, `picContacts` and `alamat`, are
+  still extracted and now reach nothing; that is known and was accepted rather
+  than overlooked.
+- `Konfigurasi (Excel dari EPIC)` is a JUDUL of the packet -- a whole-page
+  capture of the client's own EPIC screen -- and has nothing to do with any of
+  this. Do not "clean it up".
 
 **`pnpm dev` now serves the OPERATOR UI, not the chat.** `src/app/page.tsx`
 renders `<OperatorApp />` behind the auth gate. The assistant-ui chat that used
@@ -73,12 +103,12 @@ semantic step, which is the part a language model is good at.
 | Geometry | `src/lib/pipeline/geometry.ts` | `groupWordsIntoLines` (vertical-overlap grouping), `unionBoxes`, `padBox`, `boxForLineRange` |
 | Classify | `src/lib/pipeline/classify.ts` | doc-type spans (`KB`, `SP`, `BAPermintaan`, `Email`, `Unknown`) from OCR text. Rejects any reply that does not cover every page exactly once: nothing downstream confirms these spans, so a gap or an overlap must fail loudly. |
 | Locate | `src/lib/pipeline/locate.ts` | `{pageIndex, from, to, confidence}` for one slot. The box is the union of those lines' boxes padded by `CROP_PADDING_PX` (12px, about 1mm at 300 DPI). |
-| Extract | `src/lib/pipeline/fields.ts` | xlsx values, each with a citation that is **validated before it is trusted** (a hallucinated page, a reversed range, or a line the page does not have drops the citation but keeps the value: a false citation is worse than none) |
+| Extract | `src/lib/pipeline/fields.ts` | docx header values, each with a citation that is **validated before it is trusted** (a hallucinated page, a reversed range, or a line the page does not have drops the citation but keeps the value: a false citation is worse than none) |
 | Crop | `src/lib/export/crop.ts`, `png.ts` | the rectangle cut out of a re-rendered page, PNG-encoded with no image dependency (no `sharp`, no `pngjs`) |
-| Export | `src/lib/export/docx.ts`, `xlsx.ts` | the two deliverables |
+| Export | `src/lib/export/docx.ts` | the deliverable |
 
 `src/lib/forms/template.ts` (`AO_TEMPLATE`) declares the docx section list and
-the xlsx row list together, because they are two views of one order. It is a
+the field row list together, because they are two views of one order. It is a
 **transcription of the sample, not a redesign**: section names, row labels,
 order, the sections that ship empty, and the two-part KB table split all match
 the sample as it stands.
@@ -458,8 +488,8 @@ and looks for the same slots in any document.*
   `scripts/generate.mjs` re-exports) and ships blank. On the full pool it
   reliably picked the Surat Penunjukan's subject line, the master contract's
   scope title rather than this order's project name, and carried a citation
-  that *passed* validation, in the docx header's `NAMA Proyek :` cell and its
-  xlsx row. A blank invites the operator to fill it in; a plausible wrong
+  that *passed* validation, in the docx header's `NAMA Proyek :` cell. A
+  blank invites the operator to fill it in; a plausible wrong
   value does not. Verify the current state with
   `git grep -n "NEVER_EXTRACTED" src/lib/pipeline/extract.ts`, whose first hit
   as the tree stands is
@@ -777,13 +807,16 @@ READ, and both halves of that sentence are load-bearing.
 - **Use `Packer.toArrayBuffer`, not `toBuffer`.** `toBuffer` asks JSZip for a
   "nodebuffer", which throws in a browser with no `Buffer` polyfill, and this
   pipeline is meant to run in the browser.
-- **Never add `xlsx` (SheetJS) from npm.** Frozen at 0.18.5 with two unpatched
-  HIGH advisories; fixes ship only from the vendor's CDN. Use `exceljs`, which
-  is what `src/lib/export/xlsx.ts` and `src/lib/attachments/office.ts` import.
-- **An xlsx cell note must name the source file and its own page number**, not
-  this run's bundle-global page index. That global index is 0-based across
-  every PDF on the command line, so for every page after the first source file
-  it sent a reviewer to the wrong document.
+- **Never add a spreadsheet library.** Not `exceljs`, and not `xlsx`
+  (SheetJS). See "THERE IS NO EXCEL, IN EITHER DIRECTION" above; SheetJS is
+  additionally frozen on npm at 0.18.5 with two unpatched HIGH advisories whose
+  fixes ship only from the vendor's CDN.
+- **A citation must name the source file and its own page number**, not this
+  run's bundle-global page index. That global index is 0-based across every PDF
+  on the command line, so for every page after the first source file it sent a
+  reviewer to the wrong document. It last cost this project a wrong page
+  reference in a cell note, and the two numbering systems are still one
+  mistake apart everywhere they meet.
 
 ### Toolchain
 
@@ -1117,7 +1150,7 @@ What did not change:
   **The list is a tool, not a decoration: extend it the moment a new KIND of
   identifier appears.** `SID` is here because the second bundle introduced
   per-service rows and there was no fictional SID to reach for, so a real one
-  went into an `--service` example in a doc comment and reached a public repo.
+  went into a doc-comment example and reached a public repo.
   A writer with nothing to substitute substitutes what is in front of them.
 
 ## Where things live
@@ -1137,9 +1170,9 @@ instead of the request that actually needs the credential.
 src/lib/model.ts               the provider boundary: model ids, cost, credential
                                MODEL_ID reasons, OCR_MODEL_ID reads scans
 src/lib/cost.ts                the price table and the per-stage cost ledger
-src/lib/forms/template.ts      AO_TEMPLATE: docx section list + xlsx row list.
-                               A STARTING SUGGESTION, not the form; SlotAsk is
-                               the frozen half a prompt sees
+src/lib/forms/template.ts      AO_TEMPLATE: docx section list + field row
+                               list. A STARTING SUGGESTION, not the form;
+                               SlotAsk is the frozen half a prompt sees
 src/lib/forms/overlay.ts       TemplateOverlay: one order's diff against that
                                base, assertOverlay (the fence), resolveTemplate
 src/lib/pipeline/render.ts     pdf.js, /Rotate, 300 DPI, injected canvas
@@ -1151,13 +1184,12 @@ src/lib/pipeline/classify.ts   doc-type spans from OCR text
 src/lib/pipeline/sections.ts   what judul does this berkas contain (usulan only,
                                text-only, no gate row)
 src/lib/pipeline/locate.ts     slot -> line range -> box
-src/lib/pipeline/fields.ts     xlsx values with validated citations; reconcile
+src/lib/pipeline/fields.ts     header values with validated citations; reconcile
 src/lib/pipeline/abbrev.ts     do two spellings denote one thing (see gotchas)
 src/lib/pipeline/json.ts       the one extractJson every model reply goes through
 src/lib/export/png.ts          dependency-free PNG encoder
 src/lib/export/crop.ts         sub-rectangle out of a rendered page
-src/lib/export/docx.ts         the DOKUMEN VALIDASI packet
-src/lib/export/xlsx.ts         the EPIC order-config sheet (exceljs)
+src/lib/export/docx.ts         the DOKUMEN VALIDASI packet, the one output
 
 src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
                                under browser/ is private to it
@@ -1204,7 +1236,7 @@ scripts/probe-sections.mjs     pnpm probe:sections: discovery over a whole
                                printed for a person to READ. It stands in for
                                the gate row discovery does not have
 scripts/test-pipeline.mjs      the pipeline unit suite
-scripts/test-converters.mjs    xlsx/docx extraction
+scripts/test-converters.mjs    docx text extraction
 
 src/app/page.tsx               the operator UI, behind the auth gate
 src/app/api/chat/              the surviving chat route (no caller in this app)
@@ -1298,25 +1330,27 @@ Recorded so nobody reads a design statement as a description of the code.
 - **`/api/extract` HAS A CLIENT NOW, and the years it did not are worth
   recording.** The route was built, tested and gated, and NOTHING IN THE APP
   CALLED IT: the browser's only fetch sites were `propose.ts` and the ingest
-  worker, and `src/lib/ui/export.ts` built the workbook with
-  `buildXlsx(template, [])`, a literally empty array with a comment explaining
-  that the browser runtime carried no field values. That was true when it was
-  written and stopped being true when the route shipped. The consequence was
-  invisible and total: the header table sat blank and the whole of xlsx column
-  E was empty BY CONSTRUCTION, for every run, whatever the documents said, and
-  it read to an operator exactly like extraction failing.
+  worker. The consequence was invisible and total: the docx header table sat
+  blank BY CONSTRUCTION, for every run, whatever the documents said, and it
+  read to an operator exactly like extraction failing.
 
   `src/lib/ui/extract.ts` is the wire. The export screen reads once per order
   (the shell holds the answer so a phase switch does not re-bill a 29-page
   call), fills only fields that are genuinely EMPTY, and never overwrites a
-  filename-derived guess or an operator's typing. Column E takes the
-  extraction's own values.
+  filename-derived guess or an operator's typing.
 
-  **A blank value is never written, whatever its status.** `not-searched`
-  arrives empty for two different reasons: the key nothing searches, and a key
-  THE ORDER REQUEST ALREADY ANSWERED, where the run holds a value and the
-  route was told not to hunt for a second one. `fillableValues` drops every
-  blank for that reason and `ui.test.mts` pins it.
+  **THE HEADER TABLE IS NOW THE ONLY THING EXTRACTION FEEDS**, since the
+  workbook went. Of the four declared keys, `namaProyek` (blocked by
+  `NEVER_EXTRACTED`) and `cc` reach it; `picContacts` and `alamat` are still
+  asked for and reach nothing. That is a known, accepted cost of keeping the
+  question unchanged rather than an oversight -- narrowing it is a prompt
+  change, and a prompt change is a thing only the measurement gate may judge.
+
+  **A blank value is never written, whatever its status.** A field can arrive
+  empty under a status that is not a failure -- `not-searched` for the key
+  nothing searches, and `conflict`, which ships blank on purpose with both
+  spellings recorded. `fillableValues` drops every blank for that reason and
+  `ui.test.mts` pins it.
 
   **A cited field is told WHERE to look and is not told to be careful.** The
   citation is the check and a better one than a warning. What a validated
@@ -1324,9 +1358,9 @@ Recorded so nobody reads a design statement as a description of the code.
   was a citation that PASSED validation, which is why `confidence` is capped
   per key independently of it.
 
-- **`pnpm generate` writes its three output files unreviewed.** The design's
+- **`pnpm generate` writes its two output files unreviewed.** The design's
   "the app never emits an unreviewed zone" describes the UI's target, not this
-  command. `--discover-sections` writes a fourth,
+  command. `--discover-sections` writes a third,
   `<ID EPIC>_SECTIONS.json`, and it is the one file here that is NOT a
   deliverable: everything in it sits in `proposed`, which `resolveTemplate`
   never reads, so it is an INPUT to a human and then to the next run. That is

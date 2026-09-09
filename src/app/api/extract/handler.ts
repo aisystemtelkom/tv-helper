@@ -49,7 +49,6 @@ import {
 import { AO_TEMPLATE, type Template } from "../../../lib/forms/template.ts";
 import type { Ask } from "../../../lib/pipeline/classify.ts";
 import {
-  ANSWERED_BY_REQUEST_REASON,
   DISAGREEING_DOCUMENTS_REASON,
   NEVER_EXTRACTED,
   NEVER_EXTRACTED_REASON,
@@ -68,16 +67,6 @@ import type {
 export type ExtractBody = {
   runId: string;
   pages: WirePage[];
-  /**
-   * fieldKeys the ORDER REQUEST already answered, which are therefore not
-   * hunted for in the scans at all. Not an optimisation: a value sitting in a
-   * spreadsheet the operator handed us must not also be searched for in a
-   * 29-page scan, because the hunt can succeed -- plausibly, with a citation
-   * that passes validation -- and then two answers have to be reconciled by
-   * machinery that cannot know the request is the authority (2026-09-03
-   * findings, section 2).
-   */
-  answered?: string[];
 };
 
 /**
@@ -99,8 +88,7 @@ export type ExtractBody = {
  *                     things. Ships blank with every spelling listed, because
  *                     choosing between two customers is the operator's call.
  *   not-found         searched every page and the text does not contain it.
- *   not-searched      nothing looked. `namaProyek` (see `NEVER_EXTRACTED`),
- *                     and any key the order request already answered.
+ *   not-searched      nothing looked. `namaProyek` (see `NEVER_EXTRACTED`).
  *
  * `not-found` and `not-searched` are the pair this project has already been
  * bitten by at `/api/propose`: reporting an unsearched slot as searched sent
@@ -305,7 +293,7 @@ export async function extractValues(
    * the bagian list is exactly what an order's own form changes.
    *
    * Nothing an overlay can say reaches a value here. `resolveTemplate` passes
-   * `xlsxRows`, `fieldHints` and `fieldLists` through untouched by
+   * `fieldRows`, `fieldHints` and `fieldLists` through untouched by
    * construction, so the key set and the hints are identical either way. The
    * one thing it would move is `orderPaperworkDocTypes`, which ranks the page
    * listing -- a PREFERENCE that never drops a page (`rankedPoolForDocTypes`)
@@ -332,8 +320,8 @@ export async function extractValues(
    * THIS FILTER IS NOT OPTIONAL AND IT IS EASY TO MISS. `/api/propose` is the
    * visible half of the operator's "tanpa AI" choice, and it would be perfectly
    * possible to fence a berkas off there and leave this route reading it. What
-   * that produces is the failure this project is organised against: xlsx column
-   * E and the docx header table filled from a document the operator was told
+   * that produces is the failure this project is organised against: the docx
+   * header table filled from a document the operator was told
    * would not be checked, carrying a citation that PASSES validation and points
    * straight into it. A validator would have every reason to sign it.
    */
@@ -342,7 +330,6 @@ export async function extractValues(
   );
 
   const keys = templateFieldKeys(template);
-  const answered = new Set(body.answered ?? []);
 
   const notSearched = (fieldKey: string, reason: string): ExtractedField => ({
     fieldKey,
@@ -398,14 +385,12 @@ export async function extractValues(
     byType,
     pages,
     ask,
-    answered,
   });
 
   const found = new Map(values.map((value) => [value.fieldKey, value]));
 
   const fields = keys.map((key) => {
     if (NEVER_EXTRACTED.has(key)) return notSearched(key, NEVER_EXTRACTED_REASON);
-    if (answered.has(key)) return notSearched(key, ANSWERED_BY_REQUEST_REASON);
     return dispositionOf(key, found.get(key));
   });
 
@@ -470,11 +455,6 @@ export function parseExtractBody(value: unknown): ExtractBody {
     throw new Error("runId is required");
   }
   if (!Array.isArray(body.pages)) throw new Error("pages must be an array");
-  if (body.answered !== undefined) {
-    if (!Array.isArray(body.answered) || !body.answered.every((k) => typeof k === "string")) {
-      throw new Error("answered must be an array of fieldKeys");
-    }
-  }
   // The same page contract `/api/propose` enforces, in the same one copy --
   // see `src/lib/api/wire.ts`. Checked HERE, before the gate lets anything
   // spend the credential on it: the whole pipeline counts in lines, and a page

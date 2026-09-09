@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * Screen 3 of three (Muat, Periksa, Berkas): write the two deliverables.
+ * Screen 3 of three (Muat, Periksa, Berkas): write the deliverable.
  *
- * THE TWO FILES ARE THE OBJECT ON THIS SCREEN. Everything here exists to
- * produce one docx and one xlsx, so they are drawn as two slabs carrying their
- * own mark, their own name in a ruled box and their own Simpan control, and
- * every other block on the screen is quieter than they are. The screen used to
- * distribute emphasis evenly over a manifest, a workbook section, a header
- * table and an action bar, which is what makes a screen read as a form rather
- * than as a thing that makes something. Simpan is the primary key for the same
- * reason: it is the last thing this product does, and it was reported as
- * looking unavailable while it was live.
+ * THE FILE IS THE OBJECT ON THIS SCREEN. Everything here exists to produce one
+ * docx, so it is drawn as a slab carrying its own mark, its own name in a
+ * ruled box and its own Simpan control, and every other block on the screen is
+ * quieter than it is. The screen used to distribute emphasis evenly over a
+ * manifest, a workbook section, a header table and an action bar, which is
+ * what makes a screen read as a form rather than as a thing that makes
+ * something. Simpan is the primary key for the same reason: it is the last
+ * thing this product does, and it was reported as looking unavailable while it
+ * was live.
  *
  * THE MANIFEST IS AN INVENTORY, NOT AN EXCEPTION REPORT. This screen used to
  * summarise the entire visual content of the packet as one integer ("12
@@ -46,10 +46,10 @@
  * together in one sticky bar, because at 1366x768 the old layout put the reason
  * at the top of a page taller than the viewport and the disabled button at the
  * bottom of it. A disabled control whose explanation is off screen reads as a
- * broken app. THE TWO FILE SLABS SIT BELOW THAT BAR, not above it: a screen
- * read top to bottom cannot put the thing that makes a file above the file. The
- * cost is that the build key and the two Simpan keys it enables are no longer
- * in one viewport at 1366x768, which the comment on the slabs records in full.
+ * broken app. THE FILE SLAB SITS BELOW THAT BAR, not above it: a screen read
+ * top to bottom cannot put the thing that makes a file above the file. The
+ * cost is that the build key and the Simpan key it enables are no longer in
+ * one viewport at 1366x768, which the comment on the slab records in full.
  *
  * THAT BAR IS AN OVERLAY, SO IT PAYS FOR ITS OWN SPACE. `position: sticky`
  * keeps the bar in the flow and pulls it up to the viewport's bottom edge for
@@ -72,7 +72,7 @@
  * recorded failures on top of that: `namaProyek` answered with the master
  * contract's scope title, with a citation that PASSED validation, and `cc`
  * matched a printed email's own "Cc:" header and put a wrong customer name
- * into both deliverables.
+ * into the deliverable.
  *
  * ONE INVARIANT WORTH KEEPING: a picture on this screen means a picture in the
  * docx. A capture that holds a zone the export will not print (an `unfilled`
@@ -82,11 +82,10 @@
  * WHAT WENT BEHIND A QUESTION MARK, AND THE LINE THAT DECIDED IT. A clause
  * that would read word for word the same on every order, and that is not the
  * reason a control on screen is refusing to work, is an explanation rather
- * than a fact about this run, so it belongs in a `Hint`. Three things are
- * behind one: the screen lede, the workbook's row count and the workbook's
- * argument for the empty column. That is the whole list, and the count is
- * worth keeping right, because this paragraph used to name five and sent a
- * reader hunting for two marks that are not on the screen. The manifest's
+ * than a fact about this run, so it belongs in a `Hint`. One thing is behind
+ * one: the screen lede. That is the whole list, and the count is worth keeping
+ * right, because this paragraph used to name five and sent a reader hunting
+ * for marks that are not on the screen. The manifest's
  * preamble never hid: it sits inside the `Rincian setiap bagian` disclosure
  * with the inventory it introduces. The header table's fifty-six word lede
  * was deleted rather than moved, because once every field says where its own
@@ -125,8 +124,8 @@
  * the sticky bar is subtracted from the page's viewport twice, once as the bar
  * and once as the space `useBarHeight` reserves for it) buys is a SHORTER
  * sentence, which is what it now is: four words, beside the button they belong
- * to. The clause that used to follow them, saying where the two files are
- * made, is gone with the rest of the mechanism copy. The fact is the operator's
+ * to. The clause that used to follow them, saying where the file is made, is
+ * gone with the rest of the mechanism copy. The fact is the operator's
  * ("your PDF was not uploaded"); how the app is built is the privacy page's,
  * where it is stated in full.
  */
@@ -136,30 +135,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 import type { HeaderFields } from "@/lib/export/docx";
-/**
- * THE MODULE CONSTANT, AND IT IS READ EXACTLY ONCE IN THIS FILE: the number of
- * rows in the ORDER_Config sheet, printed as screen copy about that sheet.
- *
- * Everything ELSE here reads this order's resolved form through
- * `useRunTemplate`. The xlsx row list does not, because it is NOT per order: an
- * operator-created judul is evidence-only (`AddedSection` carries no layout and
- * `resolveTemplate` passes `xlsxRows` through untouched), so it can never add,
- * remove or fill a row of column E. Swapping this read for the resolved
- * template would print the same number with a false implication -- that editing
- * the judul list changes the spreadsheet.
- */
-import { AO_TEMPLATE } from "@/lib/forms/template";
 import { deriveIdsFromFilenames } from "@/lib/pipeline/fields";
 import {
   resolveJenisOrder,
   type JenisOrderPage,
 } from "@/lib/pipeline/jenis-order";
 import { cropToDisplayUrl, downloadBytes, revokeUrls } from "@/lib/ui/crops";
-import {
-  columnEValues,
-  extractionSignature,
-  fillableValues,
-} from "@/lib/ui/extract";
+import { extractionSignature, fillableValues } from "@/lib/ui/extract";
 import type { ExtractedField } from "@/lib/ui/extract";
 import { citeZone, resolvePage } from "@/lib/ui/evidence";
 import type {
@@ -195,12 +177,10 @@ import {
   Title,
 } from "./chrome";
 import { Denah } from "./denah";
-import { BukuKerja, Paket } from "./icons";
+import { Paket } from "./icons";
 
 const DOCX_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const XLSX_TYPE =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
  * The true size, including zero.
@@ -483,22 +463,21 @@ function useBarHeight(): [RefObject<HTMLDivElement | null>, number] {
   return [ref, height];
 }
 
-/* ---------------------------------------------------------- the two files */
+/* ----------------------------------------------------------- the deliverable */
 
 /**
- * One deliverable, as a plate with its own mark, its own name and its own
+ * The deliverable, as a plate with its own mark, its own name and its own
  * Simpan control.
  *
- * A slab per file, never one list of two rows: the packet and the workbook are
- * not a homogeneous list, and which of the two a name belongs to is read from
- * the mark rather than from an extension at the end of a break-all string.
- * `downloadBytes` cannot report failure, so `done` records what is actually
- * true, that the file was handed to the browser.
+ * A slab rather than a row in a list: the file is what this screen is for, and
+ * what it is should be read from a mark rather than from an extension at the
+ * end of a break-all string. `downloadBytes` cannot report failure, so `done`
+ * records what is actually true, that the file was handed to the browser.
  *
  * SIMPAN IS THE LAST ACTION THIS PRODUCT HAS, SO IT WEARS THE PRIMARY FACE.
- * Both keys were neutral, and an operator reported them as looking disabled
- * while they were live: on the screen that makes the two files, nothing was
- * drawn as the thing to press. Petrol is identity rather than status, so a
+ * The key was neutral, and an operator reported it as looking disabled while
+ * it was live: on the screen that makes the file, nothing was drawn as the
+ * thing to press. Petrol is identity rather than status, so a
  * primary key here cannot be read as a decision owed. A disabled Simpan still
  * reads as disabled with that face on, because `.lt-btn:disabled` is declared
  * after the tone rule in globals.css at equal specificity and takes back both
@@ -528,10 +507,7 @@ function FileSlab({
   id: string;
   /** What this file is, as the kop says it. */
   kind: string;
-  /**
-   * The packet's mark or the workbook's, never the same one twice. It labels
-   * the FILE; the button beside it keeps its plain word.
-   */
+  /** The packet's mark. It labels the FILE; the button keeps its plain word. */
   icon: ReactNode;
   name: string;
   /** Set once the bytes exist. */
@@ -626,12 +602,12 @@ function FileSlab({
  * the loss is real and reversing it is cheap. "Terbaca di <berkas>. Periksa
  * dulu." named the document a value was read out of, which is the evidence
  * idea this product exists for, and it is now visible NOWHERE on this path:
- * `buildDeliverables` is handed `fieldKey`, `value` and `conflict` only, so
- * `xlsx.ts`'s column E cell note -- which needs a `source` -- is never written
- * in the browser either. `noteForField` in `src/lib/ui/extract.ts` still
- * computes the sentence and is still tested; nothing renders it. A value read
- * off a file name and a value the operator typed are now drawn identically, on
- * the cover page of a document a validator signs.
+ * the docx header table prints the value and nothing beside it, so a citation
+ * that survived validation reaches no reader at all. `noteForField` in
+ * `src/lib/ui/extract.ts` still computes the sentence and is still tested;
+ * nothing renders it. A value read off a file name and a value the operator
+ * typed are now drawn identically, on the cover page of a document a validator
+ * signs.
  *
  * SO THE AMBER WENT WITH IT. `--mark` beside a label meant "the app guessed
  * this one, look at it", and a marker true of all six fields cannot mean that
@@ -1018,9 +994,8 @@ function SectionBlock({
  *
  * `fillableValues` drops every field whose value is blank, which is what
  * stops a `not-searched` key from writing an empty string over a cell. That
- * matters more than it looks: `not-searched` is returned both for the key
- * nothing ever searches and for a key the ORDER REQUEST already answered,
- * where the run genuinely holds a value.
+ * matters more than it looks: `not-searched` is returned for the key nothing
+ * ever searches, and `conflict` ships blank on purpose.
  */
 function withExtracted(
   prev: HeaderFields,
@@ -1076,8 +1051,7 @@ export function ExportPanel({
    *
    * `resolveJenisOrder` is pure: no filesystem, no model call, no request, so
    * this costs nothing at render time and needs no button to spend. `flag` and
-   * `env` stay undefined because a browser has neither, and `orderRequest`
-   * will stay undefined until the ingest path accepts one, so in practice this
+   * `env` stay undefined because a browser has neither, so in practice this
    * answers `documents`, `inferred`, `conflict` or `none`.
    *
    * `pageInDoc` is `StoredPage.index`, the page's 0-based number WITHIN ITS
@@ -1174,8 +1148,8 @@ export function ExportPanel({
    * which change identity on any parent render, so the FIRST re-render while
    * the call was in flight ran that cleanup and aborted it. An aborted request
    * takes neither the success nor the failure branch, so the spinner stayed up
-   * for ever, `asked` was already spent, and column E shipped empty with
-   * nothing on screen suggesting anything had gone wrong.
+   * for ever, `asked` was already spent, and the header table shipped empty
+   * with nothing on screen suggesting anything had gone wrong.
    *
    * A reading should survive a re-render and should not survive the screen
    * going away, which is what an unmount-only cleanup says.
@@ -1209,7 +1183,7 @@ export function ExportPanel({
     void (async () => {
       try {
         const { requestExtraction } = await import("@/lib/ui/extract");
-        const answer = await requestExtraction(run, [], abort.signal);
+        const answer = await requestExtraction(run, abort.signal);
         if (!abort.signal.aborted) {
           onExtracted(answer.fields);
           setHeader((prev) => withExtracted(prev, answer.fields));
@@ -1234,9 +1208,8 @@ export function ExportPanel({
     | {
         kind: "built";
         docx: Uint8Array;
-        xlsx: Uint8Array;
         /**
-         * What was built, and under which names.
+         * What was built, and under which name.
          *
          * Both are captured AT BUILD TIME. `deliverableNames` recomputes on
          * every render while the bytes do not, so editing ID EPIC after a
@@ -1245,15 +1218,12 @@ export function ExportPanel({
          * wrong-and-quiet failure on the cover page of the document a
          * validator signs.
          */
-        names: { docx: string; xlsx: string };
+        names: { docx: string };
         stamp: string;
       }
     | { kind: "failed"; message: string }
   >({ kind: "idle" });
-  const [handedOver, setHandedOver] = useState<{
-    docx: boolean;
-    xlsx: boolean;
-  }>({ docx: false, xlsx: false });
+  const [handedOver, setHandedOver] = useState(false);
 
   const [barRef, barHeight] = useBarHeight();
   /**
@@ -1300,19 +1270,19 @@ export function ExportPanel({
    * order, and hashing them would only add noise to a comparison whose whole
    * job is to be exact about what changed.
    *
-   * AND COLUMN E, which the crops and the header between them do not cover.
-   * The reading is re-asked when the berkas set changes, and it can change
-   * while this screen is open: a dokumen tambahan queued on Periksa finishes
-   * here. Without this the workbook in hand would keep column E from a reading
-   * of a berkas set that no longer exists, beside a screen showing the new
-   * one, with no "buat ulang" anywhere. Keys and values rather than the whole
-   * field, because a citation cannot move without its value moving too.
+   * THE READING IS NOT IN THE STAMP, and it was while a workbook existed.
+   * Every value `/api/extract` returns now reaches the deliverable through one
+   * door -- `withExtracted` seeds an EMPTY header field with it -- so `header`
+   * above already carries everything a reading can change about the built
+   * bytes. Keeping the reading here as well would mark a finished packet stale
+   * whenever a re-read moved a value that `withExtracted` will not write
+   * anyway, which is a "buat ulang" that changes nothing: a prompt that means
+   * nothing is how a prompt that means something gets ignored.
    */
   const stamp = useMemo(
     () =>
       JSON.stringify({
         header,
-        values: (extracted ?? []).map((field) => [field.fieldKey, field.value]),
         headings: template.sections.map((section) => [
           section.id,
           section.title,
@@ -1325,10 +1295,10 @@ export function ExportPanel({
           box: crop.box,
         })),
       }),
-    [extracted, header, plan, template],
+    [header, plan, template],
   );
-  // Narrowed once, so the two file slabs can be rendered outside the branch
-  // that proves the bytes exist.
+  // Narrowed once, so the file slab can be rendered outside the branch that
+  // proves the bytes exist.
   const built = state.kind === "built" ? state : null;
   const stale = built !== null && built.stamp !== stamp;
 
@@ -1369,42 +1339,19 @@ export function ExportPanel({
 
   const write = async () => {
     setState({ kind: "working", done: 0, total: plan.crops.length });
-    setHandedOver({ docx: false, xlsx: false });
+    setHandedOver(false);
     try {
       const { buildDeliverables } = await import("@/lib/ui/export");
       const files = await buildDeliverables(run, template, header, plan, {
         pageBitmap: runtime.pageBitmap,
         onProgress: (done, total) => setState({ kind: "working", done, total }),
-        /*
-         * COLUMN E, from what the reading found. It used to be `[]` here by
-         * construction, so every workbook shipped a blank column whatever the
-         * documents said.
-         *
-         * The HEADER's values are the operator's, not the model's: whatever
-         * they see in the fields above is what goes into the docx, because
-         * they may have corrected any of it. Column E takes the extraction's
-         * own values, which is why a conflict (blank value, both spellings
-         * recorded) still writes nothing rather than picking a side.
-         *
-         * AND THE CITATION TRAVELS WITH EACH VALUE. This mapping was written
-         * inline here and dropped `source`, so `buildXlsx`'s note-writing
-         * branch never fired in the browser: every cell of the workbook an
-         * operator actually hands over carried no note, while the headless
-         * `pnpm generate` wrote one on each. `columnEValues` owns the mapping
-         * now, where a test can hold it to that.
-         */
-        values: columnEValues(extracted ?? []),
       });
-      // Built, not downloaded. Two files handed over back to back is two
-      // programmatic downloads in a row, which a browser blocks after the
-      // first with a permission prompt -- and when that prompt is dismissed
-      // the second file simply never arrives. An operator would leave with the
-      // document and no workbook and no reason to suspect it. One button per
-      // file, each its own click.
+      // Built, not downloaded. The bytes exist here and are handed to the
+      // browser only when the operator presses Simpan, so the name and size
+      // they are about to file can be read BEFORE the download fires.
       setState({
         kind: "built",
         docx: files.docx,
-        xlsx: files.xlsx,
         names: deliverableNames(header, run.id),
         stamp,
       });
@@ -1440,7 +1387,7 @@ export function ExportPanel({
       <header className="flex flex-wrap items-center gap-2">
         <Title>Buat berkas hasil</Title>
         <Hint label="Kenapa isinya diperlihatkan dulu">
-          Kedua berkas akan terbuka dengan rapi entah buktinya benar atau salah,
+          Berkasnya akan terbuka dengan rapi entah buktinya benar atau salah,
           jadi isinya diperlihatkan di sini sebelum ditulis.
         </Hint>
       </header>
@@ -1581,7 +1528,7 @@ export function ExportPanel({
       {/* ---------------------------------------------------- the inventory */}
       <Slab
         id="isi-berkas"
-        name="Isi kedua berkas"
+        name="Isi berkasnya"
         aside={`${tally.slotsComplete} / ${tally.fillableSlots} bagian`}
         owes={faulted ? "fault" : undefined}
       >
@@ -1815,38 +1762,38 @@ export function ExportPanel({
             operator has to scroll to find. */}
         {state.kind === "failed" ? (
           <Interruption detail={state.message}>
-            Kedua berkas gagal dibuat, jadi tidak ada yang ditulis. Perbaiki
+            Berkasnya gagal dibuat, jadi tidak ada yang ditulis. Perbaiki
             penyebabnya lalu buat lagi.
           </Interruption>
         ) : null}
 
         {stale ? (
           <Notice tone="warn">
-            Isi halaman ini berubah setelah kedua berkas dibuat. Buat ulang
+            Isi halaman ini berubah setelah berkasnya dibuat. Buat ulang
             sebelum menyimpannya.
           </Notice>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-4">
           {/* ONE LIVE PETROL KEY AT A TIME, WHICH IS THE WHOLE OF WHAT MAKES
-              ONE OF THEM PRIMARY. Four controls on this screen can wear the
-              face: this one, the way back to the review sheet, and the two
-              Simpan. The state decides, and in every state exactly one of them
-              is the thing to press.
+              ONE OF THEM PRIMARY. Three controls on this screen can wear the
+              face: this one, the way back to the review sheet, and Simpan. The
+              state decides, and in every state exactly one of them is the
+              thing to press.
 
               Blocked: this key is down and the work is on the review sheet, so
               the way back carries it. Nothing built: this key. Built and
               stale: this key again, because Simpan is down until it is rebuilt.
               Built and current: Simpan, and this becomes a way back to work
-              already done, so it hands the face over. Three petrol keys in one
+              already done, so it hands the face over. Two petrol keys in one
               viewport is the same defect as none, because the operator then
-              has to read all three to find out which one the screen wants. */}
+              has to read both to find out which one the screen wants. */}
           <Btn
             tone={built && !stale ? "default" : "primary"}
             disabled={blocked || state.kind === "working"}
             onClick={() => void write()}
           >
-            {built ? "Buat ulang" : "Buat kedua berkas"}
+            {built ? "Buat ulang" : "Buat berkasnya"}
           </Btn>
 
           {blocked ? (
@@ -1919,107 +1866,62 @@ export function ExportPanel({
         </div>
       </div>
 
-      {/* ------------------------------------------------------ the two files
-          The object this screen is for, and they now sit BELOW the bar that
-          makes them. This screen is read top to bottom, so the action that
-          produces a file cannot come after the file: the download plates used
+      {/* ----------------------------------------------------------- the file
+          The object this screen is for, and it now sits BELOW the bar that
+          makes it. This screen is read top to bottom, so the action that
+          produces a file cannot come after the file: the download plate used
           to be the first thing under the inventory and the build key the last
           thing on the page, which reads as two unrelated screens rather than
           as one sequence.
 
-          WHAT THAT TRADE COSTS is the one thing the old order bought. The two
-          slabs sat directly above the bar so the build key and the two Simpan
-          keys it enables were in one viewport at 1366x768; they no longer are,
-          and an operator who presses Buat kedua berkas now scrolls down to
-          save. Nothing is hidden by it: the bar is sticky and these slabs are
-          the only content below it, so it can never cover them -- it releases
-          exactly as they scroll into view.
+          WHAT THAT TRADE COSTS is the one thing the old order bought. The slab
+          sat directly above the bar so the build key and the Simpan key it
+          enables were in one viewport at 1366x768; they no longer are, and an
+          operator who presses Buat berkasnya now scrolls down to save. Nothing
+          is hidden by it: the bar is sticky and this slab is the only content
+          below it, so it can never cover it -- it releases exactly as it
+          scrolls into view.
 
-          THEY ARE NEVER AN EMPTY HEADING AT THE FOOT OF THE PAGE. Both slabs
-          render before anything is built, carrying the name the file will take
-          and "belum dibuat" at the kop, with Simpan down and its reason on the
-          key. */}
+          IT IS NEVER AN EMPTY HEADING AT THE FOOT OF THE PAGE. The slab
+          renders before anything is built, carrying the name the file will
+          take and "belum dibuat" at the kop, with Simpan down and its reason
+          on the key. */}
       <section aria-labelledby="berkas-hasil" className="flex flex-col gap-4">
         <h3 className="sr-only" id="berkas-hasil">
           Berkas hasil
         </h3>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <FileSlab
-            id="berkas-docx"
-            kind="Dokumen validasi"
-            icon={<Paket size={40} />}
-            name={built ? built.names.docx : names.docx}
-            size={built ? fileSize(built.docx) : null}
-            disabled={!built || stale}
-            done={handedOver.docx}
-            reason={saveReason}
-            onSave={() => {
-              if (!built) return;
-              downloadBytes(built.names.docx, built.docx, DOCX_TYPE);
-              setHandedOver((prev) => ({ ...prev, docx: true }));
-            }}
-          >
-            <p className="text-[0.8125rem] text-ink-2">
-              Berisi{" "}
-              <span className="lt-figure">{tally.capturesShipping}</span>{" "}
-              potongan bukti.
-            </p>
-          </FileSlab>
-
-          <FileSlab
-            id="berkas-xlsx"
-            kind="Buku kerja EPIC"
-            icon={<BukuKerja size={40} />}
-            name={built ? built.names.xlsx : names.xlsx}
-            size={built ? fileSize(built.xlsx) : null}
-            disabled={!built || stale}
-            done={handedOver.xlsx}
-            reason={saveReason}
-            onSave={() => {
-              if (!built) return;
-              downloadBytes(built.names.xlsx, built.xlsx, XLSX_TYPE);
-              setHandedOver((prev) => ({ ...prev, xlsx: true }));
-            }}
-          >
-            {/* What the operator opens the file and finds. The argument for why
-                an empty cell is the honest output reads the same on every
-                order, so it hides. */}
-            <p className="flex flex-wrap items-center gap-2 text-[0.8125rem]">
-              <span className="text-ink-2">
-                Kolom E kosong di seluruh baris.
-              </span>
-              {/* The middle sentence used to explain our storage model ("a run
-                  in this browser holds pages and zones, not text values"),
-                  which is a fact about the app rather than about the order.
-                  What replaces it says the same thing the operator can act on:
-                  the tool collects pictures, so the values are theirs to
-                  type. The last sentence is the argument the product exists to
-                  make and does not move. */}
-              <Hint label="Kenapa kolom E kosong">
-                Isinya sama pada setiap order:{" "}
-                <span className="lt-figure">
-                  {AO_TEMPLATE.xlsxRows.length}
-                </span>{" "}
-                baris. Alat ini mengumpulkan potongan bukti, bukan nilai teks,
-                jadi kolom E terbit kosong dan Anda isi sendiri. Sel kosong
-                adalah keluaran yang jujur; nilai tebakan adalah kegagalan yang
-                dicegah alat ini.
-              </Hint>
-            </p>
-          </FileSlab>
-        </div>
+        <FileSlab
+          id="berkas-docx"
+          kind="Dokumen validasi"
+          icon={<Paket size={40} />}
+          name={built ? built.names.docx : names.docx}
+          size={built ? fileSize(built.docx) : null}
+          disabled={!built || stale}
+          done={handedOver}
+          reason={saveReason}
+          onSave={() => {
+            if (!built) return;
+            downloadBytes(built.names.docx, built.docx, DOCX_TYPE);
+            setHandedOver(true);
+          }}
+        >
+          <p className="text-[0.8125rem] text-ink-2">
+            Berisi{" "}
+            <span className="lt-figure">{tally.capturesShipping}</span>{" "}
+            potongan bukti.
+          </p>
+        </FileSlab>
 
         {/* The one remedy for a download nobody can confirm arrived. It is an
-            interruption wearing a calm voice, so it stays on screen, and it is
-            said once for both files rather than once per slab.
+            interruption wearing a calm voice, so it stays on screen.
 
             IT LOST ITS FIRST SENTENCE. "Berkas sudah diserahkan ke peramban
             ini" describes what our code did, in our words, to somebody who
             wants a file in a folder; the state word at the kop already says
             "sudah diserahkan". What survives is the half an operator can act
             on, which is the half this paragraph was kept for. */}
-        {handedOver.docx || handedOver.xlsx ? (
+        {handedOver ? (
           <p className="text-[0.8125rem] text-ink-2">
             Kalau berkasnya tidak muncul di folder unduhan, izinkan unduhan lalu
             tekan Simpan lagi.
@@ -2037,9 +1939,9 @@ export function ExportPanel({
           wheel notch, so the section sitting directly above it was underneath
           it in practice.
 
-          THE TWO FILE SLABS NOW SUPPLY MOST OF THAT SLACK, because they sit
-          after the bar: it releases with their whole height still to scroll,
-          and the inventory's last row comes clear of it well before the end.
+          THE FILE SLAB NOW SUPPLIES MOST OF THAT SLACK, because it sits after
+          the bar: it releases with its whole height still to scroll, and the
+          inventory's last row comes clear of it well before the end.
           The reserve is kept anyway and moved to the very end, where it is
           trailing space; before the bar it would draw a gap between the
           inventory and the rail. It is a sibling and not padding on a wrapper

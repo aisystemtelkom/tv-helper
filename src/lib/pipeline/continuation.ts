@@ -205,7 +205,7 @@ export function furnitureTokens(text: string): string[] {
  * Not observed on bundle one, where every detected furniture line is a genuine
  * footer, so this is constructed rather than measured. The exposure is bundle
  * two, which splits its contract checklist across three tables (see the
- * 2026-09-03 findings) and whose xlsx work is all price and quantity rows.
+ * 2026-09-03 findings) and whose order sheet is all price and quantity rows.
  *
  * A running footer that is nothing but a bare page number is excluded by this,
  * and that is the direction to be wrong in: the page then has no detected

@@ -8,23 +8,25 @@ import type {
   ThreadUserMessagePart,
 } from "@assistant-ui/react";
 import { DEFAULT_PAGE_LIMIT, renderPdfToImages } from "./pdf";
-import { extractDocumentText, extractSpreadsheetText } from "./office";
+import { extractDocumentText } from "./office";
 
 /**
  * Turns a dropped file into parts the model can actually read.
  *
  * The default assistant-ui adapter advertises `accept: "*"` and forwards
  * every file verbatim. Against this stack that produces failures only after
- * the message is sent -- a spreadsheet dies inside the AI SDK provider
+ * the message is sent -- an unreadable part dies inside the AI SDK provider
  * ("file part media type ... not supported"). Those surface in the UI as a
  * bare "An error occurred."
  *
  * So the composer accepts only what this adapter can convert, and conversion
  * happens at send time, in the browser.
+ *
+ * SPREADSHEETS ARE NOT ON THE LIST, and their absence is a product decision
+ * rather than a gap: Excel is not an input to this product, so there is no
+ * converter to accept one with.
  */
 
-const SPREADSHEET =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const DOCUMENT =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -38,10 +40,8 @@ export const ACCEPTED_FILE_TYPES = [
   "text/*",
   "application/json",
   "application/pdf",
-  SPREADSHEET,
   DOCUMENT,
   ".pdf",
-  ".xlsx",
   ".docx",
   ".csv",
   ".md",
@@ -59,18 +59,11 @@ const isTextual = (file: File) =>
 const isPdf = (file: File) =>
   file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 
-const isSpreadsheet = (file: File) =>
-  file.type === SPREADSHEET || /\.xlsx$/i.test(file.name);
-
 const isDocument = (file: File) =>
   file.type === DOCUMENT || /\.docx$/i.test(file.name);
 
 const isSupported = (file: File) =>
-  isImage(file) ||
-  isTextual(file) ||
-  isPdf(file) ||
-  isSpreadsheet(file) ||
-  isDocument(file);
+  isImage(file) || isTextual(file) || isPdf(file) || isDocument(file);
 
 const toDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -115,14 +108,6 @@ const convert = async (file: File): Promise<ThreadUserMessagePart[]> => {
     return [textPart(caption), ...images];
   }
 
-  if (isSpreadsheet(file)) {
-    return [
-      textPart(
-        `[${file.name}, converted to CSV]\n\n${await extractSpreadsheetText(file)}`,
-      ),
-    ];
-  }
-
   if (isDocument(file)) {
     return [
       textPart(`[${file.name}]\n\n${await extractDocumentText(file)}`),
@@ -135,7 +120,7 @@ const convert = async (file: File): Promise<ThreadUserMessagePart[]> => {
 
   throw new Error(
     `${file.name} is a ${file.type || "unrecognized"} file, which this model cannot read. ` +
-      `Supported: images, PDF, .xlsx, .docx, and text files.`,
+      `Supported: images, PDF, .docx, and text files.`,
   );
 };
 
@@ -161,7 +146,7 @@ export const createLocalAttachmentAdapter = (): AttachmentAdapter => ({
           reason: "error",
           message:
             `${file.type || "This file type"} cannot be read by a vision model. ` +
-            `Attach an image, PDF, .xlsx, .docx, or a text file.`,
+            `Attach an image, PDF, .docx, or a text file.`,
         },
       };
     }

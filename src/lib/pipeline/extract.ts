@@ -217,8 +217,8 @@ export function groupKeysByDocTypes(
  * Keys deliberately not sent to the model at all, whatever the template says.
  *
  * `namaProyek` is in this set and ships BLANK. It reaches the two most-read
- * cells in the deliverables -- the `NAMA Proyek :` cell in the docx header
- * table and its xlsx row -- and on the full pool it reliably answered with
+ * cells in the deliverable -- the `NAMA Proyek :` cell in the docx header
+ * table -- and on the full pool it reliably answered with
  * the Surat Penunjukan's subject line: the master contract's scope title, not
  * this order's project name. That wrong value carried a citation that
  * *passed* validation, so it read as sourced evidence rather than a guess
@@ -277,32 +277,15 @@ export const NEVER_HIGH_CONFIDENCE_REASON =
 export const DISAGREEING_DOCUMENTS_REASON =
   "found more than once and the answers disagree";
 
-/** Why a key the order request already answered is not searched for again. */
-export const ANSWERED_BY_REQUEST_REASON =
-  "the order request supplies this value; the scans were not searched for it";
-
 /**
- * The backed xlsx keys a run actually asks the model for: every fieldKey the
- * template declares, minus `NEVER_EXTRACTED` and minus anything already
- * answered. Exported so the exclusion is testable end of chain rather than
- * asserted about a Set nothing reads -- silently dropping this filter is
- * exactly how the blank cell would turn back into a plausible wrong one.
- *
- * `answered` is what the ORDER REQUEST supplied. Removing those keys is not an
- * optimisation, it is the correction the 2026-09-03 findings asked for: a
- * value that is sitting in a cell of a spreadsheet the operator handed us must
- * not ALSO be hunted for in a 29-page scan, because the hunt can succeed --
- * plausibly, with a citation that passes validation -- and then the two
- * answers have to be reconciled by machinery that cannot know the request is
- * the authority. Not asking is the only way to be sure the request wins.
+ * The backed keys a run actually asks the model for: every fieldKey the
+ * template declares, minus `NEVER_EXTRACTED`. Exported so the exclusion is
+ * testable end of chain rather than asserted about a Set nothing reads --
+ * silently dropping this filter is exactly how the blank cell would turn back
+ * into a plausible wrong one.
  */
-export function extractableFieldKeys(
-  template: Template,
-  answered: ReadonlySet<string> = new Set(),
-): string[] {
-  return templateFieldKeys(template).filter(
-    (key) => !NEVER_EXTRACTED.has(key) && !answered.has(key),
-  );
+export function extractableFieldKeys(template: Template): string[] {
+  return templateFieldKeys(template).filter((key) => !NEVER_EXTRACTED.has(key));
 }
 
 /**
@@ -318,7 +301,7 @@ export function extractableFieldKeys(
 export function templateFieldKeys(template: Template): string[] {
   return [
     ...new Set(
-      template.xlsxRows
+      template.fieldRows
         .map((row) => row.fieldKey)
         .filter((key): key is string => typeof key === "string" && key !== ""),
     ),
@@ -333,14 +316,12 @@ export type ExtractTextFieldsOptions = {
   pages: readonly FieldPage[];
   /** Injected, always: this module never learns who answers. */
   ask: Ask;
-  /** fieldKeys the order request already answered. Not searched for again. */
-  answered?: ReadonlySet<string>;
   /** Progress, for the CLI. Silent by default so a route logs its own way. */
   log?: (message: string) => void;
 };
 
 /**
- * Every backed xlsx value the documents can supply, with its citation mapped
+ * Every backed value the documents can supply, with its citation mapped
  * back to a real page.
  *
  * `ask` is injected, for the same reason `searchRound` injects `locate`: it
@@ -363,14 +344,13 @@ export type ExtractTextFieldsOptions = {
 export async function extractTextFields(
   options: ExtractTextFieldsOptions,
 ): Promise<FieldValue[]> {
-  const { template, byType, pages, ask, answered = new Set(), log = () => {} } =
-    options;
+  const { template, byType, pages, ask, log = () => {} } = options;
 
-  const keys = extractableFieldKeys(template, answered);
+  const keys = extractableFieldKeys(template);
   const defaultDocTypes = orderPaperworkDocTypes(template);
 
   if (keys.length === 0) {
-    log("  the order request answered every backed key; no model call");
+    log("  the form declares no backed key to search for; no model call");
     return [];
   }
 
@@ -406,7 +386,7 @@ export async function extractTextFields(
         continue;
       }
       // Same lookup `remapCitedPageIndex` makes internally, kept here too so
-      // the xlsx note can name the page's own file and page number instead of
+      // provenance can name the page's own file and page number instead of
       // this run's bundle-global index (task-11 finding 2) -- that global
       // index sent a reviewer to the wrong document for every page after the
       // first source file.

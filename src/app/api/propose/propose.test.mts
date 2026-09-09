@@ -451,7 +451,7 @@ const TEMPLATE: Template = {
   id: "t",
   label: "T",
   sections: [twoCaptureSection],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 
@@ -614,7 +614,7 @@ const TWO_POOL_TEMPLATE: Template = {
       ],
     },
   ],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 
@@ -938,7 +938,7 @@ const IMAGE_TEMPLATE: Template = {
     },
     twoCaptureSection,
   ],
-  xlsxRows: [],
+  fieldRows: [],
   fieldHints: {},
 };
 
@@ -1196,7 +1196,7 @@ test("a whole-page fillable slot with no pageOrdinal is a template bug, and thro
         ],
       },
     ],
-    xlsxRows: [],
+    fieldRows: [],
     fieldHints: {},
   };
 

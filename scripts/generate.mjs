@@ -1,8 +1,7 @@
 /**
- * The end-to-end generator: scanned PDFs in, a DOKUMEN VALIDASI docx and an
- * EPIC order-config xlsx out. This is the whole pipeline in one command --
- * render, OCR, classify, locate, crop, extract, verify, export -- with no UI
- * and no browser involved.
+ * The end-to-end generator: scanned PDFs in, a DOKUMEN VALIDASI docx out.
+ * This is the whole pipeline in one command -- render, OCR, classify, locate,
+ * crop, extract, verify, export -- with no UI and no browser involved.
  *
  *   pnpm generate <bundle>.pdf [more.pdf ...] [--tambahan extra.pdf]...
  *                 [--no-ai fenced.pdf]... [--sections overlay.json]
@@ -98,8 +97,8 @@
  * input, and a stale verdict served silently is worse than paying again.
  * Set GENERATE_FORCE=1 to bypass the OCR cache.
  *
- * Every value bound for an xlsx cell is then RE-READ from a picture of the
- * lines it cites, and a disagreement blanks the cell with both readings
+ * Every value bound for the docx header is then RE-READ from a picture of
+ * the lines it cites, and a disagreement blanks the cell with both readings
  * recorded instead of picking a winner (`src/lib/pipeline/verify.ts`;
  * GENERATE_VERIFY=0 turns it off for a controlled A/B). It exists because
  * Gemini confabulates small print confidently and repeatably at whole-page
@@ -199,12 +198,6 @@ import {
   withFieldHints,
 } from "../src/lib/pipeline/extract.ts";
 
-// ANSWERED_BY_REQUEST_REASON is deliberately NOT re-exported here. It is the
-// reason /api/extract gives for a key it did not search because the request
-// already answered it, and this script has no equivalent state: a
-// request-answered key is simply filled and drops out of outstandingFields.
-// Importing a shared constant and ignoring it reads as wiring somebody
-// started, so the route stays its only consumer.
 export {
   DISAGREEING_DOCUMENTS_REASON,
   FIELD_DOC_TYPES,
@@ -237,15 +230,10 @@ import {
   checkForContinuation,
   runningFurniture,
 } from "../src/lib/pipeline/continuation.ts";
-import {
-  orderRequestFieldValues,
-  readOrderRequestBuffer,
-} from "../src/lib/pipeline/order-request.ts";
 import { verifyCitedValues } from "../src/lib/pipeline/verify.ts";
 import { DEFAULT_DPI, renderPageUpright } from "../src/lib/pipeline/render.ts";
 import { cropToPng } from "../src/lib/export/crop.ts";
 import { buildDocx } from "../src/lib/export/docx.ts";
-import { buildXlsx } from "../src/lib/export/xlsx.ts";
 
 // pdf.js ships an ESM legacy build for Node; the same entry point every other
 // script and test in this repo uses.
@@ -705,11 +693,10 @@ const USAGE = `Usage: pnpm generate <bundle.pdf> [more.pdf ...] [--tambahan <ext
                     [--no-ai <fenced.pdf>]... [--sections <overlay.json>]
                     [--discover-sections]
                     [--out <dir>] [--jenis-order <AO|MO|DO|...>]
-                    [--request <order-request.xlsx>] [--service <SID|n>]
                     [--template <Form_Validasi.template.docx>]
 
-Writes <ID EPIC>_DOKUMEN_VALIDASI.docx, <ID EPIC>_ORDER_Config.xlsx and
-<ID EPIC>_OUTSTANDING.json into <dir> (default: out/, which is gitignored).
+Writes <ID EPIC>_DOKUMEN_VALIDASI.docx and <ID EPIC>_OUTSTANDING.json into
+<dir> (default: out/, which is gitignored).
 
 --sections applies a TemplateOverlay to the form before anything is searched:
 a renamed judul, a dropped one, a different order, a judul this order has and
@@ -753,25 +740,12 @@ template in the repo: the two sample forms share three section names out of
 eleven and twelve, so no single one fits both orders, and everything derived
 from documents/ is client material that must never be committed.
 
---request supplies the ORDER REQUEST: row 1 type hints, row 2 headers, one row
-per SID. It is read FIRST, deterministically, with no OCR and no model call,
-and every key it answers is then REMOVED from what the scans are searched for.
-That is the whole point of it -- of the thirty-one filled value cells measured
-across the two sample bundles, twelve to thirteen come from the request and
-zero to one from the contract scans (2026-09-03 findings, section 2), so
-searching a 29-page contract for them was asking the wrong corpus.
-
---service picks one service out of a multi-SID request, by SID or by 1-based
-row order. Without it, a field every service agrees on ships and a field they
-disagree on ships BLANK with both readings named, exactly as two disagreeing
-documents do -- never the first row silently.
-
 --jenis-order (or JENIS_ORDER in the environment) sets the header's JENIS ORDER
-cell. Without it the run reads the value off the order request or off a printed
-JENIS ORDER label in the documents, and where neither answers it ships the cell
-BLANK and names it in the outstanding report. It is never defaulted: the value
-is a workflow verb (AO = Activation, MO = Modify, DO = Delete), not a property
-of the template, and a guessed one gets signed.
+cell. Without it the run reads the value off a printed JENIS ORDER label in the
+documents, and where nothing answers it ships the cell BLANK and names it in
+the outstanding report. It is never defaulted: the value is a workflow verb
+(AO = Activation, MO = Modify, DO = Delete), not a property of the template,
+and a guessed one gets signed.
 
 Every positional PDF is round 1: the whole slot list is searched across all of
 them, with no assumption about which document carries what. Each --tambahan
@@ -794,8 +768,6 @@ export function parseArgs(argv) {
   const rounds = [[]];
   let outDir = join(repoRoot, "out");
   let jenisOrder;
-  let requestPath;
-  let service;
   let templatePath;
   let sectionsPath;
   let discover = false;
@@ -816,20 +788,6 @@ export function parseArgs(argv) {
       const value = argv[++i];
       if (!value) throw new Error("--template needs a docx");
       templatePath = resolve(value);
-    } else if (arg === "--request") {
-      const value = argv[++i];
-      if (!value) throw new Error("--request needs an xlsx");
-      requestPath = resolve(value);
-    } else if (arg === "--service") {
-      const value = argv[++i];
-      // Same guard as --jenis-order and for the same reason: nothing
-      // downstream checks a service selector against the filesystem, so
-      // `--service --out dir` would otherwise look for a service called
-      // "--out" and fail with a message about SIDs.
-      if (!value || value.startsWith("--") || value.trim() === "") {
-        throw new Error("--service needs a SID or a row number");
-      }
-      service = value.trim();
     } else if (arg === "--out") {
       const value = argv[++i];
       if (!value) throw new Error("--out needs a directory");
@@ -879,9 +837,6 @@ export function parseArgs(argv) {
       if (!existsSync(p)) throw new Error(`no such file: ${p}`);
     }
   }
-  if (requestPath !== undefined && !existsSync(requestPath)) {
-    throw new Error(`no such file: ${requestPath}`);
-  }
   // BEFORE the --template file checks, because this is a refusal about what
   // was ASKED FOR and those are about what is on disk. Ordered the other way,
   // an operator who wanted both would first be sent to build a manifest and
@@ -912,13 +867,6 @@ export function parseArgs(argv) {
       );
     }
   }
-  // A selector with no request to select from is a typo the operator wants to
-  // hear about now, not a run that silently ignores half of what they asked
-  // for and searches the scans for everything.
-  if (service !== undefined && requestPath === undefined) {
-    throw new Error("--service needs --request");
-  }
-
   if (sectionsPath !== undefined && !existsSync(sectionsPath)) {
     throw new Error(`no such file: ${sectionsPath}`);
   }
@@ -943,8 +891,6 @@ export function parseArgs(argv) {
     rounds,
     outDir,
     jenisOrder,
-    requestPath,
-    service,
     templatePath,
     sectionsPath,
     discover,
@@ -1237,8 +1183,8 @@ async function ocrPageWithModel(rendered, sourceName, pageInDoc) {
  * pushed onto `pages` strictly in page order, because the push order IS the
  * global page number. A page appended out of turn does not produce a
  * mis-ordered list; it gives some other page's number to this one, and every
- * zone, crop, citation and xlsx note that names a page number afterwards names
- * the wrong page while looking entirely normal. Same reasoning, same shape, as
+ * zone, crop and citation that names a page number afterwards names the wrong
+ * page while looking entirely normal. Same reasoning, same shape, as
  * `src/lib/browser/ingest.ts`; the two loops are deliberately alike.
  *
  * The cache write happens in that same ordered step rather than inside a
@@ -1712,7 +1658,7 @@ export function continuationChecks(template, zones, pages, check) {
     // index and no filename, and the page a human opens is named by its
     // SOURCE and its number inside that source. Deriving that from the
     // CURRENT page's `pageInDoc` is the off-by-one this project keeps paying
-    // for -- see the xlsx cell-note gotcha in AGENTS.md.
+    // for -- see the page-numbering gotcha in AGENTS.md.
     const next = verdict.nextPage ? pages[verdict.nextPage.index] : null;
     checked.push({
       key: zone.key,
@@ -1773,10 +1719,12 @@ export function outstandingContinuations(checks) {
 }
 
 /**
- * Every xlsx row a PDF is supposed to back that came back without a value.
+ * Every declared field a PDF is supposed to back that came back without a
+ * value.
  *
- * Same argument as `outstandingSlots`, one deliverable over: a blank cell in
- * the workbook and a cell nobody tried to fill look identical to a reviewer.
+ * Same argument as `outstandingSlots`, one kind of evidence over: a blank cell
+ * in the docx header and a cell nobody tried to fill look identical to a
+ * reviewer.
  */
 export function outstandingFields(template, values) {
   const filled = new Set(
@@ -1804,7 +1752,7 @@ export function outstandingFields(template, values) {
 
   const outstanding = [];
   const seen = new Set();
-  for (const row of template.xlsxRows) {
+  for (const row of template.fieldRows) {
     if (!row.fieldKey || seen.has(row.fieldKey)) continue;
     seen.add(row.fieldKey);
     if (filled.has(row.fieldKey)) continue;
@@ -1828,32 +1776,24 @@ export function outstandingFields(template, values) {
 /**
  * Every value that was READ but has nowhere in this form to land.
  *
- * `buildXlsx` keys the values it is handed by `fieldKey` and walks
- * `template.xlsxRows`, so a value whose key names no row is simply never
- * written. That drop was silent in all three places an operator looks:
- * `main()` logged it as `layanan = "..." [request C3 "Layanan"]`, which reads
- * exactly like a shipped cell; `report.orderRequest.answered` listed it; and
- * `outstandingFields` walks `template.xlsxRows`, so a key with no row can
- * never appear there. Measured on a nine-column request: seven values read,
- * ONE cell filled. The report asserted the other six were handled and the
- * workbook did not carry them -- the deliverable looking complete while
- * missing content, which is the failure this project is organised against.
+ * A value whose `fieldKey` names no row the form declares reaches no
+ * deliverable at all, and that drop used to be silent in every place an
+ * operator looks: `main()` logged it beside the keys that did ship, which
+ * reads exactly like a shipped cell, and `outstandingFields` walks the form's
+ * own rows, so a key with no row can never appear there. A deliverable looking
+ * complete while missing content is the failure this project is organised
+ * against, so a value with nowhere to go is a REPORTED gap.
  *
- * `AO_TEMPLATE` declares four fieldKey-bearing rows and
- * `REQUEST_COLUMN_FIELD_KEYS` maps sixteen columns, so the gap is structural
- * rather than incidental: the rows are item 5 of the 2026-09-03 findings and
- * are deliberately not this change's work. Until they land, a value with
- * nowhere to go is a REPORTED gap.
- *
- * Deliberately general rather than checking only the request's keys. A
- * model-extracted key cannot reach here today, because `extractableFieldKeys`
- * derives what to search for from the template's own rows -- but that is an
- * invariant somewhere else, and this costs one pass over a list to stop
- * depending on it.
+ * NOTHING IN THE TREE CAN PRODUCE ONE TODAY, and the guard is kept anyway.
+ * `extractableFieldKeys` derives what to search for from the form's own rows,
+ * so every key that comes back was declared -- but that is an invariant
+ * somewhere else, and this costs one pass over a list to stop depending on it.
+ * It last fired for the order-request reader, which mapped columns the form
+ * had no row for; that reader is gone.
  */
 export function unmappedFieldValues(template, values) {
   const rowKeys = new Set(
-    template.xlsxRows.map((row) => row.fieldKey).filter(Boolean),
+    template.fieldRows.map((row) => row.fieldKey).filter(Boolean),
   );
   const outstanding = [];
   const seen = new Set();
@@ -1864,19 +1804,15 @@ export function unmappedFieldValues(template, values) {
     if (String(value.value ?? "").trim() === "") continue;
     if (rowKeys.has(value.fieldKey) || seen.has(value.fieldKey)) continue;
     seen.add(value.fieldKey);
-    const from = value.requestSource
-      ? `the order request (${value.requestSource.column}, ` +
-        `"${value.requestSource.header}")`
-      : "the documents";
     outstanding.push({
       kind: "unmapped",
       key: value.fieldKey,
       label: value.fieldKey,
       reason:
-        `read from ${from} as ${JSON.stringify(value.value)}, but the ` +
-        `"${template.id}" form has no xlsx row for it, so the workbook does ` +
-        "not carry it. The value is here and in the run log; keying it needs " +
-        "a row in the form's xlsxRows.",
+        `read from the documents as ${JSON.stringify(value.value)}, but the ` +
+        `"${template.id}" form declares no row for it, so no deliverable ` +
+        "carries it. The value is here and in the run log; keying it needs a " +
+        "row in the form's field list.",
     });
   }
   return outstanding;
@@ -2414,7 +2350,7 @@ async function cutCrops(zones, pages, sources) {
 }
 
 // ---------------------------------------------------------------------------
-// Text extraction for the xlsx and the docx header.
+// Text extraction for the docx header.
 //
 // HISTORY, because the shape here only makes sense with it. Each key's pool
 // used to be narrowed twice over: to the pages the `layout: "images"`
@@ -2447,9 +2383,9 @@ async function cutCrops(zones, pages, sources) {
 // bundle-global page number. remapCitedPageIndex maps it back to the page's
 // true `.index` -- and drops the citation outright, rather than falling back
 // to the raw local position, when the model cites a position the pool
-// doesn't hold. A silent fallback there would write that local number into
-// the workbook as if it were a true page number: a citation that looks valid
-// and points at the wrong page.
+// doesn't hold. A silent fallback there would record that local number as if
+// it were a true page number: a citation that looks valid and points at the
+// wrong page.
 // ---------------------------------------------------------------------------
 
 // FIELD_DOC_TYPES, orderPaperworkDocTypes, poolForDocTypes,
@@ -2469,19 +2405,12 @@ async function cutCrops(zones, pages, sources) {
  * module must not know: which `ask` reaches the model, and where progress is
  * printed.
  */
-export async function extractTextFields(
-  template,
-  byType,
-  pages,
-  askFn = ask,
-  answered = new Set(),
-) {
+export async function extractTextFields(template, byType, pages, askFn = ask) {
   return extractTextFieldsWith({
     template,
     byType,
     pages,
     ask: askFn,
-    answered,
     log: (message) => console.log(message),
   });
 }
@@ -2730,8 +2659,6 @@ async function main() {
     rounds,
     outDir,
     jenisOrder: jenisOrderFlag,
-    requestPath,
-    service,
     templatePath,
     sectionsPath,
     discover,
@@ -2866,92 +2793,6 @@ async function main() {
     );
   }
   console.log();
-
-  // -------------------------------------------------------------------------
-  // THE ORDER REQUEST, READ FIRST AND READ DETERMINISTICALLY.
-  //
-  // Before the PDFs are even opened, for two separate reasons. It is the input
-  // that answers most of the workbook -- twelve to thirteen of thirty-one
-  // filled value cells across the two sample bundles, against zero to one from
-  // the contract scans (2026-09-03 findings, section 2) -- and it is the only
-  // input that can be wrong in a way a human fixes in five seconds. A
-  // malformed request that surfaces after twenty minutes of OCR costs the
-  // whole run; the same error thrown here costs nothing.
-  //
-  // Nothing in this block reaches the model, the network or a credential. That
-  // is the property that makes the request worth preferring over a search:
-  // a value here was READ OUT OF A CELL, not inferred from a picture of one.
-  // -------------------------------------------------------------------------
-  /** @type {import("../src/lib/pipeline/order-request.ts").OrderRequest | null} */
-  let orderRequest = null;
-  /** @type {import("../src/lib/pipeline/fields.ts").FieldValue[]} */
-  let requestValues = [];
-  if (requestPath) {
-    orderRequest = await readOrderRequestBuffer(
-      new Uint8Array(await readFile(requestPath)),
-      basename(requestPath),
-    );
-    requestValues = orderRequestFieldValues(orderRequest, { service });
-
-    console.log(
-      `Order request: ${orderRequest.file} sheet "${orderRequest.sheet}", ` +
-        `${orderRequest.services.length} service(s)` +
-        (service ? `, --service ${service}` : ""),
-    );
-    for (const entry of orderRequest.services) {
-      console.log(`  row ${entry.row}: SID ${entry.sid || "(none printed)"}`);
-    }
-    for (const value of requestValues) {
-      if (value.conflict?.length) {
-        console.log(
-          `  ${value.fieldKey} = "" -- CONFLICT (${value.conflictReason}) between ` +
-            value.conflict.map((v) => JSON.stringify(v)).join(" and "),
-        );
-        continue;
-      }
-      const where = value.requestSource;
-      console.log(
-        `  ${value.fieldKey} = ${JSON.stringify(value.value)} ` +
-          `[${where.column}${where.rows.join("/")} ${JSON.stringify(where.header)}]`,
-      );
-    }
-    // Reported, never silently dropped. A column this reader has no field key
-    // for is either a layout it does not understand or a field the client
-    // added, and both are things a human has to see -- an order request that
-    // quietly contributes half of what it holds looks exactly like one that
-    // contributed all of it.
-    for (const column of orderRequest.unmapped) {
-      console.warn(
-        `  column ${column.column} ${JSON.stringify(column.header)} NOT READ: ${column.reason}`,
-      );
-    }
-    if (orderRequest.jenisOrderReadings.length > 1) {
-      console.warn(
-        `  the request's services disagree on the order type ` +
-          `(${orderRequest.jenisOrderReadings.join(" vs ")}); the JENIS ORDER ` +
-          "cell falls through to the documents and then to blank",
-      );
-    }
-    console.log();
-  } else {
-    // Said out loud, because the alternative reads identically to a run where
-    // the request answered nothing. Bundle one legitimately has no request
-    // file -- its request arrived as an email that is already a page of the
-    // scan -- and that is a different situation from an operator forgetting
-    // the flag.
-    console.log(
-      "Order request: none supplied (--request). Every backed key will be " +
-        "searched for in the scans.\n",
-    );
-  }
-
-  /**
-   * The keys the request already answered, INCLUDING the ones it answered with
-   * a blank because its services disagreed. A disagreement is still an answer:
-   * the request is the authority for that field, and a scan search could only
-   * ever supply one of the two readings without knowing there was a second.
-   */
-  const answeredByRequest = new Set(requestValues.map((value) => value.fieldKey));
 
   const cache = await loadCache();
   /** Every source and page seen so far, across every round. Append-only. */
@@ -3138,8 +2979,8 @@ async function main() {
 
   console.log("Extracting text fields...");
   // Same trade as a failed slot, one step later: the crops are already cut and
-  // both files are written below, so a failure here costs the xlsx's values and
-  // the docx's header text, not the run. It is said plainly in the summary.
+  // the document is written below, so a failure here costs the docx's header
+  // text, not the run. It is said plainly in the summary.
   let values = [];
   let extractionError;
   try {
@@ -3153,7 +2994,6 @@ async function main() {
       // still cited by an added judul, still cropped.
       pages.filter((page) => page.searchable !== false),
       askFor("extract"),
-      answeredByRequest,
     );
   } catch (error) {
     console.warn(`  extraction FAILED -- ${error.message}`);
@@ -3212,46 +3052,6 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  // The request's answers join the run's values HERE, after verification, and
-  // the position is load-bearing rather than incidental.
-  //
-  // `verifyCitedValues` re-reads a value from a picture of the lines it cites
-  // and reports anything it cannot check in `report.unverified`, which the
-  // summary prints as "shipped without a crop re-read". A request-supplied
-  // value has no citation and no crop -- there is no page it came from -- so
-  // passing it through that pass would add it to the UNVERIFIED list and tell
-  // the operator that a value read straight out of a spreadsheet cell went
-  // unchecked. That sentence is false, it appears in the one place the
-  // operator is asked to judge how much of the workbook to trust, and it would
-  // grow with every field the request answers, which is the direction this
-  // whole change is pushing. Merging after the pass is what keeps it honest.
-  //
-  // The two lists cannot collide: `answeredByRequest` removed every key here
-  // from what the model was asked for, so `values` holds no key `requestValues`
-  // holds and no reconciliation is needed or possible. ASSERTED rather than
-  // only stated, and the request goes LAST: every consumer (`buildXlsx`, the
-  // `byKey` map the docx header is built from) keys these into a Map, which
-  // keeps the LAST entry, so on a collision the model's guess would beat the
-  // spreadsheet cell the paragraph above says is authoritative. Spreading the
-  // request last makes the order and the stated authority agree whatever
-  // happens upstream, and the assertion makes a collision a crash instead of
-  // a silently-preferred value.
-  // -------------------------------------------------------------------------
-  const requestKeys = new Set(requestValues.map((value) => value.fieldKey));
-  const collided = values
-    .map((value) => value.fieldKey)
-    .filter((key) => requestKeys.has(key));
-  if (collided.length > 0) {
-    throw new Error(
-      `${collided.length} field(s) were answered by BOTH the order request ` +
-        `and the document search: ${[...new Set(collided)].join(", ")}. ` +
-        "`answeredByRequest` is supposed to remove every request-answered key " +
-        "from what the model is asked for; one of the two lists is being built " +
-        "from the wrong set of keys.",
-    );
-  }
-  values = [...values, ...requestValues];
-
   for (const value of values) {
     // A key two readings answered incompatibly ships blank with both readings
     // named, so the operator sees a decision that was NOT made rather than an
@@ -3267,59 +3067,46 @@ async function main() {
       );
       continue;
     }
-    // Where the value came from, said on the same line as the value. With two
-    // input paths in the run this is no longer decoration: "which of these
-    // cells did a model find in a scan, and which were read out of the
-    // request" is the first thing an operator needs in order to know where to
-    // look when one is wrong.
+    // Where the value came from, said on the same line as the value: the page
+    // and lines to check it against, or the fact that there are none.
     const cite = value.source
       ? ` [page ${value.source.pageIndex}, lines ${value.source.lineRange.join("-")}]`
-      : value.requestSource
-        ? ` [request ${value.requestSource.column}${value.requestSource.rows.join("/")}]`
-        : " [no citation]";
+      : " [no citation]";
     console.log(`  ${value.fieldKey} = ${JSON.stringify(value.value)}${cite}`);
   }
   // A value can arrive uncited either because the model never offered a
   // citation or because extractFields dropped one that failed validation (a
   // hallucinated page, a reversed range, a line the cited page doesn't have)
   // -- either way the operator should see the count, since an uncited value
-  // in the xlsx has nothing to check it against.
+  // has nothing to check it against.
   // A blanked conflict is not an uncited value -- it has nothing to cite --
-  // and counting it as one would overstate how much of the workbook is
-  // unchecked while understating the conflict, which was already reported
-  // above on its own line.
-  // A request-supplied value is NOT uncited: `requestSource` names the file,
-  // sheet, column and rows it was read from, and that note reaches the
-  // workbook exactly as a citation does. Counting it here would report the
-  // deterministic half of the run as the unchecked half.
+  // and counting it as one would overstate how much of the run is unchecked
+  // while understating the conflict, which was already reported above on its
+  // own line.
   const shipped = values.filter((v) => !v.conflict?.length);
-  const uncited = shipped.filter((v) => !v.source && !v.requestSource).length;
+  const uncited = shipped.filter((v) => !v.source).length;
   if (uncited > 0) {
     console.log(`  ${uncited} of ${shipped.length} extracted value(s) carry no citation`);
   }
 
   // Warned per key, right under the value lines that look like shipped cells,
-  // because that is where the misreading happens: `layanan = "..." [request
-  // C3]` and a workbook with no layanan row read identically until now. See
-  // `unmappedFieldValues`.
+  // because that is where the misreading happens: a value line and a form with
+  // no row for that key read identically. See `unmappedFieldValues`.
   const unmapped = unmappedFieldValues(template, values);
   for (const entry of unmapped) {
     console.warn(
-      `  ${entry.key} NOT IN THE WORKBOOK -- the "${template.id}" form has ` +
-        "no xlsx row for it; the value above goes nowhere",
+      `  ${entry.key} NOT IN THE FORM -- the "${template.id}" form declares ` +
+        "no row for it; the value above goes nowhere",
     );
   }
   console.log();
 
-  // `orderRequest` was parsed at the top of this function -- see the block
-  // there. `resolveJenisOrder` reads only its `jenisOrder`, which is a plain
-  // string and is blank whenever the request's services disagree, so a
-  // disagreement falls through to the documents and then to a reported blank
-  // rather than picking one of them.
+  // Nothing before the documents answers this any more, so in practice it is
+  // the flag, the environment variable, a printed JENIS ORDER label, or a
+  // reported blank. It is never defaulted -- see `resolveJenisOrder`.
   const jenisOrder = resolveJenisOrder({
     flag: jenisOrderFlag,
     env: process.env.JENIS_ORDER,
-    orderRequest,
     pages,
   });
   // Printed on every run, blank included, because the header cell itself
@@ -3351,12 +3138,10 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   const stem = idEpic || basename(rounds[0][0]).replace(/\.pdf$/i, "");
   const docxPath = join(outDir, `${stem}_DOKUMEN_VALIDASI.docx`);
-  const xlsxPath = join(outDir, `${stem}_ORDER_Config.xlsx`);
   const reportPath = join(outDir, `${stem}_OUTSTANDING.json`);
   const sectionsReportPath = join(outDir, `${stem}_SECTIONS.json`);
 
   await writeFile(docxPath, await buildDocx(template, header, filled, docxTemplate));
-  await writeFile(xlsxPath, await buildXlsx(template, values));
 
   // Written beside the deliverables, and named in the summary, because it is
   // an input to the NEXT run rather than an output of this one: a person edits
@@ -3374,7 +3159,6 @@ async function main() {
   // rather than a silent gap, and a log line scrolls away: this file is what
   // a later UI reads to ask "is there a dokumen tambahan for these?", and
   // what a resumed run reads to know which zones it already has.
-  const unmappedKeys = new Set(unmapped.map((entry) => entry.key));
   const slotsOutstanding = outstandingSlots(
     template,
     zones,
@@ -3428,39 +3212,6 @@ async function main() {
     // no longer self-explanatory: it now means one of four different things
     // depending on who supplied it, and only this line says which.
     jenisOrder,
-    // On the record because the report is what a later UI and a resumed run
-    // read, and "which values did a model find and which were read out of a
-    // spreadsheet" is not recoverable from the values alone. `unmapped` is
-    // here for the same reason it is warned about in the log: a column nobody
-    // has mapped yet is a standing gap, and a gap only in a scrolled-away log
-    // line is a gap nobody acts on.
-    orderRequest: orderRequest
-      ? {
-          file: orderRequest.file,
-          sheet: orderRequest.sheet,
-          service: service ?? null,
-          services: orderRequest.services.map((entry) => ({
-            row: entry.row,
-            sid: entry.sid,
-          })),
-          // `answered` used to hold every key the request produced, including
-          // the ones no xlsx row can carry, so the report asserted a field was
-          // handled while the workbook had no such cell. Split, because those
-          // are two different facts an operator acts on differently: one is
-          // done, the other needs a row in the form.
-          answered: requestValues
-            .filter((value) => !value.conflict?.length)
-            .map((value) => value.fieldKey)
-            .filter((key) => !unmappedKeys.has(key)),
-          dropped: requestValues
-            .filter((value) => unmappedKeys.has(value.fieldKey))
-            .map((value) => value.fieldKey),
-          // Unmapped COLUMNS -- a header this reader has never seen -- which
-          // is a different gap from `dropped` above: that one is a column we
-          // read fine and have nowhere to put.
-          unmapped: orderRequest.unmapped,
-        }
-      : null,
     documents: sources.map((source, index) => ({
       index,
       name: source.name,
@@ -3505,8 +3256,8 @@ async function main() {
       ...outstandingHeaderFields(jenisOrder),
       // A value that was read and has nowhere to land is outstanding in the
       // same sense the others are: something the operator has to do by hand
-      // before the workbook is complete. A gap only in a scrolled-away log
-      // line is a gap nobody acts on.
+      // before the packet is complete. A gap only in a scrolled-away log line
+      // is a gap nobody acts on.
       ...unmapped,
     ],
     // ITS OWN ARRAY, NEVER FOLDED INTO `outstanding`. Everything in that list
@@ -3521,12 +3272,10 @@ async function main() {
 
   console.log("=".repeat(72));
   console.log(`docx: ${docxPath}`);
-  console.log(`xlsx: ${xlsxPath}`);
   console.log(`outstanding: ${reportPath}`);
   if (discovered) console.log(`sections: ${sectionsReportPath}`);
   console.log();
-  console.log("Page numbers cited above and in the xlsx comments are this run's");
-  console.log("global page numbers:");
+  console.log("Page numbers cited above are this run's global page numbers:");
   for (const [sourceIndex, source] of sources.entries()) {
     const own = pages.filter((p) => p.source === sourceIndex);
     console.log(
@@ -3538,8 +3287,8 @@ async function main() {
   console.log(`crops: ${filled.length} cut, ${values.length} text fields extracted`);
   if (unverified.length > 0) {
     // Repeated down here because the per-value warnings are thousands of lines
-    // up by now, and "how much of this workbook was never checked" is a thing
-    // the operator has to see before signing rather than scroll back for.
+    // up by now, and "how much of this was never checked" is a thing the
+    // operator has to see before signing rather than scroll back for.
     console.log(
       `UNVERIFIED (${unverified.length}) -- shipped without a crop re-read: ` +
         unverified.map((entry) => entry.fieldKey).join(", "),
@@ -3651,18 +3400,9 @@ async function main() {
   console.log(replyCache.summary());
 }
 
-/**
- * An argument mistake deserves the usage text, not a stack trace.
- *
- * `has no service ` is matched on a substring rather than an anchor because
- * `selectServices` throws `<file> has no service "1234". It lists 2: ...` --
- * a good message, thrown before the PDFs are opened, that fell through to the
- * `pipeline failed:` branch and reached the operator as a console.error dump
- * of an Error object. A typo in a SID is the single likeliest --service
- * mistake and it was the one presented as a crash.
- */
+/** An argument mistake deserves the usage text, not a stack trace. */
 const USAGE_ERRORS =
-  /^(no PDF given|unknown option |--out needs|--tambahan needs|--jenis-order needs|--request needs|--service needs|--template needs|--sections needs|--no-ai needs|--sections and --template cannot|--no-ai names |no such file: )|has no service /;
+  /^(no PDF given|unknown option |--out needs|--tambahan needs|--jenis-order needs|--template needs|--sections needs|--no-ai needs|--sections and --template cannot|--no-ai names |no such file: )/;
 
 // Guarded so the test suite can import this file's pure helpers (e.g.
 // poolForDocTypes, remapCitedPageIndex) without running the whole CLI --

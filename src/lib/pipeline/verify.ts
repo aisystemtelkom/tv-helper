@@ -1,6 +1,7 @@
 /**
- * The crop-level second pass: every value bound for xlsx column E is re-read
- * from a picture of the lines it cites, and a disagreement blanks the cell.
+ * The crop-level second pass: every value bound for the docx header table is
+ * re-read from a picture of the lines it cites, and a disagreement blanks the
+ * cell.
  *
  * ## IT VERIFIES VALUES, NOT CROPS. Read that sentence twice.
  *
@@ -288,10 +289,10 @@ export type VerifyReport = {
  *
  * WHAT A FAILED VERIFICATION CALL DOES NOT DO: blank the cell. An unreachable
  * model is not evidence that a value is wrong, and treating it as such would
- * empty a whole workbook over a network blip -- the wrong-and-quiet shape
+ * empty a whole header table over a network blip -- the wrong-and-quiet shape
  * pointed the other way. Such a value ships exactly as it would have shipped
  * before this pass existed, and is named in `report.unverified` so the run's
- * summary can say how much of the workbook went unchecked.
+ * summary can say how much of it went unchecked.
  */
 export async function verifyCitedValues(
   values: FieldValue[],

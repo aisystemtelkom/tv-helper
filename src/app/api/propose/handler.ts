@@ -150,7 +150,7 @@ export type DiscoveredSections = {
    *
    * A `ProposedSection` IS NOT A JUDUL. `resolveTemplate` does not read
    * `overlay.proposed`, so nothing in this array can reach the docx exporter,
-   * the xlsx, or the outstanding list until a person moves it into
+   * or the outstanding list until a person moves it into
    * `overlay.added` by accepting it.
    */
   sections: ProposedSection[];
