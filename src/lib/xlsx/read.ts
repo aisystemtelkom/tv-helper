@@ -98,6 +98,15 @@ const MAX_DATE_SERIAL = 2958465;
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * What one style index makes a number DISPLAY as, when it is not just a number.
+ *
+ * `null` covers every format that decorates a number without changing it --
+ * currency, thousands separators, colours, alignment. Only `date` and
+ * `percent` make the stored number and the shown number different numbers.
+ */
+type StyleFormat = "date" | "percent" | null;
+
 // ---------------------------------------------------------------------------
 // XML, at the level this file needs it
 // ---------------------------------------------------------------------------
@@ -199,7 +208,27 @@ function parseSharedStrings(xml: string | null): string[] {
  * `<cellXfs>` out by name before scanning is what keeps a cell's `s` index
  * pointing at the format it actually carries.
  */
-function parseDateStyles(xml: string | null): boolean[] {
+/**
+ * WHAT EACH STYLE INDEX DISPLAYS AS: a date, a percent, or a plain number.
+ *
+ * It answered only the first question for a while, and the second is the same
+ * defect one format along. A percent cell stores the FRACTION and displays the
+ * hundredths: `E29` of the sample bundle's own configuration workbook holds
+ * `0.995` under `numFmtId="10"` (`0.00%`), and Excel shows `99.50%` next to
+ * the label `MPLS VPN IP SLG`. Read as a bare number, the operator is shown
+ * `0.995` for a value their workbook displays as `99.50%`, and the comparison
+ * against a scan that says `99,5%` reports a mismatch and recommends
+ * overwriting a cell that was right.
+ *
+ * CURRENCY AND THOUSANDS SEPARATORS ARE DELIBERATELY NOT HERE. `_-"Rp"* #,##0.00_-`
+ * changes how a number is DECORATED, not what it is: 120341172.5 is that
+ * number whether or not a spreadsheet paints `Rp` in front of it, and
+ * rendering the decoration would put a currency symbol into a cell value that
+ * is then compared against a scan, and written back as text. Percent is the
+ * only common format where the stored number and the displayed number are
+ * different NUMBERS.
+ */
+function parseDateStyles(xml: string | null): StyleFormat[] {
   if (!xml) return [];
 
   const custom = new Map<number, string>();
@@ -217,17 +246,51 @@ function parseDateStyles(xml: string | null): boolean[] {
   const cellXfs = elementBody(xml, "cellXfs");
   if (cellXfs === null) return [];
 
-  const out: boolean[] = [];
+  const out: StyleFormat[] = [];
   for (const found of cellXfs.matchAll(/<xf\b([^>]*)>/g)) {
     const id = Number(attrs(found[1]).numFmtId ?? "0");
     if (!Number.isInteger(id)) {
-      out.push(false);
+      out.push(null);
       continue;
     }
     const code = custom.get(id);
-    out.push(code === undefined ? isBuiltInDateFormat(id) : isDateFormatCode(code));
+    if (code === undefined) {
+      // A CUSTOM CODE WINS OVER THE BUILT-IN TABLE, which is why this branch
+      // is only reached when there is none. The third real workbook redefines
+      // built-in id 44 as a Rupiah accounting format, and reading the built-in
+      // ranges first would have called that column dates.
+      out.push(
+        isBuiltInDateFormat(id)
+          ? "date"
+          : isBuiltInPercentFormat(id)
+            ? "percent"
+            : null,
+      );
+      continue;
+    }
+    out.push(formatOf(code));
   }
   return out;
+}
+
+/** 9 is `0%` and 10 is `0.00%`. No other built-in id displays a percent. */
+function isBuiltInPercentFormat(id: number): boolean {
+  return id === 9 || id === 10;
+}
+
+/**
+ * What a custom format code displays as.
+ *
+ * DATE IS TESTED FIRST, so the two tests are independent rather than mutually
+ * exclusive by luck: a date code may legitimately print a `%` from a quoted
+ * literal, and `stripLiterals` is shared so both read the same bare code. An
+ * unquoted `%` is Excel's multiply-by-100 marker; a `"%"` inside quotes is a
+ * printed character and means nothing.
+ */
+function formatOf(code: string): StyleFormat {
+  const bare = stripLiterals(code);
+  if (/[dmyhs]/i.test(bare)) return "date";
+  return bare.includes("%") ? "percent" : null;
 }
 
 /** 14-22 are the date formats, 45-47 the elapsed-time ones. Every other built-in id is not a date. */
@@ -253,6 +316,15 @@ function isBuiltInDateFormat(id: number): boolean {
  *    literal rather than a token, and `*x` fill characters, same.
  */
 function isDateFormatCode(code: string): boolean {
+  return /[dmyhs]/i.test(stripLiterals(code));
+}
+
+/**
+ * A format code with everything that is PRINTED stripped out, leaving only the
+ * tokens that decide what it displays. See `isDateFormatCode` for why each
+ * strip is here.
+ */
+function stripLiterals(code: string): string {
   let remaining = "";
   for (let i = 0; i < code.length; i += 1) {
     const char = code[i];
@@ -275,7 +347,7 @@ function isDateFormatCode(code: string): boolean {
     }
     remaining += char;
   }
-  return /[dmyhs]/i.test(remaining);
+  return remaining;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +458,7 @@ function formatDate(parts: { day: number; month: number; year: number }): string
 
 type SheetContext = {
   sharedStrings: string[];
-  dateStyles: boolean[];
+  dateStyles: StyleFormat[];
   date1904: boolean;
 };
 
@@ -499,6 +571,18 @@ function readCell(
   let kind: CellKind;
 
   if (type === "s") {
+    // A MISSING OR EMPTY `<v>` IS NOT INDEX ZERO, and reading it as one is the
+    // sharpest edge in this file. `elementBody` returns `""` for a
+    // self-closing `<v/>` and `null` for no element at all, and `Number("")`
+    // is 0, so without this guard `<c r="E9" t="s"><v/></c>` would resolve to
+    // the FIRST string in the shared table -- some other cell's text, rendered
+    // in a cell that is actually empty, with nothing anywhere looking wrong.
+    // That is this project's failure class exactly, and it is reachable: an
+    // empty cell carrying a style is ordinary in these workbooks, and one that
+    // is *also* typed `s` is what an editor leaves behind when a value is
+    // deleted from a text-formatted cell. The number branch below already
+    // guards the same shape; this one did not.
+    if (stored === null || stored.trim() === "") return null;
     const index = Number(stored);
     const resolved = Number.isInteger(index) ? context.sharedStrings[index] : undefined;
     // An index the shared string table does not have is a corrupt file, not an
@@ -514,7 +598,11 @@ function readCell(
     text = unescapeXml(stored ?? "");
     kind = "formula";
   } else if (type === "b") {
-    const on = (stored ?? "").trim() === "1";
+    // Same rule as the two branches around it: a boolean cell with no stored
+    // value is empty, not FALSE. Printing FALSE would be this layer answering
+    // a question the workbook did not.
+    if (stored === null || stored.trim() === "") return null;
+    const on = stored.trim() === "1";
     text = on ? "TRUE" : "FALSE";
     raw = on ? "1" : "0";
     kind = "boolean";
@@ -526,13 +614,34 @@ function readCell(
   } else {
     if (stored === null || stored.trim() === "") return null;
     const value = Number(stored);
-    const dated = context.dateStyles[Number(attributes.s ?? "0")] === true && Number.isFinite(value)
-      ? serialToDate(value, context.date1904)
-      : null;
+    const format = context.dateStyles[Number(attributes.s ?? "0")] ?? null;
+    const dated =
+      format === "date" && Number.isFinite(value)
+        ? serialToDate(value, context.date1904)
+        : null;
     if (dated) {
       text = formatDate(dated);
       raw = stored.trim();
       kind = "date";
+    } else if (format === "percent" && Number.isFinite(value)) {
+      /*
+       * A PERCENT CELL STORES THE FRACTION AND SHOWS THE HUNDREDTHS, so the
+       * stored number and the displayed number are different numbers and this
+       * is not formatting.
+       *
+       * Found by review against the sample bundle's own configuration
+       * workbook: `E29` holds `0.995` under built-in format 10 (`0.00%`) and
+       * Excel shows `99.50%` beside the label `MPLS VPN IP SLG`. Rendered as
+       * `0.995` the operator is shown a number their own file does not
+       * display, and the comparison against a scan reading `99,5%` reports a
+       * mismatch that is not one and recommends overwriting a correct cell.
+       *
+       * `raw` keeps the stored fraction, so nothing downstream has lost the
+       * number the file actually holds.
+       */
+      text = `${plainNumber(String(value * 100))}%`;
+      raw = stored.trim();
+      kind = "number";
     } else {
       text = plainNumber(stored);
       raw = text === stored.trim() ? undefined : stored.trim();

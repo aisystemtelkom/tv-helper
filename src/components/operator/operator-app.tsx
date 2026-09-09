@@ -118,16 +118,33 @@ import type { PlateActions } from "./proposal-plate";
 const runtime = liveRuntime;
 
 /**
- * The three phases, in the operator's own language.
+ * The five phases, in the operator's own language.
  *
- * The ids stay English because they are code. `Tambahan` used to be a fourth
- * one; see the note at the top of this file for why the dokumen tambahan
- * question moved to the top of Periksa instead of standing on its own.
+ * The ids stay English because they are code. `Tambahan` used to be a phase;
+ * see the note at the top of this file for why the dokumen tambahan question
+ * moved to the top of Periksa instead of standing on its own.
+ *
+ * ## "Checkpoint" IS ENGLISH ON PURPOSE, AND IT IS THE CLIENT'S WORD
+ *
+ * Every other operator-facing string in this product is Bahasa, and these
+ * three are not translations this project chose. The client's instruction of
+ * 2026-09-09 renamed `Berkas` in their own words ("ubah jadi checkpoint 1
+ * aja") and then described the two checks that follow it, so "Checkpoint" is a
+ * proper noun for a stage of THEIR process, like `BA Permintaan` or `ID EPIC`.
+ * `Muat` and `Periksa` keep Bahasa names because those describe what the
+ * operator DOES; the checkpoints are named after where they sit in the
+ * client's flow. See `docs/ui-bahasa.md`.
+ *
+ * `export` keeps its id although its label changed, because an id is code and
+ * renaming it would rewrite `landingPhase`, every `setPhase` call site and the
+ * `Phase` union to say the same thing in different letters.
  */
 const PHASES = [
   { id: "ingest", label: "Muat" },
   { id: "sheet", label: "Periksa" },
-  { id: "export", label: "Berkas" },
+  { id: "export", label: "Checkpoint 1" },
+  { id: "config", label: "Checkpoint 2" },
+  { id: "epic", label: "Checkpoint 3" },
 ] as const;
 
 type Phase = (typeof PHASES)[number]["id"];
@@ -1642,7 +1659,7 @@ function Workspace({
    * is re-read from storage before the answer lands, so reviewing while a
    * round runs is supported rather than merely tolerated.
    */
-  const lockReason = editing
+  const runLockReason = editing
     ? "Selesaikan atau batalkan penggambaran area dulu, supaya gambar Anda tidak hilang."
     : !run
       ? "Muat dokumen order dulu."
@@ -1652,8 +1669,37 @@ function Workspace({
           : "Klik Baca dengan AI di langkah Muat dulu, supaya ada usulan untuk diperiksa."
         : null;
 
-  const isLocked = (id: Phase) =>
-    editing ? true : lockReason !== null && id !== "ingest";
+  /*
+   * WHY *THIS* PHASE WILL NOT OPEN, which stopped being one sentence when
+   * Checkpoint 3 arrived.
+   *
+   * The three reasons above are about the ORDER and are true of every phase at
+   * once, so one string served all of them. Checkpoint 3 has a reason of its
+   * own that is true of nothing else: it judges EPIC against the konfigurasi,
+   * so with no konfigurasi there is no yardstick and the screen could only
+   * report every isian as missing. Handing the shared sentence to that step
+   * would have told an operator to run a reading pass they had already run.
+   *
+   * Returning the sentence rather than a boolean is what keeps `isLocked` and
+   * the reason from disagreeing: they are now one function read two ways, so a
+   * step cannot be locked with nothing to say or say something while open.
+   */
+  const lockReasonFor = (id: Phase): string | null => {
+    if (runLockReason !== null) {
+      // Muat stays reachable unless the zone editor is holding a rectangle;
+      // it is where every one of those three sentences sends the operator.
+      return editing || id !== "ingest" ? runLockReason : null;
+    }
+    if (id === "epic" && !run?.konfigurasi.workbook) {
+      return (
+        "Muat berkas konfigurasi di Checkpoint 2 dulu, karena Checkpoint 3 " +
+        "membandingkan tampilan EPIC dengan konfigurasi itu."
+      );
+    }
+    return null;
+  };
+
+  const isLocked = (id: Phase) => lockReasonFor(id) !== null;
 
   // An ingest failure belongs beside the drop zone that caused it. The shell
   // only takes it over when the screen holding that drop zone is not on
@@ -1797,7 +1843,7 @@ function Workspace({
           subjectTitle={
             run ? run.sources.map((source) => source.name).join(", ") : undefined
           }
-          lockReason={lockReason}
+          lockReasonFor={lockReasonFor}
           isLocked={isLocked}
           signal={signal}
           onGo={(next) => {
@@ -1973,24 +2019,27 @@ function Workspace({
           />
         )}
 
-        {/* NOT WHILE THE ZONE EDITOR IS OPEN, and not on Berkas.
+        {/* NOT WHILE THE ZONE EDITOR IS OPEN. The editor is a task the
+            operator is inside, with its own Batal and Pakai area ini, and a
+            "Lanjut" under it would be a way to leave a rectangle half-drawn
+            without saying so.
 
-            The editor is a task the operator is inside, with its own Batal and
-            Pakai area ini, and a "Lanjut: Berkas" under it would be a way to
-            leave a rectangle half-drawn without saying so.
-
-            Berkas is the other exception, and it is the one worth explaining.
-            It has no next step, so the only thing this nav could offer there
-            is the way back, and the export panel's own sticky action bar
-            already carries that -- pinned beside the reason the export is
-            blocked, which is where an operator who cannot proceed is actually
-            looking. Rendering this as well would put two backs on one screen,
-            one of them below a 260px spacer at the very bottom of the page. */}
-        {editing || phase === "export" ? null : (
+            CHECKPOINT 1 USED TO BE THE SECOND EXCEPTION, AND THE REASON
+            EXPIRED. It was suppressed there because "it has no next step, so
+            the only thing this nav could offer is the way back, and the export
+            panel's own sticky bar already carries that" -- two backs on one
+            screen, which an operator called redundant. Checkpoint 2 now
+            follows it, so there IS a next step and suppressing the bar would
+            leave the operator on the export screen with no way forward at all.
+            What survives of the old reasoning is the half that is still true:
+            that screen keeps its own back, so this bar hands it only the
+            forward key. */}
+        {editing ? null : (
           <StepNav
             phase={phase}
             isLocked={isLocked}
-            lockReason={lockReason}
+            lockReasonFor={lockReasonFor}
+            showBack={phase !== "export"}
             onGo={(next) => {
               setSearchNote(null);
               setPhase(next);
@@ -2432,16 +2481,24 @@ function AccountControls({
 function StepNav({
   phase,
   isLocked,
-  lockReason,
+  lockReasonFor,
+  showBack,
   onGo,
 }: {
   phase: Phase;
   isLocked: (id: Phase) => boolean;
-  lockReason: string | null;
+  /* THE REASON THE NEXT STEP IS REFUSING, not the order's. They stopped being
+     the same string when Checkpoint 3 gained a gate of its own. */
+  lockReasonFor: (id: Phase) => string | null;
+  /* Checkpoint 1 carries its own way back, pinned beside the reason an export
+     is blocked, which is where an operator who cannot proceed is looking. Two
+     backs on one screen is what the operator called redundant, so that screen
+     takes only the forward key from this bar. */
+  showBack: boolean;
   onGo: (phase: Phase) => void;
 }) {
   const at = PHASES.findIndex((step) => step.id === phase);
-  const back = at > 0 ? PHASES[at - 1] : null;
+  const back = showBack && at > 0 ? PHASES[at - 1] : null;
   const next = at < PHASES.length - 1 ? PHASES[at + 1] : null;
   const nextLocked = next ? isLocked(next.id) : false;
 
@@ -2470,7 +2527,7 @@ function StepNav({
             /* `Btn` only wraps itself when it is BOTH disabled and given a
                reason, so passing this unconditionally adds nothing to the tab
                order of an enabled key. */
-            reason={lockReason ?? undefined}
+            reason={lockReasonFor(next.id) ?? undefined}
             onClick={() => onGo(next.id)}
           >
             Lanjut: {next.label}
@@ -2522,7 +2579,7 @@ function PhaseNav({
   pages,
   subject,
   subjectTitle,
-  lockReason,
+  lockReasonFor,
   isLocked,
   signal,
   onGo,
@@ -2534,7 +2591,9 @@ function PhaseNav({
   subject: string;
   /** Every file in the bundle, for the h1's hover title. */
   subjectTitle?: string;
-  lockReason: string | null;
+  /* PER STEP, not per order. Checkpoint 3 refuses for a reason no other phase
+     shares, so one sentence can no longer stand for all of them. */
+  lockReasonFor: (id: Phase) => string | null;
   isLocked: (id: Phase) => boolean;
   /** Empty when nothing is in flight and nothing has been written yet. */
   signal: string;
@@ -2542,6 +2601,12 @@ function PhaseNav({
 }) {
   const lockId = "lt-phase-lock";
   const at = PHASES.findIndex((step) => step.id === phase);
+  /* IS THE ORDER ITSELF NOT READY, as opposed to one late step refusing.
+     Periksa is the probe because it is locked by exactly the three
+     order-level reasons and by nothing of its own, so this keeps the progress
+     figure hidden in the same cases it always was and does NOT hide it merely
+     because Checkpoint 3 is still waiting for a konfigurasi. */
+  const blocked = lockReasonFor("sheet") !== null;
 
   return (
     <div className="lt-rail border-b">
@@ -2563,6 +2628,7 @@ function PhaseNav({
             // count; that step is gone, and the owed count already sits at
             // display size a few centimetres to the right, so anything here
             // would be the same figure twice at two sizes.
+            const reason = locked ? lockReasonFor(step.id) : null;
             const state = current
               ? "current"
               : done
@@ -2601,8 +2667,10 @@ function PhaseNav({
                      reaches a pointer as a title and a screen reader through
                      the sr-only paragraph this points at. */
                   aria-disabled={locked || undefined}
-                  aria-describedby={locked ? lockId : undefined}
-                  title={locked && lockReason ? lockReason : undefined}
+                  /* PER STEP. One shared paragraph would announce Checkpoint
+                     3's gate over every other locked step on the row. */
+                  aria-describedby={reason ? `${lockId}-${step.id}` : undefined}
+                  title={reason ?? undefined}
                   onClick={locked ? undefined : () => onGo(step.id)}
                   className="lt-timeline-step"
                 >
@@ -2649,14 +2717,17 @@ function PhaseNav({
             announces as disabled with no reason given, which is the same
             failure this rule exists to prevent, in the one modality that
             cannot compensate by looking further down the page. */}
-        {lockReason ? (
-          <p id={lockId} className="sr-only">
-            {lockReason}
-          </p>
-        ) : null}
+        {PHASES.map((step) => {
+          const reason = lockReasonFor(step.id);
+          return reason ? (
+            <p key={step.id} id={`${lockId}-${step.id}`} className="sr-only">
+              {step.label}: {reason}
+            </p>
+          ) : null;
+        })}
 
         <div className="ml-auto flex shrink-0 items-center gap-5">
-          {!lockReason && counts ? (
+          {!blocked && counts ? (
             <CountBlock counts={counts} pages={pages} />
           ) : null}
 

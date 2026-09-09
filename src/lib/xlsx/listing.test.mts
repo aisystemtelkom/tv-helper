@@ -33,6 +33,7 @@ import {
   MAX_LISTING_CELLS,
   MAX_LISTING_MERGES,
   listingTruncated,
+  listingTruncation,
   sheetListing,
 } from "./listing.ts";
 
@@ -503,4 +504,41 @@ test("the address printed for a cell is the cell's own ref, which is the key byR
 
   assert.ok(listing.includes("AH5: Nama Pelanggan"));
   assert.ok(s.byRef.has("AH5"), "the fixture's own ref must be the key");
+});
+
+test("listingTruncation names WHICH cap cut, so a caller cannot report the wrong one", () => {
+  /*
+   * Found by review. `listingTruncated` is an OR over two independent caps,
+   * and both callers wrote their own sentence about why, each naming the CELL
+   * cap because that is the likely arm. On a sheet whose cells all fit and
+   * whose merges were cut, the prompt therefore told the model "the listing
+   * below is cut short at 4000 cells" while the listing a few lines below it
+   * honestly printed the merge count. A prompt contradicting its own evidence
+   * is worse than either half alone.
+   */
+  const many: string[] = [];
+  for (let i = 1; i <= MAX_LISTING_MERGES + 3; i++) many.push(`A${i}:B${i}`);
+
+  const mergesOnly = tallSheet(2, many);
+  const cells = listingTruncation(tallSheet(MAX_LISTING_CELLS + 5));
+  const merges = listingTruncation(mergesOnly);
+  const both = listingTruncation(tallSheet(MAX_LISTING_CELLS + 5, many));
+
+  assert.equal(listingTruncation(tallSheet(2)), null, "an untruncated sheet has no cause");
+
+  assert.match(cells ?? "", /non-empty cells/);
+  assert.ok(!/merged ranges/.test(cells ?? ""), "the cells arm must not blame the merges");
+
+  assert.match(merges ?? "", /merged ranges/);
+  assert.ok(
+    !/non-empty cells/.test(merges ?? ""),
+    "THE DEFECT: a merges-only cut must not be reported as a cell cut",
+  );
+
+  assert.match(both ?? "", /non-empty cells/);
+  assert.match(both ?? "", /merged ranges/);
+
+  // And the boolean still answers the question it always answered.
+  assert.equal(listingTruncated(mergesOnly), true);
+  assert.equal(listingTruncated(tallSheet(2)), false);
 });

@@ -345,3 +345,41 @@ export type EpicCheck = {
 export function emptyEpicCheck(): EpicCheck {
   return { basis: "belum", fields: [], captures: [], entries: [] };
 }
+
+/**
+ * TWO SPELLINGS OF ONE FORM LABEL, REDUCED TO ONE KEY.
+ *
+ * `"Nama Pelanggan :"`, `"NAMA PELANGGAN"` and `"nama  pelanggan"` are one
+ * name, and this is the only place that says so.
+ *
+ * ## Why a `tidak-ada-di-excel` finding needs it
+ *
+ * That entry has no `ConfigField.id` to be addressed by -- the absence of a
+ * field is the whole content of the finding -- so `epicEntryId` in
+ * `src/lib/storage/runs.ts` keys it on the LABEL. And the label is not a
+ * chosen value: `buildEpicPrompt` asks the model to transcribe EPIC's own
+ * label off the screen capture, free-form. So the operator's ruling on such a
+ * finding was keyed on raw transcription, and the second comparison -- which
+ * an operator runs by design, because adding a capture deliberately leaves the
+ * entries alone so the fresh answers can be folded in beside decisions already
+ * made -- could read the same label back as `"Nama Pelanggan:"` and lose the
+ * ruling. Not refused, either: `discardedDecisions` cannot see a loss it
+ * cannot name, and under the new spelling it is a new entry rather than a
+ * missing one.
+ *
+ * ## What it does NOT do
+ *
+ * It does not merge two DIFFERENT labels. `sameEntity` in
+ * `src/lib/pipeline/abbrev.ts` is the module for deciding whether two
+ * spellings denote one thing, and its own scars record how expensive an
+ * over-eager rule is there. This is deliberately narrower than any of that:
+ * case, runs of whitespace, and the punctuation a form label wears at its
+ * ends. Nothing here looks inside the words.
+ */
+export function labelKey(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;.,\-*()[\]]+|[\s:;.,\-*()[\]]+$/g, "")
+    .trim();
+}

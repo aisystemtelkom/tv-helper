@@ -436,8 +436,20 @@ export function Cite({ cite }: { cite: Citation | null }) {
             silently stops describing the deliverable is the failure class this
             product is organised against, and the cheap defence is a label that
             says which of the two it is. */}
-        <dt>ukuran di halaman</dt>
-        <dd>{cite.size}</dd>
+        {/* OMITTED ENTIRELY WHEN THERE IS NO RECTANGLE, rather than printed
+            empty. `citeLines` in `src/lib/ui/evidence.ts` cites a line range
+            with no box at all -- Checkpoint 2 reads a VALUE out of the scans
+            and cuts no picture -- and the three fields describing a rectangle
+            are the empty values there on purpose. A label standing over a
+            blank cell reads as a measurement that failed rather than as one
+            that does not apply, which is a smaller version of the same
+            wrong-and-quiet mistake the label itself was written to avoid. */}
+        {cite.size ? (
+          <>
+            <dt>ukuran di halaman</dt>
+            <dd>{cite.size}</dd>
+          </>
+        ) : null}
       </dl>
     </div>
   );

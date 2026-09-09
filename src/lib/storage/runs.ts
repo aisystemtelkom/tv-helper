@@ -36,7 +36,7 @@
  * main-thread-only global.
  */
 
-import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
+import { emptyConfigCheck, emptyEpicCheck, labelKey } from "../config/types.ts";
 import type {
   ConfigCheck,
   ConfigEntry,
@@ -460,6 +460,16 @@ export function configEntryId(entry: ConfigEntry): string {
  * finding. The two are kept in separate sub-namespaces (`f:` and `l:`) so a
  * field id and a label that happen to read alike cannot answer to one string.
  *
+ * THE LABEL HALF GOES THROUGH `labelKey`, AND THAT IS NOT TIDINESS. The label
+ * of a `tidak-ada-di-excel` finding is raw transcription: `buildEpicPrompt`
+ * asks the model to read EPIC's own label off the capture. Keyed verbatim, an
+ * operator's ruling was addressed by a string the next comparison could spell
+ * differently -- `"Nama Pelanggan :"` for `"Nama Pelanggan:"` -- and the
+ * ruling would then be lost SILENTLY, because under the new spelling it reads
+ * as a new finding rather than a missing one and `discardedDecisions` cannot
+ * refuse a loss it cannot name. Review confirmed the path; `labelKey` in
+ * `src/lib/config/types.ts` is the one copy of the rule.
+ *
  * THE COST, STATED RATHER THAN HIDDEN: two `tidak-ada-di-excel` findings
  * carrying the SAME label are one id, so a decision on either reads as a
  * decision on both. `EpicEntry` has no id field in the contract
@@ -470,7 +480,7 @@ export function configEntryId(entry: ConfigEntry): string {
  */
 export function epicEntryId(entry: EpicEntry): string {
   return entry.fieldId === undefined
-    ? `${EPIC_ENTRY_PREFIX}l:${entry.label}`
+    ? `${EPIC_ENTRY_PREFIX}l:${labelKey(entry.label)}`
     : `${EPIC_ENTRY_PREFIX}f:${entry.fieldId}`;
 }
 

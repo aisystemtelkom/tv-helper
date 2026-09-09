@@ -659,3 +659,73 @@ test("the verifier accepts what patchSheetXml produces, for every shape above at
   assert.deepEqual(rowIndexes(after), [1, 9, 14, 41]);
   assert.equal(attrOf(startTags(after, "dimension")[0], "ref"), "A1:H41");
 });
+
+test("dropping a formula settles calcChain and forces a recalculation on open", async () => {
+  /*
+   * Found by review. Dropping the `<f>` is a decision this module makes on
+   * purpose, and it is local to the cell -- but `xl/calcChain.xml` is a
+   * manifest of every cell that HAS a formula, so leaving it behind names one
+   * that no longer exists. Excel does not open that file: it reports
+   * unreadable content and repairs it. Loud rather than quiet, and still a
+   * workbook this tool handed back broken.
+   *
+   * The other half is quieter: every OTHER formula that read the edited cell
+   * still carries a cached `<v>` computed from the value we just replaced, so
+   * without `fullCalcOnLoad` the workbook disagrees with itself until
+   * something touches it.
+   */
+  const bytes = await archive(
+    [
+      {
+        name: "Sheet1",
+        rid: "rId1",
+        part: "worksheets/sheet1.xml",
+        xml: worksheet('<row r="1"><c r="A1"><f>SUM(B1:B9)</f><v>10</v></c></row>', "A1:B9"),
+      },
+    ],
+    {
+      "xl/calcChain.xml":
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<calcChain xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><c r="A1" i="1"/></calcChain>',
+    },
+  );
+
+  const patched = await patchWorkbook(bytes, [
+    { sheet: "Sheet1", ref: "A1", value: "172 Mbps" },
+  ]);
+
+  const zip = await JSZip.loadAsync(patched);
+  assert.equal(zip.file("xl/calcChain.xml"), null, "the stale manifest is removed, not edited");
+
+  const types = await partOfZip(zip, "[Content_Types].xml");
+  assert.ok(
+    !types.includes("calcChain"),
+    "an Override naming a part that is not in the archive is the same fault one layer up",
+  );
+
+  const rels = await partOfZip(zip, "xl/_rels/workbook.xml.rels");
+  assert.ok(!rels.includes("calcChain"), "and so is a relationship pointing at it");
+
+  const book = await partOfZip(zip, "xl/workbook.xml");
+  assert.match(book, /<calcPr[^>]*fullCalcOnLoad="1"/, "every dependent formula must recompute");
+
+  const sheet = await partOfZip(zip, "xl/worksheets/sheet1.xml");
+  assert.ok(!sheet.includes("<f>"), "the formula itself is gone, as it always was");
+  assert.match(sheet, /172 Mbps/);
+});
+
+test("a workbook with no formula is handed back with only its worksheet touched", async () => {
+  // The three real client workbooks carry no `<f>` at all, so none of the
+  // archive-level repair above may fire for them.
+  const before = await simpleArchive('<row r="1"><c r="A1" t="inlineStr"><is><t>lama</t></is></c></row>');
+  const after = await patchWorkbook(before, [
+    { sheet: "Sheet1", ref: "A1", value: "baru" },
+  ]);
+
+  const zip = await JSZip.loadAsync(after);
+  const book = await partOfZip(zip, "xl/workbook.xml");
+  assert.ok(
+    !book.includes("fullCalcOnLoad"),
+    "nothing was dropped, so nothing about calculation is claimed",
+  );
+});

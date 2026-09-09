@@ -619,3 +619,97 @@ test("a shared-string index the table does not have drops the cell instead of sh
   assert.equal(sheet.byRef.get("A1")?.text, "ada");
   assert.equal(sheet.byRef.has("B1"), false);
 });
+
+test("a shared-string cell with no stored value is EMPTY, not shared string zero", async () => {
+  // The sharpest edge in the reader, found by review and fixed. `elementBody`
+  // answers `""` for a self-closing `<v/>`, and `Number("")` is 0, so without
+  // the guard both cells below resolve to the FIRST entry of the shared table:
+  // another cell's text, standing in a cell that is actually empty, with
+  // nothing anywhere looking wrong. An empty text-formatted cell is ordinary
+  // in these workbooks, and it is exactly the cell Checkpoint 2 exists to
+  // offer a value for -- so reading it as already holding one is the whole
+  // failure.
+  const bytes = await oneSheet(
+    '<row r="1">' +
+      '<c r="A1" t="s"><v>0</v></c>' +
+      '<c r="B1" t="s"><v/></c>' +
+      '<c r="C1" t="s"/>' +
+      '<c r="D1" t="s"><v> </v></c>' +
+      '<c r="E1" t="b"><v/></c>' +
+      "</row>",
+    { shared: ["<t>BANK CONTOH NUSANTARA</t>", "<t>kedua</t>"] },
+  );
+
+  const sheet = (await readWorkbook(bytes)).sheets[0];
+
+  assert.equal(sheet.byRef.get("A1")?.text, "BANK CONTOH NUSANTARA", "a real index still reads");
+  assert.equal(sheet.byRef.has("B1"), false, "a self-closing <v/> is not index 0");
+  assert.equal(sheet.byRef.has("C1"), false, "no <v> at all is not index 0 either");
+  assert.equal(sheet.byRef.has("D1"), false, "and neither is a whitespace-only one");
+  assert.equal(sheet.byRef.has("E1"), false, "a valueless boolean cell is empty, not FALSE");
+  assert.deepEqual(sheet.cells.map((cell) => cell.ref), ["A1"]);
+});
+
+test("a percent cell shows the percentage, because the stored number is not the shown number", async () => {
+  /*
+   * Found by review, and confirmed against the sample bundle's OWN
+   * configuration workbook: `E29` holds 0.995 under built-in format 10
+   * (`0.00%`) beside the label `MPLS VPN IP SLG`, and Excel shows 99.50%.
+   * Read as a bare number the operator is shown 0.995 for a value their file
+   * does not display, and the comparison against a scan reading "99,5%"
+   * recommends overwriting a cell that was right.
+   *
+   * Percent is the only common format where the stored and displayed values
+   * are different NUMBERS. Currency is deliberately left alone below: `Rp` is
+   * decoration, and rendering it would put a symbol into a value that is then
+   * compared against a scan and written back as text.
+   */
+  const styles = `${DECL}<styleSheet xmlns="${MAIN_NS}">
+  <numFmts count="2">
+    <numFmt numFmtId="180" formatCode="0.0&quot;%&quot;"/>
+    <numFmt numFmtId="181" formatCode="#,##0.0%"/>
+  </numFmts>
+  <cellXfs count="6">
+    <xf numFmtId="0"/>
+    <xf numFmtId="9"/>
+    <xf numFmtId="10"/>
+    <xf numFmtId="180"/>
+    <xf numFmtId="181"/>
+    <xf numFmtId="44"/>
+  </cellXfs>
+</styleSheet>`;
+
+  const bytes = await oneSheet(
+    '<row r="1">' +
+      '<c r="A1" s="0"><v>0.995</v></c>' +
+      '<c r="B1" s="1"><v>0.995</v></c>' +
+      '<c r="C1" s="2"><v>0.995</v></c>' +
+      '<c r="D1" s="3"><v>0.995</v></c>' +
+      '<c r="E1" s="4"><v>0.5</v></c>' +
+      '<c r="F1" s="5"><v>120341172.5</v></c>' +
+      "</row>",
+    { styles },
+  );
+
+  const sheet = (await readWorkbook(bytes)).sheets[0];
+
+  assert.equal(sheet.byRef.get("A1")?.text, "0.995", "an unstyled number is untouched");
+  assert.equal(sheet.byRef.get("B1")?.text, "99.5%", "built-in 9 is 0%");
+  assert.equal(sheet.byRef.get("C1")?.text, "99.5%", "built-in 10 is 0.00%");
+  assert.equal(
+    sheet.byRef.get("D1")?.text,
+    "0.995",
+    'a QUOTED "%" is a printed character, not Excel\'s multiply-by-100 marker',
+  );
+  assert.equal(sheet.byRef.get("E1")?.text, "50%", "a custom code with an unquoted % counts");
+  assert.equal(
+    sheet.byRef.get("F1")?.text,
+    "120341172.5",
+    "currency decorates a number without changing it, so it is left alone",
+  );
+  assert.equal(
+    sheet.byRef.get("C1")?.raw,
+    "0.995",
+    "the stored fraction survives, so nothing downstream has lost the real number",
+  );
+});

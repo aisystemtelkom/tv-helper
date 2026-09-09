@@ -74,6 +74,8 @@ import {
   emptyEpicCheck,
   type ConfigCheck,
   type ConfigEntry,
+  type ConfigWorkbook,
+  type EpicCapture,
   type EpicCheck,
   type EpicEntry,
 } from "../config/types.ts";
@@ -81,11 +83,15 @@ import { continuationChecked } from "./captures.ts";
 import {
   DuplicateDocumentError,
   createRun,
+  editConfig,
+  editEpic,
   fileDigest,
+  getCheckpointFile,
   ingestDocument,
   listRuns,
   loadRun,
   outstandingSlots,
+  putCheckpointFile,
   removeDocument,
   saveRun,
   setDocumentAi,
@@ -1820,4 +1826,697 @@ test("setting the AI choice on an order that is gone throws, in the operator's w
     () => setDocumentAi(runId("set-ai-missing"), "src-a", false),
     /tidak ada lagi/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Checkpoint 2 and Checkpoint 3: what the operator RULED
+// ---------------------------------------------------------------------------
+//
+// `run.konfigurasi` and `run.epic` are the ONLY place an operator's judgements
+// about the workbook exist, and nothing re-derives any of them. A `setuju`
+// decides which cell of the file they hand back to EPIC gets amended; a `tolak`
+// is a question they have already answered; a `manual` is a value they TYPED,
+// which no model call and no re-search can reconstruct; `researched` is a
+// budget the client capped at one per order; and `basis` is their answer to
+// "has the workbook been updated again since Checkpoint 2", without which
+// Checkpoint 3 has no yardstick at all.
+//
+// So this section pins the same two things the overlay section above pins, for
+// the same reasons. FIRST, the round trip -- both fields are REQUIRED on
+// `BrowserRun` exactly so `metaOf` names them, but the guard a required field
+// buys stops at the write: `StoredPage.short` was written, stored and then
+// thrown away on the way back out by a field-by-field reader that compiled
+// unchanged, so a type cannot check this one and a test has to. SECOND, the
+// fifth net, `DecisionLossError` -- because the writer it was built for is the
+// same one all the others were: anything that rebuilds a run from the
+// compile-time form emits `emptyConfigCheck()` as readily as it emits
+// `emptyOverlay(...)`, arrives at the correct revision carrying every page,
+// every capture and every heading, and is simply short every answer a person
+// gave.
+
+/** The workbook this order was handed, laid out labels-in-C values-in-E. */
+const KONFIG_WORKBOOK: ConfigWorkbook = {
+  id: "wb-1",
+  name: "LOP999001_ORDER_Config.xlsx",
+  digest: "sha256-workbook-one",
+  sheets: ["Konfigurasi", "Petunjuk"],
+  sheet: "Konfigurasi",
+};
+
+const NEWER_WORKBOOK: ConfigWorkbook = {
+  ...KONFIG_WORKBOOK,
+  id: "wb-2",
+  name: "LOP999001_ORDER_Config_rev2.xlsx",
+  digest: "sha256-workbook-two",
+};
+
+function isian(id: string, over: Partial<ConfigEntry> = {}): ConfigEntry {
+  return {
+    field: {
+      id,
+      sheet: "Konfigurasi",
+      label: "Nama Pelanggan",
+      labelRef: "C4",
+      valueRef: "E4",
+      excelValue: "BANK CONTOH NUSANTARA",
+    },
+    verdict: "cocok",
+    decision: "belum",
+    ...over,
+  };
+}
+
+/** Taken, typed and untouched: the three states the guard has to tell apart. */
+const TAKEN = isian("f1", {
+  verdict: "beda",
+  documentValue: "PSB VPN IP KCP Contoh",
+  citation: { pageIndex: 2, from: 4, to: 6, text: "Nama Proyek : PSB VPN IP KCP Contoh" },
+  decision: "setuju",
+});
+/**
+ * `manualValue: ""` ON PURPOSE, and it is the one value in this fixture that
+ * could not be written at all until `assertDecision` stopped refusing a blank.
+ * Clearing a cell the workbook filled is a real instruction -- EPIC's template
+ * carries fields a particular order does not use -- so the empty string has to
+ * survive a round trip as a VALUE rather than reading back as an absent key,
+ * which `discardedDecisions` would then report as a typed value thrown away.
+ */
+const TYPED = isian("f2", { decision: "manual", manualValue: "" });
+const OPEN = isian("f3");
+
+function decidedConfig(workbook: ConfigWorkbook = KONFIG_WORKBOOK): ConfigCheck {
+  return { workbook, entries: [TAKEN, TYPED, OPEN], researched: true };
+}
+
+function epicCapture(id: string): EpicCapture {
+  return {
+    id,
+    name: `EPIC-${id}.png`,
+    digest: `sha256-${id}`,
+    width: 1440,
+    height: 900,
+    lines: [
+      {
+        i: 0,
+        text: "SID 1209990001",
+        box: { x: 40, y: 120, w: 400, h: 24 },
+        words: [{ text: "SID", box: { x: 40, y: 120, w: 60, h: 24 } }],
+      },
+    ],
+  };
+}
+
+const EPIC_RULED: EpicEntry = {
+  fieldId: "f1",
+  label: "Nama Pelanggan",
+  excelValue: "BANK CONTOH NUSANTARA",
+  verdict: "beda",
+  epicValue: "BANK CONTOH",
+  citation: { captureId: "cap-1", from: 0, to: 0, text: "BANK CONTOH" },
+  decision: "tolak",
+};
+
+function answeredEpic(captureId = "cap-1"): EpicCheck {
+  return {
+    basis: "lanjutkan",
+    fields: [],
+    captures: [epicCapture(captureId)],
+    entries: [
+      EPIC_RULED,
+      { fieldId: "f2", label: "SID", excelValue: "1209990001", verdict: "cocok", decision: "belum" },
+    ],
+  };
+}
+
+/** A run that has been through both checkpoints. */
+function ruledRun(id: string, pages: StoredPage[]): BrowserRun {
+  return { ...freshRun(id, pages), konfigurasi: decidedConfig(), epic: answeredEpic() };
+}
+
+test("an order's rulings, its spent budget and its EPIC answers survive a round trip", async () => {
+  const id = runId("checkpoint-roundtrip");
+  await putRun(ruledRun(id, [page("c0", "src-a", 0), page("c1", "src-a", 1)]));
+
+  const loaded = await getRun(id);
+  assert.ok(loaded);
+  // Field for field. `pendingEdits` reads these to decide which cells of the
+  // operator's own workbook to amend, so a `documentValue` or a `manualValue`
+  // that came back subtly different is a wrong cell in a file they hand to
+  // EPIC -- and a decision that came back as `belum` is a question they have
+  // already answered being put to them again.
+  assert.deepEqual(loaded.konfigurasi, decidedConfig());
+  assert.deepEqual(loaded.epic, answeredEpic());
+
+  // The empty string specifically: a VALUE, not an absent key. `effectiveValue`
+  // patches `""` into the cell, and `discardedDecisions` reads an absent one as
+  // a typed value discarded -- so the difference decides both what is written
+  // and whether the next write is refused.
+  const typed = loaded.konfigurasi.entries[1];
+  assert.equal(typed.decision, "manual");
+  assert.equal(typed.manualValue, "");
+  assert.equal("manualValue" in typed, true);
+
+  // Both belong to the run's SMALL half, which `listRunMeta` reads for every
+  // order on the device. A field that only came back through `getRun` would
+  // leave the order list unable to say a checkpoint had been reached at all.
+  const meta = (await listRunMeta()).find((row) => row.id === id);
+  assert.equal(meta?.konfigurasi.researched, true);
+  assert.equal(meta?.epic.basis, "lanjutkan");
+  assert.equal(meta?.epic.captures[0].lines[0].text, "SID 1209990001");
+});
+
+test("an order stored before the checkpoints existed reads back empty, and is NOT written back", async () => {
+  /*
+   * THE UPGRADE IS A READ, NOT A REPAIR, exactly as it is for `overlay`.
+   * Writing the empty values back here would bump `rev`, and a bumped `rev` can
+   * collide with an ingest running in another tab -- so "open an order to look
+   * at it" would become an operation that can be refused, on a run nobody
+   * touched. There are real orders on real devices that predate both fields.
+   */
+  const id = runId("checkpoint-legacy");
+  // Genuinely absent, not `undefined`: `putRun` spreads the run's own keys into
+  // the record, so a fixture that omits them stores a record that omits them.
+  const legacy = { ...freshRun(id, [page("g0", "src-a", 0)]) } as Partial<BrowserRun>;
+  delete legacy.konfigurasi;
+  delete legacy.epic;
+  const saved = await putRun(legacy as BrowserRun);
+
+  const stored = await rawRunRecord(id);
+  assert.ok(stored);
+  assert.equal("konfigurasi" in stored, false, "the fixture must store neither field");
+  assert.equal("epic" in stored, false);
+
+  const loaded = await getRun(id);
+  assert.ok(loaded);
+  // The empty value is not a guess about what the order held; it is what it
+  // held. An order that never reached Checkpoint 2 has no workbook and no
+  // rulings, and that is a real state rather than a missing one.
+  assert.deepEqual(loaded.konfigurasi, emptyConfigCheck());
+  assert.deepEqual(loaded.epic, emptyEpicCheck());
+
+  const again = await getRun(id);
+  assert.equal(again?.rev, saved.rev, "a read must not advance the revision");
+  assert.equal("konfigurasi" in ((await rawRunRecord(id)) ?? {}), false);
+
+  // And the object read BEFORE that second read still saves, which is the
+  // consequence that bites: a write on read would have made this copy stale.
+  const written = await saveRun(loaded);
+  assert.equal(written.rev, (saved.rev ?? 0) + 1);
+  // The upgrade lands on that ordinary save, so the gap only ever shrinks. The
+  // guard skips a record that holds neither field, so this write cannot be
+  // refused for losing what was never there.
+  assert.deepEqual((await rawRunRecord(id))?.konfigurasi, emptyConfigCheck());
+});
+
+test("a write that drops a ruling is refused, and the same write naming it succeeds", async () => {
+  const id = runId("decision-loss");
+  const saved = await putRun(ruledRun(id, [page("d0", "src-a", 0)]));
+
+  // THE WRITE THIS GUARD EXISTS FOR: every page present, every capture present,
+  // the overlay intact, the revision current -- and short every answer a person
+  // gave. Before the guard this resolved and reported success.
+  await assert.rejects(
+    () => saveRun({ ...saved, konfigurasi: emptyConfigCheck(), epic: emptyEpicCheck() }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(
+        error.missing.slice().sort(),
+        [
+          CONFIG_RESEARCHED_ID,
+          EPIC_BASIS_ID,
+          configEntryId(TAKEN),
+          configEntryId(TYPED),
+          epicEntryId(EPIC_RULED),
+        ].sort(),
+      );
+      assert.match(error.message, /removingDecisions/);
+      return true;
+    },
+  );
+
+  // Nothing half-applied: the refusal leaves the order exactly as it was.
+  assert.deepEqual((await getRun(id))?.konfigurasi, decidedConfig());
+
+  // And discarding them is a real operation -- a replacement workbook is the
+  // case it exists for -- it just has to SAY so. The opt-in is derived from the
+  // guard that will judge it rather than hand-listed, which is exactly what
+  // `src/lib/browser/config.ts` does and why the two cannot disagree.
+  const emptied = { ...saved, konfigurasi: emptyConfigCheck(), epic: emptyEpicCheck() };
+  const stored = await saveRun(emptied, {
+    removingDecisions: discardedDecisions(saved, emptied),
+  });
+  assert.deepEqual(stored.konfigurasi, emptyConfigCheck());
+  assert.deepEqual((await getRun(id))?.epic, emptyEpicCheck());
+});
+
+test("carrying a decided isian back at belum is the same loss as dropping it", async () => {
+  /*
+   * DROPPED AND REVERTED ARE ONE SHAPE, which is the line `discardedAuthorship`
+   * draws for a heading one level up. The entry IS the ruling: there is no copy
+   * of it anywhere else, so carrying the row back at `belum` is precisely what
+   * un-deciding it means. A DIFFERENT decision is an edit, and edits are
+   * ordinary work.
+   */
+  const id = runId("decision-revert");
+  const saved = await putRun(ruledRun(id, [page("r0", "src-a", 0)]));
+
+  await assert.rejects(
+    () =>
+      saveRun({
+        ...saved,
+        konfigurasi: {
+          ...decidedConfig(),
+          entries: [{ ...TAKEN, decision: "belum" }, TYPED, OPEN],
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(error.missing, [configEntryId(TAKEN)]);
+      return true;
+    },
+  );
+
+  // A typed value carried back WITHOUT the value is the same loss wearing the
+  // decision's clothes, and it is checked independently for the reason
+  // `discardedAuthorship` checks a patch's label and catatan independently.
+  await assert.rejects(
+    () =>
+      saveRun({
+        ...saved,
+        konfigurasi: {
+          ...decidedConfig(),
+          entries: [TAKEN, { ...TYPED, manualValue: undefined }, OPEN],
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(error.missing, [configEntryId(TYPED)]);
+      return true;
+    },
+  );
+
+  // Changing a ruling to another ruling is not a loss and needs no opt-in. A
+  // guard that fired on ordinary work would be one somebody routes around.
+  const edited = await saveRun({
+    ...saved,
+    konfigurasi: { ...decidedConfig(), entries: [{ ...TAKEN, decision: "tolak" }, TYPED, OPEN] },
+  });
+  assert.equal(edited.konfigurasi.entries[0].decision, "tolak");
+});
+
+test("an isian nobody has ruled on may be dropped with no opt-in at all", async () => {
+  /*
+   * The same line `overlay.proposed` is on one level up, and the same line
+   * `CaptureLossError` draws between a capture carrying a zone and one that
+   * does not: an entry still at `belum`, and every verdict, documentValue,
+   * citation and reason on ANY entry, are the MODEL's answers. They cost a call
+   * to make again, not a person's decision. Guarding them would refuse an
+   * ordinary re-search, which drops exactly these.
+   */
+  const id = runId("decision-free");
+  const saved = await putRun(ruledRun(id, [page("f0", "src-a", 0)]));
+
+  const stored = await saveRun({
+    ...saved,
+    konfigurasi: {
+      ...decidedConfig(),
+      // `OPEN` gone entirely, and the model's half of the two that stay
+      // stripped back to nothing.
+      entries: [
+        { field: TAKEN.field, verdict: "belum-diperiksa", decision: "setuju" },
+        TYPED,
+      ],
+    },
+    epic: { ...answeredEpic(), captures: [] },
+  });
+
+  assert.deepEqual(
+    stored.konfigurasi.entries.map((entry) => entry.field.id),
+    ["f1", "f2"],
+  );
+  // The captures went with it: a tangkapan layar is INPUT the operator can hand
+  // over again, exactly as a berkas is, and it carries no judgement. The
+  // residual is real and stated rather than hidden -- what a dropped capture
+  // costs is taking the screenshot again.
+  assert.deepEqual((await getRun(id))?.epic.captures, []);
+});
+
+test("the spent re-search cannot silently come back", async () => {
+  /*
+   * A budget that resets is not a budget. This one does not lose data, it
+   * REFUNDS money already spent and invites the operator to spend it again, so
+   * it is guarded on the same terms as a ruling and named by a sentinel id --
+   * every refusal has to name something, because the opt-in is a list of ids.
+   */
+  const id = runId("decision-researched");
+  const saved = await putRun({
+    ...freshRun(id, [page("s0", "src-a", 0)]),
+    konfigurasi: { workbook: KONFIG_WORKBOOK, entries: [OPEN], researched: true },
+  });
+
+  await assert.rejects(
+    () =>
+      saveRun({
+        ...saved,
+        konfigurasi: { workbook: KONFIG_WORKBOOK, entries: [OPEN], researched: false },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(error.missing, [CONFIG_RESEARCHED_ID]);
+      return true;
+    },
+  );
+  assert.equal((await getRun(id))?.konfigurasi.researched, true);
+
+  const stored = await saveRun(
+    { ...saved, konfigurasi: { workbook: KONFIG_WORKBOOK, entries: [OPEN], researched: false } },
+    { removingDecisions: [CONFIG_RESEARCHED_ID] },
+  );
+  assert.equal(stored.konfigurasi.researched, false);
+});
+
+test("the answer to whether a newer workbook exists cannot silently be forgotten", async () => {
+  /*
+   * `belum` is not a third option the operator picks; it is the state before
+   * they have been asked. A write that puts it back does not merely re-ask the
+   * question: while it stands Checkpoint 3 has no yardstick, and the repair a
+   * hurried operator reaches for is "lanjutkan", which judges EPIC against
+   * Checkpoint 2's workbook whether or not that is the one they meant.
+   */
+  const id = runId("decision-basis");
+  const saved = await putRun({
+    ...freshRun(id, [page("b0", "src-a", 0)]),
+    epic: { basis: "lanjutkan", fields: [], captures: [], entries: [] },
+  });
+
+  await assert.rejects(
+    () => saveRun({ ...saved, epic: emptyEpicCheck() }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(error.missing, [EPIC_BASIS_ID]);
+      return true;
+    },
+  );
+
+  // Moving from one answered basis to another is ordinary work: the operator
+  // said "actually, here is a newer one".
+  const moved = await saveRun({
+    ...saved,
+    epic: { basis: "baru", workbook: NEWER_WORKBOOK, fields: [], captures: [], entries: [] },
+  });
+  assert.equal(moved.epic.basis, "baru");
+
+  const cleared = await saveRun(
+    { ...moved, epic: emptyEpicCheck() },
+    { removingDecisions: [EPIC_BASIS_ID] },
+  );
+  assert.equal(cleared.epic.basis, "belum");
+});
+
+test("all five nets fire, root cause first, and no opt-in can be spent on another", async () => {
+  /*
+   * THE WRITER EVERY ONE OF THEM WAS BUILT FOR, in one object: a rebuild from
+   * the compile-time form. It arrives at the CORRECT revision, carrying every
+   * page, and reverts the operator's headings, discards their rulings and
+   * strips the zone off an accepted capture -- all at once, all reporting
+   * success before the guards existed.
+   *
+   * ONLY ONE ERROR CAN BE THROWN, so the order decides what the next engineer
+   * reads. The overlay is the ROOT CAUSE (the write was assembled from the
+   * template, so it could not have carried this order's names); the decisions
+   * are the smaller consequence and, being underivable from `AO_TEMPLATE` at
+   * all, they point at the checkpoint code that produced the write; the
+   * captures are the larger, louder consequence and stay last.
+   *
+   * AND EACH OPT-IN IS SPENT ONLY ON ITS OWN LOSS. A caller that meant to
+   * replace a workbook must not quietly discard a crop or a heading on an
+   * opt-in it had already written for the other reason, which is the whole
+   * argument for three lists rather than one.
+   */
+  const id = runId("five-nets");
+  const saved = await putRun({
+    ...ruledRun(id, [page("n0", "src-a", 0), page("n1", "src-a", 1)]),
+    overlay: WITH_ADDED,
+  });
+
+  // Every state carried back under its template key with no zone, which is the
+  // shape `seedSlots` produces and the reason the capture check compares
+  // EVIDENCE rather than key presence.
+  const rebuilt: BrowserRun = {
+    ...saved,
+    overlay: emptyOverlay(AO_TEMPLATE),
+    konfigurasi: emptyConfigCheck(),
+    epic: emptyEpicCheck(),
+    slots: saved.slots.map((slot) => ({
+      key: slot.key,
+      label: slot.label,
+      status: "pending" as const,
+    })),
+  };
+  const decisions = discardedDecisions(saved, rebuilt);
+
+  // 1. The revision is checked before any content, so a stale rebuild is
+  //    refused for being stale however much it names.
+  await assert.rejects(
+    () =>
+      saveRun(
+        { ...rebuilt, rev: 0 },
+        {
+          removing: ["kb.nomor"],
+          removingSections: [ADDED_ID],
+          removingDecisions: decisions,
+        },
+      ),
+    StaleRunWriteError,
+  );
+
+  // 2. Root cause: the name the operator typed.
+  await assert.rejects(() => saveRun(rebuilt), SectionLossError);
+
+  // 3. Named -- and the next net does NOT accept that opt-in in place of its
+  //    own. A list of ids, never a boolean, for exactly this reason.
+  await assert.rejects(
+    () => saveRun(rebuilt, { removingSections: [ADDED_ID] }),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(error.missing.slice().sort(), decisions.slice().sort());
+      return true;
+    },
+  );
+
+  // 4. Both named: the loudest consequence is what is left.
+  await assert.rejects(
+    () => saveRun(rebuilt, { removingSections: [ADDED_ID], removingDecisions: decisions }),
+    (error: unknown) => {
+      assert.ok(error instanceof CaptureLossError);
+      assert.deepEqual(error.missing, ["kb.nomor"]);
+      return true;
+    },
+  );
+
+  // 5. All three content opt-ins named, and a page quietly missing: still
+  //    refused, because none of those three is a page.
+  await assert.rejects(
+    () =>
+      saveRun(
+        { ...rebuilt, pages: rebuilt.pages.slice(0, 1) },
+        {
+          removing: ["kb.nomor"],
+          removingSections: [ADDED_ID],
+          removingDecisions: decisions,
+        },
+      ),
+    PageLossError,
+  );
+
+  // Nothing was half-applied by any of the five refusals.
+  const untouched = await getRun(id);
+  assert.deepEqual(untouched?.overlay, WITH_ADDED);
+  assert.deepEqual(untouched?.konfigurasi, decidedConfig());
+  assert.deepEqual(untouched?.slots[0].zone, confirmedSlot.zone);
+
+  // And a write that names every loss it performs goes through.
+  const stored = await saveRun(rebuilt, {
+    removing: ["kb.nomor"],
+    removingSections: [ADDED_ID],
+    removingDecisions: decisions,
+  });
+  assert.deepEqual(stored.konfigurasi, emptyConfigCheck());
+  assert.deepEqual(
+    (await getRun(id))?.pages.map((p) => p.id),
+    ["n0", "n1"],
+  );
+});
+
+test("a decision pressed mid-ingest survives the next page", async () => {
+  /*
+   * `appendPage` writes a run's small half once per page for the length of an
+   * ingest, and it takes that half FROM WHAT IS STORED rather than from its
+   * caller, carrying across only `sources`. This is the test of that for the
+   * two checkpoint fields, and it is not a corner case: Checkpoint 2 is a
+   * screen of amber rows the operator works down WHILE the tool is still
+   * reading, so a caller-sourced write would revert every Terima they pressed
+   * during a 151-page document with nothing raised -- correct revision, every
+   * page present, every one of `putRun`'s nets satisfied, because this function
+   * is not `putRun`.
+   */
+  const id = runId("checkpoint-append");
+  const saved = await putRun(freshRun(id, [page("k0", "src-a", 0)]));
+  const ruled = await saveRun({ ...saved, konfigurasi: decidedConfig(), epic: answeredEpic() });
+
+  // The ingest's own copy of the small half: checkpoint fields from before the
+  // operator ruled on anything, at a revision that is current.
+  const midIngest: RunMeta = {
+    id: saved.id,
+    createdAt: saved.createdAt,
+    rev: ruled.rev,
+    sources: saved.sources,
+    slots: saved.slots,
+    overlay: saved.overlay,
+    konfigurasi: saved.konfigurasi,
+    epic: saved.epic,
+  };
+  const written = await appendPage(midIngest, page("k1", "src-a", 1), 1);
+
+  // THE RETURN MUST MATCH THE WRITE. Handing back the caller's own pre-decision
+  // arrays stamped with the ADVANCED revision would pass every guard on the
+  // next ordinary save and write them back -- the same loss, one function out.
+  assert.deepEqual(written.konfigurasi, decidedConfig());
+  assert.deepEqual(written.epic, answeredEpic());
+  const after = await getRun(id);
+  assert.deepEqual(after?.konfigurasi, decidedConfig());
+  assert.deepEqual(
+    after?.pages.map((p) => p.id),
+    ["k0", "k1"],
+  );
+});
+
+test("a replacement workbook gets past the fifth net because the EDIT computed the opt-in", async () => {
+  /*
+   * The end-to-end shape of the whole design: a screen composes a gesture,
+   * `editConfig` re-reads the order inside the lock and applies it, and the
+   * opt-in comes from `discardedDecisions` -- the very function `putRun` runs
+   * to decide whether to refuse. A screen assembling that list by hand would
+   * have to know about `DecisionLossError` to get an ordinary workbook
+   * replacement past storage.
+   */
+  const id = runId("edit-config");
+  const oldWorkbook = { ...KONFIG_WORKBOOK, id: `${id}-wb-1` };
+  const newWorkbook = { ...NEWER_WORKBOOK, id: `${id}-wb-2` };
+  await putRun({
+    ...freshRun(id, [page("e0", "src-a", 0)]),
+    konfigurasi: decidedConfig(oldWorkbook),
+    epic: answeredEpic(`${id}-cap-1`),
+  });
+  await putCheckpointFile(id, oldWorkbook.id, oldWorkbook.name, new ArrayBuffer(8));
+  await putCheckpointFile(id, newWorkbook.id, newWorkbook.name, new ArrayBuffer(16));
+
+  const after = await editConfig(id, {
+    tag: "attach-workbook",
+    workbook: newWorkbook,
+    entries: [isian("g1")],
+  });
+
+  assert.equal(after.konfigurasi.workbook?.id, newWorkbook.id);
+  assert.deepEqual(
+    after.konfigurasi.entries.map((entry) => entry.field.id),
+    ["g1"],
+  );
+  // The budget is per ORDER, so handing another file over is not the way to buy
+  // a second re-search.
+  assert.equal(after.konfigurasi.researched, true);
+  // Checkpoint 3 is a different question and is untouched by this one.
+  assert.deepEqual(after.epic, answeredEpic(`${id}-cap-1`));
+
+  // THE BYTES ARE SWEPT AFTER THE RUN WRITE. The replaced workbook is referenced
+  // by nothing now, and a 29-page bundle already fills tens of megabytes of an
+  // origin's quota; the new one is still there for the download.
+  assert.equal(await getCheckpointFile(oldWorkbook.id), null);
+  assert.equal((await getCheckpointFile(newWorkbook.id))?.name, newWorkbook.name);
+
+  // The same file handed over again is a no-op, so it cannot cost the screen
+  // its revision -- and it cannot cost the operator their new rulings either.
+  const again = await editConfig(id, {
+    tag: "attach-workbook",
+    workbook: newWorkbook,
+    entries: [isian("g1")],
+  });
+  assert.equal(again.rev, after.rev);
+});
+
+test("removing a tangkapan layar resets what was read off it, and sweeps its bytes", async () => {
+  const id = runId("edit-epic");
+  const captureId = `${id}-cap-1`;
+  await putRun({
+    ...freshRun(id, [page("x0", "src-a", 0)]),
+    epic: {
+      basis: "lanjutkan",
+      fields: [],
+      captures: [epicCapture(captureId)],
+      entries: [{ ...EPIC_RULED, citation: { captureId, from: 0, to: 0, text: "BANK CONTOH" } }],
+    },
+  });
+  await putCheckpointFile(id, captureId, "EPIC-1.png", new ArrayBuffer(32));
+
+  const after = await editEpic(id, { tag: "remove-capture", captureId });
+
+  assert.deepEqual(after.epic.captures, []);
+  // The verdict, the value and the citation went with the picture: leaving them
+  // would leave a "lihat" pointing at something the order no longer has, and a
+  // ruling on that verdict would be a decision about nothing.
+  assert.equal(after.epic.entries[0].verdict, "belum-diperiksa");
+  assert.equal(after.epic.entries[0].decision, "belum");
+  assert.equal(after.epic.entries[0].citation, undefined);
+  assert.equal(await getCheckpointFile(captureId), null);
+
+  // Two tabs removing the same capture: the second writes nothing.
+  const again = await editEpic(id, { tag: "remove-capture", captureId });
+  assert.equal(again.rev, after.rev);
+});
+
+test("editing the checkpoints of an order that is gone throws, in the operator's words", async () => {
+  await assert.rejects(
+    () => editConfig(runId("edit-missing"), { tag: "mark-researched" }),
+    /tidak ada lagi/,
+  );
+  await assert.rejects(
+    () => editEpic(runId("edit-missing"), { tag: "set-basis", basis: "lanjutkan" }),
+    /tidak ada lagi/,
+  );
+});
+
+test("a run carrying neither checkpoint loses both, and is refused BY NAME", async () => {
+  /*
+   * The type says both fields are required, so a run without them can only
+   * arrive from an object that was cast, parsed or hand-built -- which is
+   * exactly what a migration is. The guard reads through `?.` for that reason:
+   * a property read that threw `Cannot read properties of undefined` from
+   * inside a readwrite transaction would refuse the write with a sentence
+   * naming neither the run nor what it was about to drop, and the next person
+   * would be debugging IndexedDB rather than the write that lost the rulings.
+   */
+  const id = runId("decision-absent");
+  const saved = await putRun(ruledRun(id, [page("z0", "src-a", 0)]));
+  const cast = { ...saved } as Partial<BrowserRun>;
+  delete cast.konfigurasi;
+  delete cast.epic;
+
+  await assert.rejects(
+    () => saveRun(cast as BrowserRun),
+    (error: unknown) => {
+      assert.ok(error instanceof DecisionLossError);
+      assert.deepEqual(
+        error.missing.slice().sort(),
+        [
+          CONFIG_RESEARCHED_ID,
+          EPIC_BASIS_ID,
+          configEntryId(TAKEN),
+          configEntryId(TYPED),
+          epicEntryId(EPIC_RULED),
+        ].sort(),
+      );
+      return true;
+    },
+  );
+  assert.deepEqual((await getRun(id))?.konfigurasi, decidedConfig());
 });

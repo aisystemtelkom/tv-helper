@@ -215,6 +215,66 @@ function sameNumbers(
  * usulan nobody has ruled on costs a model call to remake rather than a
  * person's decision.
  */
+/**
+ * CHECKPOINT 2's CITATIONS, THROUGH THE SAME `next[]`.
+ *
+ * `ConfigCitation.pageIndex` is a position in `BrowserRun.pages`, exactly as
+ * `Zone.pageIndex` is, so it is subject to the one rule this whole module
+ * exists to keep: the only thing allowed to shorten that array is a removal
+ * that moves everything pointing into it. This was missed when Checkpoint 2
+ * landed, and the symptom was the quiet kind -- remove the first berkas of an
+ * order and every konfigurasi citation still names its old position, so the
+ * operator clicks through to check a recommendation and is shown a page from a
+ * different document, with the right berkas name on it.
+ *
+ * A CITATION WHOSE PAGE IS GONE IS DROPPED, NOT REPOINTED, and the verdict,
+ * the value and the operator's decision all stay. Three separate reasons:
+ *
+ *  - Repointing is the failure itself. There is no page that "took over" from
+ *    a deleted one; the nearest surviving index is a different document.
+ *  - "A false citation is worse than none" is the rule `fields.ts` already
+ *    applies to a citation that fails validation, so the same answer here
+ *    keeps one rule rather than two. `Cite` renders the absence.
+ *  - Clearing the verdict instead would either destroy an operator's ruling or
+ *    trip `DecisionLossError` on the write, and neither is warranted: they
+ *    decided what to put in the cell, and that decision did not stop being
+ *    theirs because an unrelated berkas left the order.
+ *
+ * `epic` is deliberately NOT touched. An `EpicCitation` names a `captureId`,
+ * and a tangkapan layar is not a page of the order, so nothing in this
+ * function's numbering reaches it.
+ */
+function remapConfigCitations(
+  check: BrowserRun["konfigurasi"],
+  next: readonly number[],
+): BrowserRun["konfigurasi"] {
+  let moved = false;
+  const entries = check.entries.map((entry) => {
+    const cite = entry.citation;
+    if (!cite) return entry;
+
+    const at = next[cite.pageIndex];
+    if (at === undefined || at === -1) {
+      moved = true;
+      // Destructured off rather than set to `undefined`, so the key is ABSENT
+      // and `"citation" in entry` answers the same as `entry.citation`. The
+      // eslint disable is the narrow one: the binding exists only to name what
+      // is being dropped, which is what makes the line readable.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { citation, ...rest } = entry;
+      return rest;
+    }
+    if (at === cite.pageIndex) return entry;
+
+    moved = true;
+    return { ...entry, citation: { ...cite, pageIndex: at } };
+  });
+
+  // Identity when nothing pointed past the removal, so an order that never
+  // reached Checkpoint 2 -- the common case -- is not rewritten at all.
+  return moved ? { ...check, entries } : check;
+}
+
 function remapOverlay(
   overlay: TemplateOverlay,
   next: readonly number[],
@@ -485,6 +545,11 @@ export function removeSource(
       // THROUGH THE SAME `next[]`, for the same reason and in the same breath.
       // The overlay holds page positions too; see `remapOverlay`.
       overlay: remapOverlay(run.overlay, next, sourceId),
+      // AND SO DOES CHECKPOINT 2. Every field of this run that stores a
+      // position in `pages` has to move together or not at all; see
+      // `remapConfigCitations` for why a citation whose page is gone is
+      // dropped rather than repointed.
+      konfigurasi: remapConfigCitations(run.konfigurasi, next),
     },
     removedPageIds,
     removedCaptureKeys,

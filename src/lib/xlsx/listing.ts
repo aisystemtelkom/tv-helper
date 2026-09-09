@@ -349,8 +349,36 @@ export function sheetListing(sheet: Sheet): string {
  * marked as full coverage -- the same lie in a smaller font.
  */
 export function listingTruncated(sheet: Sheet): boolean {
-  return (
-    sheet.cells.length > MAX_LISTING_CELLS ||
-    sheet.merges.length > MAX_LISTING_MERGES
-  );
+  return listingTruncation(sheet) !== null;
+}
+
+/**
+ * WHICH CAP CUT IT, in one English clause, or `null` when nothing did.
+ *
+ * `listingTruncated` answers whether, and both of its callers then wrote their
+ * own sentence about why -- each naming the cell cap, because that is the
+ * likely arm. On a sheet whose cells all fit and whose MERGES were cut, the
+ * prompt therefore told the model "the listing below is cut short at 4000
+ * cells", which is false of that sheet, while the listing beside it honestly
+ * printed "(200 of 350 shown)" for the merges. A prompt contradicting its own
+ * evidence is worse than either statement alone, and the note that reaches the
+ * operator carried the same wrong cause.
+ *
+ * So the CAUSE is derived once, here, next to the caps it is about, and the
+ * callers print what they are given. That is the same discipline this codebase
+ * applies wherever two copies of a rule could disagree.
+ */
+export function listingTruncation(sheet: Sheet): string | null {
+  const cut: string[] = [];
+  if (sheet.cells.length > MAX_LISTING_CELLS) {
+    cut.push(
+      `${sheet.cells.length} non-empty cells cut to the first ${MAX_LISTING_CELLS}`,
+    );
+  }
+  if (sheet.merges.length > MAX_LISTING_MERGES) {
+    cut.push(
+      `${sheet.merges.length} merged ranges cut to the first ${MAX_LISTING_MERGES}`,
+    );
+  }
+  return cut.length === 0 ? null : cut.join(", and ");
 }

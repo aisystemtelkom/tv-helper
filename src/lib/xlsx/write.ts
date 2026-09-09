@@ -161,6 +161,7 @@ export async function patchWorkbook(
   }
 
   const parts = await worksheetParts(zip);
+  let formulasDropped = false;
 
   // Grouped by sheet, in the order the sheets were first named, so the error
   // an operator sees names the first sheet that is wrong rather than an
@@ -200,9 +201,100 @@ export async function patchWorkbook(
     const after = patchSheetXml(before, sheetEdits);
     verifyPatchedSheet(after, sheet, sheetEdits);
     zip.file(path, after);
+    if (droppedFormula(before, after)) formulasDropped = true;
   }
 
+  if (formulasDropped) await settleFormulas(zip);
+
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+}
+
+/**
+ * Did this patch remove a formula?
+ *
+ * COUNTED RATHER THAN LOCATED. `inlineStringCell` is the only thing in this
+ * module that drops an `<f>`, and it drops exactly the ones belonging to
+ * edited cells, so a fall in the count is both necessary and sufficient. It
+ * also cannot disagree with what was actually written, which a second
+ * per-cell scan looking for the same thing could.
+ */
+function droppedFormula(before: string, after: string): boolean {
+  const count = (xml: string) => (xml.match(/<f[\s/>]/g) ?? []).length;
+  return count(after) < count(before);
+}
+
+/**
+ * THE TWO ARCHIVE-LEVEL PARTS A DROPPED FORMULA INVALIDATES.
+ *
+ * Replacing a formula cell with a constant is a decision this module already
+ * makes deliberately and warns about: the operator approved a VALUE, and a
+ * cell that recomputed over it would discard their decision on open. What was
+ * unconsidered is that the drop is not local to the sheet.
+ *
+ *  - `xl/calcChain.xml` is a manifest of every cell that HAS a formula, in
+ *    dependency order. Leaving a patched cell in it names a formula that is no
+ *    longer there, and Excel answers by refusing to open the file cleanly: it
+ *    reports "unreadable content" and repairs it. That is loud rather than
+ *    quiet, but it is still a workbook this tool handed back broken. The part
+ *    is DELETED rather than edited, which is the supported move -- Excel
+ *    rebuilds it on the next calculation -- and its declarations go with it,
+ *    because an `<Override>` pointing at a part that is not in the archive is
+ *    the same fault one layer up.
+ *  - Every OTHER formula that read the edited cell still carries a cached
+ *    `<v>` computed from the value we just replaced. `fullCalcOnLoad` makes
+ *    Excel recompute the sheet when it opens, so the workbook the operator
+ *    files agrees with itself.
+ *
+ * ONLY REACHED WHEN A FORMULA WAS ACTUALLY DROPPED. The three real client
+ * workbooks carry no `<f>` at all, so they are still handed back with nothing
+ * but their worksheet parts touched.
+ */
+async function settleFormulas(zip: JSZip): Promise<void> {
+  zip.remove("xl/calcChain.xml");
+
+  const types = zip.file("[Content_Types].xml");
+  if (types !== null) {
+    const xml = await types.async("string");
+    zip.file(
+      "[Content_Types].xml",
+      xml.replace(/<Override\b[^>]*PartName="\/xl\/calcChain\.xml"[^>]*\/>/g, ""),
+    );
+  }
+
+  const rels = zip.file("xl/_rels/workbook.xml.rels");
+  if (rels !== null) {
+    const xml = await rels.async("string");
+    zip.file(
+      "xl/_rels/workbook.xml.rels",
+      xml.replace(/<Relationship\b[^>]*Target="calcChain\.xml"[^>]*\/>/g, ""),
+    );
+  }
+
+  const workbook = zip.file("xl/workbook.xml");
+  if (workbook === null) return;
+  const xml = await workbook.async("string");
+  zip.file("xl/workbook.xml", withFullCalcOnLoad(xml));
+}
+
+/**
+ * `<calcPr fullCalcOnLoad="1"/>`, however the workbook already spells `calcPr`.
+ *
+ * Three shapes, because all three occur: no `<calcPr>` at all, a self-closing
+ * one, and one that already carries the attribute (left alone rather than
+ * duplicated, since a repeated attribute is malformed XML).
+ */
+function withFullCalcOnLoad(xml: string): string {
+  if (/<calcPr\b[^>]*\bfullCalcOnLoad="1"/.test(xml)) return xml;
+
+  if (/<calcPr\b/.test(xml)) {
+    return xml.replace(/<calcPr\b([^>]*?)(\/?)>/, (_all, attributes: string, close: string) =>
+      `<calcPr${attributes} fullCalcOnLoad="1"${close}>`,
+    );
+  }
+
+  // Appended inside `<workbook>`, where the schema puts `calcPr` last among
+  // the elements this file could be carrying.
+  return xml.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>');
 }
 
 /* ------------------------------------------------------------------ *

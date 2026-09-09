@@ -44,7 +44,7 @@ import {
 function sheet(
   name: string,
   written: Record<string, string>,
-  extent?: { rows: number; cols: number },
+  extent?: { rows: number; cols: number; merges?: string[] },
 ): Sheet {
   const cells: Cell[] = Object.entries(written).map(([ref, text]) => {
     const { col, row } = parseRef(ref);
@@ -63,7 +63,7 @@ function sheet(
     dimension: rows > 0 && cols > 0 ? `A1:${formatRef(cols, rows)}` : "",
     rows,
     cols,
-    merges: [],
+    merges: extent?.merges ?? [],
   };
 }
 
@@ -210,6 +210,25 @@ test("a label that is not the text of the cell it cites is refused", () => {
     /C9/,
     "the refusal must name the cell, so a person can go and look at it",
   );
+});
+
+test("a blank label is refused, because the substring rule cannot refuse it", () => {
+  // Found by review. `"anything".includes("")` is true, so a label of one
+  // space satisfies the ONE check standing between a fabricated field name and
+  // the operator, and `z.string().min(1)` does not catch it either because a
+  // space is a character. What reached the screen was a row with no name that
+  // the operator still had to rule on.
+  for (const label of [" ", "   ", "\t", "\n "]) {
+    const read = validateInterpretation(
+      DOWN_A_COLUMN,
+      { fields: [entry({ label })] },
+      minting(),
+    );
+
+    assert.deepEqual(read.fields, [], `a label of ${JSON.stringify(label)} is not a name`);
+    assert.equal(read.unusable.length, 1);
+    assert.match(read.unusable[0].reason, /blank/);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -685,4 +704,63 @@ test("a reply with no JSON in it throws rather than answering empty", async () =
     () => interpretWorkbook({ sheet: DOWN_A_COLUMN, ask, mintId: minting() }),
     /No JSON object/,
   );
+});
+
+test("a valueRef covered by a merge is refused, because Excel never shows a covered cell", () => {
+  /*
+   * Found by review. A covered cell of a merged range is EMPTY in the file, so
+   * it is absent from `byRef` and the `BLANK_MARGIN` rule that lets a
+   * legitimately empty value cell through lets this one through with it. Every
+   * layer downstream then reports success: `pendingEdits` emits the edit,
+   * `patchWorkbook` writes it, and `verifyPatchedSheet` reads back exactly the
+   * intended text. Excel opens the workbook, displays the ANCHOR's old
+   * content, and discards the covered cell on the next save. The operator
+   * pressed Terima, the screen counted a changed cell, and nothing happened.
+   */
+  const merged = sheet(
+    "Config",
+    { C9: "Nama Pelanggan", F9: "BANK CONTOH NUSANTARA" },
+    { rows: 20, cols: 10, merges: ["C9:E9", "F9:H9"] },
+  );
+
+  const read = validateInterpretation(
+    merged,
+    {
+      fields: [
+        // E9 is inside the label's own merge C9:E9, and empty.
+        { label: "Nama Pelanggan", labelRef: "C9", valueRef: "E9" },
+        // G9 is inside the value merge F9:H9, and is not its anchor.
+        { label: "Nama Pelanggan", labelRef: "C9", valueRef: "G9" },
+      ],
+    },
+    minting(),
+  );
+
+  assert.deepEqual(read.fields, []);
+  assert.equal(read.unusable.length, 2);
+  for (const entry of read.unusable) {
+    assert.match(entry.reason, /merged range/);
+    assert.match(entry.reason, /top-left/);
+  }
+  assert.match(read.unusable[0].reason, /C9:E9/);
+  assert.match(read.unusable[1].reason, /F9:H9/);
+});
+
+test("the ANCHOR of a merge is an ordinary value cell, so the rule refuses nothing it should not", () => {
+  const merged = sheet(
+    "Config",
+    { C9: "Nama Pelanggan" },
+    { rows: 20, cols: 10, merges: ["F9:H9", "not-a-range", "Z9:", ""] },
+  );
+
+  const read = validateInterpretation(
+    merged,
+    { fields: [{ label: "Nama Pelanggan", labelRef: "C9", valueRef: "F9" }] },
+    minting(),
+  );
+
+  assert.equal(read.unusable.length, 0, "F9 is the anchor and is empty, which is the case Checkpoint 2 exists for");
+  assert.equal(read.fields.length, 1);
+  assert.equal(read.fields[0].valueRef, "F9");
+  assert.equal(read.fields[0].excelValue, "", "an empty value cell is a field, not a reject");
 });

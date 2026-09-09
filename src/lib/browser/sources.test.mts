@@ -32,6 +32,7 @@
  */
 
 import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
+import type { ConfigEntry } from "../config/types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -412,4 +413,87 @@ test("withSourceAi writes one boolean and returns identity when it already says 
   // re-selecting it on an untouched berkas writes nothing.
   assert.equal(withSourceAi(run, "src-a", true), run);
   assert.equal(withSourceAi(run, "src-never-here", false), run);
+});
+
+// ---------------------------------------------------------------------------
+// Checkpoint 2's citations are positions in `pages` too
+// ---------------------------------------------------------------------------
+
+/** One konfigurasi entry citing a run-global page, with a ruling already made. */
+function isian(
+  id: string,
+  valueRef: string,
+  pageIndex: number | null,
+  decision: ConfigEntry["decision"] = "belum",
+): ConfigEntry {
+  return {
+    field: {
+      id,
+      sheet: "Sheet1",
+      label: "Bandwidth",
+      labelRef: "C9",
+      valueRef,
+      excelValue: "10 Mbps",
+    },
+    verdict: "beda",
+    documentValue: "172 Mbps",
+    ...(pageIndex === null
+      ? {}
+      : { citation: { pageIndex, from: 0, to: 0, text: "172 Mbps" } }),
+    decision,
+  };
+}
+
+test("removing a berkas renumbers Checkpoint 2's citations through the same map", () => {
+  // The defect this pins was invisible without it: `removeSource` moved every
+  // zone and every overlay page and left `ConfigCitation.pageIndex` alone, so
+  // an operator checking a recommendation was shown a page from a different
+  // document with the right berkas name over it.
+  const run = twoBerkas(emptyOverlay(AO_TEMPLATE));
+  run.konfigurasi = {
+    entries: [isian("f1", "E9", 7), isian("f2", "E10", 14, "setuju")],
+    researched: false,
+  };
+
+  const { run: next } = removeSource(run, "src-a");
+
+  assert.equal(next.konfigurasi.entries[0].citation?.pageIndex, 2, "7 - 5 removed pages");
+  assert.equal(next.konfigurasi.entries[1].citation?.pageIndex, 9, "14 - 5 removed pages");
+  assert.equal(
+    next.konfigurasi.entries[1].decision,
+    "setuju",
+    "the ruling is the operator's and an unrelated berkas leaving does not undo it",
+  );
+});
+
+test("a citation whose page is gone is DROPPED rather than repointed, and keeps its verdict", () => {
+  const run = twoBerkas(emptyOverlay(AO_TEMPLATE));
+  run.konfigurasi = {
+    entries: [isian("f1", "E9", 2, "setuju"), isian("f2", "E10", 9)],
+    researched: true,
+  };
+
+  const { run: next } = removeSource(run, "src-a");
+
+  const gone = next.konfigurasi.entries[0];
+  assert.equal(gone.citation, undefined, "there is no page that took over from a deleted one");
+  assert.equal(gone.verdict, "beda", "what was found is still what was found");
+  assert.equal(gone.documentValue, "172 Mbps");
+  assert.equal(gone.decision, "setuju", "and the ruling stands");
+  assert.equal(next.konfigurasi.entries[1].citation?.pageIndex, 4, "9 - 5 removed pages");
+  assert.equal(next.konfigurasi.researched, true, "the spent budget is not refilled by a removal");
+});
+
+test("a removal that moves no citation returns the konfigurasi object itself", () => {
+  const run = twoBerkas(emptyOverlay(AO_TEMPLATE));
+  const held = { entries: [isian("f1", "E9", null)], researched: false };
+  run.konfigurasi = held;
+
+  const { run: next } = removeSource(run, "src-b");
+
+  assert.equal(
+    next.konfigurasi,
+    held,
+    "identity, so an order that never reached Checkpoint 2 is not rewritten",
+  );
 });

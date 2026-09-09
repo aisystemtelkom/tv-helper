@@ -68,11 +68,7 @@ import { z } from "zod";
 
 import type { CellRef, ConfigField } from "../config/types.ts";
 import { formatRef, isCellRef, parseRef, type Sheet } from "../xlsx/grid.ts";
-import {
-  MAX_LISTING_CELLS,
-  listingTruncated,
-  sheetListing,
-} from "../xlsx/listing.ts";
+import { listingTruncation, sheetListing } from "../xlsx/listing.ts";
 import type { Ask } from "./classify.ts";
 import { extractJson } from "./json.ts";
 
@@ -192,6 +188,7 @@ const Field = z.object({
  */
 export function buildInterpretPrompt(sheet: Sheet): string {
   const listing = sheetListing(sheet);
+  const cut = listingTruncation(sheet);
 
   return [
     "Below is one worksheet of an order-configuration workbook, cell by cell,",
@@ -235,14 +232,19 @@ export function buildInterpretPrompt(sheet: Sheet): string {
       '{"label":"Alamat Instalasi","labelRef":"H4","valueRef":"H6",' +
       '"group":"1209990001"}]}',
     "",
-    ...(listingTruncated(sheet)
+    ...(cut
       ? [
           // SAID OUT LOUD rather than silently handing over a part of the
           // sheet as though it were the sheet. A model that believes it has
           // seen everything answers about what it was given; one told the
           // listing was cut short can at least stop at the edge of it.
-          `The listing below is cut short at ${MAX_LISTING_CELLS} cells and is`,
-          "not the whole sheet.",
+          //
+          // THE CAUSE COMES FROM `listingTruncation`, not from a sentence
+          // written here. This named the cell cap unconditionally, so a sheet
+          // whose MERGES were the thing cut was handed a prompt contradicting
+          // its own listing, which prints the honest merge count a few lines
+          // below.
+          `The listing below is not the whole sheet: ${cut}.`,
           "",
         ]
       : []),
@@ -301,6 +303,46 @@ function inSheet(sheet: Sheet, ref: CellRef, at: { col: number; row: number }) {
     at.row >= 1 &&
     at.row <= sheet.rows + BLANK_MARGIN
   );
+}
+
+/**
+ * The merge that COVERS `at` without `at` being its own top-left cell.
+ *
+ * Excel reads and writes a merged range through its ANCHOR and never displays
+ * a covered cell, so a value written to one is invisible in the workbook and is
+ * dropped the next time it is saved. A covered cell is also EMPTY in the file,
+ * which is why nothing above catches it: it is absent from `byRef`, and the
+ * `BLANK_MARGIN` rule that lets a legitimately empty value cell through lets
+ * this one through with it.
+ *
+ * `sheet.merges` are free strings off the wire, so a range this cannot parse is
+ * SKIPPED rather than thrown on. One producer's quirk must not cost the other
+ * seventy-one fields, which is the same proportionality `validateInterpretation`
+ * applies to a single malformed entry.
+ */
+function coveredCell(
+  sheet: Sheet,
+  at: { col: number; row: number },
+): { range: string; anchor: CellRef } | null {
+  for (const range of sheet.merges) {
+    const [from, to] = range.split(":");
+    if (!isCellRef(from) || !isCellRef(to)) continue;
+
+    const a = parseRef(from);
+    const b = parseRef(to);
+    const left = Math.min(a.col, b.col);
+    const right = Math.max(a.col, b.col);
+    const top = Math.min(a.row, b.row);
+    const bottom = Math.max(a.row, b.row);
+
+    if (at.col < left || at.col > right || at.row < top || at.row > bottom) {
+      continue;
+    }
+    // The anchor itself is a perfectly good value cell.
+    if (at.col === left && at.row === top) continue;
+    return { range, anchor: formatRef(left, top) };
+  }
+  return null;
 }
 
 /**
@@ -384,11 +426,44 @@ function refuse(
     );
   }
 
+  // A COVERED CELL OF A MERGE IS A CELL EXCEL NEVER SHOWS, so an approved edit
+  // written there is a change that silently does not happen -- and is then
+  // discarded by the next save. Every other layer would report success: the
+  // address parses, it is inside the sheet, `patchWorkbook` writes it, and
+  // `verifyPatchedSheet` reads back exactly the intended text. This is the
+  // same category of structurally invalid address as a `valueRef` standing on
+  // another field's name, and it is refused for the same stated reason: the
+  // cost of the rule is a row the operator does not see, and the cost of not
+  // having it is a workbook nobody can tell was damaged.
+  //
+  // REFUSED, NOT REMAPPED TO THE ANCHOR. When the merge is a LABEL's
+  // (`C9:E9`), its anchor is the labelRef, so a helpful remap would quietly
+  // redirect the operator's decision onto the field's own name.
+  const covered = coveredCell(sheet, valueAt);
+  if (covered !== null) {
+    return (
+      `valueRef ${field.valueRef} is inside merged range ${covered.range} but ` +
+      `is not its top-left cell ${covered.anchor}, so Excel would never show ` +
+      "a value written there"
+    );
+  }
+
   if (field.valueRef === field.labelRef) {
     return (
       `valueRef and labelRef are both ${field.labelRef}; accepting the ` +
       "recommendation would overwrite the field's own name with its value"
     );
+  }
+
+  // AN EMPTY LABEL IS REFUSED BEFORE THE SUBSTRING RULE, because the substring
+  // rule cannot refuse it: `"anything".includes("")` is true, so a label of one
+  // space satisfies the one check standing between a fabricated field name and
+  // the operator. `z.string().min(1)` does not catch it either -- `" "` is one
+  // character -- and `fold` then trims it to nothing. What reaches the screen
+  // is a row with no name at all, which the operator has to rule on without
+  // being told what it is.
+  if (fold(field.label) === "") {
+    return "the label is blank, so there is nothing to check against the cell";
   }
 
   // THE LABEL MUST BE IN THE CELL IT CITES. `./sections.ts` applies this to a
@@ -580,9 +655,10 @@ function noteFor(
   // A CLAUSE, NOT A SECOND SENTENCE. The note is one sentence by contract, and
   // this is the one fact neither array carries: a caller reading "12 fields"
   // has no way to know the model was shown two thirds of the sheet.
-  const partial = listingTruncated(sheet)
-    ? `, and the listing the model read was cut short at ${MAX_LISTING_CELLS} ` +
-      "cells, so it did not see the whole sheet"
+  const cut = listingTruncation(sheet);
+  const partial = cut
+    ? `, and the listing the model read was cut short (${cut}), so it did ` +
+      "not see the whole sheet"
     : "";
 
   if (fields.length === 0 && unusable.length === 0) {

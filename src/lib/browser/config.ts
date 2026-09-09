@@ -328,11 +328,28 @@ function withDecision<T extends { decision: ConfigDecision; manualValue?: string
 /**
  * What the operator may pass with each decision.
  *
- * `manual` WITHOUT A VALUE is the case worth naming: it would store "the
- * operator typed their own value" with nothing in it, and `effectiveValue`
- * would then patch an empty string into a cell EPIC expects filled. A blank is
- * refused rather than silently read as `tolak`, because those are two different
- * statements and only the operator can say which they meant.
+ * `manual` WITH NO VALUE AT ALL is the case worth naming: `undefined` stores
+ * "the operator typed their own value" with nothing standing where the value
+ * goes, and `effectiveValue` reads that as `""` -- so a caller that dropped the
+ * field on its way here would empty a cell EPIC expects filled, in a workbook
+ * the operator hands back. It is refused rather than silently read as `tolak`,
+ * because those are two different statements and only the operator can say
+ * which they meant.
+ *
+ * THE EMPTY STRING IS NOT THAT CASE, AND THIS FUNCTION REFUSED IT ONCE.
+ * `effectiveValue` in `src/lib/config/effective.ts` takes `manualValue`, "THE
+ * EMPTY STRING INCLUDED. Clearing a cell the workbook filled is a real
+ * instruction and a reachable one: EPIC's template carries fields a particular
+ * order does not use, and `""` is how an operator says so." This is the only
+ * gesture that can write a manual decision, so a blank refused here made that
+ * paragraph describe a state nothing could reach: the operator could type over
+ * a wrong value but never take one out, and `tolak` -- keep what the workbook
+ * says -- is the opposite instruction rather than a way to spell it.
+ *
+ * So the rule is the type's own: a string is what the operator typed, and
+ * anything that is not a string is a caller's mistake. Trimming and every other
+ * question about what they typed belongs on the screen, per this module's
+ * header, which validates in front of the person who can answer it.
  */
 function assertDecision(
   what: string,
@@ -344,10 +361,12 @@ function assertDecision(
     throw new ConfigEditError(`${what}: "${String(decision)}" is not a decision`);
   }
   if (decision === "manual") {
-    if (typeof manualValue !== "string" || manualValue.trim().length === 0) {
+    if (typeof manualValue !== "string") {
       throw new ConfigEditError(
         `${what}: a "manual" decision carries the value the operator typed, ` +
-          "and this one is blank. Keeping the workbook's value is `tolak`.",
+          "and this one carries nothing at all. The empty string is a real " +
+          "value here -- it is how a cell is cleared -- so an absent one is a " +
+          "caller that dropped the field rather than an operator emptying it.",
       );
     }
     return;

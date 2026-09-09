@@ -202,6 +202,69 @@ export function cropSize(box: Box, dpi: number = DEFAULT_DPI): string {
 /** Above this share of page height a crop is flagged as covering the page. */
 export const SPANS_PAGE_RATIO = 0.8;
 
+/**
+ * A `Citation` for a LINE RANGE THAT HAS NO RECTANGLE: Checkpoint 2's sumber.
+ *
+ * `ConfigCitation` records where in the scans a workbook value was read, and it
+ * carries no box, because nothing is being cut out. A field of the operator's
+ * konfigurasi is checked against the documents and the answer is a value, not a
+ * picture.
+ *
+ * ## Why it goes through this module rather than being printed raw
+ *
+ * Two things the screens would otherwise have to reinvent, and would reinvent
+ * differently:
+ *
+ * First, THE BERKAS AND ITS OWN PAGE NUMBER. `ConfigCitation.pageIndex` is a
+ * position in `BrowserRun.pages`, which is 0-based across every document in the
+ * order. Printing it would send a reviewer to page 34 of a bundle rather than
+ * page 7 of the SPLITBA. AGENTS.md records that exact mistake costing a wrong
+ * page reference in a cell note, and calls the two numbering systems "one
+ * mistake apart everywhere they meet". `resolvePage` is the one place that
+ * conversion lives.
+ *
+ * Second, THE SLICED-LINE ADVISORY. Gemini returns paragraph blocks rather than
+ * printed lines, so a block covering several lines is cut into equal vertical
+ * bands and each band becomes a `Line` whose text is the engine's and whose
+ * edges are arithmetic. `interpolatedLines` is how `CiteAdvisories` tells the
+ * operator that. A Checkpoint 2 citation is read exactly as hard as a slot
+ * citation, so it earns the same warning; a second, quieter citation type would
+ * have silently dropped it.
+ *
+ * ## The four fields that describe a rectangle are zero, and that is honest
+ *
+ * `size`, `heightShare`, `spansPage` and `wholePage` all measure a box. There
+ * is no box here. They are set to the empty values rather than to something
+ * plausible, and `Cite` was changed to OMIT its "ukuran di halaman" row when
+ * `size` is empty rather than printing the label over a blank -- a label
+ * standing over nothing reads as a measurement that failed rather than as one
+ * that does not apply.
+ */
+export function citeLines(
+  run: BrowserRun,
+  pageIndex: number,
+  from: number,
+  to: number,
+): Citation | null {
+  const resolved = resolvePage(run, pageIndex);
+  if (!resolved) return null;
+
+  return {
+    source: resolved.sourceName,
+    page: resolved.pageInDoc + 1,
+    pagesInDoc: resolved.pagesInDoc,
+    lines: [from, to],
+    lineCount: to - from + 1,
+    interpolatedLines: resolved.page.lines.filter(
+      (l) => l.i >= from && l.i <= to && l.origin === "interpolated",
+    ).length,
+    size: "",
+    heightShare: 0,
+    spansPage: false,
+    wholePage: false,
+  };
+}
+
 export function citeZone(run: BrowserRun, zone: Zone): Citation | null {
   const resolved = resolvePage(run, zone.pageIndex);
   if (!resolved) return null;
