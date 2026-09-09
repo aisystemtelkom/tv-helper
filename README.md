@@ -152,7 +152,7 @@ The fictional set used throughout the tests is `LOP999001`, `1-70000000001`,
 
 | Command | What it does |
 |---|---|
-| `pnpm generate <pdf...>` | the whole pipeline, both deliverables |
+| `pnpm generate <pdf...>` | the whole pipeline: the docx, plus its outstanding report |
 | `pnpm measure:locate` | score locate against the sample's human crops |
 | `pnpm smoke` | reachability, text, streaming, vision, and per-image cost |
 | `pnpm test` | pipeline and converter unit suites, no API calls |
