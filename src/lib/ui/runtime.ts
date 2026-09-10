@@ -14,6 +14,7 @@
  * `Zone.pageIndex`), each of which shipped a document that looked complete.
  */
 
+import type { StoredOrder } from "../browser/intake.ts";
 import type { Line } from "../pipeline/geometry.ts";
 import type { Zone } from "../pipeline/locate.ts";
 
@@ -107,11 +108,15 @@ export {
   documentDigest,
   fileDigest,
   heldDocuments,
+  findInOtherOrders,
   screenDigested,
   screenDocuments,
   type AcceptedDocument,
   type HeldDocument,
+  type OrderMatch,
   type RefusedDocument,
+  type StoredOrder,
+  type UsedElsewhere,
   type Screening,
 } from "../browser/intake.ts";
 
@@ -154,7 +159,13 @@ import type { PutRunOptions } from "../storage/runs.ts";
 
 export type { PutRunOptions };
 
-export type RunSummary = { id: string; createdAt: number; label: string };
+/**
+ * An order in the device's list: its name, when it was made, and the content
+ * digest of every berkas it holds. The digests are what let a hand-over tell
+ * the operator a file was already used in another order. It IS `StoredOrder`,
+ * named here for what the list is used as.
+ */
+export type RunSummary = StoredOrder;
 
 /**
  * The contract's free functions, gathered into one object.

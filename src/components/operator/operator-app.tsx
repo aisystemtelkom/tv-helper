@@ -65,6 +65,7 @@ import { applyResponse, requestProposals, wantedKeys } from "@/lib/ui/propose";
 import {
   DuplicateDocumentError,
   captureOrdinalOf,
+  findInOtherOrders,
   heldDocuments,
   screenDigested,
   screenDocuments,
@@ -76,6 +77,7 @@ import type {
   BrowserRun,
   HeldDocument,
   RefusedDocument,
+  UsedElsewhere,
   SectionEdit,
   SlotState,
 } from "@/lib/ui/runtime";
@@ -594,6 +596,13 @@ function Workspace({
   const draining = useRef(false);
   const [screening, setScreening] = useState(0);
   const [refusals, setRefusals] = useState<readonly RefusedDocument[]>([]);
+  /**
+   * Berkas from the last hand-over that ANOTHER order on this device already
+   * holds. Replaced per hand-over exactly as `refusals` is, cleared with them
+   * when the order is closed, and never a reason to refuse anything: see
+   * `findInOtherOrders` in `src/lib/browser/intake.ts`.
+   */
+  const [reused, setReused] = useState<readonly UsedElsewhere[]>([]);
 
   /**
    * THE RUN AS THE DRAIN LOOP SEES IT.
@@ -911,6 +920,8 @@ function Workspace({
     // names a berkas that is no longer anywhere on screen.
     setQueueTo([]);
     setRefusals([]);
+    // And the reuse notice, for the same reason: it names this order's berkas.
+    setReused([]);
     rememberRun(null);
   };
 
@@ -1218,6 +1229,27 @@ function Workspace({
     try {
       const { accepted, refused } = await screenDocuments(files, promised());
       /*
+       * THE OTHER ORDERS ON THIS DEVICE, read BEFORE this hand-over queues
+       * anything, so the listing cannot yet contain a page it writes. That is
+       * tidiness rather than the guarantee: every candidate asked about below
+       * has already passed `screenDigested` against everything this order holds
+       * or has been promised, so none of them can be in the order being built.
+       *
+       * A NOTICE MUST NOT COST THE HAND-OVER. If the listing cannot be read the
+       * berkas are still queued and the operator is simply not told about reuse
+       * this time; the ingest that follows reads the same storage and will say
+       * so loudly if it is really broken.
+       */
+      let others: Awaited<ReturnType<typeof runtime.listRuns>> = [];
+      try {
+        others = await runtime.listRuns();
+      } catch (problem) {
+        console.warn(
+          "[tv-helper] could not list this device's orders for the reuse notice",
+          problem,
+        );
+      }
+      /*
        * ASKED AGAIN AT THE INSTANT OF APPENDING, and that is not belt and
        * braces. Hashing is asynchronous, so two hand-overs made a moment apart
        * are each screened against a list neither has been added to yet, and
@@ -1236,6 +1268,8 @@ function Workspace({
       );
 
       setRefusals([...refused, ...late]);
+      // A NOTICE, NOT A REFUSAL: every berkas in `fresh` is still queued below.
+      setReused(findInOtherOrders(fresh, others, runRef.current?.id ?? null));
       if (fresh.length > 0) {
         setQueueTo([
           ...queueRef.current,
@@ -1833,6 +1867,7 @@ function Workspace({
         queue={queue}
         screening={screening > 0}
         refusals={refusals}
+        reused={reused}
         onCancelQueued={cancelQueued}
         onDraw={(index) => actions.onRedraw(index)}
         onUnfill={(index) => patchSlot(index, { status: "unfilled" })}
@@ -2042,6 +2077,7 @@ function Workspace({
                 queue={queue}
                 screening={screening > 0}
                 refusals={refusals}
+                reused={reused}
                 onCancelQueued={cancelQueued}
                 onResumeQueue={() => void drain()}
                 onStartNewRun={closeRun}

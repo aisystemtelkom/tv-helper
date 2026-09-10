@@ -84,6 +84,8 @@ import {
 import {
   DuplicateDocumentError,
   documentDigest,
+  heldDocuments,
+  type StoredOrder,
 } from "./intake.ts";
 import { applySectionEdit, type SectionEdit } from "./sections.ts";
 import { removeSource, withSourceAi } from "./sources.ts";
@@ -133,13 +135,17 @@ export {
   DuplicateDocumentError,
   documentDigest,
   fileDigest,
+  findInOtherOrders,
   heldDocuments,
   screenDigested,
   screenDocuments,
   type AcceptedDocument,
   type HeldDocument,
+  type OrderMatch,
   type RefusedDocument,
   type Screening,
+  type StoredOrder,
+  type UsedElsewhere,
 } from "./intake.ts";
 
 /**
@@ -420,14 +426,24 @@ function withRunLock<T>(runId: string, action: () => Promise<T>): Promise<T> {
   return result;
 }
 
-export async function listRuns(): Promise<
-  { id: string; createdAt: number; label: string }[]
-> {
+/**
+ * Every order on this device, as the riwayat lists it and as a hand-over is
+ * checked against.
+ *
+ * `documents` RIDES ALONG BECAUSE IT WAS ALREADY IN HAND. `listRunMeta` reads
+ * each order's sources, digests included, to build the label, and this used to
+ * throw the digests away. A hand-over asking "has another order used this
+ * file?" needs exactly them, and a second listing would read every order on
+ * the device again to answer a question the first read already had the data
+ * for. See `findInOtherOrders` in `./intake.ts`.
+ */
+export async function listRuns(): Promise<StoredOrder[]> {
   const meta = await listRunMeta();
   return meta.map((run) => ({
     id: run.id,
     createdAt: run.createdAt,
     label: labelFor(run.sources),
+    documents: heldDocuments(run.sources),
   }));
 }
 

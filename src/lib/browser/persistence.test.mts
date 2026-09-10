@@ -86,6 +86,7 @@ import {
   editConfig,
   editEpic,
   fileDigest,
+  findInOtherOrders,
   getCheckpointFile,
   ingestDocument,
   listRuns,
@@ -2519,4 +2520,64 @@ test("a run carrying neither checkpoint loses both, and is refused BY NAME", asy
     },
   );
   assert.deepEqual((await getRun(id))?.konfigurasi, decidedConfig());
+});
+
+
+// ---------------------------------------------------------------------------
+// A berkas another order holds: the storage half
+// ---------------------------------------------------------------------------
+
+test("a berkas's digest survives storage into listRuns, so another order can be found by it", async () => {
+  /*
+   * The matcher is tested on hand-built orders in `ui.test.mts`. This pins the
+   * one link a type cannot: that the digest a hand-over computes is the digest
+   * storage KEEPS and `listRuns` hands back. If the stored-record reader ever
+   * dropped `RunSource.digest` on the way out, every order would list with no
+   * digests, `findInOtherOrders` would match nothing, and the notice would
+   * simply never appear -- nothing failing, nothing on screen. That is the
+   * `StoredPage.short` scar again, one field over.
+   */
+  const before = runId("reuse-before");
+  const open = runId("reuse-open");
+  const original = pdfFile("reuse-kontrak.pdf");
+  await ingestDocument(before, original, undefined, {
+    ingestSource: fakeIngestSource(2),
+  });
+  await ingestDocument(open, pdfFile("reuse-splitba.pdf"), undefined, {
+    ingestSource: fakeIngestSource(1),
+  });
+
+  // The renamed copy out of a downloads folder: the same bytes, another name.
+  const copy = new File([await original.arrayBuffer()], "scan (1).pdf", {
+    type: "application/pdf",
+  });
+  const digest = await fileDigest(copy);
+
+  const listed = await listRuns();
+  const earlier = listed.find((row) => row.id === before);
+  assert.ok(earlier, "the earlier order is listed");
+  assert.deepEqual(
+    earlier.documents.map((one) => one.name),
+    ["reuse-kontrak.pdf"],
+  );
+  assert.equal(
+    earlier.documents[0].digest,
+    digest,
+    "the digest storage kept is the one a renamed copy of the same bytes computes",
+  );
+
+  // "Includes", not equality: other tests share this database and may hold
+  // the same bytes, which is exactly the situation the notice exists for.
+  const found = findInOtherOrders([{ name: copy.name, digest }], listed, open);
+  assert.equal(found.length, 1);
+  assert.ok(
+    found[0].orders.some(
+      (one) => one.runId === before && one.heldAs === "reuse-kontrak.pdf",
+    ),
+    "the earlier order is named, under the name IT gave the berkas",
+  );
+  assert.ok(
+    found[0].orders.every((one) => one.runId !== open),
+    "the order the operator is standing in is never 'another order'",
+  );
 });

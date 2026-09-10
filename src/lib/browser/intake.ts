@@ -190,6 +190,114 @@ export function heldDocuments(
 }
 
 /**
+ * An order on this device, as far as knowing which documents it holds.
+ *
+ * `listRuns` in `./runtime.ts` produces exactly this for every stored order.
+ * `documents` goes through `heldDocuments`, so a source written before digests
+ * existed arrives with none and matches nothing, by the rule stated on
+ * `HeldDocument`.
+ */
+export type StoredOrder = {
+  id: string;
+  createdAt: number;
+  label: string;
+  documents: readonly HeldDocument[];
+};
+
+/** One other order holding a document the operator just handed over. */
+export type OrderMatch = {
+  runId: string;
+  /** The order's name in the riwayat, so the two screens name it alike. */
+  label: string;
+  createdAt: number;
+  /**
+   * What THAT order calls the document. Under a byte identity it is routinely
+   * a different name from the one just handed over, and printing only the new
+   * name would read as the app confusing two files.
+   */
+  heldAs: string;
+};
+
+/** A berkas handed over to this order that another order already holds. */
+export type UsedElsewhere = {
+  /** The name it was handed over under, just now. */
+  name: string;
+  /** Every other order holding it, newest first. Never a sample. */
+  orders: OrderMatch[];
+};
+
+/**
+ * WHICH OTHER ORDERS ON THIS DEVICE ALREADY HOLD THESE DOCUMENTS.
+ *
+ * The sibling of `screenDigested`, and deliberately not a second copy of it:
+ * the same identity (the bytes, never the name), a different consequence.
+ *
+ * ## A NOTICE, NEVER A REFUSAL
+ *
+ * A document this order already holds is refused, for the reasons at the top
+ * of this file. A document ANOTHER order holds is ordinary: one customer's
+ * master contract, a standing letter of appointment, a SPLITBA reissued for a
+ * second service all recur across that customer's orders, and refusing the
+ * second order its own evidence would ship every bagian inside it as `tidak
+ * ditemukan`. What the operator is owed is the fact -- this file was used
+ * before, here, under this name -- and a way to go and look, because the
+ * likeliest reason a file comes back is that this order was already done once.
+ *
+ * ## THIS DEVICE ONLY, AND THE SENTENCE SAYS SO
+ *
+ * Orders live in this browser's IndexedDB and nowhere else; there is
+ * deliberately no server copy (AGENTS.md, "The client constraint"). So this can
+ * only see orders on this device, and a colleague's order on another computer
+ * is invisible to it. The screen's sentence names the scope ("di perangkat
+ * ini"), so a silence never reads as "never used anywhere".
+ *
+ * ## THE OPEN ORDER IS SKIPPED, AND THAT IS NOT WHAT KEEPS THIS HONEST
+ *
+ * The property that matters is upstream: the shell only asks about candidates
+ * that already PASSED `screenDigested` against everything this order holds or
+ * has been promised, so none of them can be in the order being built.
+ * `openRunId` states the same exclusion by id, for a caller that forgot to
+ * screen first and would otherwise be told a file it holds was used elsewhere
+ * by itself.
+ */
+export function findInOtherOrders(
+  candidates: readonly { name: string; digest: string }[],
+  orders: readonly StoredOrder[],
+  openRunId: string | null,
+): UsedElsewhere[] {
+  const holders = new Map<string, OrderMatch[]>();
+  for (const order of orders) {
+    if (order.id === openRunId) continue;
+    // Once per ORDER. A run that predates the in-order refusal may hold one
+    // document twice, and listing that order twice would read as two orders.
+    const counted = new Set<string>();
+    for (const document of order.documents) {
+      if (!document.digest || counted.has(document.digest)) continue;
+      counted.add(document.digest);
+      const list = holders.get(document.digest) ?? [];
+      list.push({
+        runId: order.id,
+        label: order.label,
+        createdAt: order.createdAt,
+        heldAs: document.name,
+      });
+      holders.set(document.digest, list);
+    }
+  }
+
+  const found: UsedElsewhere[] = [];
+  for (const candidate of candidates) {
+    const list = holders.get(candidate.digest);
+    if (!list) continue;
+    found.push({
+      name: candidate.name,
+      orders: [...list].sort((a, b) => b.createdAt - a.createdAt),
+    });
+  }
+  return found;
+}
+
+/**
  * The backstop, thrown by `ingestDocument` inside the run lock.
  *
  * THE SCREEN'S CHECK IS NOT ENOUGH ON ITS OWN, and this is not belt and

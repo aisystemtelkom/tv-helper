@@ -69,7 +69,7 @@ import type { RunSummary } from "@/lib/ui/runtime";
 import { Interruption, shortenFileName } from "./chrome";
 import { Arsip, Cari } from "./icons";
 
-const WAKTU = new Intl.DateTimeFormat("id-ID", {
+export const WAKTU = new Intl.DateTimeFormat("id-ID", {
   day: "numeric",
   month: "short",
   year: "numeric",
@@ -96,7 +96,7 @@ const WAKTU = new Intl.DateTimeFormat("id-ID", {
  * lagi" printed as "LOP999001_merg…2 berkas lagi". Matching the real suffix is
  * what fixes it, and there is now one spelling of it rather than two.
  */
-function shortenRunLabel(label: string): string {
+export function shortenRunLabel(label: string): string {
   const parts = /^(.*?)( \+\d+ berkas lagi)$/.exec(label);
   if (!parts) return shortenFileName(label, 30);
   return `${shortenFileName(parts[1], 24)}${parts[2]}`;

@@ -1,0 +1,4 @@
+1. Dokumen Validasi output must use the header provided in header-example.docx
+2. The top of the first page should have a table of order details, shaped like the one in order-details-example.docx
+3. The font must be calibri, with size 12
+4. The title and capture must be within the same page (resize images accordingly), and ideally, for captures that aren't inside a table, must be one page per title and capture.

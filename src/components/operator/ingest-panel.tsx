@@ -93,7 +93,9 @@ import type {
   RefusedDocument,
   RunSource,
   StoredPage,
+  UsedElsewhere,
 } from "@/lib/ui/runtime";
+import { runHref } from "@/lib/ui/run-address";
 
 import {
   Advisory,
@@ -103,6 +105,7 @@ import {
   Notice,
   shortenFileName,
 } from "./chrome";
+import { WAKTU, shortenRunLabel } from "./riwayat";
 import { Denah } from "./denah";
 // THE SAME CONTROL AND THE SAME SENTENCE the documents bar carries, imported
 // rather than written again. The choice has to be reachable in every phase --
@@ -558,6 +561,114 @@ export function Refusals({
             ))}
           </ul>
         </Notice>
+      )}
+    </div>
+  );
+}
+
+/**
+ * THE BERKAS ANOTHER ORDER ON THIS DEVICE ALREADY HOLDS, AND WHERE TO FIND IT.
+ *
+ * The sibling of `Refusals`, and the difference between them is the whole
+ * design. A berkas THIS order already holds is refused; a berkas ANOTHER order
+ * holds is ordinary -- one customer's master contract recurs across their
+ * orders -- so it is still loaded, and what the operator is owed is the fact
+ * and a way to go and look. The likeliest reason a file comes back is that
+ * this order was already done once. See `findInOtherOrders`.
+ *
+ * AN `Advisory`'s MATERIAL, NOT A `Notice`'s. It wears no hue: amber would say
+ * a decision is owed here and red a refusal, and neither is true. It ends in
+ * something to do, which is the link.
+ *
+ * THE LINK OPENS A NEW TAB, and that is forced rather than chosen. Nothing in
+ * the workspace listens for `hashchange`: it reads `#run/<id>` once, on boot.
+ * A same-tab link to another order would rewrite the address bar and leave
+ * THIS order on screen, a live-looking link that does nothing. A new tab boots
+ * from the address and opens the other order, and it leaves the ingest running
+ * here untouched -- abandoning a half-read bundle to look something up is the
+ * wrong trade. The link text says "di tab baru" so the new tab is expected.
+ *
+ * EVERY MATCH IS COUNTED AND THE FIRST FEW ARE LINKED. A contract used in a
+ * dozen orders would otherwise push the drop target off the screen; the rest
+ * are named by count, and the riwayat holds them all.
+ */
+const REUSED_LINKED = 3;
+
+/** An inline link in the app's voice. Petrol, because a link is interaction and not a status. */
+const LINK = "text-petrol font-bold underline underline-offset-4";
+
+export function Reused({ reused }: { reused: readonly UsedElsewhere[] }) {
+  return (
+    // Mounted before it has anything to say, so the notice is announced when it
+    // appears rather than when the region is first inserted.
+    <div role="status" aria-live="polite">
+      {reused.length === 0 ? null : (
+        <div className="lt-advisory flex flex-col gap-3">
+          {reused.map((one, index) => {
+            const rest = one.orders.length - REUSED_LINKED;
+            return (
+              <div key={`${one.name}-${index}`} className="flex flex-col gap-1">
+                <p>
+                  <span className="lt-figure">
+                    {shortenFileName(one.name, 34)}
+                  </span>{" "}
+                  sudah pernah dipakai di{" "}
+                  {one.orders.length === 1 ? (
+                    "order lain"
+                  ) : (
+                    <>
+                      <span className="lt-figure">{one.orders.length}</span>{" "}
+                      order lain
+                    </>
+                  )}{" "}
+                  di perangkat ini. Berkasnya tetap dimuat ke order ini.
+                </p>
+                <ul className="flex flex-col gap-1">
+                  {one.orders.slice(0, REUSED_LINKED).map((order) => (
+                    <li key={order.runId}>
+                      Tersimpan sebagai{" "}
+                      <span className="lt-figure" title={order.heldAs}>
+                        {shortenFileName(order.heldAs, 34)}
+                      </span>{" "}
+                      di order{" "}
+                      <span className="lt-figure" title={order.label}>
+                        {shortenRunLabel(order.label)}
+                      </span>
+                      , dibuat {WAKTU.format(order.createdAt)}.{" "}
+                      <a
+                        href={runHref(order.runId)}
+                        target="_blank"
+                        rel="noopener"
+                        className={LINK}
+                      >
+                        Buka order itu di tab baru
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+                {rest > 0 ? (
+                  <p>
+                    <span className="lt-figure">{rest}</span> order lain juga
+                    menyimpan berkas ini; semuanya ada di{" "}
+                    <a
+                      href="/riwayat"
+                      target="_blank"
+                      rel="noopener"
+                      className={LINK}
+                    >
+                      Riwayat
+                    </a>
+                    .
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+          <p>
+            Kalau order itu pekerjaan yang sama, lanjutkan di sana; berkas ini
+            bisa Anda hapus dari order ini lewat daftar dokumen di atas.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -1135,6 +1246,7 @@ export function IngestPanel({
   queue = [],
   screening = false,
   refusals = [],
+  reused = [],
   onCancelQueued,
   onResumeQueue,
   searching = false,
@@ -1181,6 +1293,8 @@ export function IngestPanel({
   screening?: boolean;
   /** What was handed over and refused. Outlives the drop that caused it. */
   refusals?: readonly RefusedDocument[];
+  /** Berkas another order on this device already holds. A notice, never a refusal: see `Reused`. */
+  reused?: readonly UsedElsewhere[];
   /** Drops one waiting berkas. Omitted, the rows carry no control. */
   onCancelQueued?: (id: string) => void;
   /** Starts an antrean that an interrupted ingest left behind. */
@@ -1301,6 +1415,8 @@ export function IngestPanel({
           />
 
           <Refusals refusals={refusals} />
+
+          <Reused reused={reused} />
 
           {/* NEITHER HINT IS PRINTED ANY MORE, and the label carries the one
               difference between them. "Tambahkan berkas ke order ini" against

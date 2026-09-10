@@ -33,6 +33,7 @@ import {
   sourceRemovalCost,
   withSourceAi,
 } from "../browser/sources.ts";
+import { heldDocuments } from "../browser/intake.ts";
 import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
 import { emptyOverlay } from "../forms/overlay.ts";
 import { AO_TEMPLATE } from "../forms/template.ts";
@@ -383,6 +384,10 @@ export function createStubRuntime(): Runtime {
           id: run.id,
           createdAt: run.createdAt,
           label: run.sources[0]?.name ?? "Empty run",
+          // The same `heldDocuments` the live listing uses, so a screen
+          // developed against this stub sees the reuse notice behave as it
+          // will in production, digests and all.
+          documents: heldDocuments(run.sources),
         }));
     },
 

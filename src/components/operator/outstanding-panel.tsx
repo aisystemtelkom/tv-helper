@@ -134,6 +134,7 @@ import type {
   RefusedDocument,
   SectionEdit,
   SlotState,
+  UsedElsewhere,
   Zone,
 } from "@/lib/ui/runtime";
 import { templateSlots } from "@/lib/ui/slots";
@@ -155,6 +156,7 @@ import {
   Antrean,
   DocumentDrop,
   Refusals,
+  Reused,
   type IngestFault,
   type IngestProgress,
   type QueuedDocument,
@@ -411,6 +413,8 @@ type PanelProps = {
   queue?: readonly QueuedDocument[];
   screening?: boolean;
   refusals?: readonly RefusedDocument[];
+  /** Berkas another order already holds; see `Reused`. */
+  reused?: readonly UsedElsewhere[];
   onCancelQueued?: (id: string) => void;
   onDraw: (slotIndex: number) => void;
   onUnfill: (slotIndex: number) => void;
@@ -486,6 +490,7 @@ function Panel({
   queue = [],
   screening = false,
   refusals = [],
+  reused = [],
   onCancelQueued,
   onDraw,
   onUnfill,
@@ -638,6 +643,7 @@ function Panel({
       queue={queue}
       screening={screening}
       refusals={refusals}
+      reused={reused}
       onCancelQueued={onCancelQueued}
     />
   );
@@ -2092,6 +2098,7 @@ function TambahanDialog({
   queue,
   screening,
   refusals,
+  reused,
   onCancelQueued,
 }: {
   open: boolean;
@@ -2103,6 +2110,7 @@ function TambahanDialog({
   queue: readonly QueuedDocument[];
   screening: boolean;
   refusals: readonly RefusedDocument[];
+  reused: readonly UsedElsewhere[];
   onCancelQueued?: (id: string) => void;
 }) {
   return (
@@ -2151,6 +2159,8 @@ function TambahanDialog({
         />
 
         <Refusals refusals={refusals} />
+
+        <Reused reused={reused} />
 
         <DocumentDrop
           label={busy ? "Tambahkan berkas lagi" : "Dokumen tambahan"}

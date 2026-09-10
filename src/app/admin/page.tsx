@@ -29,6 +29,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Interruption, TechnicalDetail } from "@/components/operator/chrome";
+import { GoogleMark } from "@/components/operator/google-mark";
 import { Otak } from "@/components/operator/icons";
 import type { Role } from "@/lib/auth/allowlist";
 import { allowlist } from "@/lib/auth/instance";
@@ -198,7 +199,14 @@ function Refusal({
             className="lt-btn self-start"
             data-tone="primary"
           >
-            {signIn ? "Masuk dengan Google" : "Kembali ke aplikasi"}
+            {signIn ? (
+              <>
+                <GoogleMark />
+                Masuk dengan Google
+              </>
+            ) : (
+              "Kembali ke aplikasi"
+            )}
           </Link>
         </div>
       </section>

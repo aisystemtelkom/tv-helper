@@ -10,12 +10,13 @@
  * load. `pages.signIn` in `src/lib/auth/config.ts` points here instead, so
  * `/api/auth/signin` redirects here rather than rendering that page.
  *
- * There is deliberately no logo, no icon font and no external stylesheet here.
- * The check this project treats as standing proof --
+ * There is deliberately no fetched logo, no icon font and no external
+ * stylesheet here. The check this project treats as standing proof --
  * `performance.getEntriesByType("resource")` showing only this host -- has to
  * pass on this page too, and the cheapest way to keep it passing is to leave
- * nothing to fetch. The Google button is therefore a word, not a mark, and the
- * type is this app's own self-hosted family.
+ * nothing to fetch. The Google button's G is therefore inline SVG
+ * (`GoogleMark`), which costs no request, and the type is this app's own
+ * self-hosted family.
  *
  * THE FORM IS A SHEET OF PAPER ON THE TABLE, and it opens with a kop: the bar
  * of ink an Indonesian letterhead starts with. The same sheet and the same kop
@@ -56,6 +57,7 @@ import {
   Notice,
   TechnicalDetail,
 } from "@/components/operator/chrome";
+import { GoogleMark } from "@/components/operator/google-mark";
 import { Otak } from "@/components/operator/icons";
 
 import {
@@ -213,6 +215,7 @@ export default async function SignInPage(props: PageProps<"/signin">) {
               >
                 <input type="hidden" name="callbackUrl" value={callbackUrl} />
                 <Btn type="submit" tone="primary" className="self-start">
+                  <GoogleMark />
                   Masuk dengan Google
                 </Btn>
 

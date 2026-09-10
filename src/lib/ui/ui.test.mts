@@ -105,6 +105,7 @@ import {
 import {
   documentDigest,
   fileDigest,
+  findInOtherOrders,
   heldDocuments,
   screenDigested,
   screenDocuments,
@@ -2431,5 +2432,111 @@ test("the one re-search names its fields and asks the widened question", () => {
     request.pages.length,
     RUN.pages.length,
     "a re-search reads the documents, so this one does carry them",
+  );
+});
+
+
+/* ------------------------------------------- a berkas another order holds */
+
+/** An order as `listRuns` reports it: a name, when it was made, its berkas. */
+function storedOrder(
+  id: string,
+  createdAt: number,
+  documents: { name: string; digest?: string }[],
+) {
+  return {
+    id,
+    createdAt,
+    label: documents[0]?.name ?? "(belum ada dokumen)",
+    documents,
+  };
+}
+
+test("a berkas another order holds is found by its BYTES, and named as THAT order calls it", () => {
+  // The renamed copy out of a downloads folder is the commonest way a file
+  // comes back, which is why the notice has to print both names: under a byte
+  // identity they are routinely different, and printing only the new one
+  // would read as the app confusing two files.
+  const found = findInOtherOrders(
+    [{ name: "scan (1).pdf", digest: "d-kontrak" }],
+    [storedOrder("run-lama", 100, [{ name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" }])],
+    "run-baru",
+  );
+
+  assert.deepEqual(found, [
+    {
+      name: "scan (1).pdf",
+      orders: [
+        {
+          runId: "run-lama",
+          label: "LOP999001_KONTRAK.pdf",
+          createdAt: 100,
+          heldAs: "LOP999001_KONTRAK.pdf",
+        },
+      ],
+    },
+  ]);
+});
+
+test("every other order holding it is listed, newest first, and the open order never", () => {
+  const same = { name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" };
+  const found = findInOtherOrders(
+    [same],
+    [
+      storedOrder("run-lama", 100, [same]),
+      storedOrder("run-terbuka", 300, [same]),
+      storedOrder("run-baru", 200, [same]),
+    ],
+    "run-terbuka",
+  );
+
+  assert.deepEqual(
+    found[0].orders.map((order) => order.runId),
+    ["run-baru", "run-lama"],
+    "newest first, and the order the operator is standing in is not another order",
+  );
+});
+
+test("a berkas stored before digests existed matches nothing, rather than everything", () => {
+  // Absent means UNKNOWN (see `HeldDocument`). Matching two blank digests
+  // against each other would tell the operator a file was used in an order
+  // that has never seen it.
+  const found = findInOtherOrders(
+    [{ name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" }],
+    [storedOrder("run-lama", 100, [{ name: "LOP999001_KONTRAK.pdf" }])],
+    null,
+  );
+  assert.deepEqual(found, []);
+});
+
+test("an order holding the file twice is still ONE order in the notice", () => {
+  // A run from before the in-order refusal may hold one document twice, and
+  // listing it twice would read as two orders.
+  const same = { name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" };
+  const found = findInOtherOrders(
+    [same],
+    [storedOrder("run-lama", 100, [same, { ...same, name: "scan (1).pdf" }])],
+    null,
+  );
+  assert.equal(found[0].orders.length, 1);
+  assert.equal(found[0].orders[0].heldAs, "LOP999001_KONTRAK.pdf", "the first copy names it");
+});
+
+test("a berkas no other order holds produces no notice, and the candidates keep their order", () => {
+  const found = findInOtherOrders(
+    [
+      { name: "SPLITBA_LOP999001.pdf", digest: "d-splitba" },
+      { name: "baru.pdf", digest: "d-baru" },
+      { name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" },
+    ],
+    [
+      storedOrder("run-a", 100, [{ name: "LOP999001_KONTRAK.pdf", digest: "d-kontrak" }]),
+      storedOrder("run-b", 200, [{ name: "SPLITBA_LOP999001.pdf", digest: "d-splitba" }]),
+    ],
+    null,
+  );
+  assert.deepEqual(
+    found.map((one) => one.name),
+    ["SPLITBA_LOP999001.pdf", "LOP999001_KONTRAK.pdf"],
   );
 });

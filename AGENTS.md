@@ -685,6 +685,21 @@ READ, and both halves of that sentence are load-bearing.
   tab, and the only one that decides whether bytes land. It throws
   `DuplicateDocumentError`, which the drain loop catches per-berkas: a refusal
   stops ONE document, where a real fault stops the loop.
+- **A DOCUMENT ANOTHER ORDER HOLDS IS NOT REFUSED, IT IS POINTED OUT.**
+  `findInOtherOrders` in `intake.ts` uses the same byte identity and draws the
+  opposite conclusion, on purpose: one customer's master contract recurs across
+  their orders, so the berkas is still loaded, and the ingest screen names the
+  other order, what that order calls the file and when it was made, and links
+  to it (`Reused` in `ingest-panel.tsx`, and in the tambahan dialog). Three
+  things about it are load-bearing. **It sees THIS DEVICE ONLY**, because orders
+  live in this browser's IndexedDB and nowhere else, so the sentence says "di
+  perangkat ini" and a silence never reads as "never used anywhere". **The link
+  opens a NEW TAB**, because nothing in the workspace listens for `hashchange`:
+  a same-tab `#run/<id>` rewrites the address bar and leaves the current order
+  on screen, a live-looking link that does nothing, and a new tab also leaves
+  any ingest running here untouched. **The data rides on `listRuns`**, whose
+  `RunSummary` now carries each order's `documents` with their digests, rather
+  than a second read of every order on the device.
 - **`screenDocuments` and `screenDigested` are one rule split at the hashing**,
   so passes (1) and (2) cannot come to different answers. A hand-built Map in
   the component was the first version of pass (2) and was a second rule.
