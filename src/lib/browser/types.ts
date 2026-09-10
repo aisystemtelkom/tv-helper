@@ -309,7 +309,7 @@ export type BrowserRun = {
    */
   overlay: TemplateOverlay;
   /**
-   * CHECKPOINT 2: the EPIC order-configuration workbook the operator handed
+   * KONFIG EXCEL: the EPIC order-configuration workbook the operator handed
    * over, what the scans said about each of its isian, and WHAT THE OPERATOR
    * RULED on each recommendation. See `src/lib/config/types.ts`.
    *
@@ -325,7 +325,7 @@ export type BrowserRun = {
    * none of the amendments they approved, in a file that opens cleanly.
    *
    * A FRESH RUN CARRIES `emptyConfigCheck()`, never `undefined`. An order that
-   * has not reached Checkpoint 2 is a real state and it is modelled as an empty
+   * has not reached Konfig Excel is a real state and it is modelled as an empty
    * VALUE rather than as an absent key, so no reader needs a `?.` that would
    * eventually be forgotten somewhere it mattered. A record STORED before this
    * field existed is upgraded to the same thing on read (`readMeta`), and never
@@ -333,13 +333,13 @@ export type BrowserRun = {
    */
   konfigurasi: ConfigCheck;
   /**
-   * CHECKPOINT 3: which workbook EPIC is being judged against, the operator's
+   * INPUT EPIC: which workbook EPIC is being judged against, the operator's
    * screen captures of EPIC, and their ruling on each disagreement.
    *
    * Required for the reason above, plus one of its own: `EpicCheck.basis`
    * records that the operator was ASKED whether a newer workbook exists. An
    * absent `epic` would make "not asked yet" and "the field was dropped on the
-   * way out of storage" the same reading, and Checkpoint 3 would then judge
+   * way out of storage" the same reading, and Input EPIC would then judge
    * EPIC against a workbook the operator had already replaced -- every verdict
    * confidently wrong, nothing on screen contradicting it.
    *

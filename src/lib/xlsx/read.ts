@@ -543,7 +543,7 @@ function parseMerges(xml: string): string[] {
  * A cell is skipped when its rendered text is empty after trimming, and a cell
  * holding a literal `0` is kept -- the two are a real distinction in these
  * workbooks. `0` is an answer somebody entered; an empty cell EPIC expects
- * filled is exactly what Checkpoint 2 exists to find, and it is found by the
+ * filled is exactly what Konfig Excel exists to find, and it is found by the
  * FIELD having no value, not by a blank row in the listing the model reads.
  *
  * `kind: "formula"` takes precedence over how the value renders, because the

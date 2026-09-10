@@ -1,5 +1,5 @@
 /**
- * WHAT THE DOWNLOAD WRITES, AND WHAT CHECKPOINT 3 IS JUDGED AGAINST, must be
+ * WHAT THE DOWNLOAD WRITES, AND WHAT INPUT EPIC IS JUDGED AGAINST, must be
  * the same workbook.
  *
  * The failure this file protects is silent by construction: an `effectiveValue`
@@ -280,7 +280,7 @@ test("effectiveFields describes the same workbook pendingEdits patches", () => {
     assert.equal(
       f.excelValue,
       byRef.get(f.valueRef) ?? c.entries.find((e) => e.field.id === f.id)?.field.excelValue,
-      "Checkpoint 3 must judge EPIC against the file the operator actually downloaded",
+      "Input EPIC must judge EPIC against the file the operator actually downloaded",
     );
   }
 });

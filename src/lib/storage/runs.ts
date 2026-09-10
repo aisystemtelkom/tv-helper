@@ -76,7 +76,7 @@ export type RunMeta = Omit<BrowserRun, "pages">;
  * upgrade happens.
  *
  * `konfigurasi` and `epic` join it on the same terms and for the same reason.
- * Every order written before Checkpoint 2 and Checkpoint 3 existed genuinely
+ * Every order written before Konfig Excel and Input EPIC existed genuinely
  * has neither, and there are real ones on real devices; the honest shape of
  * the record is optional and the honest shape of the type every consumer sees
  * is required, which is what this pair of declarations buys.
@@ -107,7 +107,7 @@ type StoredRunMeta = Omit<RunMeta, "overlay" | "konfigurasi" | "epic"> & {
  * `emptyConfigCheck()` and `emptyEpicCheck()` are cheaper still -- they read
  * nothing and depend on nothing -- but they are governed by the same two rules.
  * UPGRADED HERE AND ONLY HERE, and NOT WRITTEN BACK. An order that predates
- * Checkpoint 2 has no workbook and no rulings, so the empty value is not a
+ * Konfig Excel has no workbook and no rulings, so the empty value is not a
  * guess about what it held; it is what it held.
  */
 function readMeta(stored: StoredRunMeta): RunMeta {
@@ -369,7 +369,7 @@ export function discardedAuthorship(
 
 /**
  * A write that would silently drop something the OPERATOR DECIDED at
- * Checkpoint 2 or Checkpoint 3: a recommendation they took, one they refused, a
+ * Konfig Excel or Input EPIC: a recommendation they took, one they refused, a
  * value they typed themselves, or the one re-search this order is allowed.
  *
  * THE FIFTH NET, AND IT GUARDS A RULING WHERE `SectionLossError` GUARDS A NAME
@@ -445,13 +445,13 @@ const EPIC_ENTRY_PREFIX = "epic/entry/";
 export const CONFIG_RESEARCHED_ID = "konfigurasi/researched";
 export const EPIC_BASIS_ID = "epic/basis";
 
-/** How one Checkpoint 2 isian is addressed, in an opt-in and in an edit alike. */
+/** How one Konfig Excel isian is addressed, in an opt-in and in an edit alike. */
 export function configEntryId(entry: ConfigEntry): string {
   return `${CONFIG_ENTRY_PREFIX}${entry.field.id}`;
 }
 
 /**
- * How one Checkpoint 3 finding is addressed.
+ * How one Input EPIC finding is addressed.
  *
  * `fieldId` WHEN THERE IS ONE, THE LABEL WHEN THERE IS NOT, and the second half
  * is forced by the domain rather than chosen: a `tidak-ada-di-excel` entry is
@@ -512,9 +512,9 @@ export type DecisionRecord = {
  *  - `EpicCheck.basis` moving AWAY from an answered value back to `"belum"`.
  *    The operator answered a question -- is there a newer workbook -- and a
  *    write that forgets the answer does not merely re-ask it: while `basis`
- *    stands at `"belum"` Checkpoint 3 has no yardstick, and the repair a
+ *    stands at `"belum"` Input EPIC has no yardstick, and the repair a
  *    hurried operator reaches for is "lanjutkan", which judges EPIC against
- *    Checkpoint 2's workbook whether or not that is the one they meant.
+ *    Konfig Excel's workbook whether or not that is the one they meant.
  *
  * FREE TO DROP, because nothing a person did is in it:
  *  - an entry still at `"belum"`, and every `verdict`, `documentValue`,
@@ -550,7 +550,7 @@ export function discardedDecisions(
   const lost: string[] = [];
 
   // GUARDED ON THE STORED HALF FIRST, per field. A record written before
-  // Checkpoint 2 existed holds no `konfigurasi` at all, and something that
+  // Konfig Excel existed holds no `konfigurasi` at all, and something that
   // never held a decision cannot lose one -- so it is skipped outright rather
   // than compared against an invented empty, exactly as `putRun` skips a
   // pre-overlay record.
@@ -866,7 +866,7 @@ export async function getRun(id: string): Promise<BrowserRun | null> {
  *    place an operator's naming work lives.
  *
  * 5. DECISION LOSS. A write that drops a ruling the operator made at
- *    Checkpoint 2 or Checkpoint 3 -- a recommendation taken or refused, a value
+ *    Konfig Excel or Input EPIC -- a recommendation taken or refused, a value
  *    they typed, the one re-search this order is allowed, or their answer to
  *    "is there a newer workbook" -- is refused with `DecisionLossError` unless
  *    it names those ids in `options.removingDecisions`. Same shape a fourth
@@ -1057,8 +1057,8 @@ export async function putRun(
        * It also earns its place ahead of the capture check for a second
        * reason: nothing about `konfigurasi` or `epic` is derivable from
        * `AO_TEMPLATE` at all, so a write that carries the right overlay and
-       * still drops these was assembled by something in Checkpoint 2 or
-       * Checkpoint 3 -- and naming that, rather than a lanjutan that is fine,
+       * still drops these was assembled by something in Konfig Excel or
+       * Input EPIC -- and naming that, rather than a lanjutan that is fine,
        * points the next reader at the code that produced the write.
        *
        * Guarded per field inside `discardedDecisions`: an order stored before
@@ -1183,7 +1183,7 @@ export async function appendPage(
     // `konfigurasi` and `epic` as they were when the ingest STARTED, and an
     // ingest legitimately changes none of them. Writing the caller's copy hands
     // a minutes-old slot array, a minutes-old overlay and a minutes-old set of
-    // Checkpoint 2 rulings back to the store on every page, so an edit made
+    // Konfig Excel rulings back to the store on every page, so an edit made
     // while a 151-page document is being read is reverted by the next page with
     // nothing raised: the revision is correct, every page is present, and every
     // one of `putRun`'s nets is satisfied because this function is not

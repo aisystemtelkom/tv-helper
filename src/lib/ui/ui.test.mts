@@ -2377,7 +2377,7 @@ function configSheet(): Sheet {
   };
 }
 
-test("a Checkpoint 2 reading carries the run's pages, because the scans are the evidence", () => {
+test("a Konfig Excel reading carries the run's pages, because the scans are the evidence", () => {
   const request = buildInterpretRequest(RUN, configSheet());
 
   assert.equal(request.pages.length, RUN.pages.length);
@@ -2390,7 +2390,7 @@ test("a Checkpoint 2 reading carries the run's pages, because the scans are the 
   );
 });
 
-test("Checkpoint 3's newer-workbook reading carries NO page listing at all", () => {
+test("Input EPIC's newer-workbook reading carries NO page listing at all", () => {
   /*
    * Found by review. EPIC is judged against the workbook, so the scans are not
    * part of that question -- but the route interpreted AND compared whenever a

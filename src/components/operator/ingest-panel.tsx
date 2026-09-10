@@ -1264,7 +1264,7 @@ export function IngestPanel({
               OPERATOR CAN ACT ON. The straightening and the one-page-at-a-time
               storing used to be printed here; both work whether or not anybody
               reads them, so both are gone rather than tucked away. */}
-          <Hint label="Penjelasan langkah Muat">
+          <Hint label="Penjelasan pemuatan dokumen">
             Sesudah semua berkas masuk, tombol di bawah menyuruh AI membaca
             dokumen dan mencari bukti untuk tiap bagian.
           </Hint>
@@ -1401,13 +1401,15 @@ export function IngestPanel({
           {/* THE WAY FORWARD IS NOT BUILT HERE, and the gate it carries is
               worth recording where somebody looks for it.
 
-              A "Buka lembar periksa" button on this block and a "Lanjut:
-              Periksa" at the foot of the same screen are one control drawn
-              twice, and the operator has to work out whether they do the same
-              thing. The timeline and the step nav in `operator-app.tsx` are
-              the one mechanism, on every phase, in the same place.
+              This block is the top of Berkas Order, and the lembar periksa
+              is drawn directly under it the moment the reading pass has run,
+              so the way on from here is the page itself rather than a key. A
+              "Buka lembar periksa" button here would point at something
+              already on screen, and a key that goes nowhere is the first thing
+              an operator stops trusting. The timeline and the step nav in
+              `operator-app.tsx` carry the way on to the NEXT step.
 
-              THE GATE THEY APPLY is on the search having RUN, not on it having
+              THE GATE ON THE REVEAL is on the search having RUN, not on it having
               found everything: a pass that left bagian tidak ditemukan has
               finished, and the top of the lembar periksa is where that is
               settled. A LATER round does not close it again, and the search

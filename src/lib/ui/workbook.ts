@@ -1,7 +1,7 @@
 /**
  * Handing the konfigurasi back, amended.
  *
- * This is the end of Checkpoint 2 and the only place the operator's own bytes
+ * This is the end of Konfig Excel and the only place the operator's own bytes
  * are written. Everything it does follows from one sentence: THE TOOL DOES NOT
  * AUTHOR A WORKBOOK, IT AMENDS ONE. So the file that comes back is the file
  * that went in, with the cells the operator approved changed and every other
@@ -106,7 +106,7 @@ export async function buildUpdatedWorkbook(
   if (!stored) {
     throw new Error(
       `Berkas konfigurasi "${workbook.name}" sudah tidak ada di perangkat ini, ` +
-        "jadi tidak bisa diperbarui. Muat berkasnya sekali lagi di Checkpoint 2.",
+        "jadi tidak bisa diperbarui. Muat berkasnya sekali lagi di langkah Konfig Excel.",
     );
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * CHECKPOINT 2: the operator's own EPIC konfigurasi, read against the scans.
+ * KONFIG EXCEL: the operator's own EPIC konfigurasi, read against the scans.
  *
  * One sentence: *"here is the order-configuration workbook I already have, tell
  * me where it disagrees with the documents, let me settle each one, and give me
@@ -439,7 +439,7 @@ function Panel({
 
   /**
    * True while THIS ORDER has a comparison in the air, whichever mount of this
-   * screen started it. See `comparingRuns`: leaving Checkpoint 2 mid-comparison
+   * screen started it. See `comparingRuns`: leaving Konfig Excel mid-comparison
    * used to re-arm the key with no sign a paid call was still running.
    */
   const comparing = useSyncExternalStore(
@@ -1069,7 +1069,7 @@ function Intake({
  */
 function nothingToRead(pages: number, searchablePages: number): string | null {
   if (pages === 0) {
-    return "Belum ada dokumen di order ini, jadi tidak ada yang bisa dicocokkan. Muat dokumen order dulu di langkah Muat.";
+    return "Belum ada dokumen di order ini, jadi tidak ada yang bisa dicocokkan. Muat dokumen order dulu di langkah Berkas Order.";
   }
   if (searchablePages === 0) {
     return "Semua berkas order ini Anda tandai tanpa AI, jadi tidak ada halaman yang bisa dibaca untuk pencocokan. Ubah salah satu berkas jadi dibaca AI di bar dokumen.";
@@ -1135,7 +1135,7 @@ function CompareLine({
  * The workbook is bigger than one reading can carry, said out loud.
  *
  * THE ONE THING ON THIS SCREEN THAT MUST NOT BE QUIET. A truncated listing
- * produces a Checkpoint 2 that opens cleanly, lists a screenful of isian, and
+ * produces a Konfig Excel that opens cleanly, lists a screenful of isian, and
  * is a comparison of a FRACTION of the operator's workbook -- every isian past
  * the cut reported as neither matching nor mismatching, because it was never
  * seen. That reads exactly like a workbook with fewer isian in it, which is
@@ -1927,7 +1927,7 @@ function EntryRow({
           {entry.documentValue === undefined ? (
             /* THE WORD IS THE VERDICT'S OWN. This cell said "(tidak ada di
                dokumen)", which is a claim about the DOCUMENT -- the mirror of
-               Checkpoint 3's `tidak ada di konfigurasi`, and pointed the wrong
+               Input EPIC's `tidak ada di konfigurasi`, and pointed the wrong
                way. What is actually known is `tidak ditemukan`, fixed in
                `docs/ui-bahasa.md` to mean SEARCHED AND NOT FOUND, which is what
                the state word on this row already says. Found by review. */
@@ -2132,7 +2132,7 @@ function ManualValue({
  * ------------------------------------------------------------------ */
 
 /**
- * THE END OF CHECKPOINT 2: the operator's own berkas, amended.
+ * THE END OF KONFIG EXCEL: the operator's own berkas, amended.
  *
  * The tool does not author a workbook, it amends one, so what comes back is the
  * file that went in with the cells they approved changed and every other part

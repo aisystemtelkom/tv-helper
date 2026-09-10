@@ -1,5 +1,5 @@
 /**
- * The wire for Checkpoint 2 and Checkpoint 3, and the one place the operator's
+ * The wire for Konfig Excel and Input EPIC, and the one place the operator's
  * workbook is opened.
  *
  * Same shape as `extract.ts` and `propose.ts` on purpose: the request builders
@@ -154,12 +154,12 @@ export function buildInterpretRequest(
 /**
  * READ THIS WORKBOOK AND STOP THERE: what isian does it hold?
  *
- * Checkpoint 3's "yes, I have a newer konfigurasi". EPIC is judged against that
+ * Input EPIC's "yes, I have a newer konfigurasi". EPIC is judged against that
  * workbook, so the SCANS are not part of the question at all, and the
  * comparison the route would otherwise run is the single most expensive call it
  * makes -- one carrying the whole run's page listing, measured at 23k input
  * tokens for a 29-page bundle and several times that for the 151-page one.
- * Checkpoint 3 reads only `fields` from the answer, so every one of those
+ * Input EPIC reads only `fields` from the answer, so every one of those
  * verdicts was paid for and dropped.
  *
  * NO PAGES TRAVEL EITHER, and the flag is what makes that honest.

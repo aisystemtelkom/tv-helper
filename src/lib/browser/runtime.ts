@@ -36,7 +36,7 @@
  *     A write that drops one without naming it in `removingSections` is
  *     refused with `SectionLossError`.
  *  1e. NOR ARE `konfigurasi` AND `epic`. They hold what the operator RULED at
- *     Checkpoint 2 and Checkpoint 3 -- a recommendation taken or refused, a
+ *     Konfig Excel and Input EPIC -- a recommendation taken or refused, a
  *     value they typed, the one re-search this order is allowed -- and nothing
  *     anywhere re-derives a judgement. The same rebuild-from-template save
  *     reverts every one of them just as quietly, and a lost `setuju` is a cell
@@ -203,7 +203,7 @@ export {
 } from "./sections.ts";
 
 /**
- * One operator gesture at Checkpoint 2 or Checkpoint 3, as a VALUE.
+ * One operator gesture at Konfig Excel or Input EPIC, as a VALUE.
  *
  * Pure, and re-exported for the reason `sections.ts` is: the arithmetic is
  * testable where IndexedDB is not, and `editConfig`/`editEpic` below are the two
@@ -334,7 +334,7 @@ function newRun(id: string): BrowserRun {
     // is spared a `?.` that would eventually be forgotten somewhere it mattered.
     overlay: emptyOverlay(AO_TEMPLATE),
     // EMPTY, NEVER ABSENT, on the same rule. An order that has not reached
-    // Checkpoint 2 has no workbook and no rulings, and that is a real state
+    // Konfig Excel has no workbook and no rulings, and that is a real state
     // rather than a missing one -- so it is a value every reader can walk,
     // never a key they have to remember might not be there.
     konfigurasi: emptyConfigCheck(),
@@ -547,7 +547,7 @@ export async function editSections(
  *
  * `ingestDocument` holds the run lock for MINUTES over a 151-page document and
  * advances the revision once per page, so a `BrowserRun` React is holding while
- * that runs is dozens of revisions stale and `putRun` refuses it. Checkpoint 2
+ * that runs is dozens of revisions stale and `putRun` refuses it. Konfig Excel
  * is a screen of amber rows the operator works down while the tool is still
  * busy, so this is not a corner case here -- it is the ordinary path. An edit
  * carries no revision and is applied to whatever is STORED at the moment the

@@ -128,7 +128,7 @@ const runId = (name: string) => `test-${name}-${(counter += 1)}`;
 const NO_EDITS: TemplateOverlay = emptyOverlay(AO_TEMPLATE);
 
 /**
- * An order that has not reached Checkpoint 2 or Checkpoint 3.
+ * An order that has not reached Konfig Excel or Input EPIC.
  *
  * `konfigurasi` and `epic` are REQUIRED on `BrowserRun` for the same reason
  * `overlay` is, and that is why every fixture in this file has to say so out
@@ -1829,7 +1829,7 @@ test("setting the AI choice on an order that is gone throws, in the operator's w
 });
 
 // ---------------------------------------------------------------------------
-// Checkpoint 2 and Checkpoint 3: what the operator RULED
+// Konfig Excel and Input EPIC: what the operator RULED
 // ---------------------------------------------------------------------------
 //
 // `run.konfigurasi` and `run.epic` are the ONLY place an operator's judgements
@@ -1838,8 +1838,8 @@ test("setting the AI choice on an order that is gone throws, in the operator's w
 // is a question they have already answered; a `manual` is a value they TYPED,
 // which no model call and no re-search can reconstruct; `researched` is a
 // budget the client capped at one per order; and `basis` is their answer to
-// "has the workbook been updated again since Checkpoint 2", without which
-// Checkpoint 3 has no yardstick at all.
+// "has the workbook been updated again since Konfig Excel", without which
+// Input EPIC has no yardstick at all.
 //
 // So this section pins the same two things the overlay section above pins, for
 // the same reasons. FIRST, the round trip -- both fields are REQUIRED on
@@ -2009,7 +2009,7 @@ test("an order stored before the checkpoints existed reads back empty, and is NO
   const loaded = await getRun(id);
   assert.ok(loaded);
   // The empty value is not a guess about what the order held; it is what it
-  // held. An order that never reached Checkpoint 2 has no workbook and no
+  // held. An order that never reached Konfig Excel has no workbook and no
   // rulings, and that is a real state rather than a missing one.
   assert.deepEqual(loaded.konfigurasi, emptyConfigCheck());
   assert.deepEqual(loaded.epic, emptyEpicCheck());
@@ -2199,9 +2199,9 @@ test("the answer to whether a newer workbook exists cannot silently be forgotten
   /*
    * `belum` is not a third option the operator picks; it is the state before
    * they have been asked. A write that puts it back does not merely re-ask the
-   * question: while it stands Checkpoint 3 has no yardstick, and the repair a
+   * question: while it stands Input EPIC has no yardstick, and the repair a
    * hurried operator reaches for is "lanjutkan", which judges EPIC against
-   * Checkpoint 2's workbook whether or not that is the one they meant.
+   * Konfig Excel's workbook whether or not that is the one they meant.
    */
   const id = runId("decision-basis");
   const saved = await putRun({
@@ -2353,7 +2353,7 @@ test("a decision pressed mid-ingest survives the next page", async () => {
    * `appendPage` writes a run's small half once per page for the length of an
    * ingest, and it takes that half FROM WHAT IS STORED rather than from its
    * caller, carrying across only `sources`. This is the test of that for the
-   * two checkpoint fields, and it is not a corner case: Checkpoint 2 is a
+   * two checkpoint fields, and it is not a corner case: Konfig Excel is a
    * screen of amber rows the operator works down WHILE the tool is still
    * reading, so a caller-sourced write would revert every Terima they pressed
    * during a 151-page document with nothing raised -- correct revision, every
@@ -2425,7 +2425,7 @@ test("a replacement workbook gets past the fifth net because the EDIT computed t
   // The budget is per ORDER, so handing another file over is not the way to buy
   // a second re-search.
   assert.equal(after.konfigurasi.researched, true);
-  // Checkpoint 3 is a different question and is untouched by this one.
+  // Input EPIC is a different question and is untouched by this one.
   assert.deepEqual(after.epic, answeredEpic(`${id}-cap-1`));
 
   // THE BYTES ARE SWEPT AFTER THE RUN WRITE. The replaced workbook is referenced

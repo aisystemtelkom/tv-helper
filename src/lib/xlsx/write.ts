@@ -1,7 +1,7 @@
 /**
  * AMEND THE OPERATOR'S OWN WORKBOOK. NEVER AUTHOR ONE.
  *
- * Checkpoint 2 hands back the same `.xlsx` the operator gave us with the cells
+ * Konfig Excel hands back the same `.xlsx` the operator gave us with the cells
  * they approved rewritten and nothing else changed. That sentence is the whole
  * specification, and every rule below is one way of failing to keep it.
  *

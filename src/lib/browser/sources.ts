@@ -216,12 +216,12 @@ function sameNumbers(
  * person's decision.
  */
 /**
- * CHECKPOINT 2's CITATIONS, THROUGH THE SAME `next[]`.
+ * KONFIG EXCEL's CITATIONS, THROUGH THE SAME `next[]`.
  *
  * `ConfigCitation.pageIndex` is a position in `BrowserRun.pages`, exactly as
  * `Zone.pageIndex` is, so it is subject to the one rule this whole module
  * exists to keep: the only thing allowed to shorten that array is a removal
- * that moves everything pointing into it. This was missed when Checkpoint 2
+ * that moves everything pointing into it. This was missed when Konfig Excel
  * landed, and the symptom was the quiet kind -- remove the first berkas of an
  * order and every konfigurasi citation still names its old position, so the
  * operator clicks through to check a recommendation and is shown a page from a
@@ -271,7 +271,7 @@ function remapConfigCitations(
   });
 
   // Identity when nothing pointed past the removal, so an order that never
-  // reached Checkpoint 2 -- the common case -- is not rewritten at all.
+  // reached Konfig Excel -- the common case -- is not rewritten at all.
   return moved ? { ...check, entries } : check;
 }
 
@@ -545,7 +545,7 @@ export function removeSource(
       // THROUGH THE SAME `next[]`, for the same reason and in the same breath.
       // The overlay holds page positions too; see `remapOverlay`.
       overlay: remapOverlay(run.overlay, next, sourceId),
-      // AND SO DOES CHECKPOINT 2. Every field of this run that stores a
+      // AND SO DOES KONFIG EXCEL. Every field of this run that stores a
       // position in `pages` has to move together or not at all; see
       // `remapConfigCitations` for why a citation whose page is gone is
       // dropped rather than repointed.

@@ -1,5 +1,5 @@
 /**
- * CHECKPOINT 2: does the operator's order-configuration workbook agree with
+ * KONFIG EXCEL: does the operator's order-configuration workbook agree with
  * the scans the order was raised from?
  *
  * The client's instruction, 2026-09-09: compare the uploaded excel config

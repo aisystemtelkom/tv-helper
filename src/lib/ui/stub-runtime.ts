@@ -280,7 +280,7 @@ function seedRun(): BrowserRun {
     // day either changes, and every screen would be developed against it.
     overlay: emptyOverlay(AO_TEMPLATE),
     // Seeded through the real empties for the same reason `overlay` is. THE
-    // STUB DELIBERATELY INVENTS NO KONFIGURASI: Checkpoint 2 begins when the
+    // STUB DELIBERATELY INVENTS NO KONFIGURASI: Konfig Excel begins when the
     // operator hands a real workbook over, and a stub that arrived holding
     // fabricated isian would let those screens be developed against a shape
     // no real order can reach -- every field already interpreted, every
@@ -466,7 +466,7 @@ export function createStubRuntime(): Runtime {
     },
 
     /*
-     * CHECKPOINT 2 AND 3, THROUGH THE SAME PURE FUNCTIONS THE LIVE RUNTIME
+     * KONFIG EXCEL AND INPUT EPIC, THROUGH THE SAME PURE FUNCTIONS THE LIVE RUNTIME
      * USES, for the reason `editSections` above borrows `applySectionEdit`: a
      * stub may invent pages and pixels, but never the RULES. The rule these two
      * carry is `removingDecisions` -- which operator rulings a write discards --

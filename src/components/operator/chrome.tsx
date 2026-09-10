@@ -438,7 +438,7 @@ export function Cite({ cite }: { cite: Citation | null }) {
             says which of the two it is. */}
         {/* OMITTED ENTIRELY WHEN THERE IS NO RECTANGLE, rather than printed
             empty. `citeLines` in `src/lib/ui/evidence.ts` cites a line range
-            with no box at all -- Checkpoint 2 reads a VALUE out of the scans
+            with no box at all -- Konfig Excel reads a VALUE out of the scans
             and cuts no picture -- and the three fields describing a rectangle
             are the empty values there on purpose. A label standing over a
             blank cell reads as a measurement that failed rather than as one

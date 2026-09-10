@@ -203,7 +203,7 @@ export function cropSize(box: Box, dpi: number = DEFAULT_DPI): string {
 export const SPANS_PAGE_RATIO = 0.8;
 
 /**
- * A `Citation` for a LINE RANGE THAT HAS NO RECTANGLE: Checkpoint 2's sumber.
+ * A `Citation` for a LINE RANGE THAT HAS NO RECTANGLE: Konfig Excel's sumber.
  *
  * `ConfigCitation` records where in the scans a workbook value was read, and it
  * carries no box, because nothing is being cut out. A field of the operator's
@@ -227,7 +227,7 @@ export const SPANS_PAGE_RATIO = 0.8;
  * printed lines, so a block covering several lines is cut into equal vertical
  * bands and each band becomes a `Line` whose text is the engine's and whose
  * edges are arithmetic. `interpolatedLines` is how `CiteAdvisories` tells the
- * operator that. A Checkpoint 2 citation is read exactly as hard as a slot
+ * operator that. A Konfig Excel citation is read exactly as hard as a slot
  * citation, so it earns the same warning; a second, quieter citation type would
  * have silently dropped it.
  *

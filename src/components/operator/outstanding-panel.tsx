@@ -605,10 +605,13 @@ function Panel({
     if (owesRound) setExpanded(true);
   }
 
-  // One definition, placed by state rather than repeated: an ingest failure
-  // belongs beside the drop the operator is looking at, and everywhere else it
-  // belongs here, above the sheet, where it cannot be missed. Never both at
-  // once: one failure stated twice on one screen reads as two failures.
+  // ONLY INSIDE THE DIALOG NOW, and the missing half is deliberate. This used
+  // to print the failure above the sheet as well, whenever the dialog was shut,
+  // because the lembar periksa was a screen of its own and no other drop was
+  // visible from it. Berkas Order draws the upload section directly above this
+  // sheet on the same page, and that section carries every ingest failure in
+  // full -- so a second copy here would state one failure twice on one screen,
+  // which reads as two failures.
   const errorNotice = fault ? (
     <Notice tone="stop">
       {/* The same two-part shape `Interruption` uses, gap and all, because it
@@ -623,7 +626,6 @@ function Panel({
       </div>
     </Notice>
   ) : null;
-  const errorHere = dropOpen ? null : errorNotice;
 
   const dialog = (
     <TambahanDialog
@@ -710,7 +712,6 @@ function Panel({
         </div>
 
         <div className="lt-slab-body flex flex-col gap-4">
-          {errorHere}
           <Note>
             Setiap bagian yang bisa didukung dokumen sudah terisi atau sudah
             Anda putuskan.
@@ -760,7 +761,6 @@ function Panel({
             : ""}
         </p>
 
-        {errorHere}
 
         {/* ABOVE EVERYTHING, AND NEVER BEHIND THE FOLD. This is the one control
             in the product that can clear a blocked export, it appears on no

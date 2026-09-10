@@ -1,5 +1,5 @@
 /**
- * `/api/config`: CHECKPOINT 2. Does the operator's own order-configuration
+ * `/api/config`: KONFIG EXCEL. Does the operator's own order-configuration
  * workbook agree with the scans the order was raised from?
  *
  * ## THE WORKBOOK BYTES NEVER REACH THIS ROUTE
@@ -132,7 +132,7 @@ export type ConfigBody = {
    * ASK WHAT THE WORKBOOK HOLDS AND STOP THERE. Only meaningful with `sheet`.
    *
    * Absent means compare, so a caller that predates this field sends byte for
-   * byte the request this route has always taken. `false` is for Checkpoint 3,
+   * byte the request this route has always taken. `false` is for Input EPIC,
    * which reads a newer workbook to learn its isian and judges EPIC against
    * them; the scans are not part of that question and the comparison call is
    * the expensive one.
@@ -361,7 +361,7 @@ export function toSheet(wire: WireSheet): Sheet {
  * states about `assertWirePages`: two copies of a validator are two validators
  * that can disagree, and the disagreement is silent -- the route with the
  * weaker copy spends the credential on fields the other one would have refused.
- * It lives here because this is the route that MINTS these fields; Checkpoint 3
+ * It lives here because this is the route that MINTS these fields; Input EPIC
  * borrows the same list to judge EPIC against.
  *
  * `id` IS THE LOAD-BEARING ONE. `foldCompareReply` and `foldEpicReply` both key
@@ -564,7 +564,7 @@ export async function checkConfig(
      * the ones that survived validation, and re-posting them to be compared
      * would be a second request that could carry a different list.
      *
-     * UNLESS THE CALLER ONLY WANTED THE FIELDS. Checkpoint 3's "yes, I have a
+     * UNLESS THE CALLER ONLY WANTED THE FIELDS. Input EPIC's "yes, I have a
      * newer konfigurasi" reads a workbook purely to learn what isian it holds:
      * EPIC is judged against that workbook, and the scans have nothing to do
      * with it. Comparing anyway spent the single most expensive call this

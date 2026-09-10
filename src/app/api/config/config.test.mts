@@ -5,7 +5,7 @@
  * pipeline modules and takes its model call as an argument, so the whole
  * control flow runs here with a fake `ask`.
  *
- * WHAT THESE PROTECT is a cell in the operator's own workbook. Checkpoint 2's
+ * WHAT THESE PROTECT is a cell in the operator's own workbook. Konfig Excel's
  * output is a per-field recommendation that a person accepts, and accepting one
  * writes a value into an `.xlsx` they then send onward. Every validation below
  * exists because the body that breaks it produces a recommendation that looks
@@ -718,7 +718,7 @@ test("a request that survives every check answers 200 with the entries", async (
 
 test("compare: false asks what the workbook holds and never runs the expensive call", async () => {
   /*
-   * Checkpoint 3's "yes, I have a newer konfigurasi" reads a workbook to learn
+   * Input EPIC's "yes, I have a newer konfigurasi" reads a workbook to learn
    * its isian; EPIC is then judged against those, and the SCANS have nothing to
    * do with that question. Without the flag this route interpreted and then ran
    * the comparison anyway -- the one call carrying the whole run's page

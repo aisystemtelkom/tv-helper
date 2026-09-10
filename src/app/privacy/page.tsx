@@ -38,7 +38,7 @@
  *     `/api/ocr`, which forwards it to the Gemini API for text recognition.
  *   - Finding a field inside those pages is text only: numbered OCR lines go
  *     up, a line range comes back.
- *   - THE ORDER-CONFIGURATION WORKBOOK DOES NOT LEAVE EITHER. Checkpoint 2
+ *   - THE ORDER-CONFIGURATION WORKBOOK DOES NOT LEAVE EITHER. Konfig Excel
  *     opens the `.xlsx` in the tab (`src/lib/xlsx/read.ts` over `jszip`) and
  *     sends only each cell's TEXT and its ADDRESS; the amended workbook is
  *     patched back into the operator's own bytes on the device. That is the
@@ -142,7 +142,7 @@ export const metadata = {
 };
 
 /** When this policy was last revised. */
-const UPDATED = "9 September 2026";
+const UPDATED = "10 September 2026";
 
 const CONTACT = "aisystemtelkom@gmail.com";
 
@@ -467,7 +467,7 @@ export default function PrivacyPage() {
                   Ketiga, isi sel berkas konfigurasi untuk dicocokkan dengan
                   dokumen.
                 </strong>{" "}
-                Berkas konfigurasi (.xlsx) yang Anda muat di Checkpoint 2 tidak
+                Berkas konfigurasi (.xlsx) yang Anda muat di langkah Konfig Excel tidak
                 diunggah. Berkas itu dibuka di dalam peramban Anda, dan yang
                 dikirim hanyalah teks setiap sel beserta alamat selnya
                 (misalnya <Code>E9</Code>). Jawaban yang kembali berupa alamat
@@ -478,7 +478,7 @@ export default function PrivacyPage() {
                 <strong>
                   Keempat, tangkapan layar EPIC untuk pengenalan teks.
                 </strong>{" "}
-                Tangkapan layar yang Anda muat di Checkpoint 3 dikirim sebagai
+                Tangkapan layar yang Anda muat di langkah Input EPIC dikirim sebagai
                 gambar ke server aplikasi ini, lalu diteruskan ke Google Gemini
                 API untuk dibaca teksnya, dengan cara yang sama seperti gambar
                 halaman. Kirimkan hanya tangkapan layar yang memang perlu
@@ -595,12 +595,12 @@ export default function PrivacyPage() {
                 </p>
                 <p>
                   Two later checks add to that list. The order-configuration
-                  workbook you load at Checkpoint 2 is <em>not</em> uploaded: it
+                  workbook you load at the Konfig Excel step is <em>not</em> uploaded: it
                   is opened in your browser and only each cell&apos;s text and
                   its address (<Code>E9</Code>) are sent, with cell addresses and
                   suggested values coming back; the updated workbook is rebuilt
                   on your device from your own original file. The EPIC screen
-                  captures you load at Checkpoint 3 <em>are</em> sent as images,
+                  captures you load at the Input EPIC step <em>are</em> sent as images,
                   the same way a rendered page image is, so that their text can
                   be recognised.
                 </p>

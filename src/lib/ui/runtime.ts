@@ -127,7 +127,7 @@ export {
 export type { SectionEdit } from "../browser/sections.ts";
 
 /**
- * ONE OPERATOR GESTURE AT CHECKPOINT 2 OR CHECKPOINT 3, as a value.
+ * ONE OPERATOR GESTURE AT KONFIG EXCEL OR INPUT EPIC, as a value.
  *
  * Type-only and from the leaf module, exactly as `SectionEdit` above is and for
  * the same reason: a screen names the edit it is about to make without pulling
@@ -213,13 +213,13 @@ export type Runtime = {
    */
   editSections(runId: string, edit: SectionEdit): Promise<BrowserRun>;
   /**
-   * One edit to this order's CHECKPOINT 2 state: the workbook it was handed,
+   * One edit to this order's KONFIG EXCEL state: the workbook it was handed,
    * what the scans said about each isian, and what the operator ruled.
    *
    * IT TAKES AN EDIT AND NOT A RUN, on `editSections`' argument exactly. A
    * screen holds a `BrowserRun` for as long as the operator is looking at it,
    * an ingest advances the revision once per page across minutes, and
-   * Checkpoint 2 is a screen of amber rows the operator works down while the
+   * Konfig Excel is a screen of amber rows the operator works down while the
    * tool is still busy -- so `saveRun({ ...run, konfigurasi: next })` is
    * refused as stale on the ordinary path, not on a corner case.
    *

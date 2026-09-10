@@ -1,5 +1,5 @@
 /**
- * Offline tests for Checkpoint 3: what EPIC's screen shows, judged against the
+ * Offline tests for Input EPIC: what EPIC's screen shows, judged against the
  * workbook. No API call, no credential, no screenshot -- the stage takes its
  * `Ask` injected and its captures are plain objects, so every rule is drivable
  * with invented text.
@@ -53,7 +53,7 @@ function capture(id: string, texts: string[]): EpicCapture {
   };
 }
 
-/** The two refs are irrelevant here: Checkpoint 3 never writes a cell. */
+/** The two refs are irrelevant here: Input EPIC never writes a cell. */
 function field(
   id: string,
   label: string,
@@ -526,7 +526,7 @@ test("with no field to judge against there is no yardstick, so no call is made",
   const entries = await compareToEpic({ fields: [], captures: SCREENS, ask });
 
   assert.deepEqual(entries, []);
-  assert.deepEqual(prompts, [], "a workbook with no fields is a Checkpoint 2 that did not happen");
+  assert.deepEqual(prompts, [], "a workbook with no fields is a Konfig Excel that did not happen");
 });
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 /**
- * `/api/epic`: CHECKPOINT 3. Does what the operator's EPIC screen shows agree
- * with the workbook Checkpoint 2 settled?
+ * `/api/epic`: INPUT EPIC. Does what the operator's EPIC screen shows agree
+ * with the workbook Konfig Excel settled?
  *
- * THE YARDSTICK HAS SWAPPED, and reading this as Checkpoint 2 one route over is
+ * THE YARDSTICK HAS SWAPPED, and reading this as Konfig Excel one route over is
  * the mistake to avoid. There the scans judge the workbook; here the workbook
  * judges EPIC. So `fields` arrives already interpreted and already amended --
  * `effectiveFields` in `src/lib/config/effective.ts` applies the operator's
@@ -13,7 +13,7 @@
  *
  * A capture is a screenshot: bytes, a width and a height. None of that reaches
  * this route. The browser posts each PNG to `/api/ocr`, which already takes raw
- * page images, and sends the LINES it got back here. So Checkpoint 3 -- a whole
+ * page images, and sends the LINES it got back here. So Input EPIC -- a whole
  * checkpoint whose input is screenshots -- adds no second image path to this
  * app, and AGENTS.md's "only the OCR stage sends images" survives it by
  * construction rather than by care. `compareToEpic`'s `Ask` is

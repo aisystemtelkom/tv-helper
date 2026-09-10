@@ -1,5 +1,5 @@
 /**
- * DECISIONS TURNED INTO CELLS, and into the sheet Checkpoint 3 is judged
+ * DECISIONS TURNED INTO CELLS, and into the sheet Input EPIC is judged
  * against. No model, no network, no React: arithmetic over one order's
  * `ConfigCheck`, and nothing else.
  *
@@ -8,13 +8,13 @@
  * Two things downstream need to know what a field is worth once the operator
  * has ruled on it. `pendingEdits` produces the cells `patchWorkbook` writes
  * into the operator's own bytes, and `effectiveFields` produces the field list
- * Checkpoint 3 measures EPIC against when the operator answers `lanjutkan`
+ * Input EPIC measures EPIC against when the operator answers `lanjutkan`
  * (`EpicBasis` in `types.ts`: no newer workbook exists, so judge against
- * Checkpoint 2's own output). Both are `effectiveValue` applied entry by entry.
+ * Konfig Excel's own output). Both are `effectiveValue` applied entry by entry.
  *
  * A SECOND ANSWER TO "what does this field say now" IS THE FAILURE THIS MODULE
  * IS SHAPED TO PREVENT, and it would be a quiet one: the download would carry
- * one value, Checkpoint 3 would judge EPIC against another, and every verdict
+ * one value, Input EPIC would judge EPIC against another, and every verdict
  * on that field would be confidently wrong about a workbook the operator has
  * open in front of them. Nothing crashes, nothing is missing, and a human signs
  * it. So the rule is written once, and the summaries count this function's
@@ -116,7 +116,7 @@ export function pendingEdits(check: ConfigCheck): CellEdit[] {
 }
 
 /**
- * The workbook as it stands after every decision: Checkpoint 3's yardstick.
+ * The workbook as it stands after every decision: Input EPIC's yardstick.
  *
  * Ids and both addresses ride through untouched. `id` is what an `EpicEntry`
  * points at, and `labelRef`/`valueRef` are what a screen uses to say where in
@@ -128,7 +128,7 @@ export function pendingEdits(check: ConfigCheck): CellEdit[] {
  * `basis: "baru"`, where the operator handed over a newer workbook and it was
  * interpreted afresh; `lanjutkan` reads this instead. Storing it would be
  * storing the same decisions twice, and the copies would part company the
- * moment an operator changed a decision after Checkpoint 3 had begun -- with
+ * moment an operator changed a decision after Input EPIC had begun -- with
  * the stale copy being the one EPIC was judged against, and no screen able to
  * show the difference.
  */
@@ -173,7 +173,7 @@ export type ConfigSummary = {
 };
 
 /**
- * The counts a Checkpoint 2 screen reads, computed in one pass.
+ * The counts a Konfig Excel screen reads, computed in one pass.
  *
  * `edits` is `pendingEdits(check).length` rather than a fifth counter, because
  * "how many cells will the download write" must be the same question the
@@ -230,7 +230,7 @@ export type EpicSummary = {
 };
 
 /**
- * The same counts for Checkpoint 3, where the yardstick has swapped: there the
+ * The same counts for Input EPIC, where the yardstick has swapped: there the
  * scans judged the workbook, here the workbook judges EPIC.
  *
  * `owed` KEEPS THE SAME RULE -- `beda` and `belum` -- so the amber mark means
@@ -242,9 +242,9 @@ export type EpicSummary = {
  * finding to read, and it is exactly the finding the client asked for by name.
  *
  * NO `edits` AND NO `canResearch` HERE, and both absences are the contract.
- * The one re-search is Checkpoint 2's budget and lives on `ConfigCheck`, and
- * Checkpoint 3 writes no workbook: the download is Checkpoint 2's output, and
- * what Checkpoint 3 produces is the summary list itself.
+ * The one re-search is Konfig Excel's budget and lives on `ConfigCheck`, and
+ * Input EPIC writes no workbook: the download is Konfig Excel's output, and
+ * what Input EPIC produces is the summary list itself.
  */
 export function epicSummary(check: EpicCheck): EpicSummary {
   let cocok = 0;

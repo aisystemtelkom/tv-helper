@@ -262,13 +262,27 @@ function topIsVisible(element: Element, offset: number): boolean {
  * mid-plate with no idea which section they were in. A `ResizeObserver` costs
  * nothing and cannot drift from the header it is measuring.
  */
+/**
+ * The page's sticky application strip, or null when there is none.
+ *
+ * EXPORTED, AND THAT IS THE POINT. The shell needs the same answer at the
+ * moment it scrolls Berkas Order to one of its two sections, and a second copy
+ * of "which header is the sticky one" is a rule that can drift from this one:
+ * the day the strip changes shape, one of the two would park a kop under it.
+ */
+export function stickyHeader(): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll("header")).find(
+      (element) => getComputedStyle(element).position === "sticky",
+    ) ?? null
+  );
+}
+
 function useStickyOffset(): number {
   const [offset, setOffset] = useState(96);
 
   useEffect(() => {
-    const header = Array.from(document.querySelectorAll("header")).find(
-      (element) => getComputedStyle(element).position === "sticky",
-    );
+    const header = stickyHeader();
     // The observer is the only thing that writes the offset, including the
     // first time: `ResizeObserver` delivers a measurement as soon as it starts
     // observing, so the effect body itself never sets state. With no sticky

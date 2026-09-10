@@ -1,5 +1,5 @@
 /**
- * Tests for the CHECKPOINT 2 / CHECKPOINT 3 EDIT ENGINE:
+ * Tests for the KONFIG EXCEL / INPUT EPIC EDIT ENGINE:
  * `src/lib/browser/config.ts`.
  *
  * ## What is actually at risk here
@@ -253,8 +253,8 @@ test("an isian and an EPIC finding cannot answer to one id", () => {
     configEntryId(entry(both)),
     epicEntryId(epicEntry({ fieldId: both })),
   );
-  // And the two sentinels are in the same two namespaces, so a Checkpoint 2
-  // budget and a Checkpoint 3 answer cannot be spent on each other either.
+  // And the two sentinels are in the same two namespaces, so a Konfig Excel
+  // budget and a Input EPIC answer cannot be spent on each other either.
   assert.notEqual(CONFIG_RESEARCHED_ID, EPIC_BASIS_ID);
   for (const id of [CONFIG_RESEARCHED_ID, EPIC_BASIS_ID]) {
     assert.notEqual(id, configEntryId(entry(both)));
@@ -740,7 +740,7 @@ test("marking the re-search spent is idempotent and one-way", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Checkpoint 3: which workbook EPIC is judged against
+// 6. Input EPIC: which workbook EPIC is judged against
 // ---------------------------------------------------------------------------
 
 test("answering lanjutkan sets the basis and keeps the captures", () => {
@@ -774,12 +774,12 @@ test("answering baru stores the newer workbook and its fields", () => {
 test("a basis without its yardstick, and a yardstick without its basis, are both refused", () => {
   const before = run();
 
-  // "There is a newer one" with nothing supplied leaves Checkpoint 3 with no
+  // "There is a newer one" with nothing supplied leaves Input EPIC with no
   // yardstick at all, and the state that means that is `belum`.
   assert.throws(() => setEpicBasis(before, "baru"), ConfigEditError);
   assert.throws(() => setEpicBasis(before, "baru", { ...WORKBOOK_2, digest: "" }), ConfigEditError);
 
-  // Under "lanjutkan" the fields come from Checkpoint 2 with every accepted
+  // Under "lanjutkan" the fields come from Konfig Excel with every accepted
   // edit applied (`effectiveFields`), so a second copy stored here would give
   // the order two answers that can disagree.
   assert.throws(() => setEpicBasis(before, "lanjutkan", WORKBOOK_2), ConfigEditError);
@@ -812,9 +812,9 @@ test("forgetting the answer to the question is a loss of its own", () => {
   /*
    * `belum` is not a third option the operator picks; it is the state before
    * they have been asked. A write that puts it back does not merely re-ask the
-   * question: while it stands, Checkpoint 3 has no yardstick, and the repair a
+   * question: while it stands, Input EPIC has no yardstick, and the repair a
    * hurried operator reaches for is "lanjutkan" -- which judges EPIC against
-   * Checkpoint 2's workbook whether or not that is the one they meant.
+   * Konfig Excel's workbook whether or not that is the one they meant.
    */
   const before = run({ epic: { ...emptyEpicCheck(), basis: "lanjutkan" } });
 

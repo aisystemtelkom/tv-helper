@@ -1,7 +1,7 @@
 /**
  * WHAT THIS FILE PROTECTS: a workbook that reads as complete and is wrong.
  *
- * Everything Checkpoint 2 does rests on `readWorkbook` having reported what is
+ * Everything Konfig Excel does rests on `readWorkbook` having reported what is
  * actually in the operator's file. A sheet silently dropped, a rich-text label
  * truncated at its first run, a date serial handed over as the number 46255 --
  * none of those crash, and every one of them ends as a recommendation to
@@ -626,7 +626,7 @@ test("a shared-string cell with no stored value is EMPTY, not shared string zero
   // the guard both cells below resolve to the FIRST entry of the shared table:
   // another cell's text, standing in a cell that is actually empty, with
   // nothing anywhere looking wrong. An empty text-formatted cell is ordinary
-  // in these workbooks, and it is exactly the cell Checkpoint 2 exists to
+  // in these workbooks, and it is exactly the cell Konfig Excel exists to
   // offer a value for -- so reading it as already holding one is the whole
   // failure.
   const bytes = await oneSheet(

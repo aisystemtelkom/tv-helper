@@ -251,7 +251,7 @@ export type Stage =
   | "verify"
   | "continuation"
   /**
-   * CHECKPOINT 2: reading the operator's EPIC order-configuration workbook and
+   * KONFIG EXCEL: reading the operator's EPIC order-configuration workbook and
    * checking every field of it against the scans.
    *
    * TWO QUESTIONS, ONE ROW, and the merge is deliberate where `sections` split.
@@ -263,12 +263,12 @@ export type Stage =
    * question a deployment actually asks before turning the checkpoint on.
    *
    * IT IS BILLED PER WORKBOOK, NOT PER RUN. An order that never reaches
-   * Checkpoint 2 spends nothing here, and the row reads zero rather than
+   * Konfig Excel spends nothing here, and the row reads zero rather than
    * absent, which is the distinction `formatLedger` already draws.
    */
   | "config"
   /**
-   * CHECKPOINT 3: checking the operator's EPIC screen captures against the
+   * INPUT EPIC: checking the operator's EPIC screen captures against the
    * workbook.
    *
    * ITS OWN ROW RATHER THAN FOLDED INTO `config`, for the reason `sections` is

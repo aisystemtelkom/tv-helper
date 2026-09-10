@@ -1,5 +1,5 @@
 /**
- * CHECKPOINT 3: does the EPIC system's own screen show what the workbook says?
+ * INPUT EPIC: does the EPIC system's own screen show what the workbook says?
  *
  * ## THE YARDSTICK IS THE WORKBOOK HERE, NOT THE SCANS
  *
@@ -7,7 +7,7 @@
  * way is the mistake a later reader will make. The two stages run one after the
  * other, both answer once per field, and both spell their verdicts `cocok`,
  * `beda` and `tidak-ditemukan`. WHICH SIDE IS BEING JUDGED HAS SWAPPED. At
- * Checkpoint 2 the scanned documents are the evidence and the workbook is the
+ * Konfig Excel the scanned documents are the evidence and the workbook is the
  * claim, so `beda` means the sheet is wrong and the recommendation is an edit
  * to a cell. Here the workbook is the evidence and the EPIC screen is the
  * claim, so `beda` means the SCREEN is wrong and the recommendation is
@@ -282,7 +282,7 @@ function citationFor(
  * Every field, unchecked, with one sentence saying why.
  *
  * NOT AN EMPTY LIST, which is what a caller would otherwise hand the panel: an
- * order with no entries reads as "Checkpoint 3 has not run yet", and an order
+ * order with no entries reads as "Input EPIC has not run yet", and an order
  * whose entries all say `tidak-ditemukan` with no captures reads as what it is.
  * The distinction is the one AGENTS.md draws between `OUTSTANDING` and
  * `MANUAL`, and between `tidak ditemukan` and `belum digambar`: "we looked and
@@ -637,7 +637,7 @@ function leftoverEntry(
 }
 
 /**
- * Checkpoint 3, end to end: one call, one entry per field, plus the leftovers.
+ * Input EPIC, end to end: one call, one entry per field, plus the leftovers.
  *
  * TWO CASES BUY A LIST RATHER THAN A PROMPT, and both are about not spending a
  * call to be told nothing:
@@ -652,7 +652,7 @@ function leftoverEntry(
  *    forty `tidak-ada-di-excel` rows is a transcription of the screenshot
  *    rather than a finding, bought at model prices and paid for again in the
  *    operator's decisions. A workbook that interpreted into no fields is a
- *    Checkpoint 2 that did not happen, and that is where it has to be fixed.
+ *    Konfig Excel that did not happen, and that is where it has to be fixed.
  *
  * Errors are NOT caught. A provider failure propagates to the caller, which is
  * the boundary rule `locateSlots`' header states at length: pipeline code takes

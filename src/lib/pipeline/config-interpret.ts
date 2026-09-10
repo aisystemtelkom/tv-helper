@@ -1,7 +1,7 @@
 /**
  * READING THE OPERATOR'S OWN WORKBOOK: which of its cells are fields?
  *
- * Checkpoint 2 checks an EPIC order-configuration workbook against the scans.
+ * Konfig Excel checks an EPIC order-configuration workbook against the scans.
  * Before anything can be compared, something has to say what the workbook
  * CONTAINS -- which cell names a field and which cell holds that field's value
  * -- and nothing in the file says so. There is no schema, no named range and no
@@ -47,7 +47,7 @@
  * The single easiest rule here to "tighten" into a bug. A `valueRef` naming a
  * cell that holds nothing is absent from `Sheet.byRef` entirely, because the
  * reader keeps only non-empty cells -- and an empty cell EPIC expects filled is
- * exactly what Checkpoint 2 exists to fill from the scans. So a `valueRef` is
+ * exactly what Konfig Excel exists to fill from the scans. So a `valueRef` is
  * required to be an ADDRESS INSIDE THE SHEET and is NOT required to be a cell
  * that exists. A `labelRef` is the opposite: an empty cell has no field name
  * standing in it to have been read, so it must be a real, non-blank cell.
@@ -566,7 +566,7 @@ export function validateInterpretation(
       // READ OUT OF THE GRID, NEVER OUT OF THE REPLY. The model is not asked
       // what a cell says and could not be believed if it were; `""` is a real
       // state here and means the cell is empty or absent, which is the case
-      // Checkpoint 2 exists to fill.
+      // Konfig Excel exists to fill.
       excelValue: sheet.byRef.get(field.valueRef)?.text ?? "",
       // `undefined` rather than `""`, so `ConfigField.group` is absent exactly
       // when there is no row to name and a UI can branch on its presence.

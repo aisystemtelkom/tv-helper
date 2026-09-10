@@ -39,7 +39,7 @@ order-request reader, the `answered` parameter on `/api/extract` that only that
 reader produced, the browser's second download plate, the attachment path's
 spreadsheet converter, and the `exceljs` dependency itself.
 
-**What Checkpoint 2 does instead is not that.** The operator hands over the EPIC
+**What Konfig Excel does instead is not that.** The operator hands over the EPIC
 order-configuration workbook they already have; the tool reads it, checks every
 field of it against the scans, and offers back **their own file with named cells
 amended**. It never authors a workbook, never decides its structure, and never
@@ -84,7 +84,7 @@ fills a cell nobody ruled on.
   than overlooked.
 - `Konfigurasi (Excel dari EPIC)` is a JUDUL of the packet -- a whole-page
   capture of the client's own EPIC screen -- and is still unrelated to any of
-  this. It is evidence in the DOKUMEN VALIDASI; Checkpoint 2's workbook is an
+  this. It is evidence in the DOKUMEN VALIDASI; Konfig Excel's workbook is an
   input to a different check. Do not merge them.
 
 **`pnpm dev` now serves the OPERATOR UI, not the chat.** `src/app/page.tsx`
@@ -841,7 +841,7 @@ READ, and both halves of that sentence are load-bearing.
 - **Use `Packer.toArrayBuffer`, not `toBuffer`.** `toBuffer` asks JSZip for a
   "nodebuffer", which throws in a browser with no `Buffer` polyfill, and this
   pipeline is meant to run in the browser.
-- **Never add a spreadsheet library**, and note that Checkpoint 2 shipping
+- **Never add a spreadsheet library**, and note that Konfig Excel shipping
   `.xlsx` support did NOT relax this. Not `exceljs`, and not `xlsx` (SheetJS).
   See "THE PROGRAM NEVER AUTHORS A SPREADSHEET, AND NOW AMENDS ONE" above;
   SheetJS is additionally frozen on npm at 0.18.5 with two unpatched HIGH
@@ -1023,27 +1023,39 @@ rule, and a never-searched capture draws a third, different silhouette.
 already refuses stale and page-losing writes and the operator previously had no
 signal that a decision reached disk.
 
-**The flow is FIVE phases**: `1 Muat`, `2 Periksa`, `3 Checkpoint 1`,
-`4 Checkpoint 2`, `5 Checkpoint 3`. It was three until the client's instruction
-of 2026-09-09 renamed `Berkas` and added two checks after it; this paragraph
-said "three phases, not four" for the sensible reason that `Tambahan` had been
-folded into Periksa, and that half is still true. The search runs from Muat, and
-Periksa is gated until it has run. The tambahan loop is not a phase: it is the
-head of Periksa, and answering "yes" opens the ingest drop in a dialog.
+**The flow is FOUR steps**: `1 Berkas Order`, `2 Checkpoint`, `3 Konfig Excel`,
+`4 Input EPIC`. The names are the client's, given 2026-09-10 after a one-day
+detour through "Checkpoint 1/2/3", and they are proper nouns for stages of their
+process: do not translate them, and do not number them.
 
-- **`3 Checkpoint 1`** is the old `Berkas` under the client's own word for it.
-  What it does did not change: it builds and hands over the DOKUMEN VALIDASI.
-- **`4 Checkpoint 2`** takes the operator's EPIC order-configuration workbook,
+- **`1 Berkas Order` is Muat and Periksa on ONE page.** The upload section is
+  drawn first; the whole lembar periksa is drawn below it once the reading pass
+  has run, with both halves exactly the components they were (`IngestPanel`
+  above, `ContactSheet` below). `hasBeenSearched` is the gate that used to lock
+  Periksa, so the review appears at the moment that step used to open. The
+  upload section stays above it, because a dokumen tambahan is part of
+  reviewing. **There is no `ingest` phase id any more, deliberately:** a
+  leftover `phase === "ingest"` is a compile error rather than a dead branch.
+  Jumps that used to be phase changes ("Tambah dokumen", "Kembali ke lembar
+  periksa") are now SCROLLS to a section of the one page, measured against the
+  sticky strip with the same `stickyHeader()` the contact sheet uses. An order
+  already read still opens at its review, which is what `landingPhase`'s
+  "mid-flow if it can be" became. The tambahan loop is still the head of the
+  lembar periksa, and an ingest fault is printed once, in the upload section,
+  never also beside the sheet.
+- **`2 Checkpoint`** is the old `Berkas`. What it does did not change: it builds
+  and hands over the DOKUMEN VALIDASI.
+- **`3 Konfig Excel`** takes the operator's EPIC order-configuration workbook,
   checks every isian in it against the scans, and hands back THEIR OWN FILE with
   the cells they approved amended. See "THE PROGRAM NEVER AUTHORS A
   SPREADSHEET" above before touching any of it.
-- **`5 Checkpoint 3`** takes screen captures of EPIC itself and checks them
+- **`4 Input EPIC`** takes screen captures of EPIC itself and checks them
   against that workbook, and produces a ringkasan rather than a file.
 
-**NEITHER NEW CHECKPOINT IS IN `pnpm generate`, DELIBERATELY**, and this follows
+**NEITHER KONFIG EXCEL NOR INPUT EPIC IS IN `pnpm generate`, DELIBERATELY**, and this follows
 the precedent this file already records twice. Discovery ships the detection
 half only and continuations are found but never cropped, both because a headless
-run has NO OPERATOR TO REJECT ANYTHING. Checkpoint 2 is nothing but a queue of
+run has NO OPERATOR TO REJECT ANYTHING. Konfig Excel is nothing but a queue of
 recommendations a person approves or rejects one at a time, so a headless
 version of it would either write an unreviewed workbook -- amending the
 operator's own file from a model's answer, silently -- or write nothing and only
@@ -1257,9 +1269,9 @@ src/lib/pipeline/abbrev.ts     do two spellings denote one thing (see gotchas)
 src/lib/pipeline/json.ts       the one extractJson every model reply goes through
 src/lib/pipeline/config-interpret.ts  what isian does this workbook hold; every
                                cited address checked against the real grid
-src/lib/pipeline/config-compare.ts    Checkpoint 2: does each isian agree with
+src/lib/pipeline/config-compare.ts    Konfig Excel: does each isian agree with
                                the scans (one call carries every field)
-src/lib/pipeline/epic-compare.ts      Checkpoint 3: does EPIC agree with the
+src/lib/pipeline/epic-compare.ts      Input EPIC: does EPIC agree with the
                                workbook. THE YARDSTICK IS THE OTHER WAY ROUND
 src/lib/export/png.ts          dependency-free PNG encoder
 src/lib/export/crop.ts         sub-rectangle out of a rendered page
@@ -1272,7 +1284,7 @@ src/lib/xlsx/write.ts          named cells patched inside the operator's OWN
                                bytes, and VERIFIED after patching
 src/lib/xlsx/listing.ts        the sheet as the text a model reads, addresses
                                and all: buildLocatePrompt's device, for cells
-src/lib/config/types.ts        Checkpoint 2 and 3 as data; the contract
+src/lib/config/types.ts        Konfig Excel and Input EPIC as data; the contract
 src/lib/config/effective.ts    decisions -> the cells the download writes
 
 src/lib/browser/runtime.ts     THE browser-runtime surface; everything else

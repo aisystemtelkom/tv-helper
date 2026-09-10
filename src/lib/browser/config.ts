@@ -1,5 +1,5 @@
 /**
- * THE CHECKPOINT 2 / CHECKPOINT 3 EDIT ENGINE: one operator gesture, expressed
+ * THE KONFIG EXCEL / INPUT EPIC EDIT ENGINE: one operator gesture, expressed
  * as a VALUE, applied to a run.
  *
  * ITS OWN MODULE, PURE, for the reason `sections.ts`, `captures.ts`,
@@ -22,7 +22,7 @@
  * A `ConfigEdit` has no revision. It is applied to whatever is STORED at the
  * moment the lock is taken, so a decision queued behind an ingest is a queued
  * write instead of a refused one. That is the same argument `sections.ts`
- * makes, and it bites harder here: Checkpoint 2 is a screen of eleven or twenty
+ * makes, and it bites harder here: Konfig Excel is a screen of eleven or twenty
  * amber rows and the operator works down it while the tool is still busy.
  *
  * ## WHAT EVERY EDIT OWES THE STORAGE LAYER
@@ -138,7 +138,7 @@ export type EpicEdit =
     };
 
 /**
- * One Checkpoint 2 gesture, applied to one run.
+ * One Konfig Excel gesture, applied to one run.
  *
  * PURE, AND ALWAYS A NEW RUN OBJECT when anything changed. The stored run is
  * never mutated: `editConfig` reads it inside the lock and hands the result to
@@ -161,7 +161,7 @@ export function applyConfigEdit(
   }
 }
 
-/** One Checkpoint 3 gesture, applied to one run. Same rules as above. */
+/** One Input EPIC gesture, applied to one run. Same rules as above. */
 export function applyEpicEdit(
   run: BrowserRun,
   edit: EpicEdit,
@@ -405,7 +405,7 @@ export function checkpointFileIds(run: BrowserRun): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Checkpoint 2
+// Konfig Excel
 // ---------------------------------------------------------------------------
 
 /**
@@ -579,12 +579,12 @@ export function markResearched(run: BrowserRun): ConfigEditResult {
 }
 
 // ---------------------------------------------------------------------------
-// Checkpoint 3
+// Input EPIC
 // ---------------------------------------------------------------------------
 
 /**
  * The operator's answer to "has the workbook been updated again since
- * Checkpoint 2", and the newer workbook if there is one.
+ * Konfig Excel", and the newer workbook if there is one.
  *
  * ## THE ANSWER IS STORED BECAUSE THE SILENT DEFAULT IS THE FAILURE
  *
@@ -620,14 +620,14 @@ export function setEpicBasis(
     if (!workbook?.id || !workbook.digest || !workbook.sheet) {
       throw new ConfigEditError(
         'set-basis "baru": the operator said there is a newer workbook, so ' +
-          "one has to be supplied. Without it Checkpoint 3 has no yardstick " +
+          "one has to be supplied. Without it Input EPIC has no yardstick " +
           "at all, and the state that means that is `belum`.",
       );
     }
   } else if (workbook !== undefined || fields !== undefined) {
     throw new ConfigEditError(
       `set-basis "${basis}": a workbook belongs to "baru" alone. Under ` +
-        '"lanjutkan" the fields come from Checkpoint 2 with every accepted ' +
+        '"lanjutkan" the fields come from Konfig Excel with every accepted ' +
         "edit applied (`effectiveFields`), and storing a second copy here " +
         "would give the order two answers that can disagree.",
     );

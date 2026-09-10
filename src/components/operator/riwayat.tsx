@@ -210,7 +210,7 @@ export function RiwayatScreen() {
               <p className="lt-note">Memuat riwayat.</p>
             ) : ordered.length === 0 ? (
               <p className="lt-note">
-                Belum ada order tersimpan. Menaruh berkas PDF di langkah Muat
+                Belum ada order tersimpan. Menaruh berkas PDF di langkah Berkas Order
                 akan memulai satu.
               </p>
             ) : shown.length === 0 ? (

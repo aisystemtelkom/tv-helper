@@ -44,7 +44,7 @@
  *    label" -- the whole content of the answer -- is gone. The gap marker names
  *    the empty addresses it stands for, which is a second, deliberate gain: a
  *    `ConfigField.valueRef` is allowed to point at an EMPTY cell, because an
- *    empty cell EPIC expects filled is exactly what Checkpoint 2 is for, and a
+ *    empty cell EPIC expects filled is exactly what Konfig Excel is for, and a
  *    model that has never been shown that address cannot cite it. A row is
  *    padded out to the sheet's last column for that reason and no other; see
  *    `renderRow`, and note that layout 1 puts its VALUE column last, so the
@@ -80,7 +80,7 @@ import { formatRef, type Cell, type Sheet } from "./grid.ts";
  * 159** non-empty cells (35x5, 4x16 and 6x40). 4000 is 25x the largest of
  * them, so on a real workbook this never fires and the listing is complete.
  * What it stops is one pathological sheet -- an export with a hundred thousand
- * styled-but-meaningless cells, a pasted CSV dump -- turning one Checkpoint 2
+ * styled-but-meaningless cells, a pasted CSV dump -- turning one Konfig Excel
  * into a bill nobody authorised.
  *
  * The number is also the right order for the cost the listing sits in. At the
@@ -220,7 +220,7 @@ function rowGap(fromRow: number, toRow: number): string {
  * a `ConfigField.valueRef` of `E7` is then an address the model was never
  * shown. It would have to invent it, which is the one thing this whole file is
  * built to make impossible, and an unfilled cell EPIC expects filled is not an
- * edge case here: it is exactly what Checkpoint 2 exists to catch.
+ * edge case here: it is exactly what Konfig Excel exists to catch.
  *
  * No LEADING marker is emitted for the same situation on the other side,
  * because there is nothing to state: an address carries its own column, so a
@@ -334,7 +334,7 @@ export function sheetListing(sheet: Sheet): string {
  * Would `sheetListing` leave something out?
  *
  * THIS EXISTS SO THE OPERATOR CAN BE TOLD, and that is the whole point of it.
- * A truncated listing compared against the scans produces a Checkpoint 2 that
+ * A truncated listing compared against the scans produces a Konfig Excel that
  * opens cleanly, lists a screenful of fields, and is silently a comparison of a
  * FRACTION of their workbook -- every field past the cut reported as neither
  * matching nor mismatching, because it was never seen. That reads to a person

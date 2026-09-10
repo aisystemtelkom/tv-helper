@@ -204,7 +204,7 @@ test("a row with A, then D, then AN does not read as three adjacent cells", () =
 
 test("a single empty column is named by its own address, so a value cell nobody has filled can still be cited", () => {
   // `ConfigField.valueRef` is allowed to point at an EMPTY cell -- an empty
-  // cell EPIC expects filled is exactly what Checkpoint 2 exists to catch --
+  // cell EPIC expects filled is exactly what Konfig Excel exists to catch --
   // and a model that has never been shown an address cannot answer with it.
   const listing = sheetListing(sheet("Kosong", { C4: "Alamat", E4: "" }));
 

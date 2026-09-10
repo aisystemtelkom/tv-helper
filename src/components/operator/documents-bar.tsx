@@ -300,11 +300,11 @@ export function DocumentsBar({
                       said rather than left to be guessed at. Removing it would
                       leave an order with no pages, which is not a state
                       worth building screens for: "Mulai order lain" on
-                      Muat is that, and it also frees the disk. */}
+                      Berkas Order is that, and it also frees the disk. */}
                   {documents === 1 && !busy ? (
                     <p className="lt-note">
                       Dokumen terakhir tidak bisa dihapus. Pakai{" "}
-                      <b>Mulai order lain</b> di langkah Muat.
+                      <b>Mulai order lain</b> di langkah Berkas Order.
                     </p>
                   ) : null}
 

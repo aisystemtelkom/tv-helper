@@ -416,7 +416,7 @@ test("withSourceAi writes one boolean and returns identity when it already says 
 });
 
 // ---------------------------------------------------------------------------
-// Checkpoint 2's citations are positions in `pages` too
+// Konfig Excel's citations are positions in `pages` too
 // ---------------------------------------------------------------------------
 
 /** One konfigurasi entry citing a run-global page, with a ruling already made. */
@@ -444,7 +444,7 @@ function isian(
   };
 }
 
-test("removing a berkas renumbers Checkpoint 2's citations through the same map", () => {
+test("removing a berkas renumbers Konfig Excel's citations through the same map", () => {
   // The defect this pins was invisible without it: `removeSource` moved every
   // zone and every overlay page and left `ConfigCitation.pageIndex` alone, so
   // an operator checking a recommendation was shown a page from a different
@@ -494,6 +494,6 @@ test("a removal that moves no citation returns the konfigurasi object itself", (
   assert.equal(
     next.konfigurasi,
     held,
-    "identity, so an order that never reached Checkpoint 2 is not rewritten",
+    "identity, so an order that never reached Konfig Excel is not rewritten",
   );
 });

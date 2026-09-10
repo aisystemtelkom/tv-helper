@@ -257,7 +257,7 @@ type Zoom = "page" | "column" | "double";
  * How the page image is sized inside the frame, per zoom step.
  *
  * Two words at most: these are settings, not sentences. None of them may
- * borrow "muat" or "satu halaman": "Muat" is the name of the ingest phase and
+ * borrow "muat" or "satu halaman": "Muat" names the upload section of Berkas Order and
  * "tangkapan satu halaman" is the whole-page CAPTURE, so either word here
  * would read as an action on the document instead of on the view.
  */

@@ -1,5 +1,5 @@
 /**
- * Offline tests for Checkpoint 2's comparison. No API call, no credential, no
+ * Offline tests for Konfig Excel's comparison. No API call, no credential, no
  * PDF: the stage takes its `Ask` injected and its pages are plain objects, so
  * every rule -- what survives, what is refused, and what an operator is told
  * when the model says something untrue -- is drivable with invented text.

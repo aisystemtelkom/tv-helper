@@ -87,7 +87,7 @@ improvise a synonym.
 | the AI may propose out of this berkas | **dibaca AI** | THE DEFAULT FOR EVERY BERKAS, and a berkas nobody has decided anything about wears it. The key that carries it is selected and petrol, never amber: no decision is owed here |
 | the AI may not propose out of this berkas | **tanpa AI** | NEVER "gagal", never "dilewati", never "tidak ditemukan". The berkas IS still read -- every halaman is rendered, recognised, counted and drawn as a denah, and the operator can still cut a potongan out of it by hand and cite its baris. What stops is the model proposing. The sentence that rides under it says the doing half first: "Halaman berkas ini tetap terbaca dan bisa Anda potong sendiri, tapi AI tidak mencari apa pun di dalamnya." A bagian in such an order is still honestly **belum dicari** or **tidak ditemukan**; the fence is reported once, by name, at the head of the lembar periksa, and steals none of those words |
 
-## Checkpoint 2 and Checkpoint 3
+## Konfig Excel and Input EPIC
 
 The words the konfigurasi checks added. `konfigurasi` is the operator's EPIC
 order-configuration workbook, which they hand over and get back amended; it is
@@ -113,25 +113,32 @@ capture of an EPIC screen and is evidence rather than an input.
 
 ## The phases
 
-| # | English | Bahasa | Screen heading |
+| # | English | Bahasa | Section headings on the step |
 | --- | --- | --- | --- |
-| 1 | Ingest | **Muat** | "Muat dokumen order" |
-| 2 | Review | **Periksa** | "Periksa usulan" |
-| 3 | Export | **Checkpoint 1** | "Buat berkas hasil" |
-| 4 | Config check | **Checkpoint 2** | "Cocokkan konfigurasi dengan dokumen" |
-| 5 | EPIC check | **Checkpoint 3** | "Cocokkan EPIC dengan konfigurasi" |
+| 1 | Order documents | **Berkas Order** | "Muat dokumen order", then "Periksa usulan" below it |
+| 2 | Export | **Checkpoint** | "Buat berkas hasil" |
+| 3 | Config check | **Konfig Excel** | "Cocokkan konfigurasi dengan dokumen" |
+| 4 | EPIC check | **Input EPIC** | "Cocokkan EPIC dengan konfigurasi" |
 
-**"Checkpoint" is English inside a Bahasa interface, and that is the client's own
-word**, given in their instruction for step 3 ("ubah jadi checkpoint 1 aja") and
-carried forward to the two checks that follow it. It is a proper noun for a
-stage of their process, like `BA Permintaan` or `ID EPIC`, not a label this
-project chose and should translate. **Muat** and **Periksa** keep their names
-because those describe what the operator does; the checkpoints are named after
-where they sit in the client's flow.
+**The four names are the client's, and none of them is translated or numbered.**
+"Checkpoint", "Konfig Excel" and "Input EPIC" mix English into a Bahasa
+interface on purpose: they are proper nouns for stages of the client's own
+process, like `BA Permintaan` or `ID EPIC`. For one day the last three were
+"Checkpoint 1/2/3" and the client corrected that on 2026-09-10; a copy that
+still says "Checkpoint 2" is stale.
+
+**BERKAS ORDER IS WHAT MUAT AND PERIKSA WERE, ON ONE PAGE.** The upload section
+comes first, and the whole lembar periksa appears below it once `Baca dengan AI`
+has run. So **Muat** and **Periksa** survive as the verbs they always were --
+"Muat dokumen order" is the upload section's heading and "lembar periksa" is
+still the review sheet -- but never as the name of a STEP. A sentence sending
+the operator somewhere says **di langkah Berkas Order**, never "di langkah
+Muat", and a pointer to the review now says it is **di bawah**, because it is
+on the same page, further down.
 
 **Tambahan is not in this table and has not been since the rehaul.** It was a
-phase of its own; the dokumen tambahan question is now the head of Periksa, and
-answering "yes" opens the ingest drop in a dialog.
+phase of its own; the dokumen tambahan question is now the head of the lembar
+periksa, and answering "yes" opens the ingest drop in a dialog.
 
 ## The six slot states
 

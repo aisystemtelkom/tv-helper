@@ -144,7 +144,7 @@ test("a value cell that is EMPTY is a field, not a reject", () => {
   // The single easiest rule here to tighten into a bug. C10's value cell E10
   // holds nothing, so the reader never emitted it and it is absent from
   // `byRef` -- and an empty cell EPIC expects filled is the entire reason
-  // Checkpoint 2 exists.
+  // Konfig Excel exists.
   const read = validateInterpretation(
     DOWN_A_COLUMN,
     { fields: [{ label: "Alamat Instalasi", labelRef: "C10", valueRef: "E10" }] },
@@ -759,7 +759,7 @@ test("the ANCHOR of a merge is an ordinary value cell, so the rule refuses nothi
     minting(),
   );
 
-  assert.equal(read.unusable.length, 0, "F9 is the anchor and is empty, which is the case Checkpoint 2 exists for");
+  assert.equal(read.unusable.length, 0, "F9 is the anchor and is empty, which is the case Konfig Excel exists for");
   assert.equal(read.fields.length, 1);
   assert.equal(read.fields[0].valueRef, "F9");
   assert.equal(read.fields[0].excelValue, "", "an empty value cell is a field, not a reject");

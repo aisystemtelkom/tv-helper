@@ -1,5 +1,5 @@
 /**
- * CHECKPOINT 2 AND CHECKPOINT 3, as data.
+ * KONFIG EXCEL AND INPUT EPIC, as data.
  *
  * These are the shapes an order carries once the operator hands over the EPIC
  * order-configuration workbook and, later, their screen captures of EPIC
@@ -88,7 +88,7 @@ export type ConfigField = {
    * What the workbook says today, as the grid renders it -- a date serial
    * already turned into a date, a number already formatted. `""` for a cell
    * that is empty or absent, which is a real state and not a missing field:
-   * an empty cell EPIC expects filled is exactly what Checkpoint 2 is for.
+   * an empty cell EPIC expects filled is exactly what Konfig Excel is for.
    */
   excelValue: string;
   /**
@@ -233,7 +233,7 @@ export type ConfigWorkbook = {
   unusable?: string[];
 };
 
-/** Checkpoint 2's whole state, as one order carries it. */
+/** Konfig Excel's whole state, as one order carries it. */
 export type ConfigCheck = {
   /** Absent until the operator hands a workbook over. */
   workbook?: ConfigWorkbook;
@@ -250,7 +250,7 @@ export type ConfigCheck = {
   researched: boolean;
 };
 
-/** An order that has not reached Checkpoint 2 yet. Never `undefined`. */
+/** An order that has not reached Konfig Excel yet. Never `undefined`. */
 export function emptyConfigCheck(): ConfigCheck {
   return { entries: [], researched: false };
 }
@@ -290,10 +290,10 @@ export type EpicCitation = {
 /**
  * WHAT EPIC SHOWS FOR ONE FIELD, judged against the workbook.
  *
- * THE YARDSTICK HAS SWAPPED, and reading this as Checkpoint 2's verdict is the
+ * THE YARDSTICK HAS SWAPPED, and reading this as Konfig Excel's verdict is the
  * mistake to avoid. There the scans judged the workbook; here the workbook
  * judges EPIC. So `beda` means the screen and the sheet disagree, and the
- * fourth value has no analogue in Checkpoint 2 at all.
+ * fourth value has no analogue in Konfig Excel at all.
  */
 export type EpicVerdict =
   | "belum-diperiksa"
@@ -329,7 +329,7 @@ export type EpicEntry = {
 };
 
 /**
- * WHICH WORKBOOK CHECKPOINT 3 IS JUDGING AGAINST.
+ * WHICH WORKBOOK INPUT EPIC IS JUDGING AGAINST.
  *
  * The client's instruction is a question the operator answers: *"Tanya excel
  * config-nya ada update lagi gak sejak output dari step 4? Kalo ada, bisa
@@ -337,7 +337,7 @@ export type EpicEntry = {
  * step 4 aja tanpa upload."*
  *
  * `belum` is not a third option the operator picks; it is the state before
- * they have been asked, and Checkpoint 3 cannot compare anything while it
+ * they have been asked, and Input EPIC cannot compare anything while it
  * stands. Making it explicit rather than inferring it from `workbook` being
  * absent is what stops a silent default: an order that quietly assumed
  * "lanjutkan" would judge EPIC against a workbook the operator had already
@@ -346,12 +346,12 @@ export type EpicEntry = {
 export type EpicBasis =
   /** The question has not been put yet. */
   | "belum"
-  /** No newer workbook exists: judge against Checkpoint 2's own output. */
+  /** No newer workbook exists: judge against Konfig Excel's own output. */
   | "lanjutkan"
   /** The operator handed over a newer workbook; it is in `workbook`. */
   | "baru";
 
-/** Checkpoint 3's whole state. */
+/** Input EPIC's whole state. */
 export type EpicCheck = {
   basis: EpicBasis;
   /**
@@ -369,7 +369,7 @@ export type EpicCheck = {
   entries: EpicEntry[];
 };
 
-/** An order that has not reached Checkpoint 3 yet. Never `undefined`. */
+/** An order that has not reached Input EPIC yet. Never `undefined`. */
 export function emptyEpicCheck(): EpicCheck {
   return { basis: "belum", fields: [], captures: [], entries: [] };
 }

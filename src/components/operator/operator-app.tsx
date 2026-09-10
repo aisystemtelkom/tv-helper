@@ -90,7 +90,7 @@ import {
 import { useRunTemplate } from "@/lib/ui/use-run-template";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
-import { ContactSheet } from "./contact-sheet";
+import { ContactSheet, stickyHeader } from "./contact-sheet";
 import { DocumentsBar } from "./documents-bar";
 import { ConfigPanel } from "./config-panel";
 import { EpicPanel } from "./epic-panel";
@@ -120,34 +120,51 @@ import type { PlateActions } from "./proposal-plate";
 const runtime = liveRuntime;
 
 /**
- * The five phases, in the operator's own language.
+ * The four steps, in the operator's own language.
  *
  * The ids stay English because they are code. `Tambahan` used to be a phase;
  * see the note at the top of this file for why the dokumen tambahan question
- * moved to the top of Periksa instead of standing on its own.
+ * moved to the top of the lembar periksa instead of standing on its own.
  *
- * ## "Checkpoint" IS ENGLISH ON PURPOSE, AND IT IS THE CLIENT'S WORD
+ * ## BERKAS ORDER IS WHAT MUAT AND PERIKSA WERE, ON ONE PAGE
  *
- * Every other operator-facing string in this product is Bahasa, and these
- * three are not translations this project chose. The client's instruction of
- * 2026-09-09 renamed `Berkas` in their own words ("ubah jadi checkpoint 1
- * aja") and then described the two checks that follow it, so "Checkpoint" is a
- * proper noun for a stage of THEIR process, like `BA Permintaan` or `ID EPIC`.
- * `Muat` and `Periksa` keep Bahasa names because those describe what the
- * operator DOES; the checkpoints are named after where they sit in the
- * client's flow. See `docs/ui-bahasa.md`.
+ * The client's correction of 2026-09-10: the upload and the review are one
+ * step, the upload section first and the whole lembar periksa revealed below
+ * it once the reading pass has run, with the same functionality and design.
+ * So `ingest` is gone from this list rather than renamed -- `IngestPanel` is
+ * the top of the page and `ContactSheet` the bottom -- and the gate that used
+ * to lock Periksa now decides whether the bottom half is drawn at all.
+ * Removing the id rather than keeping it unused is deliberate: every leftover
+ * `phase === "ingest"` is now a compile error instead of a dead branch.
  *
- * `export` keeps its id although its label changed, because an id is code and
- * renaming it would rewrite `landingPhase`, every `setPhase` call site and the
- * `Phase` union to say the same thing in different letters.
+ * ## THE NAMES ARE THE CLIENT'S
+ *
+ * "Checkpoint", "Konfig Excel" and "Input EPIC" are proper nouns for stages of
+ * THEIR process, given in their own words, like `BA Permintaan` or `ID EPIC`:
+ * English and mixed words inside a Bahasa interface on purpose. They were
+ * "Checkpoint 1/2/3" for one day and the client corrected that. See
+ * `docs/ui-bahasa.md`.
+ *
+ * `export`, `config` and `epic` keep their ids although their labels changed,
+ * because an id is code and renaming one would rewrite every `setPhase` call
+ * site and the `Phase` union to say the same thing in different letters.
  */
 const PHASES = [
-  { id: "ingest", label: "Muat" },
-  { id: "sheet", label: "Periksa" },
-  { id: "export", label: "Checkpoint 1" },
-  { id: "config", label: "Checkpoint 2" },
-  { id: "epic", label: "Checkpoint 3" },
+  { id: "sheet", label: "Berkas Order" },
+  { id: "export", label: "Checkpoint" },
+  { id: "config", label: "Konfig Excel" },
+  { id: "epic", label: "Input EPIC" },
 ] as const;
+
+/**
+ * Berkas Order's two halves, as places on the page a jump can land on.
+ *
+ * They were two screens, so "add a document" and "back to the lembar periksa"
+ * were phase changes and nothing more. On one page they are the same phase and
+ * different PLACES; see `goTo` in `Workspace`.
+ */
+const UPLOAD_SECTION = "berkas-order-muat";
+const REVIEW_SECTION = "berkas-order-periksa";
 
 type Phase = (typeof PHASES)[number]["id"];
 
@@ -202,15 +219,11 @@ function runTitle(run: BrowserRun): string {
   return shortenFileName(first.name, 44);
 }
 
-/** Where a run being opened belongs: mid-flow if it can be, Muat otherwise. */
-function landingPhase(run: BrowserRun): Phase {
-  return run.pages.length > 0 && hasBeenSearched(run) ? "sheet" : "ingest";
-}
-
 /**
  * HAS THE AI READ THIS ORDER YET?
  *
- * This is the gate on Periksa and on Berkas, and it is DERIVED FROM THE RUN
+ * This is the gate on the lembar periksa half of Berkas Order and on every
+ * step after it, and it is DERIVED FROM THE RUN
  * rather than kept in a boolean, because a boolean is lost on reload and would
  * re-lock a run that was read an hour ago.
  *
@@ -358,7 +371,7 @@ function saveFault(problem: unknown, unnamed: string = STORAGE_REFUSED): Fault {
                 // `ConfigEditError`'s doc comment records that a bare `Error`
                 // here would land on the generic sentence and blame the device
                 // for a refusal that is about the EDIT. It is raised when a
-                // Checkpoint 2 or 3 gesture cannot be applied to the run as it
+                // Konfig Excel or Input EPIC gesture cannot be applied to the run as it
                 // now stands -- an isian that is no longer there, a workbook
                 // replaced underneath the screen -- so "muat ulang" is the
                 // right remedy and "penyimpanan menolak" is the wrong cause.
@@ -439,7 +452,7 @@ function Workspace({
    *
    * It used to keep `runs` and a `runsLoaded` flag, re-read them after every
    * ingest and every removal, and hand them to the riwayat at the bottom of
-   * Muat. The riwayat is `/riwayat` now, a page of its own that reads
+   * the old Muat screen. The riwayat is `/riwayat` now, a page of its own that reads
    * `listRuns()` when it opens, so keeping a copy here would be a second
    * answer to "what is on this device" that nothing renders and nothing can
    * check -- and the reads that maintained it were IndexedDB round trips
@@ -468,11 +481,11 @@ function Workspace({
   /*
    * THE EXTRACTED VALUES, HELD BY THE SHELL RATHER THAN BY THE EXPORT SCREEN.
    *
-   * `ExportPanel` is mounted only while Berkas is open and unmounted the
+   * `ExportPanel` is mounted only while Checkpoint is open and unmounted the
    * moment the operator leaves it, so state that lives there is re-fetched
    * every visit. This particular fetch reads every page of the run with the
    * model: on the sample bundle that is 29 pages of OCR text, and an operator
-   * flicking back to Periksa to check one crop and returning would pay for it
+   * flicking back to the lembar periksa to check one crop and returning would pay for it
    * again, silently, with nothing on screen suggesting they had.
    *
    * KEYED BY THE RUN ID **AND** BY WHAT THE READING WAS AN ANSWER ABOUT, which
@@ -491,7 +504,43 @@ function Workspace({
    * asks again and says on screen that it is doing so.
    */
   const [extracted, setExtracted] = useState<ExtractionCache | null>(null);
-  const [phase, setPhase] = useState<Phase>("ingest");
+  const [phase, setPhase] = useState<Phase>("sheet");
+  /*
+   * WHERE ON BERKAS ORDER TO LAND, once the page has been drawn.
+   *
+   * Muat and Periksa used to be two screens, so "Tambah dokumen" and "Kembali
+   * ke lembar periksa" were each a phase change and nothing more. On one page
+   * they are the same phase and different places, and a jump that set the
+   * phase without moving the view would leave the operator wherever they were
+   * -- often a metre down the sheet, pressing "Tambah dokumen" and seeing
+   * nothing happen, which reads as a key that is broken.
+   *
+   * A NEW OBJECT PER REQUEST, so pressing the same key twice scrolls twice
+   * even though the phase never changed. MEASURED AFTER THE COMMIT, because the
+   * section may only have been drawn by the phase change that asked for it.
+   */
+  const [scrollTarget, setScrollTarget] = useState<{
+    id: string;
+    smooth: boolean;
+  } | null>(null);
+  const goTo = (next: Phase, section: string) => {
+    setPhase(next);
+    setScrollTarget({ id: section, smooth: true });
+  };
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const target = document.getElementById(scrollTarget.id);
+    if (!target) return;
+    // The strip is MEASURED, never assumed, by the rule `contact-sheet.tsx`
+    // records: it wraps to two or three rows on the panels this audience works
+    // on, and a fixed offset parks the section's own kop underneath it.
+    const strip = stickyHeader()?.getBoundingClientRect().height ?? 0;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({
+      top: Math.max(0, target.getBoundingClientRect().top + window.scrollY - strip - 16),
+      behavior: scrollTarget.smooth && !still ? "smooth" : "auto",
+    });
+  }, [scrollTarget]);
   const [progress, setProgress] = useState<IngestProgress | null>(null);
   const [rounds, setRounds] = useState<RoundLog[]>([]);
   const [busy, setBusy] = useState(false);
@@ -617,7 +666,7 @@ function Workspace({
       try {
         // THE ADDRESS BAR IS THE ONLY THING CONSULTED ON BOOT. The list of
         // saved orders used to be read here as well, for the riwayat at the
-        // bottom of Muat; that screen is `/riwayat` now and reads it for
+        // bottom of the old Muat screen; that screen is `/riwayat` now and reads it for
         // itself.
         const wanted = runIdFromHash(window.location.hash);
         if (!wanted) return;
@@ -640,7 +689,15 @@ function Workspace({
         // Pages alone are no longer enough to land on the sheet: a run that
         // was read and never processed has nothing there to review, and the
         // nav would refuse the phase it had just been dropped into.
-        setPhase(landingPhase(loaded));
+        // EVERY ORDER LANDS ON BERKAS ORDER, which is now both of the screens
+        // `landingPhase` used to choose between. What survives of its "mid-flow
+        // if it can be" is the landing PLACE: an order already read opens at its
+        // lembar periksa, where the operator left it, rather than at the upload
+        // section above it. Instant, not smooth: nothing moved, the page opened.
+        setPhase("sheet");
+        if (loaded.pages.length > 0 && hasBeenSearched(loaded)) {
+          setScrollTarget({ id: REVIEW_SECTION, smooth: false });
+        }
       } catch (problem) {
         if (!alive) return;
         // Storage refused, rather than "that order is gone" -- which is the
@@ -816,7 +873,7 @@ function Workspace({
    * OPENING A SAVED ORDER IS A NAVIGATION NOW, so there is no `openRun` here
    * any more.
    *
-   * It existed for the riwayat at the bottom of Muat, which sat inside this
+   * It existed for the riwayat under the old Muat screen, which sat inside this
    * shell and could call it. The riwayat is `/riwayat`, and a row there is a
    * link to `/#run/<id>` -- the address this shell already writes for itself
    * and already reads on boot. That path does everything `openRun` did, in one
@@ -1065,12 +1122,13 @@ function Workspace({
         }
       }
       /*
-       * AND IT STAYS ON MUAT. Reading the pages used to land the operator on
-       * the review sheet, which was empty, because nothing had searched yet
-       * and the only control that could was a band further down that screen.
-       * Muat is now two moves, and this is the end of the first one: the
-       * second, `Baca dengan AI`, is on this screen, below the film strip that
-       * just finished. Jumping away would hide the one thing left to do.
+       * AND NOTHING MOVES. Reading the pages used to land the operator on the
+       * review sheet, which was empty, because nothing had searched yet and
+       * the only control that could was a band further down that screen. The
+       * upload section is two moves, and this is the end of the first one:
+       * the second, `Baca dengan AI`, is directly below the film strip that
+       * just finished, and the lembar periksa is drawn under it once that has
+       * run. Scrolling away would hide the one thing left to do.
        */
     } catch (problem) {
       /*
@@ -1215,9 +1273,10 @@ function Workspace({
   };
 
   /**
-   * THE READING PASS, which the operator starts from Muat as `Baca dengan AI`.
-   * The only thing that moves a slot to "proposed", and the only thing that
-   * opens the gate on Periksa.
+   * THE READING PASS, which the operator starts from the upload section of
+   * Berkas Order as `Baca dengan AI`. The only thing that moves a slot to
+   * "proposed", and the only thing that draws the lembar periksa below it and
+   * opens the steps after it.
    *
    * IT IS NAMED BY ITS LABEL WHEREVER IT IS SPOKEN OF, and the label changed:
    * the operator retired `Proses` because "it can mean a lot of thing". Every
@@ -1292,10 +1351,10 @@ function Workspace({
           : ` AI juga mengusulkan ${judul} judul baru, dan itu menunggu keputusan Anda di kepala lembar periksa.`;
       setSearchNote(
         (found === 0
-          ? `AI selesai membaca. Tidak ada bagian yang bisa ditemukan di dokumen ini. Buka lembar periksa untuk memutuskan tiap bagian, atau tambahkan dokumen lain lalu baca lagi.`
+          ? `AI selesai membaca. Tidak ada bagian yang bisa ditemukan di dokumen ini. Putuskan tiap bagian di lembar periksa di bawah, atau tambahkan dokumen lain lalu baca lagi.`
           : missed === 0
-            ? `AI selesai membaca. ${found} usulan menunggu keputusan Anda di lembar periksa.`
-            : `AI selesai membaca. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa.`) +
+            ? `AI selesai membaca. ${found} usulan menunggu keputusan Anda di lembar periksa di bawah.`
+            : `AI selesai membaca. ${found} usulan menunggu keputusan Anda, ${missed} bagian tidak ditemukan. Keduanya diurus di lembar periksa di bawah.`) +
           lanjutanNote +
           judulNote,
       );
@@ -1531,7 +1590,7 @@ function Workspace({
         setFault({
           origin: "save",
           sentence:
-            "Potongan lanjutan tidak jadi disimpan. Area yang sama sudah tersimpan untuk bagian ini, atau potongan sebelumnya sudah berubah. Buka lembar periksa untuk memeriksa bagian ini.",
+            "Potongan lanjutan tidak jadi disimpan. Area yang sama sudah tersimpan untuk bagian ini, atau potongan sebelumnya sudah berubah. Periksa bagian ini lagi di lembar periksa.",
           detail: `lanjutan after: ${target.after}`,
         });
         setEditing(null);
@@ -1638,7 +1697,7 @@ function Workspace({
 
   // Bagian the model has not been asked about yet, or was asked and missed:
   // exactly what the next `Baca dengan AI` would look for. Nothing else in the app
-  // produces a usulan, so this is the figure the Muat screen quotes before the
+  // produces a usulan, so this is the figure the upload section quotes before the
   // operator commits to minutes of model calls.
   const wanted = run ? wantedKeys(run, template).length : 0;
 
@@ -1667,11 +1726,10 @@ function Workspace({
    * Locking the nav and saying so leaves only the editor's own "Pakai area
    * ini" and "Batal", both of which are decisions somebody made on purpose.
    *
-   * The third reason is the search gate, and it is the same gate the Muat
-   * screen puts on its own "Buka lembar periksa" button. Two ways to reach one
-   * screen must not disagree about whether it is ready, and a nav that opened
-   * an empty sheet would teach the operator that the button beside it was
-   * being difficult for no reason.
+   * The third reason is the search gate, and it is the same gate that decides
+   * whether Berkas Order draws its lembar periksa at all. A step after it that
+   * opened while that half of the page was still empty would teach the
+   * operator that the order of the steps means nothing.
    *
    * ONLY THE FIRST PASS LOCKS. A later round, started from the top of the
    * sheet after a dokumen tambahan, leaves `searched` true and the nav open on
@@ -1686,15 +1744,15 @@ function Workspace({
       : !searched
         ? searching
           ? "AI masih membaca dokumen ini. Tunggu sampai selesai."
-          : "Klik Baca dengan AI di langkah Muat dulu, supaya ada usulan untuk diperiksa."
+          : "Klik Baca dengan AI di langkah Berkas Order dulu, supaya ada usulan untuk diperiksa."
         : null;
 
   /*
    * WHY *THIS* PHASE WILL NOT OPEN, which stopped being one sentence when
-   * Checkpoint 3 arrived.
+   * Input EPIC arrived.
    *
    * The three reasons above are about the ORDER and are true of every phase at
-   * once, so one string served all of them. Checkpoint 3 has a reason of its
+   * once, so one string served all of them. Input EPIC has a reason of its
    * own that is true of nothing else: it judges EPIC against the konfigurasi,
    * so with no konfigurasi there is no yardstick and the screen could only
    * report every isian as missing. Handing the shared sentence to that step
@@ -1706,14 +1764,15 @@ function Workspace({
    */
   const lockReasonFor = (id: Phase): string | null => {
     if (runLockReason !== null) {
-      // Muat stays reachable unless the zone editor is holding a rectangle;
-      // it is where every one of those three sentences sends the operator.
-      return editing || id !== "ingest" ? runLockReason : null;
+      // Berkas Order stays reachable unless the zone editor is holding a
+      // rectangle; its upload section is where every one of those three
+      // sentences sends the operator.
+      return editing || id !== "sheet" ? runLockReason : null;
     }
     if (id === "epic" && !run?.konfigurasi.workbook) {
       return (
-        "Muat berkas konfigurasi di Checkpoint 2 dulu, karena Checkpoint 3 " +
-        "membandingkan tampilan EPIC dengan konfigurasi itu."
+        "Muat berkas konfigurasi di langkah Konfig Excel dulu, karena Input " +
+        "EPIC membandingkan tampilan EPIC dengan konfigurasi itu."
       );
     }
     return null;
@@ -1721,13 +1780,13 @@ function Workspace({
 
   const isLocked = (id: Phase) => lockReasonFor(id) !== null;
 
-  // An ingest failure belongs beside the drop zone that caused it. The shell
-  // only takes it over when the screen holding that drop zone is not on
-  // screen, so one failure is never stated in two places at once. There are
-  // two such drop zones now: this screen's, and the one the outstanding panel
-  // opens at the top of the lembar periksa.
-  const ingestPanelVisible =
-    !editing && (phase === "ingest" || (phase === "sheet" && !!run));
+  // An ingest failure belongs beside the drop zone that caused it, and every
+  // drop the operator can reach is on Berkas Order: the upload section at the
+  // top, and the tambahan dialog the lembar periksa opens below it, which
+  // shows the failure inside itself while it is open. The upload section
+  // carries it the rest of the time, so the shell takes it over only when
+  // that page is not on screen and one failure is never stated twice.
+  const ingestPanelVisible = !editing && phase === "sheet";
   /*
    * THE WHOLE FAULT, NOT ONE OF ITS TWO HALVES.
    *
@@ -1888,7 +1947,7 @@ function Workspace({
             costOf={(sourceId) => runtime.sourceRemovalCost(run, sourceId)}
             onAdd={() => {
               setSearchNote(null);
-              setPhase("ingest");
+              goTo("sheet", UPLOAD_SECTION);
             }}
             onRemove={(sourceId) => void removeDocument(sourceId)}
             onSetAi={(sourceId, ai) => void setDocumentAi(sourceId, ai)}
@@ -1950,74 +2009,93 @@ function Workspace({
             onNoContinuation={stampNoContinuation}
             onCancel={() => setEditing(null)}
           />
-        ) : phase === "ingest" ? (
-          /* The list of SAVED orders is no longer handed down: it is
-             `/riwayat`, its own page, which reads storage for itself. What the
-             shell still supplies is the one thing only it knows -- how to
-             close the order that is open, so the next drop starts a new one. */
-          <IngestPanel
-            run={run}
-            progress={progress}
-            busy={busy}
-            fault={ingestFault}
-            onFiles={(files) => void ingest(files)}
-            onSetDocumentAi={(sourceId, ai) => void setDocumentAi(sourceId, ai)}
-            /* THE ANTREAN AND WHAT WAS TURNED AWAY. Both are state of the
-               hand-over rather than of the run, which is why they live in this
-               shell beside the ingest in flight and not in storage: a berkas
-               waiting its turn has not been written anywhere yet. */
-            queue={queue}
-            screening={screening > 0}
-            refusals={refusals}
-            onCancelQueued={cancelQueued}
-            onResumeQueue={() => void drain()}
-            onStartNewRun={closeRun}
-            onProcess={() => void search()}
-            searching={searching}
-            searchStartedAt={searchStartedAt}
-            searchNote={searchNote}
-            wanted={wanted}
-          />
+        ) : phase === "sheet" ? (
+          /* BERKAS ORDER: WHAT MUAT AND PERIKSA WERE, ON ONE PAGE.
+
+             The upload section first, and the whole lembar periksa drawn
+             below it once the reading pass has run -- the client's own
+             description, with both halves exactly the components they
+             were. `searched` is the gate that used to lock Periksa, so the
+             bottom half appears at the moment that step used to open and
+             for the same reason: before it, there is nothing to review and
+             an empty sheet would read as a pass that found nothing. The
+             upload section STAYS above it, because adding a dokumen
+             tambahan and reading again is part of reviewing an order. */
+          <>
+            <div id={UPLOAD_SECTION}>
+              {/* The list of SAVED orders is no longer handed down: it is
+                  `/riwayat`, its own page, which reads storage for itself. What
+                  the shell still supplies is the one thing only it knows -- how
+                  to close the order that is open, so the next drop starts a new
+                  one. */}
+              <IngestPanel
+                run={run}
+                progress={progress}
+                busy={busy}
+                fault={ingestFault}
+                onFiles={(files) => void ingest(files)}
+                onSetDocumentAi={(sourceId, ai) => void setDocumentAi(sourceId, ai)}
+                /* THE ANTREAN AND WHAT WAS TURNED AWAY. Both are state of the
+                   hand-over rather than of the run, which is why they live in this
+                   shell beside the ingest in flight and not in storage: a berkas
+                   waiting its turn has not been written anywhere yet. */
+                queue={queue}
+                screening={screening > 0}
+                refusals={refusals}
+                onCancelQueued={cancelQueued}
+                onResumeQueue={() => void drain()}
+                onStartNewRun={closeRun}
+                onProcess={() => void search()}
+                searching={searching}
+                searchStartedAt={searchStartedAt}
+                searchNote={searchNote}
+                wanted={wanted}
+              />
+            </div>
+            {run && searched ? (
+              <section id={REVIEW_SECTION} aria-label="Lembar periksa">
+                <ContactSheet
+                  run={run}
+                  actions={actions}
+                  pending={pending}
+                  fresh={fresh}
+                  /* The judul controls: rename, move, hide, restore, add. They act
+                     on THIS order's form, which lives in `run.overlay` and nowhere
+                     else, so every one of them goes through the run lock rather
+                     than through a run this component is holding. */
+                  onSectionEdit={editSections}
+                  /* What is missing, and the question about a dokumen tambahan, at
+                     the TOP of the sheet rather than on a phase of their own. */
+                  head={outstandingHead}
+                  onAcceptSection={(indexes) =>
+                    commit(
+                      {
+                        ...run,
+                        slots: run.slots.map((slot, i) =>
+                          indexes.includes(i)
+                            ? { ...slot, status: "confirmed" }
+                            : slot,
+                        ),
+                      },
+                      indexes,
+                    )
+                  }
+                />
+              </section>
+            ) : null}
+          </>
         ) : !run ? (
           <div className="flex flex-col items-start gap-3">
             <Notice>
               Belum ada order yang dibuka, jadi tidak ada yang bisa
               diperiksa di sini.
             </Notice>
-            <Btn tone="primary" onClick={() => setPhase("ingest")}>
+            <Btn tone="primary" onClick={() => setPhase("sheet")}>
               Muat dokumen order
             </Btn>
           </div>
-        ) : phase === "sheet" ? (
-          <ContactSheet
-            run={run}
-            actions={actions}
-            pending={pending}
-            fresh={fresh}
-            /* The judul controls: rename, move, hide, restore, add. They act
-               on THIS order's form, which lives in `run.overlay` and nowhere
-               else, so every one of them goes through the run lock rather
-               than through a run this component is holding. */
-            onSectionEdit={editSections}
-            /* What is missing, and the question about a dokumen tambahan, at
-               the TOP of the sheet rather than on a phase of their own. */
-            head={outstandingHead}
-            onAcceptSection={(indexes) =>
-              commit(
-                {
-                  ...run,
-                  slots: run.slots.map((slot, i) =>
-                    indexes.includes(i)
-                      ? { ...slot, status: "confirmed" }
-                      : slot,
-                  ),
-                },
-                indexes,
-              )
-            }
-          />
         ) : phase === "config" ? (
-          /* CHECKPOINT 2. The runtime goes in as a prop rather than being
+          /* KONFIG EXCEL. The runtime goes in as a prop rather than being
              imported, exactly as every other screen's dependencies do, and it
              is narrowed to the three calls this one makes. `onRun` keeps what
              a write RETURNS: `editConfig` answers with the stored run one
@@ -2043,7 +2121,7 @@ function Workspace({
         ) : (
           <ExportPanel
             run={run}
-            onGoToSheet={() => setPhase("sheet")}
+            onGoToSheet={() => goTo("sheet", REVIEW_SECTION)}
             extracted={usableExtraction(extracted, run)}
             /* THE SIGNATURE IS TAKEN AT THE MOMENT THE ANSWER IS FILED, off
                the run this closure was built over, which is the run the
@@ -2068,11 +2146,11 @@ function Workspace({
             "Lanjut" under it would be a way to leave a rectangle half-drawn
             without saying so.
 
-            CHECKPOINT 1 USED TO BE THE SECOND EXCEPTION, AND THE REASON
+            CHECKPOINT USED TO BE THE SECOND EXCEPTION, AND THE REASON
             EXPIRED. It was suppressed there because "it has no next step, so
             the only thing this nav could offer is the way back, and the export
             panel's own sticky bar already carries that" -- two backs on one
-            screen, which an operator called redundant. Checkpoint 2 now
+            screen, which an operator called redundant. Konfig Excel now
             follows it, so there IS a next step and suppressing the bar would
             leave the operator on the export screen with no way forward at all.
             What survives of the old reasoning is the half that is still true:
@@ -2499,11 +2577,11 @@ function AccountControls({
  * minimum??)". It is, and its absence was a real defect rather than a
  * missing nicety. The phase rail at the top is a MAP: it says where you are
  * and lets you jump. It is not a way FORWARD, because it does not say which
- * of the three is the next thing to do, and it sits at the top of a screen the
+ * of the steps is the next thing to do, and it sits at the top of a screen the
  * operator has just scrolled a metre down.
  *
  * IT NAMES THE STEP, NEVER JUST A DIRECTION. "Lanjut" alone makes the operator
- * hold the running order in their head; "Lanjut: Periksa" does not. That is
+ * hold the running order in their head; "Lanjut: Checkpoint" does not. That is
  * also why the two are asymmetric in weight: forward is the primary control
  * because it is what the screen is for, and back is a plain one because going
  * back is a correction, not a step.
@@ -2532,9 +2610,9 @@ function StepNav({
   phase: Phase;
   isLocked: (id: Phase) => boolean;
   /* THE REASON THE NEXT STEP IS REFUSING, not the order's. They stopped being
-     the same string when Checkpoint 3 gained a gate of its own. */
+     the same string when Input EPIC gained a gate of its own. */
   lockReasonFor: (id: Phase) => string | null;
-  /* Checkpoint 1 carries its own way back, pinned beside the reason an export
+  /* Checkpoint carries its own way back, pinned beside the reason an export
      is blocked, which is where an operator who cannot proceed is looking. Two
      backs on one screen is what the operator called redundant, so that screen
      takes only the forward key from this bar. */
@@ -2635,7 +2713,7 @@ function PhaseNav({
   subject: string;
   /** Every file in the bundle, for the h1's hover title. */
   subjectTitle?: string;
-  /* PER STEP, not per order. Checkpoint 3 refuses for a reason no other phase
+  /* PER STEP, not per order. Input EPIC refuses for a reason no other phase
      shares, so one sentence can no longer stand for all of them. */
   lockReasonFor: (id: Phase) => string | null;
   isLocked: (id: Phase) => boolean;
@@ -2646,11 +2724,13 @@ function PhaseNav({
   const lockId = "lt-phase-lock";
   const at = PHASES.findIndex((step) => step.id === phase);
   /* IS THE ORDER ITSELF NOT READY, as opposed to one late step refusing.
-     Periksa is the probe because it is locked by exactly the three
-     order-level reasons and by nothing of its own, so this keeps the progress
-     figure hidden in the same cases it always was and does NOT hide it merely
-     because Checkpoint 3 is still waiting for a konfigurasi. */
-  const blocked = lockReasonFor("sheet") !== null;
+     Checkpoint is the probe because it is locked by exactly the three
+     order-level reasons and by nothing of its own. Berkas Order was the probe
+     until the upload became part of it; it is never locked by the search gate
+     now, so asking it would show the figure over an order nothing has read.
+     This keeps the figure hidden in the same cases it always was, and does NOT
+     hide it merely because Input EPIC is still waiting for a konfigurasi. */
+  const blocked = lockReasonFor("export") !== null;
 
   return (
     <div className="lt-rail border-b">

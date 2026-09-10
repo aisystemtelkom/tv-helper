@@ -6,7 +6,7 @@
  * control flow runs here with a fake `ask`.
  *
  * WHAT THESE PROTECT is the last reading pass before an order is considered
- * done. Checkpoint 3 tells the operator which values in EPIC disagree with the
+ * done. Input EPIC tells the operator which values in EPIC disagree with the
  * workbook, and the two answers that are expensive to get wrong both look like
  * ordinary rows: "EPIC agrees" on a field nothing checked, and a citation
  * pointing at a screen capture other than the one the value was read on.

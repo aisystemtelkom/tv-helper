@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * CHECKPOINT 3: does EPIC show what the konfigurasi says?
+ * INPUT EPIC: does EPIC show what the konfigurasi says?
  *
  * ## THE YARDSTICK HAS SWAPPED, AND EVERY WORD ON THIS SCREEN TURNS ON IT
  *
- * Checkpoint 2 asks the documents to judge the workbook: the scans are the
+ * Konfig Excel asks the documents to judge the workbook: the scans are the
  * evidence and the workbook is the thing under test. HERE THE WORKBOOK IS THE
  * EVIDENCE and EPIC is the thing under test. So no sentence on this screen may
  * be borrowed from that one, and the two words that would read as borrowed are
@@ -45,7 +45,7 @@
  *
  * ## THE RINGKASAN IS THE DELIVERABLE, SO IT IS AT THE TOP
  *
- * The client asked for it by name. Checkpoint 3 writes no file: what it
+ * The client asked for it by name. Input EPIC writes no file: what it
  * produces IS the list of everything that disagrees, so that list is the
  * subject of the screen and not a summary of one. When nothing disagrees it
  * says so AFFIRMATIVELY, because an absent warning is not a confirmation.
@@ -212,12 +212,12 @@ async function encodePng(bitmap: ImageBitmap): Promise<Blob> {
  *
  * THE SAME RULE `effectiveValue` APPLIES ONE CHECKPOINT DOWN, and it is written
  * again here for one reason: that function is typed for a `ConfigEntry`, whose
- * pair is `excelValue`/`documentValue`, and Checkpoint 3's pair is
+ * pair is `excelValue`/`documentValue`, and Input EPIC's pair is
  * `excelValue`/`epicValue`. There is no first answer to disagree with -- nothing
  * anywhere else resolves an `EpicEntry` -- so this is not a second copy of a
  * rule, it is the only one for this shape.
  *
- * NOTHING WRITES A FILE FROM IT. Checkpoint 2 owns the download; what Checkpoint
+ * NOTHING WRITES A FILE FROM IT. Konfig Excel owns the download; what Checkpoint
  * 3 produces is the summary list, so this is the record of a ruling rather than
  * a cell that will be patched, and the screen labels it that way.
  */
@@ -843,7 +843,7 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
                 assumed one of the two answers would judge EPIC against a
                 workbook the operator had already replaced. */}
             <p className="text-ink max-w-[74ch] text-[0.9375rem]">
-              Apakah berkas konfigurasi berubah lagi setelah Checkpoint 2?
+              Apakah berkas konfigurasi berubah lagi setelah langkah Konfig Excel?
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -861,12 +861,12 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
                 reason="Tunggu berkas konfigurasi selesai dibaca."
                 onClick={() => void save({ tag: "set-basis", basis: "lanjutkan" })}
               >
-                Tidak, pakai hasil Checkpoint 2
+                Tidak, pakai hasil Konfig Excel
               </Btn>
             </div>
 
             {/* WHAT EACH ANSWER MEANS, under the keys rather than inside them.
-                "Hasil Checkpoint 2" is not a file the operator can point at, so
+                "Hasil Konfig Excel" is not a file the operator can point at, so
                 it is spelled out: it is their own berkas with every perubahan
                 they accepted there already applied. */}
             <div className="flex flex-col gap-2">
@@ -875,7 +875,7 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
                 dinilai terhadap berkas itu.
               </p>
               <p className="text-ink-2 max-w-[74ch] text-[0.8125rem]">
-                Tidak: EPIC dinilai terhadap hasil Checkpoint 2, yaitu berkas
+                Tidak: EPIC dinilai terhadap hasil Konfig Excel, yaitu berkas
                 konfigurasi Anda dengan setiap perubahan yang sudah Anda terima
                 di sana.
               </p>
@@ -970,7 +970,7 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
     setWriting(null);
   };
 
-  /** No yardstick at all: `lanjutkan` on an order that never reached Checkpoint 2. */
+  /** No yardstick at all: `lanjutkan` on an order that never reached Konfig Excel. */
   const noYardstick = fields.length === 0;
 
   return (
@@ -979,7 +979,7 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
 
       {interruptions}
 
-      {/* THE RINGKASAN THE CLIENT ASKED FOR BY NAME, AT THE TOP. Checkpoint 3
+      {/* THE RINGKASAN THE CLIENT ASKED FOR BY NAME, AT THE TOP. Input EPIC
           writes no file: this list IS what it produces, so it is the subject of
           the screen rather than a summary of one. */}
       {check.entries.length > 0 ? (
@@ -1015,10 +1015,10 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <span className="lt-label">hasil Checkpoint 2</span>
+              <span className="lt-label">hasil Konfig Excel</span>
               <Note>
                 Berkas konfigurasi Anda dengan setiap perubahan yang sudah Anda
-                terima di Checkpoint 2.
+                terima di Konfig Excel.
               </Note>
             </div>
           )}
@@ -1028,8 +1028,8 @@ function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
                key below carries the same reason, but a sentence the operator
                may miss entirely and be no worse off is not this one. */
             <Notice tone="stop">
-              Belum ada satu pun isian dari Checkpoint 2, jadi tidak ada
-              pembanding untuk EPIC. Muat berkas konfigurasi di Checkpoint 2
+              Belum ada satu pun isian dari Konfig Excel, jadi tidak ada
+              pembanding untuk EPIC. Muat berkas konfigurasi di Konfig Excel
               dulu, atau ganti pembandingnya di sini dan muat berkas yang
               terbaru.
             </Notice>
@@ -1521,7 +1521,7 @@ function Register(props: RowProps) {
             <strong>Tolak</strong> berarti yang benar adalah nilai di
             konfigurasi. <strong>Ketik sendiri</strong> berarti keduanya salah
             dan Anda yang menuliskan nilainya. Keputusan ini dicatat sebagai
-            hasil pemeriksaan; berkas konfigurasi disimpan di Checkpoint 2.
+            hasil pemeriksaan; berkas konfigurasi disimpan di Konfig Excel.
           </Hint>
         </span>
       </div>
@@ -1826,7 +1826,7 @@ function Keys({
       >
         Terima
       </Btn>
-      {/* THE REFUSAL INK, the same as Checkpoint 2's identical key. `Tolak`
+      {/* THE REFUSAL INK, the same as Konfig Excel's identical key. `Tolak`
           discards what EPIC shows in favour of the konfigurasi, which is the
           one key here that throws a reading away, and the neutral face made it
           read as the twin of `Ketik sendiri` beside it. Red INK and a red lip
