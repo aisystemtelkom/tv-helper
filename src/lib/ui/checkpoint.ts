@@ -58,6 +58,8 @@ export type ConfigRequest = {
   sheet?: WireSheet;
   fields?: ConfigField[];
   retry?: boolean;
+  /** Interpret the sheet and stop. See `buildFieldsOnlyRequest`. */
+  compare?: boolean;
 };
 
 /** Mirrors `ConfigResult`. */
@@ -147,6 +149,41 @@ export function buildInterpretRequest(
   sheet: Sheet,
 ): ConfigRequest {
   return { runId: run.id, pages: wirePages(run), sheet: toWireSheet(sheet) };
+}
+
+/**
+ * READ THIS WORKBOOK AND STOP THERE: what isian does it hold?
+ *
+ * Checkpoint 3's "yes, I have a newer konfigurasi". EPIC is judged against that
+ * workbook, so the SCANS are not part of the question at all, and the
+ * comparison the route would otherwise run is the single most expensive call it
+ * makes -- one carrying the whole run's page listing, measured at 23k input
+ * tokens for a 29-page bundle and several times that for the 151-page one.
+ * Checkpoint 3 reads only `fields` from the answer, so every one of those
+ * verdicts was paid for and dropped.
+ *
+ * NO PAGES TRAVEL EITHER, and the flag is what makes that honest.
+ *
+ * The listing is the whole run's OCR text: several megabytes for the 151-page
+ * bundle, posted for a question that cannot read it. Sending an empty array on
+ * its OWN would be a lie -- `compareToDocuments` has a free empty-pool branch,
+ * so it would buy the same saving by telling the route this order has no
+ * readable page, which is true of the bill and false of the order, and is
+ * exactly the coincidence a later reader breaks by accident. `compare: false`
+ * states the intent instead, the route refuses it without a sheet, and the
+ * empty array is then a consequence of the question rather than a claim about
+ * the bundle.
+ */
+export function buildFieldsOnlyRequest(
+  run: BrowserRun,
+  sheet: Sheet,
+): ConfigRequest {
+  return {
+    runId: run.id,
+    pages: [],
+    sheet: toWireSheet(sheet),
+    compare: false,
+  };
 }
 
 /**

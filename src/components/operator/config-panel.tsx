@@ -78,7 +78,13 @@
  *    register.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { configSummary, effectiveValue } from "@/lib/config/effective";
 import type {
@@ -171,6 +177,40 @@ const RESEARCH_OFFER =
 const RESEARCH_SPENT =
   "Pencarian ulang hanya sekali untuk tiap order, dan sudah dipakai untuk order ini.";
 
+/**
+ * The budget is unspent and there is nothing left to spend it ON.
+ *
+ * Every isian that was not found has already been decided, and a decision hides
+ * whatever the search would find for it (see `research`). Said in full rather
+ * than by taking the key away in silence, and it names the way back, because
+ * the operator can put a row in scope again with a gesture they already know.
+ */
+const RESEARCH_SETTLED =
+  "Setiap isian yang tidak ditemukan sudah Anda putuskan, jadi tidak ada lagi yang perlu dicari. Pencarian ulang belum dipakai untuk order ini: buka lagi salah satu keputusan itu kalau Anda mau memakainya.";
+
+/**
+ * A comparison that came back with nothing, and a comparison this device could
+ * not finish.
+ *
+ * Both are refusals, so both are prose, and NEITHER CARRIES THE CAUSE IN ITS
+ * SENTENCE. What arrives in the exception is `/api/config`'s own English
+ * paragraph about the API key, the quota and `pnpm smoke`, or a bare
+ * `TypeError: Failed to fetch`; it belongs behind `Detail teknis`, which is
+ * where every other screen in this product files a deployer's words.
+ */
+const COMPARE_FAILED =
+  "Pencocokan gagal, jadi belum ada isian yang bisa Anda putuskan dan tidak ada yang berubah di order ini. Coba lagi sebentar lagi.";
+
+/**
+ * IT SAYS THE BUDGET WENT, because it did. `markResearched` is written BEFORE
+ * the search on purpose (a search that ran and failed to record itself is one
+ * the operator can buy again), so a failure here costs the order its one
+ * re-search and the sentence that hid that would be the quiet half of a bad
+ * trade.
+ */
+const RESEARCH_FAILED =
+  "Pencarian ulang gagal, jadi tidak ada isian yang berubah. Pencarian ulang hanya sekali untuk tiap order dan sudah terpakai untuk order ini, jadi isian yang tidak ditemukan perlu Anda periksa sendiri di dokumen.";
+
 /* ------------------------------------------------------------------ *
  * Small shared pieces.
  * ------------------------------------------------------------------ */
@@ -181,6 +221,81 @@ function messageOf(problem: unknown): string {
 
 /** A fault this screen owns: an operator sentence, and the raw cause behind it. */
 type PanelFault = { sentence: string; detail?: string };
+
+/**
+ * The reading's own diagnoses, ENGLISH, for `Detail teknis` and nowhere else.
+ *
+ * The model's note about the sheet and the rows the grid refused are written
+ * for whoever maintains this, and one derivation serves both the refusal band
+ * and the register's foot so the two cannot come to different answers.
+ */
+function readingDetail(answer: ConfigResponse | null): string | undefined {
+  if (!answer) return undefined;
+  const lines: string[] = [];
+  if (answer.note) lines.push(answer.note);
+  for (const row of answer.unusable ?? []) {
+    lines.push(
+      `unusable  ${row.label}  ${row.labelRef ?? "?"}/${row.valueRef ?? "?"}  ${row.reason}`,
+    );
+  }
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+/**
+ * TWO DECISIONS CAN BE IN THE AIR AT ONCE, so what is in flight is a SET.
+ *
+ * The operator works down twenty amber rows and does not wait for a write to
+ * land. Held as one id, the second press cleared the first row's `saving` and
+ * its paraf went solid over a write that had not reached disk -- which is the
+ * one thing `Paraf`'s `saved` exists to say. Found by review.
+ *
+ * Identity when the answer does not change, so a press that adds nothing costs
+ * no render.
+ */
+function withId(held: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (held.has(id)) return held;
+  return new Set(held).add(id);
+}
+
+function withoutId(held: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (!held.has(id)) return held;
+  const next = new Set(held);
+  next.delete(id);
+  return next;
+}
+
+/**
+ * WHICH ORDERS HAVE A COMPARISON IN THE AIR, KEPT OUTSIDE REACT.
+ *
+ * One comparison is one paid model call over the whole order and it runs for a
+ * while. The shell renders the phases in a ternary, so an operator who walks to
+ * another phase mid-comparison UNMOUNTS this screen and every piece of its state
+ * goes with it: coming back, the key stood armed with no sign that anything was
+ * running, and pressing it bought the same answer a second time. Found by
+ * review.
+ *
+ * A set of run ids plus a subscription is the smallest thing that survives an
+ * unmount. IT IS DELIBERATELY NOT ON THE RUN: a call in flight is a fact about
+ * this tab, not about the order, and an order written as "comparing" would stay
+ * that way for ever if the tab were closed mid-call.
+ */
+const comparingRuns = new Set<string>();
+const comparingWatchers = new Set<() => void>();
+
+function markComparing(runId: string, running: boolean): void {
+  if (running) comparingRuns.add(runId);
+  else comparingRuns.delete(runId);
+  // A copy, because a watcher that unsubscribes while being notified would
+  // otherwise mutate the set this loop is walking.
+  for (const notify of [...comparingWatchers]) notify();
+}
+
+function subscribeComparing(notify: () => void): () => void {
+  comparingWatchers.add(notify);
+  return () => {
+    comparingWatchers.delete(notify);
+  };
+}
 
 /**
  * A berkas this app can actually open.
@@ -322,26 +437,41 @@ function Panel({
   const summary = configSummary(check);
   const compared = check.entries.length > 0;
 
-  const [comparing, setComparing] = useState(false);
+  /**
+   * True while THIS ORDER has a comparison in the air, whichever mount of this
+   * screen started it. See `comparingRuns`: leaving Checkpoint 2 mid-comparison
+   * used to re-arm the key with no sign a paid call was still running.
+   */
+  const comparing = useSyncExternalStore(
+    subscribeComparing,
+    () => comparingRuns.has(run.id),
+    () => false,
+  );
   const [staged, setStaged] = useState<Staged | null>(null);
   const [fault, setFault] = useState<PanelFault | null>(null);
   const [reading, setReading] = useState(false);
   const [researching, setResearching] = useState(false);
   /**
-   * What the last reading said ABOUT THE SHEET rather than about an isian.
+   * The last reading's ENGLISH diagnoses: its note about the sheet, and why
+   * each refused row was refused.
    *
-   * Session-only, because nothing on the run stores it: `ConfigCheck` keeps the
-   * entries and not the reading that produced them. So the advisory below is
-   * true while the operator is looking at the answer they just paid for, and
-   * after a reload the register's own counts are what survives. Said here
-   * rather than left to be discovered.
+   * Session-only, and that is now a decision rather than a gap. The half an
+   * OPERATOR needs -- WHICH isian were refused -- is stored on the workbook
+   * record and rendered from the run, because a reload that dropped it left a
+   * screen reading as full coverage of a workbook part of which was never
+   * compared. The reasons are for a deployer, they are the long half, and the
+   * run's small store is read for every order on the device, so they stop here.
    */
   const [answer, setAnswer] = useState<ConfigResponse | null>(null);
   /** The bytes this order's workbook was stored under are gone. */
   const [bytesGone, setBytesGone] = useState(false);
-  /** Which isian is being written, and which one just was. */
-  const [working, setWorking] = useState<string | null>(null);
-  const [fresh, setFresh] = useState<string | null>(null);
+  /** Which isian are being written, and which ones just were. See `withId`. */
+  const [working, setWorking] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
   /** Which isian has `Ketik sendiri` open. */
   const [typing, setTyping] = useState<string | null>(null);
   /** Is the replacement drop open? */
@@ -384,33 +514,47 @@ function Panel({
    * something they can act on long before then.
    */
   const recovered = useRef<string | null>(null);
+  /**
+   * THE ID AND THE DIGEST, NEVER THE OBJECT. Every write round-trips the run
+   * through structured clone, so `check.workbook` is a NEW object after each
+   * one -- a decision, or a page landing mid-ingest -- and an effect keyed on it
+   * re-ran and cancelled this read for reasons that had nothing to do with the
+   * workbook. Keyed on the two values it actually reads, it runs once per
+   * workbook.
+   */
+  const workbookId = check.workbook?.id;
+  const workbookDigest = check.workbook?.digest;
   useEffect(() => {
-    const workbook = check.workbook;
-    if (!workbook || recovered.current === workbook.id) return;
-    recovered.current = workbook.id;
+    if (!workbookId || !workbookDigest) return;
+    if (recovered.current === workbookId) return;
+    recovered.current = workbookId;
 
     let alive = true;
+    let settled = false;
     void (async () => {
       try {
-        const stored = await runtime.getCheckpointFile(workbook.id);
+        const stored = await runtime.getCheckpointFile(workbookId);
         if (!alive) return;
         if (!stored) {
+          settled = true;
           setBytesGone(true);
           return;
         }
         const file = new File([stored.bytes], stored.name, { type: XLSX_TYPE });
         const { sheet, sheetNames } = await openWorkbook(file);
         if (!alive) return;
+        settled = true;
         setBytesGone(false);
         setStaged({
-          id: workbook.id,
+          id: workbookId,
           file,
-          digest: workbook.digest,
+          digest: workbookDigest,
           sheet,
           sheetNames,
         });
       } catch (problem) {
         if (!alive) return;
+        settled = true;
         // NOT a fault band. The register is intact and every decision on it
         // still works; what is lost is the sheet's own facts, so the screen
         // says which ones and stops there.
@@ -424,8 +568,16 @@ function Panel({
     })();
     return () => {
       alive = false;
+      // A CANCELLED ATTEMPT IS NOT A FINISHED ONE. The id was marked read
+      // BEFORE the first await, so one cancellation -- a re-render with a new
+      // workbook object, React's own double-invoke in development -- recorded
+      // the read as done and no later run of this effect would try again. The
+      // truncation sentence, which is the one thing on this screen that must
+      // not be quiet, then never came back for the rest of the session. Found
+      // by review, so the claim is released unless the attempt actually landed.
+      if (!settled && recovered.current === workbookId) recovered.current = null;
     };
-  }, [check.workbook, runtime]);
+  }, [workbookId, workbookDigest, runtime]);
 
   /* ---------------------------------------------------------------- *
    * The hand-over.
@@ -461,10 +613,15 @@ function Panel({
         setFault({
           sentence: known
             ? "Berkas ini tidak bisa dibaca sebagai .xlsx, jadi tidak ada yang dimuat. Buka berkasnya di Excel, simpan ulang sebagai .xlsx, lalu muat lagi."
-            : // `openWorkbook`'s own refusals are written in Bahasa; anything
-              // else that lands here is a fault of this device, so the lead
-              // names the consequence and the cause follows it.
-              `Berkas konfigurasi ini tidak bisa dipakai, jadi tidak ada yang dimuat: ${messageOf(problem)}`,
+            : // THE CAUSE IS NOT THE SENTENCE. This used to end in
+              // `: ${messageOf(problem)}`, and what lands here is English
+              // written for whoever maintains this -- `WorkbookUnreadable`'s
+              // own text, a jszip failure, a storage quota -- pasted onto the
+              // end of the operator's own paragraph. It goes behind
+              // `Detail teknis` like every other deployer sentence in this
+              // product, and the prose covers the two causes an operator can
+              // actually do something about. Found by review.
+              "Berkas konfigurasi ini tidak bisa dipakai, jadi tidak ada yang dimuat. Pastikan berkasnya berisi lembar konfigurasi order ini dan tersimpan sebagai .xlsx biasa, lalu muat lagi.",
           detail: messageOf(problem),
         });
       } finally {
@@ -481,7 +638,7 @@ function Panel({
 
   const compare = () => {
     if (!staged || comparing) return;
-    setComparing(true);
+    markComparing(run.id, true);
     setFault(null);
     void (async () => {
       let response: ConfigResponse;
@@ -490,15 +647,34 @@ function Panel({
           buildInterpretRequest(run, staged.sheet),
         );
       } catch (problem) {
-        setFault({
-          sentence: `Pencocokan gagal, jadi belum ada isian yang bisa Anda putuskan: ${messageOf(problem)}`,
-          detail: messageOf(problem),
-        });
-        setComparing(false);
+        setFault({ sentence: COMPARE_FAILED, detail: messageOf(problem) });
+        markComparing(run.id, false);
         return;
       }
 
       setAnswer(response);
+
+      // NOTHING FOR THE REGISTER IS A REFUSAL, NOT A QUIET SUCCESS. `compared`
+      // is `entries.length > 0`, so folding an empty reading in repaints this
+      // screen exactly as it was: the operator pressed the key, paid for a
+      // model call over the whole order, and met the screen they were already
+      // looking at. On a replacement it is worse -- `attach-workbook` would
+      // drop the register this order holds and leave an isian-less workbook in
+      // its place. Found by review, and it is a reachable answer rather than a
+      // hypothetical: `config-compare.ts` returns `[]` for a sheet nothing
+      // could be interpreted out of, and the route says so in its note.
+      if (response.entries.length === 0) {
+        setFault({
+          sentence:
+            `Tidak ada isian yang bisa dibaca dari lembar ${staged.sheet.name} di ` +
+            `${shortenFileName(staged.file.name, 34)}, jadi tidak ada yang dicocokkan ` +
+            "dan tidak ada yang berubah di order ini. Periksa apakah berkas ini " +
+            "berisi konfigurasi order ini, lalu muat lagi.",
+          detail: readingDetail(response),
+        });
+        markComparing(run.id, false);
+        return;
+      }
 
       /**
        * WHICH EDIT, AND IT IS NOT ONE CHOICE OUT OF TWO STYLES.
@@ -515,17 +691,33 @@ function Panel({
         held !== undefined &&
         held.digest === staged.digest &&
         held.sheet === staged.sheet.name;
+      /*
+       * WHAT THE READING REFUSED, STORED WITH THE WORKBOOK IT REFUSED IT FROM.
+       *
+       * A refused row never becomes a `ConfigEntry`, so the register cannot
+       * show it and, kept in component state, it vanished on reload -- leaving
+       * a screen that read as full coverage of a workbook part of which was
+       * never compared. It rides on the workbook record because that record
+       * names one digest and one sheet: `attach-workbook` mints a fresh one per
+       * workbook, and the same-workbook fold below keeps the stored one, which
+       * is exactly the rule this list needs. Names only; the English reasons
+       * stay behind `Detail teknis`. Found by review.
+       */
+      const refused = (response.unusable ?? []).map((row) => row.label);
       const edit: ConfigEdit = same
         ? { tag: "record-comparison", entries: response.entries }
         : {
             tag: "attach-workbook",
-            workbook: workbookRecord(
-              staged.id,
-              staged.file,
-              staged.sheet,
-              staged.sheetNames,
-              staged.digest,
-            ),
+            workbook: {
+              ...workbookRecord(
+                staged.id,
+                staged.file,
+                staged.sheet,
+                staged.sheetNames,
+                staged.digest,
+              ),
+              unusable: refused,
+            },
             entries: response.entries,
           };
 
@@ -534,7 +726,7 @@ function Panel({
       } catch (problem) {
         onSaveFailed(problem);
       } finally {
-        setComparing(false);
+        markComparing(run.id, false);
       }
     })();
   };
@@ -543,10 +735,25 @@ function Panel({
    * The one re-search.
    * ---------------------------------------------------------------- */
 
+  /**
+   * WHAT THE ONE RE-SEARCH MAY BE SPENT ON, and the reason it is not simply
+   * every `tidak-ditemukan` row.
+   *
+   * A settled row takes the answer and hides it. `recordComparison` folds the
+   * model's half over the stored entry and KEEPS the person's half, so a row
+   * the operator already ruled on comes back carrying the new verdict under the
+   * old decision -- and a decided row collapses, printing the value that will be
+   * written and nothing else. The isian the search found would be on the run and
+   * on no screen, bought with a budget the client capped at one. So the budget
+   * is offered for rows that still owe a decision, and `Buka lagi` on a settled
+   * row puts it back in scope. Found by review.
+   */
+  const researchable = check.entries.filter(
+    (entry) => entry.verdict === "tidak-ditemukan" && entry.decision === "belum",
+  );
+
   const research = () => {
-    const fields: ConfigField[] = check.entries
-      .filter((entry) => entry.verdict === "tidak-ditemukan")
-      .map((entry) => entry.field);
+    const fields: ConfigField[] = researchable.map((entry) => entry.field);
     if (fields.length === 0 || researching) return;
 
     setResearching(true);
@@ -568,10 +775,7 @@ function Panel({
       try {
         response = await requestConfigCheck(buildResearchRequest(run, fields));
       } catch (problem) {
-        setFault({
-          sentence: `Pencarian ulang gagal, jadi tidak ada isian yang berubah: ${messageOf(problem)}`,
-          detail: messageOf(problem),
-        });
+        setFault({ sentence: RESEARCH_FAILED, detail: messageOf(problem) });
         setResearching(false);
         return;
       }
@@ -626,8 +830,11 @@ function Panel({
     decision: ConfigEntry["decision"],
     manualValue?: string,
   ) => {
-    setWorking(entryId);
-    setFresh(entryId);
+    // ONE ROW AT A TIME IS NOT HOW THIS SCREEN IS USED. Both of these were a
+    // single id, so a second press cleared the first row's `saving` and its
+    // paraf went solid while that write was still in the air. See `withId`.
+    setWorking((held) => withId(held, entryId));
+    setFresh((held) => withId(held, entryId));
     void (async () => {
       try {
         const edit: ConfigEdit =
@@ -635,14 +842,17 @@ function Panel({
             ? { tag: "decide", entryId, decision, manualValue: manualValue ?? "" }
             : { tag: "decide", entryId, decision };
         onRun(await runtime.editConfig(run.id, edit));
-        setTyping(null);
+        // ONLY THIS ROW'S FIELD. A bare `setTyping(null)` closed whichever
+        // field was open, so a decision landing on one row could take away a
+        // value the operator was still typing into another.
+        setTyping((open) => (open === entryId ? null : open));
       } catch (problem) {
         // The typed value stays on screen with the field still open: a save
         // that did not land must not also throw away what they wrote.
-        setFresh(null);
+        setFresh((held) => withoutId(held, entryId));
         onSaveFailed(problem);
       } finally {
-        setWorking(null);
+        setWorking((held) => withoutId(held, entryId));
       }
     })();
   };
@@ -660,10 +870,28 @@ function Panel({
         const built = await saveUpdatedWorkbook(check, runtime.getCheckpointFile);
         setSaved({ name: built.name, changed: built.changed });
       } catch (problem) {
-        // `buildUpdatedWorkbook` refuses in Bahasa when the bytes are gone, and
-        // that sentence already names the berkas and the remedy, so it is
-        // printed as it stands rather than wrapped in a second one.
-        setFault({ sentence: messageOf(problem), detail: messageOf(problem) });
+        // TWO SOURCES OF FAILURE HERE, AND ONLY ONE OF THEM SPEAKS BAHASA.
+        // `buildUpdatedWorkbook` refuses in Bahasa when the bytes are gone or
+        // no workbook is held, and that sentence already names the berkas and
+        // the remedy, so it is printed as it stands. `patchWorkbook` throws
+        // `WorkbookPatchError`, whose thirty-odd messages are OOXML internals
+        // written for whoever maintains that module -- and they are reachable
+        // from a workbook this app read and compared happily, because reading
+        // and patching demand different things of the archive: a `<row>` with
+        // no `r` attribute reads fine and is refused a patch by name. Printed
+        // as the operator's own sentence, as it was until review, the screen
+        // answered "save my konfigurasi" with a sentence about worksheet parts.
+        // Discriminated by `name`, the way `WorkbookUnreadable` already is one
+        // screen up, so no new import is needed. The remedy holds for every one
+        // of them: Excel rewrites the parts this patcher refuses.
+        const internal =
+          problem instanceof Error && problem.name === "WorkbookPatchError";
+        setFault({
+          sentence: internal
+            ? "Berkas konfigurasi terbaru tidak bisa disusun dari berkas asli Anda, jadi tidak ada yang tersimpan. Buka berkasnya di Excel, simpan ulang sebagai .xlsx biasa, lalu muat dan cocokkan lagi."
+            : messageOf(problem),
+          detail: messageOf(problem),
+        });
       } finally {
         setSaving(false);
       }
@@ -712,6 +940,7 @@ function Panel({
             busy={busy}
             bytesGone={bytesGone}
             searchablePages={searchablePages}
+            researchable={researchable.length}
             researching={researching}
             working={working}
             fresh={fresh}
@@ -720,8 +949,10 @@ function Panel({
             saved={saved}
             replacing={replacing}
             reading={reading}
+            comparing={comparing}
             onReplace={setReplacing}
             onFiles={takeWorkbook}
+            onCompare={compare}
             onResearch={research}
             onDecide={decide}
             onType={setTyping}
@@ -1131,6 +1362,7 @@ function Compared({
   busy,
   bytesGone,
   searchablePages,
+  researchable,
   researching,
   working,
   fresh,
@@ -1139,8 +1371,10 @@ function Compared({
   saved,
   replacing,
   reading,
+  comparing,
   onReplace,
   onFiles,
+  onCompare,
   onResearch,
   onDecide,
   onType,
@@ -1155,15 +1389,19 @@ function Compared({
   busy: boolean;
   bytesGone: boolean;
   searchablePages: number;
+  /** Isian that are `tidak-ditemukan` AND still undecided. See `researchable`. */
+  researchable: number;
   researching: boolean;
-  working: string | null;
-  fresh: string | null;
+  working: ReadonlySet<string>;
+  fresh: ReadonlySet<string>;
   typing: string | null;
   saving: boolean;
   saved: { name: string; changed: number } | null;
   replacing: boolean;
   reading: boolean;
+  comparing: boolean;
   onReplace: (open: boolean) => void;
+  onCompare: () => void;
   onFiles: (file: File) => void;
   onResearch: () => void;
   onDecide: (
@@ -1213,6 +1451,18 @@ function Compared({
    * the replacement standing over a register built from the old berkas would be
    * a warning attached to the wrong file.
    */
+  /*
+   * A REPLACEMENT IS STAGED: a berkas open on this device that is NOT the one
+   * this register describes. The inverse of `stagedIsCompared`, named
+   * separately because the two are read for opposite purposes -- one decides
+   * which workbook a truncation sentence is about, the other decides whether
+   * there is anything left to compare.
+   */
+  const replacementStaged =
+    staged !== undefined &&
+    staged !== null &&
+    (workbook === undefined || staged.digest !== workbook.digest);
+
   const stagedIsCompared =
     staged !== undefined &&
     staged !== null &&
@@ -1275,11 +1525,15 @@ function Compared({
           the thing being read. */}
       {stagedIsCompared ? <Truncation sheet={staged.sheet} /> : null}
 
-      <Unusable answer={answer} />
+      {/* FROM THE RUN, NOT FROM THE LAST REPLY. What the reading refused is
+          stored on the workbook record, so a reload no longer turns a partial
+          comparison into a screen that reads as full coverage. */}
+      <Unusable labels={workbook?.unusable ?? []} />
 
       <Research
         check={check}
         summary={summary}
+        researchable={researchable}
         busy={busy}
         searchablePages={searchablePages}
         researching={researching}
@@ -1360,6 +1614,58 @@ function Compared({
               </Btn>
             </span>
           )}
+
+          {/* THE OTHER HALF OF REPLACING, AND WITHOUT IT THIS IS A DEAD END.
+
+              Dropping a replacement only stages it. Nothing compared it, so
+              the register below still described the old berkas and the key at
+              the foot of the screen still patched the old berkas -- an
+              operator who noticed they had loaded the wrong konfigurasi could
+              load the right one and then watch the screen ignore it, with
+              nothing saying why. Found by review.
+
+              `onCompare` is the same call the first reading makes.
+              `compare()` already knows the difference: a staged berkas whose
+              digest differs from the one held is folded in with
+              `attach-workbook`, which replaces the workbook AND its isian and
+              names the rulings it discards, so storage cannot lose one
+              silently. `ReplacementCost` prints that price before the press. */}
+          {replacementStaged ? (
+            <>
+              <p className="flex flex-wrap items-baseline gap-2 text-sm">
+                <span className="lt-kotak" title={staged.file.name}>
+                  {shortenFileName(staged.file.name, 34)}
+                </span>
+                <span>
+                  <span className="lt-figure">{staged.sheet.cells.length}</span>{" "}
+                  sel terbaca dari lembar
+                </span>
+                <span className="lt-kotak">{staged.sheet.name}</span>
+              </p>
+
+              <Truncation sheet={staged.sheet} />
+              <ReplacementCost check={check} digest={staged.digest} />
+
+              <span>
+                <Btn
+                  tone="primary"
+                  disabled={comparing || busy}
+                  reason={
+                    busy
+                      ? "Tunggu berkas order selesai dimuat."
+                      : comparing
+                        ? "Pencocokan sedang berjalan."
+                        : undefined
+                  }
+                  onClick={onCompare}
+                >
+                  {comparing
+                    ? "Sedang mencocokkan..."
+                    : "Cocokkan berkas pengganti dengan dokumen"}
+                </Btn>
+              </span>
+            </>
+          ) : null}
         </div>
       </details>
     </>
@@ -1374,16 +1680,31 @@ function Compared({
  * operator to read neither. It always ends in something to do. The REASONS are
  * written for a developer and stay in `Detail teknis` at the foot of the
  * register, never in a sentence an operator is meant to act on.
+ *
+ * ISIAN, NOT "BARIS". `docs/ui-bahasa.md` reserves `baris` for OCR lines and
+ * this same screen spends it that way twelve rows down, in every `Cite`. It was
+ * also the wrong count: on the transposed workbook one isian is a COLUMN, and
+ * on the header-row workbook one row carries twenty of them. Found by review.
+ *
+ * NAMED, NOT COUNTED. The operator's move is to open their own file and look at
+ * these isian, and a bare number does not tell them which.
  */
-function Unusable({ answer }: { answer: ConfigResponse | null }) {
-  const unusable = answer?.unusable ?? [];
-  if (unusable.length === 0) return null;
+function Unusable({ labels }: { labels: readonly string[] }) {
+  if (labels.length === 0) return null;
 
   return (
     <Advisory>
-      {unusable.length} baris di berkas ini tidak bisa dipakai sebagai isian,
-      jadi tidak ikut dicocokkan dan tidak muncul di daftar di bawah. Buka
-      berkas konfigurasi Anda dan periksa sendiri baris-baris itu.
+      <span className="lt-figure">{labels.length}</span> isian di berkas ini
+      tidak bisa dipakai, jadi tidak ikut dicocokkan dan tidak muncul di daftar
+      di bawah:{" "}
+      {labels.map((label, at) => (
+        <span key={`${label}/${at}`}>
+          {at > 0 ? ", " : ""}
+          {/* Mono: it is the workbook's own word for the isian. */}
+          <span className="lt-figure">{label}</span>
+        </span>
+      ))}
+      . Buka berkas konfigurasi Anda dan periksa sendiri isian itu.
     </Advisory>
   );
 }
@@ -1404,12 +1725,8 @@ function Reasons({
   answer: ConfigResponse | null;
 }) {
   const lines: string[] = [];
-  if (answer?.note) lines.push(answer.note);
-  for (const row of answer?.unusable ?? []) {
-    lines.push(
-      `unusable  ${row.label}  ${row.labelRef ?? "?"}/${row.valueRef ?? "?"}  ${row.reason}`,
-    );
-  }
+  const reading = readingDetail(answer);
+  if (reading) lines.push(reading);
   for (const entry of check.entries) {
     if (entry.reason) lines.push(`${entry.field.label}  ${entry.reason}`);
   }
@@ -1433,6 +1750,7 @@ function Reasons({
 function Research({
   check,
   summary,
+  researchable,
   busy,
   searchablePages,
   researching,
@@ -1440,6 +1758,7 @@ function Research({
 }: {
   check: ConfigCheck;
   summary: ReturnType<typeof configSummary>;
+  researchable: number;
   busy: boolean;
   searchablePages: number;
   researching: boolean;
@@ -1450,6 +1769,12 @@ function Research({
   if (!summary.canResearch) {
     return <Note>{check.researched ? RESEARCH_SPENT : RESEARCH_OFFER}</Note>;
   }
+
+  // THE BUDGET IS UNSPENT AND THERE IS NOTHING TO SPEND IT ON: every isian that
+  // was not found has already been decided, and a decision hides what a search
+  // would find for it. Said in the past tense with the way back named, rather
+  // than a key that spends a model call and changes nothing on screen.
+  if (researchable === 0) return <Note>{RESEARCH_SETTLED}</Note>;
 
   const hold = busy
     ? LOADING_HOLD
@@ -1472,10 +1797,7 @@ function Research({
         {researching ? (
           <p aria-live="polite" className="flex items-center gap-2 text-sm">
             <span className="lt-spinner" aria-hidden="true" />
-            Mencari <span className="lt-figure">
-              {summary.tidakDitemukan}
-            </span>{" "}
-            isian di{" "}
+            Mencari <span className="lt-figure">{researchable}</span> isian di{" "}
             <span className="lt-figure">{searchablePages}</span> halaman.
           </p>
         ) : null}
@@ -1513,8 +1835,9 @@ function EntryRow({
 }: {
   run: BrowserRun;
   entry: ConfigEntry;
-  working: string | null;
-  fresh: string | null;
+  /** Every isian whose write is in the air, and every one that just landed. */
+  working: ReadonlySet<string>;
+  fresh: ReadonlySet<string>;
   typing: string | null;
   onDecide: (
     entryId: string,
@@ -1526,7 +1849,7 @@ function EntryRow({
   const id = configEntryId(entry);
   const state = stateOf(entry);
   const open = isOpen(entry);
-  const saving = working === id;
+  const saving = working.has(id);
   const field = entry.field;
   const address = `${field.sheet}!${field.valueRef}`;
 
@@ -1535,7 +1858,7 @@ function EntryRow({
       <Mark
         status={state.status}
         title={state.word}
-        drawing={fresh === id}
+        drawing={fresh.has(id)}
         saved={!saving}
       />
       {/* Mono: the isian's name is the workbook's own word for it, and two of
@@ -1602,7 +1925,13 @@ function EntryRow({
         <dt>dokumen</dt>
         <dd>
           {entry.documentValue === undefined ? (
-            <span className="text-ink-3">(tidak ada di dokumen)</span>
+            /* THE WORD IS THE VERDICT'S OWN. This cell said "(tidak ada di
+               dokumen)", which is a claim about the DOCUMENT -- the mirror of
+               Checkpoint 3's `tidak ada di konfigurasi`, and pointed the wrong
+               way. What is actually known is `tidak ditemukan`, fixed in
+               `docs/ui-bahasa.md` to mean SEARCHED AND NOT FOUND, which is what
+               the state word on this row already says. Found by review. */
+            <span className="text-ink-3">(tidak ditemukan)</span>
           ) : (
             entry.documentValue
           )}

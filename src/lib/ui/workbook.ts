@@ -22,18 +22,26 @@ export const XLSX_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
- * `LOP999001_ORDER_Config.xlsx` becomes `LOP999001_ORDER_Config_UPDATED.xlsx`.
+ * `LOP999001_ORDER_Config.xlsx` becomes `LOP999001_ORDER_Config_TERBARU.xlsx`.
  *
  * THE OPERATOR'S OWN NAME IS KEPT, with one suffix. They filed the original
  * under a name their process understands, and a tool that renamed it to
  * something of its own would hand back a file they then have to rename back.
  * The suffix goes before the extension so the file still opens as a workbook
  * by double-click, and a name with no extension at all still gets one.
+ *
+ * THE SUFFIX IS BAHASA, and it was `_UPDATED` until review. A file name is the
+ * most operator-facing string this module has -- it is what they see in their
+ * downloads folder, forward to a colleague and file against the order -- so the
+ * English word had no more licence here than it would on the key that produces
+ * it. `docs/ui-bahasa.md` fixes the amended workbook as **konfigurasi
+ * terbaru**, the key says `Simpan konfigurasi terbaru`, and the file now says
+ * the same word back.
  */
 export function updatedName(name: string): string {
   const dot = name.lastIndexOf(".");
-  if (dot <= 0) return `${name}_UPDATED.xlsx`;
-  return `${name.slice(0, dot)}_UPDATED${name.slice(dot)}`;
+  if (dot <= 0) return `${name}_TERBARU.xlsx`;
+  return `${name.slice(0, dot)}_TERBARU${name.slice(dot)}`;
 }
 
 /**

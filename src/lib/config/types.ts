@@ -203,6 +203,34 @@ export type ConfigWorkbook = {
   sheets: string[];
   /** Which of them the fields were interpreted out of. */
   sheet: string;
+  /**
+   * THE ISIAN THIS WORKBOOK'S READING REFUSED, BY NAME.
+   *
+   * A row `config-interpret.ts` refuses never becomes a `ConfigEntry`, so it is
+   * in no stored array and the register cannot show it. Kept only in component
+   * state, it survived until the operator reloaded the tab and then the screen
+   * read as full coverage of a workbook part of which was never compared --
+   * this project's failure class with a spreadsheet on top of it. Found by
+   * review.
+   *
+   * IT LIVES ON THE WORKBOOK RECORD RATHER THAN BESIDE `entries` because that
+   * is what scopes it: this record names one digest and one sheet, so the list
+   * cannot outlive the reading that produced it or attach itself to a
+   * replacement workbook. `attachWorkbook` builds a fresh record per workbook
+   * and `recordComparison` keeps the stored one, which is exactly the rule this
+   * list needs -- a re-search does not re-read the sheet and must not blank it.
+   *
+   * NAMES ONLY, AND THAT IS A SIZE DECISION. `ConfigCheck` rides in the run's
+   * SMALL half, which `listRunMeta` reads for every order on the device, so
+   * what is stored is the shortest thing that answers the operator's question
+   * ("which of my isian were not looked at?"). The model's English reasons and
+   * its note about the sheet are diagnoses for a deployer, they are the long
+   * half, and they stay session-only behind `Detail teknis`.
+   *
+   * Absent means a reading that predates this field; empty means one that
+   * refused nothing. Both render the same, which is nothing.
+   */
+  unusable?: string[];
 };
 
 /** Checkpoint 2's whole state, as one order carries it. */

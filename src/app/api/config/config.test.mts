@@ -713,3 +713,57 @@ test("a request that survives every check answers 200 with the entries", async (
     ["cocok", "cocok"],
   );
 });
+
+/* ------------------------------------------- interpret without comparing */
+
+test("compare: false asks what the workbook holds and never runs the expensive call", async () => {
+  /*
+   * Checkpoint 3's "yes, I have a newer konfigurasi" reads a workbook to learn
+   * its isian; EPIC is then judged against those, and the SCANS have nothing to
+   * do with that question. Without the flag this route interpreted and then ran
+   * the comparison anyway -- the one call carrying the whole run's page
+   * listing -- and the caller read only `fields`, so every verdict was paid for
+   * and dropped. Found by review.
+   */
+  const prompts: string[] = [];
+  const answer = JSON.stringify({
+    fields: [{ label: "Nama Pelanggan", labelRef: "C9", valueRef: "E9" }],
+  });
+
+  const result = await checkConfig(
+    { runId: "r", pages: PAGES, sheet: SHEET, compare: false },
+    async (prompt: string) => {
+      prompts.push(prompt);
+      return answer;
+    },
+    () => "f1",
+  );
+
+  assert.equal(prompts.length, 1, "one call: the interpretation, and nothing else");
+  assert.ok(
+    !prompts[0].includes("halaman") && !prompts[0].includes("page 0"),
+    "the one call made is the cell listing, not the page listing",
+  );
+  assert.equal(result.fields?.length, 1, "the fields still come back");
+  assert.deepEqual(result.entries, [], "and no verdict is invented for them");
+});
+
+test("compare: false needs a sheet, because without one it asks for nothing at all", () => {
+  assert.throws(
+    () => parseConfigBody({ runId: "r", pages: PAGES, fields: FIELDS, compare: false }),
+    /needs a sheet/,
+  );
+
+  // Absent and `true` both mean compare, so a client that predates the flag,
+  // and one that sends it unconditionally, are byte-identical requests.
+  assert.doesNotThrow(() =>
+    parseConfigBody({ runId: "r", pages: PAGES, sheet: SHEET, compare: true }),
+  );
+  assert.doesNotThrow(() =>
+    parseConfigBody({ runId: "r", pages: PAGES, fields: FIELDS, compare: true }),
+  );
+  assert.throws(
+    () => parseConfigBody({ runId: "r", pages: PAGES, sheet: SHEET, compare: "no" }),
+    /true, false, or absent/,
+  );
+});

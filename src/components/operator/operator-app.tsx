@@ -354,7 +354,17 @@ function saveFault(problem: unknown, unnamed: string = STORAGE_REFUSED): Fault {
               // words rather than as "data".
               name === "DecisionLossError"
               ? "penyimpanan menolak tulisan yang akan membuang keputusan yang sudah Anda ambil atas isian konfigurasi. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda; keputusan yang tersimpan tetap utuh."
-              : // THE ONE THAT IS NOT STORAGE AT ALL. A judul
+              : // NOT STORAGE EITHER, and its own class exists to say so:
+                // `ConfigEditError`'s doc comment records that a bare `Error`
+                // here would land on the generic sentence and blame the device
+                // for a refusal that is about the EDIT. It is raised when a
+                // Checkpoint 2 or 3 gesture cannot be applied to the run as it
+                // now stands -- an isian that is no longer there, a workbook
+                // replaced underneath the screen -- so "muat ulang" is the
+                // right remedy and "penyimpanan menolak" is the wrong cause.
+                name === "ConfigEditError"
+                ? "keputusan itu tidak bisa diterapkan pada order ini lagi, biasanya karena berkas konfigurasinya sudah diganti atau isiannya sudah tidak ada. Muat ulang halaman ini, lalu lihat lagi daftar isiannya."
+                : // THE ONE THAT IS NOT STORAGE AT ALL. A judul
               // removal carries the number of potongan the operator agreed to
               // lose (`removeSectionEdit`), because the cost the dialog printed
               // was read off the run THIS TAB HOLDS while the write lands on
@@ -2021,7 +2031,15 @@ function Workspace({
             onSaveFailed={(problem) => setFault(saveFault(problem))}
           />
         ) : phase === "epic" ? (
-          <EpicPanel run={run} onRun={setRun} />
+          <EpicPanel
+            run={run}
+            onRun={setRun}
+            /* THE RAW PROBLEM, exactly as ConfigPanel hands it over: every
+               named storage guard has its sentence in `saveFault` and nowhere
+               else, so a panel composing its own would be a second vocabulary
+               that drifts from the first. */
+            onSaveFailed={(problem) => setFault(saveFault(problem))}
+          />
         ) : (
           <ExportPanel
             run={run}

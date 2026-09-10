@@ -128,6 +128,16 @@ export type ConfigBody = {
   fields?: ConfigField[];
   /** The one re-search. Compare only these fields, with the widened question. */
   retry?: boolean;
+  /**
+   * ASK WHAT THE WORKBOOK HOLDS AND STOP THERE. Only meaningful with `sheet`.
+   *
+   * Absent means compare, so a caller that predates this field sends byte for
+   * byte the request this route has always taken. `false` is for Checkpoint 3,
+   * which reads a newer workbook to learn its isian and judges EPIC against
+   * them; the scans are not part of that question and the comparison call is
+   * the expensive one.
+   */
+  compare?: boolean;
 };
 
 export type ConfigResult = {
@@ -476,6 +486,25 @@ export function parseConfigBody(value: unknown): ConfigBody {
     }
   }
 
+  if (body.compare !== undefined) {
+    if (typeof body.compare !== "boolean") {
+      throw new Error("compare is true, false, or absent");
+    }
+    // `compare: false` MEANS "INTERPRET AND STOP", so it says nothing beside a
+    // request that carries no sheet to interpret -- a `fields` request with it
+    // would be asking this route to do nothing at all and answer as though it
+    // had. Refused rather than ignored, for the reason every other check here
+    // is: a request whose flags contradict each other is a caller bug, and
+    // answering it plausibly is how the bug survives.
+    if (!hasSheet && !body.compare) {
+      throw new Error(
+        "compare: false asks for an interpretation without a comparison, so " +
+          "it needs a sheet to interpret; a request carrying only fields has " +
+          "nothing left to do",
+      );
+    }
+  }
+
   return body as ConfigBody;
 }
 
@@ -529,15 +558,33 @@ export async function checkConfig(
       mintId,
     });
 
-    // COMPARED IMMEDIATELY, against what was just interpreted rather than
-    // against what the caller sent: the fields the operator will rule on are
-    // the ones that survived validation, and re-posting them to be compared
-    // would be a second request that could carry a different list.
-    const entries = await compareToDocuments({
-      fields: interpretation.fields,
-      pages: searchable,
-      ask,
-    });
+    /*
+     * COMPARED IMMEDIATELY, against what was just interpreted rather than
+     * against what the caller sent: the fields the operator will rule on are
+     * the ones that survived validation, and re-posting them to be compared
+     * would be a second request that could carry a different list.
+     *
+     * UNLESS THE CALLER ONLY WANTED THE FIELDS. Checkpoint 3's "yes, I have a
+     * newer konfigurasi" reads a workbook purely to learn what isian it holds:
+     * EPIC is judged against that workbook, and the scans have nothing to do
+     * with it. Comparing anyway spent the single most expensive call this
+     * route makes -- one that carries the whole run's page listing, measured
+     * at 23k input tokens for a 29-page bundle and far more for the 151-page
+     * one -- and then threw every verdict away, because the caller reads only
+     * `fields`. Found by review.
+     *
+     * A flag rather than an inference. Sending no pages would skip the call
+     * too, by way of `compareToDocuments`' own empty-pool branch, but it would
+     * say "this order has no readable page" to get there, and the next reader
+     * of either side would have to know that coincidence to keep it working.
+     */
+    const entries = body.compare === false
+      ? []
+      : await compareToDocuments({
+          fields: interpretation.fields,
+          pages: searchable,
+          ask,
+        });
 
     return {
       fields: interpretation.fields,

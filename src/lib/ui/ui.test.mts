@@ -10,6 +10,12 @@
  */
 
 import { emptyConfigCheck, emptyEpicCheck } from "../config/types.ts";
+import type { Sheet } from "../xlsx/grid.ts";
+import {
+  buildFieldsOnlyRequest,
+  buildInterpretRequest,
+  buildResearchRequest,
+} from "./checkpoint.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -2350,4 +2356,80 @@ test("the vocabulary panel does not count its own entries in its label", () => {
         `stale once already: "${REASON_HINT_LABEL}"`,
     );
   }
+});
+
+/* ------------------------------------------------------ the checkpoint wire */
+
+/** A sheet the way `read.ts` produces one: only the cells that hold something. */
+function configSheet(): Sheet {
+  const cells = [
+    { ref: "C9", row: 9, col: 3, text: "Nama Pelanggan", kind: "text" as const },
+    { ref: "E9", row: 9, col: 5, text: "BANK CONTOH NUSANTARA", kind: "text" as const },
+  ];
+  return {
+    name: "Sheet1",
+    cells,
+    byRef: new Map(cells.map((cell) => [cell.ref, cell])),
+    dimension: "A1:E9",
+    rows: 9,
+    cols: 5,
+    merges: [],
+  };
+}
+
+test("a Checkpoint 2 reading carries the run's pages, because the scans are the evidence", () => {
+  const request = buildInterpretRequest(RUN, configSheet());
+
+  assert.equal(request.pages.length, RUN.pages.length);
+  assert.equal(request.compare, undefined, "absent means compare, so this is the request it always was");
+  assert.equal(request.sheet?.name, "Sheet1");
+  assert.equal(
+    request.sheet?.cells.length,
+    2,
+    "byRef is a Map and does not survive JSON; the cells travel and the server rebuilds it",
+  );
+});
+
+test("Checkpoint 3's newer-workbook reading carries NO page listing at all", () => {
+  /*
+   * Found by review. EPIC is judged against the workbook, so the scans are not
+   * part of that question -- but the route interpreted AND compared whenever a
+   * sheet was present, spending the one call that carries the whole run's OCR
+   * listing and handing back verdicts this caller cannot even store. On the
+   * 151-page bundle that is a multi-megabyte request body and roughly half a
+   * run's model bill, for a result no code reads.
+   *
+   * The empty array is honest only BECAUSE of the flag beside it: an empty
+   * pages list on its own would buy the same saving by telling the route this
+   * order has no readable page.
+   */
+  const request = buildFieldsOnlyRequest(RUN, configSheet());
+
+  assert.equal(request.compare, false, "the intent is stated, not inferred");
+  assert.deepEqual(request.pages, [], "and nothing that cannot be read is sent");
+  assert.equal(request.sheet?.name, "Sheet1", "the sheet is the whole question");
+  assert.equal(request.runId, RUN.id);
+});
+
+test("the one re-search names its fields and asks the widened question", () => {
+  const fields = [
+    {
+      id: "f1",
+      sheet: "Sheet1",
+      label: "Nama Pelanggan",
+      labelRef: "C9",
+      valueRef: "E9",
+      excelValue: "",
+    },
+  ];
+  const request = buildResearchRequest(RUN, fields);
+
+  assert.equal(request.retry, true);
+  assert.equal(request.sheet, undefined, "the workbook has already been interpreted");
+  assert.deepEqual(request.fields, fields);
+  assert.equal(
+    request.pages.length,
+    RUN.pages.length,
+    "a re-search reads the documents, so this one does carry them",
+  );
 });

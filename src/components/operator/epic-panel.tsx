@@ -57,6 +57,19 @@
  * screen holds a run in React state, so the composed-run write is refused as
  * stale on the ORDINARY path here, not on a corner case. An edit carries no
  * revision and is applied to whatever is stored when the lock is taken.
+ *
+ * ## A REFUSED WRITE IS REPORTED UPWARD, EVERYTHING ELSE IS PROSE HERE
+ *
+ * The vocabulary for a refused write (`StaleRunWriteError`, `DecisionLossError`,
+ * `ConfigEditError`, `QuotaExceededError`) lives in `operator-app.tsx`'s
+ * `saveFault`, which reads `error.name` and owns a sentence for each named
+ * guard. This screen used to compose its own, and a review found what that
+ * costs: it printed the first half of `docs/ui-bahasa.md`'s sentence and
+ * dropped the `: {sebab}` half, so an operator was told the order did not save
+ * and never told what to do about it. So `onSaveFailed` hands the RAW problem
+ * over, exactly as `ConfigPanel` does, and the shell says the sentence. A
+ * refused berkas, a tangkapan layar that read nothing and a failed comparison
+ * are about THIS screen's own object and stay `Interruption` prose here.
  */
 
 import { useId, useRef, useState } from "react";
@@ -71,7 +84,7 @@ import type {
 } from "@/lib/config/types";
 import {
   buildEpicRequest,
-  buildInterpretRequest,
+  buildFieldsOnlyRequest,
   digestOf,
   openWorkbook,
   recogniseCapture,
@@ -84,7 +97,11 @@ import { epicEntryId } from "@/lib/ui/runtime";
 import { useRuntime } from "@/lib/ui/runtime-context";
 import type { SlotAggregateStatus } from "@/lib/ui/slots";
 import { XLSX_TYPE } from "@/lib/ui/workbook";
-import { MAX_LISTING_CELLS, listingTruncated } from "@/lib/xlsx/listing";
+import {
+  MAX_LISTING_CELLS,
+  MAX_LISTING_MERGES,
+  listingTruncated,
+} from "@/lib/xlsx/listing";
 
 import {
   Advisory,
@@ -417,7 +434,7 @@ function Drop({
  * The screen.
  * ------------------------------------------------------------------ */
 
-export function EpicPanel(props: {
+export type EpicPanelProps = {
   run: BrowserRun;
   /**
    * KEEP WHAT EVERY WRITE RETURNS. `editEpic` answers with the STORED run, one
@@ -425,7 +442,18 @@ export function EpicPanel(props: {
    * resolves. A caller that ignored this works exactly once.
    */
   onRun: (run: BrowserRun) => void;
-}) {
+  /**
+   * A write storage refused, handed over RAW.
+   *
+   * `operator-app.tsx`'s `saveFault` reads `error.name` and owns the sentence
+   * for each named guard; passing the problem rather than a sentence is what
+   * keeps that vocabulary in one place. This screen's own copy said half of it
+   * and was found in review.
+   */
+  onSaveFailed: (problem: unknown) => void;
+};
+
+export function EpicPanel(props: EpicPanelProps) {
   // A different order is a different question, and every piece of state below
   // is about one: which berkas were refused, what is being read, which finding
   // is having a value typed into it. Keying on the run id says so in React's
@@ -433,19 +461,26 @@ export function EpicPanel(props: {
   return <Panel key={props.run.id} {...props} />;
 }
 
-function Panel({
-  run,
-  onRun,
-}: {
-  run: BrowserRun;
-  onRun: (run: BrowserRun) => void;
-}) {
+function Panel({ run, onRun, onSaveFailed }: EpicPanelProps) {
   const runtime = useRuntime();
 
   const [fault, setFault] = useState<Fault | null>(null);
   const [refusals, setRefusals] = useState<Refusal[]>([]);
   /** The name of the berkas being read, so the wait is never silent. */
   const [reading, setReading] = useState<string | null>(null);
+  /**
+   * THE TANGKAPAN LAYAR HANDED OVER AND NOT YET READ, and the flag that says
+   * one loop owns them.
+   *
+   * A REF RATHER THAN STATE, for the reason `operator-app.tsx` gives about the
+   * berkas antrean: a drop lands while the loop is between two files, and React
+   * state read there is a value from a render that has already been superseded.
+   * Nothing draws this one, because the berkas being read is named beside the
+   * spinner and a screenshot is seconds rather than the minutes a 27-page scan
+   * takes; the moment it needs drawing it needs a `setQueueTo` that writes both.
+   */
+  const antrean = useRef<File[]>([]);
+  const draining = useRef(false);
   const [comparing, setComparing] = useState(false);
   /** Which finding is being written, and which one to draw the paraf on. */
   const [writing, setWriting] = useState<string | null>(null);
@@ -459,10 +494,20 @@ function Panel({
   const [unusable, setUnusable] = useState<
     { label: string; reason: string }[]
   >([]);
-  /** The newest workbook was larger than one pass can carry. */
+  /**
+   * The newest workbook was larger than one pass can carry, as it was read.
+   *
+   * BOTH SIZES, BECAUSE THERE ARE TWO CAPS AND THEY CUT DIFFERENT THINGS.
+   * `listingTruncated` is an OR over the cell cap and the merge cap, and this
+   * screen used to answer it with `read: MAX_LISTING_CELLS`, so a sheet whose
+   * merges alone were cut printed "4000 dari 159 sel yang terbaca" -- a figure
+   * larger than the total, followed by a sentence saying isian went unread when
+   * every one of them had been listed. The counts are kept and the clauses are
+   * chosen from them below.
+   */
   const [truncated, setTruncated] = useState<{
-    read: number;
-    total: number;
+    cells: number;
+    merges: number;
   } | null>(null);
 
   /**
@@ -498,23 +543,21 @@ function Panel({
   /**
    * ONE WRITE, ONE PLACE, AND THE ANSWER IS KEPT.
    *
-   * A failure here is not a tidy `null`: the operator has just made a decision
-   * that did not reach disk, so it becomes an `Interruption` they have to walk
-   * past. The sentence is `docs/ui-bahasa.md`'s own; the raw refusal rides
-   * behind `Detail teknis`, which is the one pattern for text written for a
-   * deployer and shown to an operator.
+   * A FAILURE GOES UPWARD RAW, and it used to be answered here. The sentence
+   * this composed was `docs/ui-bahasa.md`'s own minus its second half: "Order
+   * gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab ini" with no
+   * `: {sebab}`, which tells the operator a decision was lost and nothing about
+   * what to do next -- and every remedy differs by guard (muat ulang for a
+   * stale write, kosongkan order lama for a full quota, lihat lagi daftar
+   * isiannya for a `ConfigEditError`). `saveFault` in `operator-app.tsx` owns
+   * that vocabulary, so this hands over the problem and says nothing.
    */
   const save = async (edit: EpicEdit): Promise<boolean> => {
     try {
       onRun(await runtime.editEpic(run.id, edit));
-      setFault(null);
       return true;
     } catch (problem) {
-      setFault({
-        sentence:
-          "Order gagal disimpan, jadi keputusan terakhir Anda hanya ada di tab ini.",
-        detail: messageOf(problem),
-      });
+      onSaveFailed(problem);
       return false;
     }
   };
@@ -567,7 +610,7 @@ function Panel({
       const digest = await digestOf(bytes);
       const { sheet, sheetNames } = await openWorkbook(file);
 
-      const answer = await requestConfigCheck(buildInterpretRequest(run, sheet));
+      const answer = await requestConfigCheck(buildFieldsOnlyRequest(run, sheet));
       const fields = answer.fields ?? [];
       if (fields.length === 0) {
         refuse(
@@ -596,9 +639,15 @@ function Panel({
       );
       // SAID OUT LOUD, NEVER SWALLOWED. A workbook larger than one pass can
       // carry was read in part, and a screen that reported the part as the
-      // whole is exactly the silence this product exists to break.
+      // whole is exactly the silence this product exists to break. WHICH cap
+      // cut it is decided at the notice, off these two counts: `sheetListing`
+      // cuts cells and merges independently, and `listingTruncation` in
+      // `src/lib/xlsx/listing.ts` derives the cause in English for the prompt.
       if (listingTruncated(sheet)) {
-        setTruncated({ read: MAX_LISTING_CELLS, total: sheet.cells.length });
+        setTruncated({
+          cells: sheet.cells.length,
+          merges: sheet.merges.length,
+        });
       }
       setWantsWorkbook(false);
     } catch (problem) {
@@ -614,7 +663,28 @@ function Panel({
   /* ------------------------------------------------------- the tangkapan */
 
   /**
+   * EVERY HAND-OVER IS ACCEPTED, AND A SECOND DROP JOINS THE ANTREAN.
+   *
+   * It used to start a second loop. Reading one tangkapan layar is a `/api/ocr`
+   * round trip, the tray invites "sebanyak yang Anda perlu", and the tray never
+   * stands down, so a second drop while the first was in flight was the
+   * ordinary case rather than a corner: two loops then shared `seen`, `reading`
+   * and `refusals`, the second cleared the first's refusals, and whichever
+   * finished first put `reading` back to null under the other. The berkas
+   * hand-over in `operator-app.tsx` solved exactly this and this is its shape.
+   */
+  const takeCaptures = (files: File[]) => {
+    antrean.current = [...antrean.current, ...files];
+    void drainCaptures();
+  };
+
+  /**
    * The screenshots, one at a time, in the order they were handed over.
+   *
+   * IT IS RE-ENTRANT-SAFE BY THE `draining` FLAG AND NOTHING ELSE. Every
+   * hand-over calls this; only the one that finds the flag down actually runs,
+   * and the rest have simply added to a list the running loop has not reached
+   * yet.
    *
    * SCREENED BEFORE THE ROUTE IS CALLED, in Bahasa, on the bytes. `addEpicCapture`
    * refuses a second copy too and its message is English by design
@@ -622,84 +692,130 @@ function Panel({
    * duplicate belongs on the screen that refused to submit it), so the screen
    * has to own the sentence and the storage guard is the net behind it.
    *
-   * `seen` catches the pair inside ONE drop: hashing is async, so two files of
-   * the same bytes would each be screened against a run neither had reached yet.
+   * `seen` catches the pair inside ONE drop AND across the ones that joined the
+   * antrean behind it: hashing is async, so two files of the same bytes would
+   * each be screened against a run neither had reached yet. It is built once
+   * per drain and added to as each capture lands, which is why the loop has to
+   * be the only one running.
    */
-  const takeCaptures = async (files: File[]) => {
+  const drainCaptures = async () => {
+    if (draining.current) return;
+    if (antrean.current.length === 0) return;
+    draining.current = true;
+    // CLEARED BY THE LOOP, NOT BY THE HAND-OVER. A drop that joins a running
+    // antrean must not wipe the refusals the running loop has already printed:
+    // those name berkas that are NOT in this order, and an operator who never
+    // sees one walks away believing the tangkapan layar is in it.
     setRefusals([]);
     const seen = new Set(run.epic.captures.map((capture) => capture.digest));
     const named = new Map(
       run.epic.captures.map((capture) => [capture.digest, capture.name]),
     );
 
-    for (const file of files) {
-      if (!isCapture(file)) {
-        refuse(
-          `Bukan gambar PNG atau JPEG, jadi tidak dipakai: ${file.name}. Simpan tangkapan layarnya sebagai PNG atau JPEG dulu, lalu muat lagi.`,
-        );
-        continue;
-      }
-
-      setReading(file.name);
-      try {
-        const digest = await digestOf(await file.arrayBuffer());
-        if (seen.has(digest)) {
+    try {
+      while (antrean.current.length > 0) {
+        const [file, ...rest] = antrean.current;
+        antrean.current = rest;
+        if (!isCapture(file)) {
           refuse(
-            `Tangkapan layar ini sudah ada di order dengan nama ${
-              named.get(digest) ?? file.name
-            }, jadi tidak dipakai lagi: ${file.name}.`,
+            `Bukan gambar PNG atau JPEG, jadi tidak dipakai: ${file.name}. Simpan tangkapan layarnya sebagai PNG atau JPEG dulu, lalu muat lagi.`,
           );
           continue;
         }
 
-        const png = await toPngBytes(file);
-        const read = await recogniseCapture(png);
+        setReading(file.name);
+        try {
+          const digest = await digestOf(await file.arrayBuffer());
+          if (seen.has(digest)) {
+            refuse(
+              `Tangkapan layar ini sudah ada di order dengan nama ${
+                named.get(digest) ?? file.name
+              }, jadi tidak dipakai lagi: ${file.name}.`,
+            );
+            continue;
+          }
 
-        // THE ONE UNAMBIGUOUS SIGNAL, AND IT IS SPENT HERE. Nothing is stored:
-        // a blank capture kept in silence would make every isian on it report
-        // `tidak ditemukan`, and the operator would go looking for a berkas
-        // that does not exist rather than taking the screenshot again.
-        if (read.lines.length === 0) {
-          refuse(
-            `Tangkapan layar ini tidak terbaca, jadi tidak dipakai: ${file.name}. Coba ambil ulang dengan tampilan yang lebih besar.`,
+          const png = await toPngBytes(file);
+          const read = await recogniseCapture(png);
+
+          // THE ONE UNAMBIGUOUS SIGNAL, AND IT IS SPENT HERE. Nothing is
+          // stored: a blank capture kept in silence would make every isian on
+          // it report `tidak ditemukan`, and the operator would go looking for
+          // a berkas that does not exist rather than taking the screenshot
+          // again.
+          if (read.lines.length === 0) {
+            refuse(
+              `Tangkapan layar ini tidak terbaca, jadi tidak dipakai: ${file.name}. Coba ambil ulang dengan tampilan yang lebih besar.`,
+            );
+            continue;
+          }
+
+          const id = crypto.randomUUID();
+          await runtime.putCheckpointFile(
+            run.id,
+            id,
+            file.name,
+            png.buffer.slice(
+              png.byteOffset,
+              png.byteOffset + png.byteLength,
+            ) as ArrayBuffer,
           );
-          continue;
+
+          const capture: EpicCapture = {
+            id,
+            name: file.name,
+            digest,
+            width: read.width,
+            height: read.height,
+            lines: read.lines,
+          };
+          const stored = await save({ tag: "add-capture", capture });
+          if (!stored) {
+            /*
+             * A REFUSED WRITE STOPS THE ANTREAN, AND WHAT IS LEFT IS NAMED.
+             *
+             * The shell is already printing the refusal and its remedy is
+             * "muat ulang halaman ini", so reading the rest would spend an
+             * `/api/ocr` call each to be told the same thing again. But a
+             * hand-over that simply vanishes is this project's failure class
+             * in the interaction layer, and nothing here can resume an
+             * antrean, so the berkas that will not be read are listed BY NAME
+             * rather than dropped in silence.
+             */
+            const left = antrean.current;
+            antrean.current = [];
+            if (left.length > 0) {
+              refuse(
+                `${left.length} tangkapan layar belum sempat dibaca, jadi belum ada di order ini: ${left
+                  .map((one) => one.name)
+                  .join(
+                    ", ",
+                  )}. Order ini gagal disimpan, jadi selesaikan itu dulu, lalu muat tangkapan layarnya lagi.`,
+              );
+            }
+            break;
+          }
+          seen.add(digest);
+          named.set(digest, file.name);
+        } catch (problem) {
+          // ONE BERKAS, NOT THE REST OF THE ANTREAN. An operator hands over
+          // four screenshots at once and one of them being unreadable must not
+          // throw the other three away.
+          refuse(
+            `Tangkapan layar ini gagal dibaca, jadi tidak dipakai: ${file.name}. Coba muat lagi.`,
+            messageOf(problem),
+          );
         }
-
-        const id = crypto.randomUUID();
-        await runtime.putCheckpointFile(
-          run.id,
-          id,
-          file.name,
-          png.buffer.slice(
-            png.byteOffset,
-            png.byteOffset + png.byteLength,
-          ) as ArrayBuffer,
-        );
-
-        const capture: EpicCapture = {
-          id,
-          name: file.name,
-          digest,
-          width: read.width,
-          height: read.height,
-          lines: read.lines,
-        };
-        const stored = await save({ tag: "add-capture", capture });
-        if (!stored) return;
-        seen.add(digest);
-        named.set(digest, file.name);
-      } catch (problem) {
-        // ONE BERKAS, NOT THE REST OF THE DROP. An operator hands over four
-        // screenshots at once and one of them being unreadable must not throw
-        // the other three away.
-        refuse(
-          `Tangkapan layar ini gagal dibaca, jadi tidak dipakai: ${file.name}. Coba muat lagi.`,
-          messageOf(problem),
-        );
-      } finally {
-        setReading(null);
       }
+    } finally {
+      // Lowered before `reading` is cleared, so a hand-over landing in this
+      // same tick finds the loop free and starts it again rather than queueing
+      // behind a loop that has already finished. `reading` clears once, at the
+      // end of the whole antrean, rather than per berkas: it is what holds the
+      // compare key and the remove keys, and a gap between two files would
+      // offer them for one tick in the middle of a read.
+      draining.current = false;
+      setReading(null);
     }
   };
 
@@ -922,13 +1038,37 @@ function Panel({
           {truncated ? (
             /* THE ONE THAT MUST NOT BE QUIET. Silent truncation reading as full
                coverage is the failure this product exists to prevent, so it is
-               said in prose, with the two numbers, and with what it means for
-               the isian outside the part that was read. */
+               said in prose, with the numbers, and with what it means.
+
+               ONE CLAUSE PER CAP THAT ACTUALLY FIRED, which a review found this
+               screen was not doing: it named the CELL cap whichever cap had cut
+               the sheet, so a workbook whose merges alone were cut printed a
+               figure larger than its own total and then told the operator that
+               isian had gone unread when none had. The two arms say different
+               things because the two cuts cost different things, and only the
+               first one loses an isian. */
             <Notice tone="stop">
-              Berkas konfigurasi ini lebih besar daripada yang bisa dibaca
-              sekali jalan: {truncated.read} dari {truncated.total} sel yang
-              terbaca. Isian di luar bagian itu tidak pernah dilihat, jadi tidak
-              ikut dinilai terhadap EPIC.
+              <div className="flex flex-col gap-2">
+                <p>
+                  Berkas konfigurasi ini lebih besar daripada yang bisa dibaca
+                  sekali jalan.
+                </p>
+                {truncated.cells > MAX_LISTING_CELLS ? (
+                  <p>
+                    {MAX_LISTING_CELLS} dari {truncated.cells} sel terisi yang
+                    terbaca. Isian di luar bagian itu tidak pernah dilihat, jadi
+                    tidak ikut dinilai terhadap EPIC.
+                  </p>
+                ) : null}
+                {truncated.merges > MAX_LISTING_MERGES ? (
+                  <p>
+                    {MAX_LISTING_MERGES} dari {truncated.merges} sel gabungan
+                    yang terbaca. Setiap isian tetap terbaca, tetapi bentuk
+                    lembarnya terbaca kurang utuh, jadi periksa lagi kalau ada
+                    isian yang terpasang pada sel yang salah.
+                  </p>
+                ) : null}
+              </div>
             </Notice>
           ) : null}
 
@@ -954,7 +1094,13 @@ function Panel({
               in proportion: one press while nothing is decided, a confirmation
               once something is. */}
           {changingBasis ? (
-            <Notice tone="stop">
+            /* WARN, NOT STOP. `--gap` is a fault or a refusal and is absent
+               from a healthy screen; nothing has failed here and nothing has
+               been refused, the operator is being asked a question and both
+               answers are live keys inside it. Amber is the hue for a decision
+               owed, which is exactly what this block is. The red stays on the
+               key that performs the act, which is the house pattern. */
+            <Notice tone="warn">
               <div className="flex flex-col gap-3">
                 <p>
                   {decided} keputusan Anda di layar ini ikut hilang kalau
@@ -1023,7 +1169,7 @@ function Panel({
             icon={<Klip size={40} />}
             tone={check.captures.length === 0 ? "primary" : "default"}
             multiple
-            onFiles={(files) => void takeCaptures(files)}
+            onFiles={takeCaptures}
           >
             {/* A CONSENT STATEMENT IN THE OTHER DIRECTION, and it is stated
                 plainly for that reason. Every other berkas in this product
@@ -1178,6 +1324,8 @@ function Ringkasan({
     belumSesuai: number;
     tidakDitemukan: number;
     tidakAdaDiExcel: number;
+    /** `beda` and still `belum`. See the kop below for why it is the number. */
+    owed: number;
   };
 }) {
   const flagged = entries
@@ -1186,9 +1334,28 @@ function Ringkasan({
 
   return (
     <section aria-labelledby="epic-ringkasan-head" className="lt-slab">
+      {/* THREE STATES, AND THE MIDDLE ONE IS THE POINT.
+
+          Amber counts DECISIONS OWED and never findings, which is what
+          `epicSummary().owed` counts and what `GroupBlock` twenty lines down
+          already does. Driven off `flagged.length` this kop stayed amber after
+          every decision on it had been taken, so the one screen whose whole
+          output is a list of disagreements could never lose its colour, and
+          amber stops being read.
+
+          `done` is kept for the affirmative clear only. A ringkasan holding
+          three `tidak ditemukan` owes no decision and is not finished either:
+          petrol there would say there is nothing left to ask while naming
+          three isian that are missing. So it carries no hue at all. */}
       <div
         className="lt-kop"
-        data-owes={flagged.length > 0 ? "decision" : "done"}
+        data-owes={
+          counts.owed > 0
+            ? "decision"
+            : flagged.length === 0
+              ? "done"
+              : undefined
+        }
       >
         <h3 id="epic-ringkasan-head">Ringkasan EPIC</h3>
         {flagged.length > 0 ? (
@@ -1239,6 +1406,31 @@ function Ringkasan({
                     <a
                       className="lt-figure text-petrol font-bold underline underline-offset-4"
                       href={`#${anchorOf(at)}`}
+                      onClick={(event) => {
+                        /*
+                         * THE FRAGMENT IS NOT A SPARE SURFACE, and following
+                         * this link used to spend it.
+                         *
+                         * `src/lib/ui/run-address.ts` is the only place the
+                         * address bar is written, and it puts WHICH ORDER IS
+                         * OPEN there as `run/<id>`; `runIdFromHash` answers ""
+                         * for anything else, and the workspace's boot effect
+                         * consults nothing else. So a real fragment navigation
+                         * here overwrote the pointer with a DOM id, nothing
+                         * ever restored it, and the next reload opened no order
+                         * at all -- in silence, after a three-minute ingest. It
+                         * also printed the run's system id on screen, which
+                         * this product never does.
+                         *
+                         * The `href` stays: it is what makes the row a real
+                         * link to a screen reader, and `preventDefault` covers
+                         * a keyboard Enter too, since that dispatches a click.
+                         */
+                        const target = document.getElementById(anchorOf(at));
+                        if (!target) return;
+                        event.preventDefault();
+                        target.scrollIntoView({ block: "start" });
+                      }}
                     >
                       {entry.label}
                     </a>
@@ -1372,9 +1564,15 @@ function GroupBlock({
           THAT READS DOWN A COLUMN, which is what this screen is. Never a
           saturated fill under light text. */}
       <div className="lt-kop" data-owes={owed > 0 ? "decision" : undefined}>
-        {/* Mono: this is the workbook's own word for the row, an SID or a
-            location name read off the sheet, not a name the app invented. */}
-        <h4 className="lt-figure">{name ?? "Tanpa kelompok"}</h4>
+        {/* MONO ONLY FOR A REAL KELOMPOK: that is the workbook's own word for
+            the row, an SID or a location name read off the sheet. The fallback
+            is the app naming a bucket of its own, and setting it in the
+            document's voice is exactly the habit `docs/ui-bahasa.md` removed --
+            making a small app label look technical. Size and weight come from
+            `.lt-kop`, so only the face changes. */}
+        <h4 className={name === null ? undefined : "lt-figure"}>
+          {name ?? "Tanpa kelompok"}
+        </h4>
         {owed > 0 ? (
           <span className="lt-kop-right flex items-baseline gap-2">
             <span className="lt-figure">{owed}</span>
@@ -1491,17 +1689,34 @@ function Row({
             ) : null}
           </div>
 
+          {/* BEHIND `Detail teknis`, BECAUSE IT IS ENGLISH.
+
+              `EpicEntry.reason` comes out of `src/lib/pipeline/`, whose strings
+              are deployer-facing English by convention -- "the model answered
+              for the other fields and never mentioned this one" is a sentence
+              about a model reply, not about this order. Printed as prose it put
+              English on an operator's screen and asked them to act on a
+              diagnosis of our own plumbing.
+
+              The sibling screen already files it here (`Diagnoses` in
+              `config-panel.tsx`); this one printed it plainly, and the two
+              disagreeing about the same field was the tell. The state word
+              above already says what the operator needs, in their language. */}
           {entry.reason ? (
-            <p className="text-ink-2 max-w-[74ch] text-[0.8125rem]">
-              {entry.reason}
-            </p>
+            <TechnicalDetail>{entry.reason}</TechnicalDetail>
           ) : null}
 
           {entry.verdict === "tidak-ada-di-excel" ? (
             <Advisory>
-              EPIC menampilkan isian ini, tetapi berkas konfigurasi tidak
-              punya tempat untuknya. Tambahkan barisnya sendiri di berkas
-              konfigurasi kalau isian ini memang bagian dari order ini.
+              {/* `isiannya`, NOT `barisnya`. `baris` is reserved for OCR lines
+                  by `docs/ui-bahasa.md`, and this screen prints one two
+                  elements down: `Sumber` names the baris of a tangkapan layar.
+                  One scroll, one word, two referents. It is also the more
+                  accurate word on a transposed sheet, where an isian is a
+                  column. */}
+              EPIC menampilkan isian ini, tetapi berkas konfigurasi tidak punya
+              tempat untuknya. Tambahkan isiannya sendiri di berkas konfigurasi
+              kalau memang bagian dari order ini.
             </Advisory>
           ) : null}
 
@@ -1611,7 +1826,13 @@ function Keys({
       >
         Terima
       </Btn>
+      {/* THE REFUSAL INK, the same as Checkpoint 2's identical key. `Tolak`
+          discards what EPIC shows in favour of the konfigurasi, which is the
+          one key here that throws a reading away, and the neutral face made it
+          read as the twin of `Ketik sendiri` beside it. Red INK and a red lip
+          on the neutral face, never a red fill. */}
       <Btn
+        tone="reject"
         disabled={held !== undefined}
         reason={held}
         onClick={() => onDecide(entry, "tolak")}
