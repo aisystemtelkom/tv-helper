@@ -299,11 +299,17 @@ function isBuiltInDateFormat(id: number): boolean {
 }
 
 /**
- * Does this format code display a date or a time?
+ * A format code with everything PRINTED stripped out, leaving only the tokens
+ * that decide what it displays.
  *
- * The test is "an unquoted d, m, y, h or s survives", and every one of the
- * strips below exists because something in a real workbook would otherwise
- * have been read as a date:
+ * `formatOf` then asks two questions of the result: does an unquoted `d`, `m`,
+ * `y`, `h` or `s` survive (a date or a time), and does an unquoted `%` (a
+ * percent). Both need the same strip, which is why it is shared rather than
+ * done twice: a `"%"` printed as a literal is not Excel's multiply-by-100
+ * marker, exactly as a literal `"day"` is not a date token.
+ *
+ * Every strip below exists because something in a real workbook would
+ * otherwise have decided one of those questions wrongly:
  *
  *  - `"..."` quoted literals. `_-"Rp"* #,##0.00_-` is a currency format from
  *    the third workbook; without the strip its `Rp` would be looked at, and a
@@ -314,15 +320,6 @@ function isBuiltInDateFormat(id: number): boolean {
  *    elapsed time -- a bracket that IS the format token -- so it is kept.
  *  - `\x` escapes and `_x` width placeholders, whose next character is a
  *    literal rather than a token, and `*x` fill characters, same.
- */
-function isDateFormatCode(code: string): boolean {
-  return /[dmyhs]/i.test(stripLiterals(code));
-}
-
-/**
- * A format code with everything that is PRINTED stripped out, leaving only the
- * tokens that decide what it displays. See `isDateFormatCode` for why each
- * strip is here.
  */
 function stripLiterals(code: string): string {
   let remaining = "";

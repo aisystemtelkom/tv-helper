@@ -92,6 +92,8 @@ import { useRunTemplate } from "@/lib/ui/use-run-template";
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
 import { ContactSheet } from "./contact-sheet";
 import { DocumentsBar } from "./documents-bar";
+import { ConfigPanel } from "./config-panel";
+import { EpicPanel } from "./epic-panel";
 import { ExportPanel } from "./export-panel";
 import { Chevron, Otak, Paraf } from "./icons";
 import {
@@ -344,7 +346,15 @@ function saveFault(problem: unknown, unnamed: string = STORAGE_REFUSED): Fault {
             // than performed. Same remedy, different thing saved.
             name === "SectionLossError"
             ? "penyimpanan menolak tulisan yang akan membuang nama judul yang Anda tulis sendiri. Muat ulang halaman ini, lalu ulangi perubahan terakhir Anda; judul yang tersimpan tetap utuh."
-            : // THE FIFTH NET, AND THE ONLY ONE THAT IS NOT STORAGE. A judul
+            : // The fifth storage net, and it guards a DECISION rather than a
+              // picture or a name. A Terima, Tolak or Ketik sendiri on an isian
+              // lives nowhere but this order, so a write that would forget one
+              // is refused instead of performed. The remedy is the same as the
+              // other three, and the thing saved is named in the operator's own
+              // words rather than as "data".
+              name === "DecisionLossError"
+              ? "penyimpanan menolak tulisan yang akan membuang keputusan yang sudah Anda ambil atas isian konfigurasi. Muat ulang halaman ini, lalu ulangi keputusan terakhir Anda; keputusan yang tersimpan tetap utuh."
+              : // THE ONE THAT IS NOT STORAGE AT ALL. A judul
               // removal carries the number of potongan the operator agreed to
               // lose (`removeSectionEdit`), because the cost the dialog printed
               // was read off the run THIS TAB HOLDS while the write lands on
@@ -1996,6 +2006,22 @@ function Workspace({
               )
             }
           />
+        ) : phase === "config" ? (
+          /* CHECKPOINT 2. The runtime goes in as a prop rather than being
+             imported, exactly as every other screen's dependencies do, and it
+             is narrowed to the three calls this one makes. `onRun` keeps what
+             a write RETURNS: `editConfig` answers with the stored run one
+             revision on, and the object this shell is holding is behind the
+             moment it resolves. */
+          <ConfigPanel
+            run={run}
+            onRun={setRun}
+            runtime={runtime}
+            busy={busy}
+            onSaveFailed={(problem) => setFault(saveFault(problem))}
+          />
+        ) : phase === "epic" ? (
+          <EpicPanel run={run} onRun={setRun} />
         ) : (
           <ExportPanel
             run={run}
