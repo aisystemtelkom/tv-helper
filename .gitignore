@@ -75,3 +75,9 @@ next-env.d.ts
 # Anything genuinely meant to be committed can be added with "git add -f".
 /*.png
 /mockups/
+
+# A real order's details table (its LOP number, quote, customer and project)
+# was swept into a commit from a SHARED checkout on 2026-09-10 by 'git add -A'.
+# Ignored by exact path so no session's 'git add -A' can commit it again.
+# The repo is public; see AGENTS.md, 'Real client documents still never get committed'.
+/lab/dokumen-validasi-breakdown/order-details-example.docx
