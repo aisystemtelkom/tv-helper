@@ -36,7 +36,11 @@ import {
   VISION_LANGUAGE_HINTS,
   ocrPageWithVision,
 } from "@/lib/pipeline/vision-ocr";
-import { VisionUnavailable, annotateImage } from "@/lib/vision";
+import {
+  VisionUnavailable,
+  annotateImage,
+  isTransientVisionError,
+} from "@/lib/vision";
 import {
   ocrPageWithGemini,
   type AskImage,
@@ -308,8 +312,16 @@ async function recognize(png: Uint8Array) {
     // Vision's own refusals split the same way. A 4xx is a verdict about this
     // image and is unusable; anything else is the service being unreachable,
     // which promises the run is unchanged and is worth a retry.
+    //
+    // EXCEPT 401 AND 403, which refuse THIS SERVER'S credential or billing
+    // project and never the image. Sorted with the other 4xx they told an
+    // operator "the reply could not be used" and that the page "may need a
+    // different resolution" when Vision had read nothing at all -- measured
+    // 2026-09-11, a 403 naming a project the credential may not use. They go
+    // to `unreachable`, which says what is actually wrong.
     if (error instanceof VisionUnavailable) {
       const status = error.status;
+      if (status === 401 || status === 403) throw error;
       if (typeof status === "number" && status >= 400 && status < 500) {
         throw new OcrUnusable(error);
       }
@@ -347,6 +359,36 @@ async function recognize(png: Uint8Array) {
  */
 function unreachable(error: unknown) {
   const cause = error instanceof Error ? error.message : String(error);
+
+  // CLOUD VISION HAS ITS OWN SENTENCES, because it is the default engine and the
+  // one below names a Gemini API key Vision never uses. Two of them, chosen by
+  // whether waiting helps: a rate limit or a dropped connection clears on its
+  // own, and a refused credential or billing project fails identically on
+  // every retry, so telling that operator to try again spends the antrean to
+  // learn nothing.
+  if (OCR_ENGINE !== "gemini") {
+    console.error("[ocr] cloud-vision failed:", error);
+    return Response.json(
+      {
+        error: "model-unreachable",
+        message: isTransientVisionError(error)
+          ? "Cloud Vision could not be reached, or was too busy to read this " +
+            "image. Nothing is wrong with the image. Try again in a moment."
+          : "Cloud Vision refused this server's request, so this image was not " +
+            "read. Nothing is wrong with the image: the fault is in how the " +
+            "server reaches Cloud Vision, and trying again fails the same way " +
+            "until that is fixed. Locally, run `gcloud auth application-default " +
+            "set-quota-project <project>` or set VISION_QUOTA_PROJECT. On Cloud " +
+            "Run, the runtime service account needs " +
+            "roles/serviceusage.serviceUsageConsumer and vision.googleapis.com " +
+            "must be enabled.",
+        hint: "Nothing in your run has been changed.",
+        cause,
+      },
+      { status: 503 },
+    );
+  }
+
   console.error(`[ocr] ${MODEL_TARGET} failed:`, error);
 
   // `{error: <slug>, message: <prose>, hint}`, the same shape `handler.ts`'s
