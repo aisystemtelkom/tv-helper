@@ -102,6 +102,7 @@ capture of an EPIC screen and is evidence rather than an input.
 | which cell an isian lives in | **sel** | always mono, always the real address (`E9`), and it is the workbook's half of a **sumber**. An operator checking a recommendation opens their own file at that address |
 | the scans agree with the workbook | **cocok** | |
 | the scans say something else | **belum sesuai** | on screen. An empty cell the scans can fill wears the same word, because the operator's move is the same. Never "salah": the workbook may well be right and the scan misread |
+| how the two values differ | **bedanya** | the third row of the register, under `konfigurasi` and `dokumen`. It NAMES a difference and never claims to be the only one, because the ladder in `src/lib/config/difference.ts` is cumulative and the band in the values above shows the rest. Four words and no more: **spasi**, **huruf besar-kecil**, **tanda baca**, **penulisan angka, nilainya sama**. A pair the tool cannot prove is one value gets no word at all, which is most of them |
 | searched the scans, not there | **tidak ditemukan** | unchanged, and still fixed to mean SEARCHED AND NOT FOUND. It is the only verdict the one re-search is offered for |
 | take the recommendation | **Terima** | produces **Diterima**, the same pair the potongan keys use |
 | keep what the workbook says | **Tolak** | produces **Ditolak**. NOT "Bukan ini", which belongs to a potongan: there is no picture here to reject |

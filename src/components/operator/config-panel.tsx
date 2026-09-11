@@ -86,6 +86,8 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { describeDifference } from "@/lib/config/difference";
+import type { DifferenceKind, Span } from "@/lib/config/difference";
 import { configSummary, effectiveValue } from "@/lib/config/effective";
 import type {
   ConfigCheck,
@@ -345,6 +347,66 @@ function stateOf(entry: ConfigEntry): {
     default:
       return { word: "belum diperiksa", status: "pending" };
   }
+}
+
+/**
+ * WHAT KIND OF DIFFERENCE THIS IS, in the operator's words.
+ *
+ * Beside `stateOf` because this is the same job: a token the domain uses
+ * (`DifferenceKind` in `src/lib/config/difference.ts`, which is pure and says
+ * nothing in Bahasa) turned into the word this screen says. Every other word
+ * this panel speaks is decided in this file and this one is not an exception.
+ *
+ * `nilai` MAPS TO NOTHING ON PURPOSE. It is the default and it is what the
+ * module answers whenever it cannot prove two spellings are one value, so a
+ * word for it would appear on most rows and mean "no finding" -- and a label
+ * on every row is a label on no row. The band in the values has already said
+ * where they diverge.
+ *
+ * NONE OF THESE CLAIMS THE DIFFERENCE IS THE ONLY ONE. The ladder in
+ * `difference.ts` is cumulative, so a pair differing in both case and
+ * punctuation reports `tanda-baca`; the words therefore NAME a difference
+ * rather than saying "hanya", and the band beside them shows the rest. And
+ * none of them says "salah": `docs/ui-bahasa.md` fixes that, because the
+ * konfigurasi may well be right and the scan misread.
+ */
+const KIND_WORD: Partial<Record<DifferenceKind, string>> = {
+  spasi: "spasi",
+  huruf: "huruf besar-kecil",
+  "tanda-baca": "tanda baca",
+  angka: "penulisan angka, nilainya sama",
+};
+
+/**
+ * One value with its differing run banded.
+ *
+ * A MARK THAT COVERS EVERYTHING MARKS NOTHING, which is why the whole-value
+ * case falls back to plain text. Two values with nothing in common -- the
+ * `Monthly Postpaid` against `Berlangganan` shape -- would otherwise draw a
+ * band under every character on the row and point at nothing at all.
+ *
+ * A ZERO-WIDTH RUN IS THE MOST USEFUL ANSWER THIS DRAWS and it has no
+ * characters to band, so it becomes a caret (`data-point`). That is the
+ * missing-space case: nothing on this side is wrong, and something stands at
+ * this spot on the other.
+ *
+ * The caret is silent to a screen reader, which is what the `bedanya` row of
+ * the register is for: the finding is in text as well as in the band.
+ */
+function Marked({ text, span }: { text: string; span?: Span }) {
+  if (!span || (span.from === 0 && span.to === text.length)) return <>{text}</>;
+  const run = text.slice(span.from, span.to);
+  return (
+    <>
+      {text.slice(0, span.from)}
+      {run === "" ? (
+        <span className="lt-beda" data-point="true" />
+      ) : (
+        <span className="lt-beda">{run}</span>
+      )}
+      {text.slice(span.to)}
+    </>
+  );
 }
 
 /** Does this row still carry the three keys? */
@@ -1853,6 +1915,19 @@ function EntryRow({
   const field = entry.field;
   const address = `${field.sheet}!${field.valueRef}`;
 
+  /**
+   * HOW THE TWO VALUES DIFFER, for a row that has two values to compare.
+   *
+   * `undefined` for a `tidak-ditemukan`, which carries no `documentValue`: a
+   * band drawn against nothing would mark the whole konfigurasi value as
+   * differing from an absence, which is not what the row says.
+   */
+  const difference =
+    entry.documentValue === undefined
+      ? undefined
+      : describeDifference(field.excelValue, entry.documentValue);
+  const kindWord = difference ? KIND_WORD[difference.kind] : undefined;
+
   const head = (
     <>
       <Mark
@@ -1911,14 +1986,19 @@ function EntryRow({
       {/* THE TWO VALUES IN ONE COLUMN, both mono, so a pair that differs by one
           character can be read against each other. An empty cell prints
           `(belum diisi)` and never a bare dash: a dash is a character somebody
-          could have typed. */}
+          could have typed.
+
+          READING THEM AGAINST EACH OTHER IS NOT ENOUGH ON ITS OWN, which is
+          what `difference` adds. Mono and one above the other is the right
+          arrangement and it still loses to a hundred-character address whose
+          only difference is a space in the middle. */}
       <dl className="lt-register">
         <dt>konfigurasi</dt>
         <dd>
           {field.excelValue === "" ? (
             <span className="text-ink-3">(belum diisi)</span>
           ) : (
-            field.excelValue
+            <Marked text={field.excelValue} span={difference?.a} />
           )}
         </dd>
 
@@ -1933,9 +2013,22 @@ function EntryRow({
                the state word on this row already says. Found by review. */
             <span className="text-ink-3">(tidak ditemukan)</span>
           ) : (
-            entry.documentValue
+            <Marked text={entry.documentValue} span={difference?.b} />
           )}
         </dd>
+
+        {/* THE KIND, IN THE SAME GRID, because it is a third thing known about
+            the same pair and a line floating beside the register would read as
+            a note about the row. Sans: this is the app talking, not a value
+            quoted out of a document, and `.lt-register dd` is mono for the
+            values. Nothing is printed for `nilai`, which is the default and
+            the case where the band above has already said everything. */}
+        {kindWord ? (
+          <>
+            <dt>bedanya</dt>
+            <dd className="font-sans">{kindWord}</dd>
+          </>
+        ) : null}
       </dl>
 
       <Sumber run={run} entry={entry} />

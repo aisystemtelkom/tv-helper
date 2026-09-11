@@ -1716,6 +1716,66 @@
     min-width: 0;
   }
 
+  /* =====================================================================
+     THE RUN THAT DIFFERS, inside a value somebody is ruling on.
+
+     An operator met a hundred characters of address against a hundred
+     characters of address whose only difference was a space after `Kec.`,
+     with `Terima` and `Tolak` under both. Reading two values against each
+     other is what the register is for, and past a certain length a person
+     cannot do it. This is the band that does it for them.
+
+     IT IS NOT A STATUS AND MUST NEVER WEAR ONE. `--mark` means a decision is
+     owed and the row's own mark already says so; `--gap` means a fault and
+     there is none here. So the band is the ink itself at low alpha: it points
+     WITHIN a value rather than saying anything about it, and it comes out
+     right on paper without a second rule, because `--ink` and `--line-strong`
+     are both rebound there.
+
+     Measured on the composite that actually paints, which for this band is the
+     row's own `--surface-sunk` tray and not the slab behind it. Bench:
+     `--ink` on the band 11.11:1, the band against the tray 1.56:1, the
+     underline 5.30:1. Paper: 10.47:1, 1.37:1, 4.69:1. The band-against-tray
+     figure is the one that matters for the band's own job and is deliberately
+     low: a visible film, not a second colour.
+
+     PREFIXED FIRST, STANDARD LAST for `box-decoration-break`, the same rule
+     `backdrop-filter` carries and for the same reason: written the other way
+     round Lightning CSS collapses the pair and emits only the prefixed
+     property, and a long address that wraps would lose the band on every line
+     after the first while looking entirely deliberate.
+     ================================================================== */
+
+  .lt-beda {
+    border-radius: 3px;
+    padding-block: 0.1em;
+    padding-inline: 0.12em;
+    margin-inline: -0.12em;
+    background: color-mix(in srgb, var(--ink) 16%, transparent);
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.18em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  /* AN INSERTION POINT: nothing on this side differs, and something stands at
+     this spot on the other. A zero-width run cannot be filled or underlined,
+     so it is a caret, and it is the single most useful thing this band draws
+     -- a missing space has no characters of its own to mark. */
+  .lt-beda[data-point="true"] {
+    display: inline-block;
+    width: 0;
+    height: 1em;
+    vertical-align: -0.15em;
+    padding: 0;
+    margin: 0;
+    background: none;
+    text-decoration: none;
+    border-inline-start: 2px solid var(--line-strong);
+  }
+
   /* The one value pulled out of the register and set large, because it is the
      one this product's failure class is named after. */
   .lt-page-figure {

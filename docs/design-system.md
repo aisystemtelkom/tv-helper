@@ -173,6 +173,19 @@ interaction: the primary key, a link, and the step you are standing on. It is
 deliberately not on the amber-red axis so that "this is the button" can never
 be confused with "something is owed" or "something is wrong".
 
+**A mark that points WITHIN a value carries no hue at all.** `.lt-beda` bands
+the run where two values diverge, in Konfig Excel's register, and the reason it
+exists is an operator who met a hundred characters of address against a hundred
+characters of address whose only difference was a space after `Kec.`. It is the
+ink itself at 16% plus a rule in `--line-strong`, because the row's own mark
+has already said a decision is owed and a second amber on the same row would
+be saying it twice about a smaller thing. The zero-width case is the one that
+matters most and the one a fill cannot draw: a missing space has no characters
+of its own, so it becomes a 2px caret standing where the other value has
+something. Measured on the row's `--surface-sunk` tray rather than on the slab:
+bench `--ink` 11.11:1 on the band, band against tray 1.56:1, rule 5.30:1;
+paper 10.47:1, 1.37:1, 4.69:1.
+
 ### The control is a pressed key
 
 Generous radius, weight 700, a **solid lip** in a darker shade of the

@@ -1301,6 +1301,10 @@ src/lib/xlsx/listing.ts        the sheet as the text a model reads, addresses
                                and all: buildLocatePrompt's device, for cells
 src/lib/config/types.ts        Konfig Excel and Input EPIC as data; the contract
 src/lib/config/effective.ts    decisions -> the cells the download writes
+src/lib/config/difference.ts   WHERE two spellings of one isian diverge and WHAT
+                               KIND of divergence it is. It EXPLAINS, it never
+                               suppresses: a `beda` whose kind is `spasi` is
+                               still `beda` and still owed a decision
 
 src/lib/browser/runtime.ts     THE browser-runtime surface; everything else
                                under browser/ is private to it
