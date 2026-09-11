@@ -264,12 +264,12 @@ test("citeZone flags a crop that swallows most of the page", () => {
 });
 
 test("a whole-page capture is described, not flagged as a runaway range", () => {
-  // Four of the twelve captures are `layout: "images"` slots, which
-  // `/api/propose` answers with the entire page and no model call. Warning
-  // "covers 100% of the page - check it has not run on into a footer" over a
-  // capture that is SUPPOSED to be the whole page puts a false alarm on a
-  // third of the contact sheet, which is the same alarm fatigue the
-  // `ambiguous` flag caused, on the same signal.
+  // Every bagian under an added or accepted judul is a `layout: "images"`
+  // slot, filled with the entire page and no model call. Warning "covers 100%
+  // of the page - check it has not run on into a footer" over a capture that
+  // is SUPPOSED to be the whole page puts a false alarm on most of the contact
+  // sheet, which is the same alarm fatigue the `ambiguous` flag caused, on the
+  // same signal.
   const cite = citeZone(RUN, {
     pageIndex: 0,
     box: { x: 0, y: 0, w: 1000, h: 2000 },
@@ -1473,11 +1473,11 @@ test("a bagian the search failed on is not counted as a decision the operator ma
  * A form with three judul: one holding work, one whole-page, one that ships
  * blank.
  *
- * THE THIRD IS THE INTERESTING ONE. It declares no slot, so the lembar periksa
- * demotes it into the "Diisi manual" register at the BOTTOM of the screen
- * while it may sit anywhere in the packet, which is the whole reason the judul
- * controls print a packet position rather than relying on the operator seeing
- * a row move.
+ * THE THIRD IS THE INTERESTING ONE. It declares no fillable bagian, so the
+ * lembar periksa does not draw it in the review at all -- it is listed under
+ * "Judul yang diisi manual" at the FOOT of the page -- while it may sit
+ * anywhere in the packet. That is the whole reason the judul controls print a
+ * packet position rather than relying on the operator seeing a row move.
  */
 function judulSlot(key: string, label: string, fillable = true): SlotDef {
   return {
@@ -1728,8 +1728,8 @@ test("an added judul never appears in the hidden list", () => {
 
 test("the packet position is the packet's order, not the sheet's", () => {
   /*
-   * `Tiga` declares no slot, so the lembar periksa draws it at the BOTTOM in
-   * the "Diisi manual" register whatever the packet says. Here it is FIRST in
+   * `Tiga` declares no slot, so the lembar periksa lists it at the FOOT under
+   * "Judul yang diisi manual" whatever the packet says. Here it is FIRST in
    * the packet: an operator pressing Naikkan on `Satu` moves it past a judul
    * that is nowhere near it on screen, and the figure is the only thing that
    * reports the move.

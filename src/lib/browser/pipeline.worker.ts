@@ -153,8 +153,8 @@ class OffscreenCanvasFactory {
  * that does not exist.
  *
  * MEASURED, NOT REASONED. Ingesting the real bundle in Chrome, the last page
- * of the two-page SPLITBA scan -- the printed email thread, which is one of
- * the twelve captures -- died with "Cannot read properties of undefined
+ * of the two-page SPLITBA scan -- the printed email thread, which the sample
+ * packet captures whole -- died with "Cannot read properties of undefined
  * (reading 'URL')" after twenty-eight pages had ingested cleanly. The same
  * page renders without complaint under `pnpm generate`, because Node takes the
  * other branch. That asymmetry is the whole bug: a page that needs a transfer

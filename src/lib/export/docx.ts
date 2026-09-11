@@ -292,9 +292,10 @@ function renderSection(
       (byKey.get(slotDef.key) ?? []).map((crop) => ({ slotDef, crop })),
     );
 
-    // An empty judul still emits its heading, and still takes a page: the
-    // sample ships MOM, BASO and BA Penjelasan Order empty for the operator
-    // to fill by hand, and the page IS the room to do that in.
+    // An empty section still emits its heading, and still takes a page. A
+    // judul the operator added but has not captured yet is exactly this, and
+    // so is one whose usulan they refused: the heading is the record that the
+    // packet wants it, and the page is the room to fill it in by hand.
     if (captures.length === 0) return [headingParagraph(section.title, true)];
 
     return captures.flatMap(({ slotDef, crop }) => [

@@ -905,9 +905,16 @@ test("a classify failure does not cost the run its search", async () => {
  * sample screenshots the entire page, so there is no region inside it to find.
  * This route used to hand those slots to `locateSlot` like any other, which
  * returns a plausible-looking FRAGMENT of the right page -- a crop that opens
- * fine, looks like evidence, and is not the capture. Four of the production
- * template's twelve captures are whole-page, so a third of the deliverable was
+ * fine, looks like evidence, and is not the capture. Four of the sample
+ * packet's twelve captures are whole-page, so a third of the deliverable was
  * that.
+ *
+ * THE FIXTURE BELOW IS NOW THE ONLY PLACE THIS SHAPE IS DECLARED, and that is
+ * deliberate rather than a gap. `AO_TEMPLATE` stopped declaring an `images`
+ * judul when the form was cut back to KB plus two title-only headings, so the
+ * shape a base whole-page bagian takes exists here and in `resolveAdded`. It is
+ * still live: every judul an operator adds or accepts off a usulan resolves to
+ * exactly this.
  */
 const IMAGE_TEMPLATE: Template = {
   id: "t",
