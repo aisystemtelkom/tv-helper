@@ -94,16 +94,20 @@ import type {
   ConfigCitation,
   ConfigEntry,
   ConfigField,
+  FencedBerkas,
 } from "@/lib/config/types";
 import {
   buildInterpretRequest,
+  buildRecompareRequest,
   buildResearchRequest,
   digestOf,
+  fenceReport,
+  fencedBerkas,
   openWorkbook,
   requestConfigCheck,
   workbookRecord,
 } from "@/lib/ui/checkpoint";
-import type { ConfigResponse } from "@/lib/ui/checkpoint";
+import type { ConfigResponse, FenceReport } from "@/lib/ui/checkpoint";
 import { citeLines } from "@/lib/ui/evidence";
 import { searchablePageCount } from "@/lib/ui/propose";
 import { configEntryId } from "@/lib/ui/runtime";
@@ -202,6 +206,10 @@ const RESEARCH_SETTLED =
  */
 const COMPARE_FAILED =
   "Pencocokan gagal, jadi belum ada isian yang bisa Anda putuskan dan tidak ada yang berubah di order ini. Coba lagi sebentar lagi.";
+
+/** The register is intact when a comparison AGAIN fails, so it says that. */
+const RECOMPARE_FAILED =
+  "Pencocokan ulang gagal, jadi isian di bawah tetap seperti sebelumnya dan keputusan Anda tidak berubah. Coba lagi sebentar lagi.";
 
 /**
  * IT SAYS THE BUDGET WENT, because it did. `markResearched` is written BEFORE
@@ -700,6 +708,9 @@ function Panel({
 
   const compare = () => {
     if (!staged || comparing) return;
+    // Recorded beside the request it describes, off the same run, so the two
+    // cannot disagree about which berkas this reading was given.
+    const fenced = fencedBerkas(run);
     markComparing(run.id, true);
     setFault(null);
     void (async () => {
@@ -767,9 +778,10 @@ function Panel({
        */
       const refused = (response.unusable ?? []).map((row) => row.label);
       const edit: ConfigEdit = same
-        ? { tag: "record-comparison", entries: response.entries }
+        ? { tag: "record-comparison", entries: response.entries, fenced }
         : {
             tag: "attach-workbook",
+            fenced,
             workbook: {
               ...workbookRecord(
                 staged.id,
@@ -814,9 +826,55 @@ function Panel({
     (entry) => entry.verdict === "tidak-ditemukan" && entry.decision === "belum",
   );
 
+  /* ---------------------------------------------------------------- *
+   * Comparing again, once a skipped berkas is let back in.
+   * ---------------------------------------------------------------- */
+
+  /**
+   * THE SAME QUESTION OVER THE SAME ISIAN, against the bundle the order now
+   * offers.
+   *
+   * Not the re-search, and it spends nothing of that budget: see
+   * `buildRecompareRequest`. The answer covers every isian, so it is folded in
+   * whole, and `recordComparison` keeps every ruling on an id it still holds.
+   * `answer` is left alone because a comparison over fields brings no note about
+   * the sheet, and replacing it would drop the diagnoses the first reading left.
+   */
+  const recompare = () => {
+    if (comparing || check.entries.length === 0) return;
+    const fields = check.entries.map((entry) => entry.field);
+    const fenced = fencedBerkas(run);
+    markComparing(run.id, true);
+    setFault(null);
+    void (async () => {
+      let response: ConfigResponse;
+      try {
+        response = await requestConfigCheck(buildRecompareRequest(run, fields));
+      } catch (problem) {
+        setFault({ sentence: RECOMPARE_FAILED, detail: messageOf(problem) });
+        markComparing(run.id, false);
+        return;
+      }
+      try {
+        onRun(
+          await runtime.editConfig(run.id, {
+            tag: "record-comparison",
+            entries: response.entries,
+            fenced,
+          }),
+        );
+      } catch (problem) {
+        onSaveFailed(problem);
+      } finally {
+        markComparing(run.id, false);
+      }
+    })();
+  };
+
   const research = () => {
     const fields: ConfigField[] = researchable.map((entry) => entry.field);
     if (fields.length === 0 || researching) return;
+    const fenced = fencedBerkas(run);
 
     setResearching(true);
     setFault(null);
@@ -873,6 +931,7 @@ function Panel({
           await runtime.editConfig(run.id, {
             tag: "record-comparison",
             entries: merged,
+            fenced,
           }),
         );
       } catch (problem) {
@@ -1016,6 +1075,8 @@ function Panel({
             onFiles={takeWorkbook}
             onCompare={compare}
             onResearch={research}
+            fence={fenceReport(run)}
+            onRecompare={recompare}
             onDecide={decide}
             onType={setTyping}
             onDownload={download}
@@ -1426,6 +1487,7 @@ function Compared({
   searchablePages,
   researchable,
   researching,
+  fence,
   working,
   fresh,
   typing,
@@ -1438,6 +1500,7 @@ function Compared({
   onFiles,
   onCompare,
   onResearch,
+  onRecompare,
   onDecide,
   onType,
   onDownload,
@@ -1454,6 +1517,8 @@ function Compared({
   /** Isian that are `tidak-ditemukan` AND still undecided. See `researchable`. */
   researchable: number;
   researching: boolean;
+  /** Which berkas the register was compared without. See `Fence`. */
+  fence: FenceReport;
   working: ReadonlySet<string>;
   fresh: ReadonlySet<string>;
   typing: string | null;
@@ -1466,6 +1531,7 @@ function Compared({
   onCompare: () => void;
   onFiles: (file: File) => void;
   onResearch: () => void;
+  onRecompare: () => void;
   onDecide: (
     entryId: string,
     decision: ConfigEntry["decision"],
@@ -1591,6 +1657,14 @@ function Compared({
           stored on the workbook record, so a reload no longer turns a partial
           comparison into a screen that reads as full coverage. */}
       <Unusable labels={workbook?.unusable ?? []} />
+
+      <Fence
+        fence={fence}
+        busy={busy}
+        comparing={comparing}
+        searchablePages={searchablePages}
+        onRecompare={onRecompare}
+      />
 
       <Research
         check={check}
@@ -1730,6 +1804,102 @@ function Compared({
           ) : null}
         </div>
       </details>
+    </>
+  );
+}
+
+/**
+ * WHICH BERKAS THIS REGISTER WAS COMPARED WITHOUT, BY NAME, ONCE.
+ *
+ * The rows keep `tidak ditemukan` and the fence keeps tanpa AI. What neither
+ * word can say is that some isian were never looked for in a berkas the
+ * operator fenced off, and on 2026-09-11 a register of such rows was reported
+ * as the check being broken. So the head of the register says it, the way the
+ * lembar periksa reports its own fence.
+ *
+ * WHEN A SKIPPED BERKAS HAS SINCE BEEN LET IN, THE KEY TO USE IT IS HERE.
+ * There was none: the same workbook re-handed over is recognised by its bytes
+ * and offers no compare key, and the one re-search is usually spent by then.
+ */
+function Fence({
+  fence,
+  busy,
+  comparing,
+  searchablePages,
+  onRecompare,
+}: {
+  fence: FenceReport;
+  busy: boolean;
+  comparing: boolean;
+  searchablePages: number;
+  onRecompare: () => void;
+}) {
+  const { skipped, nowRead, known } = fence;
+  if (skipped.length === 0 && nowRead.length === 0) return null;
+
+  const hold = busy
+    ? LOADING_HOLD
+    : searchablePages === 0
+      ? "Semua berkas order ini Anda tandai tanpa AI, jadi tidak ada halaman yang bisa dibaca."
+      : undefined;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {skipped.length > 0 ? (
+        <Advisory>
+          Berkas yang Anda tandai tanpa AI tidak ikut dicari saat mencocokkan:{" "}
+          <BerkasNames berkas={skipped} />. Isian yang hanya tertulis di sana
+          tampil tidak ditemukan. Kalau berkas itu boleh dibaca AI, ubah di bar
+          dokumen, lalu cocokkan ulang di sini.
+        </Advisory>
+      ) : null}
+
+      {nowRead.length > 0 ? (
+        <Notice tone="info">
+          <p className="max-w-[62ch] text-sm">
+            <BerkasNames berkas={nowRead} /> sekarang dibaca AI
+            {known
+              ? ", tapi isian di bawah dicocokkan waktu berkas itu masih tanpa AI."
+              : ". Kalau Anda mengubahnya setelah pencocokan, isian di bawah belum dicari di sana."}{" "}
+            Cocokkan ulang supaya isiannya ikut dicari. Keputusan yang sudah
+            Anda ambil tetap tersimpan.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-4">
+            <Btn
+              tone="primary"
+              disabled={comparing || hold !== undefined}
+              reason={hold}
+              aria-busy={comparing || undefined}
+              onClick={onRecompare}
+            >
+              <BukuKerja />
+              {comparing ? "Sedang mencocokkan..." : "Cocokkan ulang dengan dokumen"}
+            </Btn>
+            {comparing ? (
+              <p aria-live="polite" className="flex items-center gap-2 text-sm">
+                <span className="lt-spinner" aria-hidden="true" />
+                Isian berkas ini sedang dicocokkan lagi dengan dokumen.
+              </p>
+            ) : null}
+          </div>
+        </Notice>
+      ) : null}
+    </div>
+  );
+}
+
+/** Berkas named as the documents bar names them: shortened, whole on hover. */
+function BerkasNames({ berkas }: { berkas: readonly FencedBerkas[] }) {
+  return (
+    <>
+      {berkas.map((one, at) => (
+        <span key={one.id}>
+          {at > 0 ? ", " : ""}
+          <span className="lt-figure" title={one.name}>
+            {shortenFileName(one.name, 40)}
+          </span>
+        </span>
+      ))}
     </>
   );
 }

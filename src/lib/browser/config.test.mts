@@ -438,6 +438,47 @@ test("two isian answering to one id are refused before they are stored", () => {
   );
 });
 
+test("a comparison records the berkas it was not allowed to look in", () => {
+  /*
+   * `tidak ditemukan` over an isian printed only in a berkas marked tanpa AI is
+   * the right verdict and read, on 2026-09-11, as the check being broken. The
+   * record is what lets the register name that berkas, and it has to be the
+   * fence AT THE COMPARISON: read live, switching the berkas back would make the
+   * sentence vanish while the verdicts it explains stayed.
+   */
+  const fenced = [{ id: "src-b", name: "LOP999001_SPLITBA.pdf" }];
+
+  const attached = applyConfigEdit(run(), {
+    tag: "attach-workbook",
+    workbook: WORKBOOK,
+    entries: [entry("f1")],
+    fenced,
+  });
+  assert.deepEqual(attached.run.konfigurasi.fenced, fenced);
+  assert.notEqual(attached.run.konfigurasi.fenced, fenced, "copied, not adopted");
+
+  // A later reading with the berkas let back in replaces the record even though
+  // every verdict came back the same.
+  const again = recordComparison(attached.run, [entry("f1")], []);
+  assert.notEqual(again.run, attached.run);
+  assert.deepEqual(again.run.konfigurasi.fenced, []);
+  assert.deepEqual(again.removingDecisions, []);
+  assertOnlyCheckpointsMoved(attached.run, again.run);
+
+  // The same verdicts under the same fence is still a press that writes nothing.
+  assert.equal(recordComparison(again.run, [entry("f1")], []).run, again.run);
+
+  // An edit that says nothing about the fence keeps the record it has.
+  const silent = recordComparison(attached.run, [
+    entry("f1", { verdict: "beda", documentValue: "PSB VPN IP KCP Contoh" }),
+  ]);
+  assert.deepEqual(silent.run.konfigurasi.fenced, fenced);
+
+  // And attaching with no record leaves none, which reads as UNKNOWN.
+  const unrecorded = attachWorkbook(run(), WORKBOOK, [entry("f1")]);
+  assert.equal("fenced" in unrecorded.run.konfigurasi, false);
+});
+
 // ---------------------------------------------------------------------------
 // 3. Folding a comparison in
 // ---------------------------------------------------------------------------

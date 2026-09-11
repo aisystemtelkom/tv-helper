@@ -14,7 +14,10 @@ import type { Sheet } from "../xlsx/grid.ts";
 import {
   buildFieldsOnlyRequest,
   buildInterpretRequest,
+  buildRecompareRequest,
   buildResearchRequest,
+  fenceReport,
+  fencedBerkas,
 } from "./checkpoint.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -2359,6 +2362,101 @@ test("the search line counts the halaman a round will actually be given", () => 
     sources: run.sources.map((source) => ({ ...source, ai: false })),
   };
   assert.equal(searchablePageCount(all), 0);
+});
+
+test("Konfig Excel names the berkas a comparison could not look in, from what it recorded", () => {
+  /*
+   * `tidak ditemukan` over an isian printed only in a berkas marked tanpa AI is
+   * the right verdict, and on 2026-09-11 a register of them was reported as the
+   * check being broken. The register now names that berkas and offers to compare
+   * again once it is let back in. What decides both is the fence AT THE
+   * COMPARISON, so switching the berkas back cannot make the explanation vanish
+   * while the verdicts stay.
+   */
+  const field: BrowserRun["konfigurasi"]["entries"][number]["field"] = {
+    id: "f1",
+    sheet: "Sheet1",
+    label: "Nama Pelanggan",
+    labelRef: "C4",
+    valueRef: "E4",
+    excelValue: "BANK CONTOH NUSANTARA",
+  };
+  const fencedNow: BrowserRun = {
+    ...RUN,
+    sources: RUN.sources.map((source) =>
+      source.id === "s1" ? { ...source, ai: false } : source,
+    ),
+  };
+
+  // The record is the live fence, and the request built beside it strips
+  // exactly those halaman and asks the first-pass question over the same ids.
+  const recorded = fencedBerkas(fencedNow);
+  assert.deepEqual(recorded, [{ id: "s1", name: "SPLITBA_LOP999001.pdf" }]);
+  const request = buildRecompareRequest(fencedNow, [field]);
+  assert.equal(request.retry, undefined, "a comparison again is not the re-search");
+  assert.equal(request.sheet, undefined, "re-reading the sheet would re-mint every id");
+  assert.deepEqual(request.fields?.map((one) => one.id), ["f1"]);
+  assert.deepEqual(
+    [
+      ...new Set(
+        request.pages
+          .filter((sent) => sent.searchable === false)
+          .map((sent) => sent.sourceId),
+      ),
+    ],
+    recorded.map((berkas) => berkas.id),
+  );
+
+  const compared = (run: BrowserRun, fenced?: typeof recorded): BrowserRun => ({
+    ...run,
+    konfigurasi: {
+      entries: [{ field, verdict: "tidak-ditemukan", decision: "belum" }],
+      researched: true,
+      ...(fenced ? { fenced } : {}),
+    },
+  });
+
+  // Nothing compared, nothing to say.
+  assert.deepEqual(fenceReport(fencedNow), { skipped: [], nowRead: [], known: true });
+
+  // Still fenced: named, and no key owed yet.
+  assert.deepEqual(fenceReport(compared(fencedNow, recorded)), {
+    skipped: recorded,
+    nowRead: [],
+    known: true,
+  });
+
+  // Let back in since: the key is owed. RUN's s1 carries no `ai`, which is
+  // dibaca AI.
+  assert.deepEqual(fenceReport(compared(RUN, recorded)), {
+    skipped: [],
+    nowRead: recorded,
+    known: true,
+  });
+
+  // Removed from the order since: nothing left in it to read.
+  const without = { ...RUN, sources: RUN.sources.filter((one) => one.id !== "s1") };
+  assert.deepEqual(fenceReport(compared(without, recorded)), {
+    skipped: [],
+    nowRead: [],
+    known: true,
+  });
+
+  // Compared before the fence was recorded: the live fence is the best answer
+  // for what was skipped, and a berkas switched BACK -- the only writer of
+  // `ai: true` -- is offered the key.
+  const legacy = fenceReport(
+    compared({
+      ...RUN,
+      sources: [
+        { ...RUN.sources[0], ai: false },
+        { ...RUN.sources[1], ai: true },
+      ],
+    }),
+  );
+  assert.equal(legacy.known, false);
+  assert.deepEqual(legacy.skipped.map((one) => one.id), ["s1"]);
+  assert.deepEqual(legacy.nowRead.map((one) => one.id), ["s2"]);
 });
 
 test("Cari judul lagi is down on a berkas the AI may not read", () => {
