@@ -1217,13 +1217,23 @@ test("buildDocx sets the sample's own page size and margins", async () => {
   // <w:pgMar w:top="873" w:right="907" w:bottom="941" w:left="1026" .../>
   // Without this the section inherits docx's own A4 default instead of the
   // document being reproduced.
+  //
+  // THE TOP MARGIN IS 1080, NOT THE SAMPLE'S 873, and that is the one
+  // deliberate departure. The banner occupies 504-950 twips down from the
+  // page edge, so 873 puts the body UNDER it. The sample gets away with 873
+  // because its header holds two empty paragraphs that push the body down by
+  // an amount only Word computes; this exporter has to know the usable height
+  // to size a capture against it, so the clearance is stated instead of
+  // inferred. See PAGE_MARGIN in src/lib/export/docx.ts.
   const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
 
   assert.match(xml, /<w:pgSz[^>]*\bw:w="11901"[^>]*\bw:h="16817"/);
   assert.match(
     xml,
-    /<w:pgMar[^>]*\bw:top="873"[^>]*\bw:right="907"[^>]*\bw:bottom="941"[^>]*\bw:left="1026"/,
+    /<w:pgMar[^>]*\bw:top="1080"[^>]*\bw:right="907"[^>]*\bw:bottom="941"[^>]*\bw:left="1026"/,
   );
+  // Clear of the banner's own 950-twip bottom edge, with room to spare.
+  assert.ok(1080 > 320040 / 635 + 283210 / 635);
 });
 
 test("buildDocx shrinks a crop wider than the usable column instead of letting Word clip it", async () => {
@@ -1370,6 +1380,293 @@ test("buildDocx omits a slotless table section instead of emitting an empty tabl
   assert.ok(xml.includes("Kosong"), "the heading still has to be emitted");
   // Only the header table.
   assert.equal((xml.match(/<w:tbl>/g) ?? []).length, 1);
+});
+
+// -------------------------------------------------------------------------
+// The output shape the client specified on 2026-09-11, transcribed from
+// lab/dokumen-validasi-breakdown/: the DOKUMEN VALIDASI banner, an
+// order-details table shaped like their own, Calibri 12 throughout, and a
+// judul that never parts company with the capture filed under it.
+// -------------------------------------------------------------------------
+
+const headerXml = async (bytes) => {
+  const zip = await JSZip.loadAsync(bytes);
+  const name = Object.keys(zip.files).find((f) =>
+    /^word\/header\d+\.xml$/.test(f),
+  );
+  return name ? await zip.file(name).async("string") : null;
+};
+
+const stylesXml = async (bytes) =>
+  await (await JSZip.loadAsync(bytes)).file("word/styles.xml").async("string");
+
+/**
+ * Splits on the paragraph start tag only: `<w:pPr>` and `<w:pgSz>` share the
+ * `<w:p` prefix, so the delimiter has to demand a space or `>` after it --
+ * the same trick `tableRows` uses one element up.
+ */
+const bodyParagraphs = (xml) =>
+  xml
+    .split(/<w:p[\s>]/)
+    .slice(1)
+    .map((chunk) => chunk.split("</w:p>")[0]);
+
+const solidPng = async (w, h) => {
+  const canvas = createCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, w, h);
+  return await cropToPng(
+    { data: ctx.getImageData(0, 0, w, h).data, width: w, height: h },
+    { x: 0, y: 0, w, h },
+  );
+};
+
+/** A one-judul form of whole-page captures, as `resolveAdded` builds one. */
+const addedForm = (slotLabels) => ({
+  id: "T",
+  label: "T",
+  sections: [
+    {
+      id: "sec",
+      title: "Kontrak Induk",
+      layout: "images",
+      ask: { title: "Kontrak Induk" },
+      slots: slotLabels.map((label, i) => ({
+        key: `slot${i}`,
+        label,
+        docType: null,
+        ask: { label, hint: "" },
+        fillable: true,
+        pageOrdinal: i,
+      })),
+    },
+  ],
+  fieldRows: [],
+});
+
+test("buildDocx puts the DOKUMEN VALIDASI banner in a page header", async () => {
+  // Transcribed from lab/dokumen-validasi-breakdown/header-example.docx: a
+  // floating rectangle anchored to the PAGE rather than to the text column,
+  // which it is deliberately wider than, 7111365 x 283210 EMU and 320040 EMU
+  // down from the page edge. Without a header part the banner is simply
+  // absent and every page of the deliverable goes out unheaded.
+  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
+
+  assert.match(await documentXml(bytes), /<w:headerReference w:type="default"/);
+
+  const header = await headerXml(bytes);
+  assert.ok(header, "no word/headerN.xml part in the document");
+  assert.ok(header.includes("DOKUMEN VALIDASI"));
+  assert.match(header, /<wp:positionH relativeFrom="page">/);
+  assert.match(header, /<wp:positionV relativeFrom="page">/);
+  assert.match(header, /<wp:posOffset>320040<\/wp:posOffset>/);
+  assert.match(header, /<wp:extent cx="7111365" cy="283210"/);
+});
+
+test("buildDocx fills the banner navy and prints its text white", async () => {
+  // The example inherits white from `wps:style/a:fontRef`, which docx does
+  // not emit at all -- so left implicit this is black text on a navy bar,
+  // which is the one way the banner can be wrong while still being present.
+  const header = await headerXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+
+  assert.match(header, /<a:srgbClr val="44546A"\/>/);
+  assert.match(header, /<w:color w:val="FFFFFF"\/>/);
+
+  // ONE fill on the shape. docx emits a bare `<a:noFill/>` ahead of the solid
+  // fill whenever an `outline` is passed -- two members of one choice group,
+  // out of order besides. That is Word's repair dialog, not a deliverable.
+  const spPr = header.split("<wps:spPr")[1].split("</wps:spPr>")[0];
+  assert.equal((spPr.match(/<a:noFill\/>/g) ?? []).length, 0, `spPr: ${spPr}`);
+  assert.equal((spPr.match(/<a:solidFill>/g) ?? []).length, 1, `spPr: ${spPr}`);
+});
+
+test("buildDocx shapes the order details table like the client's own", async () => {
+  // lab/dokumen-validasi-breakdown/order-details-example.docx: a bordered
+  // TableGrid whose label cells are bold and right-aligned against the values
+  // beside them. This exporter's own table was four equal borderless columns
+  // of plain text.
+  const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+
+  // Matched attribute by attribute rather than as one string: XML attribute
+  // order is not semantic and docx emits val/color/sz, not val/sz/color.
+  const tblPr = xml.split("<w:tblPr>")[1].split("</w:tblPr>")[0];
+  for (const edge of ["top", "left", "bottom", "right", "insideH", "insideV"]) {
+    const border = tblPr.match(new RegExp(`<w:${edge}\\b[^>]*/>`));
+    assert.ok(border, `order details table has no ${edge} border`);
+    assert.match(border[0], /w:val="single"/, `${edge} border is not a rule`);
+    assert.match(border[0], /w:sz="4"/, `${edge} border is the wrong weight`);
+  }
+
+  // The example's own 1176/1938/1984/5174, scaled to the usable column: it
+  // declares 10272 twips of table inside a 9968-twip text column, which
+  // overruns the page it was measured on.
+  const grid = xml.split("<w:tblGrid>")[1].split("</w:tblGrid>")[0];
+  const widths = [...grid.matchAll(/w:w="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(widths, [1141, 1881, 1925, 5021]);
+  assert.equal(
+    widths.reduce((a, b) => a + b, 0),
+    11901 - 1026 - 907,
+  );
+
+  const first = tableRows(xml)[0];
+  assert.match(first, /<w:jc w:val="right"\/>/, "label cells are right-aligned");
+  assert.match(first, /<w:b\/>/, "label cells are bold");
+});
+
+test("buildDocx sets Calibri 12 as the document default", async () => {
+  const styles = await stylesXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+  const docDefaults = styles
+    .split("<w:docDefaults>")[1]
+    .split("</w:docDefaults>")[0];
+
+  assert.match(docDefaults, /<w:rFonts[^>]*w:ascii="Calibri"/);
+  assert.match(docDefaults, /<w:sz w:val="24"\/>/);
+});
+
+test("buildDocx prints a judul in Calibri 12, not Word's own Heading2 face", async () => {
+  // docx's built-in Heading2 is Calibri LIGHT at 13pt in #2F5496 blue.
+  // Leaving it alone ships a document whose every heading is in a font the
+  // client did not ask for and a size they did not either.
+  const styles = await stylesXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+  const heading2 = styles
+    .split('<w:style w:type="paragraph" w:styleId="Heading2">')[1]
+    .split("</w:style>")[0];
+
+  assert.match(heading2, /<w:rFonts[^>]*w:ascii="Calibri"/);
+  assert.match(heading2, /<w:sz w:val="24"\/>/);
+  assert.match(heading2, /<w:b\/>/);
+  assert.ok(!heading2.includes("2F5496"), `judul still blue: ${heading2}`);
+});
+
+test("buildDocx gives every whole-page capture its own page", async () => {
+  // "One page per title and capture", for the captures that are not in a
+  // table. A judul with no capture still takes a page: it ships empty for the
+  // operator to fill by hand, and the page IS the room to do that in.
+  const png = await solidPng(400, 200);
+  const filled = ["ba.permintaan", "sp.1", "sp.2", "email.1"].map((key) => ({
+    key,
+    png,
+    widthPx: 400,
+    heightPx: 200,
+  }));
+  const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, filled));
+
+  const expected = AO_TEMPLATE.sections
+    .filter((s) => s.layout === "images")
+    .reduce(
+      (n, s) =>
+        n +
+        Math.max(
+          1,
+          s.slots.filter((slot) => filled.some((f) => f.key === slot.key)).length,
+        ),
+      0,
+    );
+
+  assert.equal(expected, 7, "the AO form's images judul and their captures");
+  assert.equal((xml.match(/<w:pageBreakBefore\/>/g) ?? []).length, expected);
+});
+
+test("buildDocx keeps a judul on the page with what is filed under it", async () => {
+  // A capture is sized to just under a full page, so without keepNext the
+  // heading sits alone at the foot of one page and its evidence opens the
+  // next -- which reads, to a validator, as a judul with nothing under it.
+  const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+
+  const headings = bodyParagraphs(xml).filter((p) =>
+    p.includes('<w:pStyle w:val="Heading2"/>'),
+  );
+  assert.equal(headings.length, AO_TEMPLATE.sections.length);
+  for (const heading of headings) {
+    assert.match(heading, /<w:keepNext\/>/, `judul without keepNext: ${heading}`);
+  }
+});
+
+test("buildDocx leaves room for the judul above a full-height capture", async () => {
+  // Capping a capture at the FULL usable height makes one that fills the page
+  // exactly and pushes its own heading off the top of it.
+  //
+  // The crop is TALL AND NARROW on purpose. For a portrait A4 page the WIDTH
+  // cap binds first and the height never gets a say, so a whole-page capture
+  // cannot tell a correct height cap from a missing one. 800x6000 at 300 DPI
+  // is 2.67 x 20in: nothing like the column width, twice the page height.
+  const png = await solidPng(10, 10);
+  const xml = await documentXml(
+    await buildDocx(AO_TEMPLATE, AO_HEADER, [
+      { key: "ba.permintaan", png, widthPx: 800, heightPx: 6000 },
+    ]),
+  );
+
+  const cy = Number(xml.match(/<wp:extent[^>]*cy="(\d+)"/)[1]);
+  // 16817 - 1080 - 941 = 14796 twips usable, less the 680 a Heading2
+  // paragraph occupies (240 before + 320 line + 120 after).
+  const roomInInches = (16817 - 1080 - 941 - 680) / 1440;
+  assert.ok(
+    cy / 914400 <= roomInInches + 0.001,
+    `capture is ${(cy / 914400).toFixed(3)}in tall and leaves no room for ` +
+      `its judul inside ${roomInInches.toFixed(3)}in`,
+  );
+  // It really was the height that bound: anything less and the cap is doing
+  // nothing and some other limit is.
+  assert.ok(cy / 914400 > roomInInches - 0.01, `capture over-shrunk to ${cy}`);
+});
+
+test("buildDocx qualifies a judul's pages only once it holds more than one", async () => {
+  // `resolveAdded` labels every bagian under an added judul "Halaman 1",
+  // "Halaman 2", ... -- a POSITION, not a name. Titling each page with the
+  // slot label alone prints "Halaman 2" over a capture and drops the heading
+  // the operator actually typed, in the one document a validator signs. So
+  // the judul leads every page and the position qualifies it.
+  //
+  // Both halves of the rule are here because one is the other's boundary:
+  // over a judul holding a single page, "(Halaman 1)" says nothing the judul
+  // did not already say.
+  const png = await solidPng(400, 200);
+  const capture = (i) => ({ key: `slot${i}`, png, widthPx: 400, heightPx: 200 });
+
+  const two = await documentXml(
+    await buildDocx(addedForm(["Halaman 1", "Halaman 2"]), AO_HEADER, [
+      capture(0),
+      capture(1),
+    ]),
+  );
+  assert.ok(two.includes("Kontrak Induk (Halaman 1)"));
+  assert.ok(two.includes("Kontrak Induk (Halaman 2)"));
+
+  const one = await documentXml(
+    await buildDocx(addedForm(["Halaman 1"]), AO_HEADER, [capture(0)]),
+  );
+  assert.ok(one.includes("Kontrak Induk"));
+  assert.ok(!one.includes("Halaman 1"), "the position leaked into the heading");
+});
+
+test("buildDocx keeps a slot label that already names its own judul", async () => {
+  // SP's second capture is labelled "SP (lanjutan)", which carries the judul
+  // already. "SP (SP (lanjutan))" is what a rule that always qualifies would
+  // print over it.
+  const png = await solidPng(400, 200);
+  const xml = await documentXml(
+    await buildDocx(AO_TEMPLATE, AO_HEADER, [
+      { key: "sp.1", png, widthPx: 400, heightPx: 200 },
+      { key: "sp.2", png, widthPx: 400, heightPx: 200 },
+    ]),
+  );
+
+  assert.ok(xml.includes("SP (lanjutan)"));
+  assert.ok(!xml.includes("SP (SP (lanjutan))"));
+});
+
+test("buildDocx refuses to let a table row split across a page break", async () => {
+  // A row carrying a near-page-height capture that Word is free to split puts
+  // the label on one page and the evidence for it on the next.
+  const xml = await documentXml(await buildDocx(AO_TEMPLATE, AO_HEADER, []));
+
+  const rows = tableRows(xml);
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    assert.match(row, /<w:cantSplit\/>/, `splittable row: ${row.slice(0, 140)}`);
+  }
 });
 
 import {

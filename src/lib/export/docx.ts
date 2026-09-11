@@ -1,6 +1,11 @@
 import {
+  AlignmentType,
+  BorderStyle,
   Document,
+  Header,
   HeadingLevel,
+  HorizontalPositionAlign,
+  HorizontalPositionRelativeFrom,
   ImageRun,
   Packer,
   Paragraph,
@@ -9,7 +14,11 @@ import {
   TableCell,
   TableRow,
   TextRun,
+  TextWrappingType,
+  VerticalAnchor,
+  VerticalPositionRelativeFrom,
   WidthType,
+  WpsShapeRun,
   patchDetector,
   patchDocument,
 } from "docx";
@@ -62,12 +71,44 @@ const toDocxPx = (px: number) => (px / CROP_DPI) * DOCX_PX_PER_INCH;
  * the operator's own template (`manifest.page`) instead, which is the only
  * way a differently-set-up form gets the right column width. These stay as
  * the constructed path's constants and as its fallback.
+ *
+ * THE TOP MARGIN IS THE ONE DELIBERATE DEPARTURE: 1080 where the sample has
+ * 873. `BANNER` below occupies 504 to 950 twips down from the page edge, so
+ * 873 puts the body underneath it. The sample gets away with 873 because its
+ * own header holds two empty paragraphs, and Word pushes the body below
+ * whichever is lower -- an amount nothing here can compute. This exporter has
+ * to know the usable height in order to size a capture against it
+ * (`CAPTURE_HEIGHT_PX`), so the clearance is stated rather than inferred.
  */
 const TWIPS_PER_INCH = 1440;
 const PAGE_SIZE = { width: 11901, height: 16817 };
-const PAGE_MARGIN = { top: 873, right: 907, bottom: 941, left: 1026 };
+const PAGE_MARGIN = { top: 1080, right: 907, bottom: 941, left: 1026 };
+/** The sample's own `w:header`/`w:footer`: where the header block begins. */
+const PAGE_HEADER_TWIPS = 709;
 
 const twipsToDocxPx = (twips: number) => (twips / TWIPS_PER_INCH) * DOCX_PX_PER_INCH;
+
+const USABLE_WIDTH_TWIPS = PAGE_SIZE.width - PAGE_MARGIN.left - PAGE_MARGIN.right;
+
+/**
+ * Calibri at 12pt -- `<w:sz w:val="24"/>`, which is half-points -- asked for
+ * on 2026-09-11 and applied to the whole document, judul included.
+ *
+ * A judul is therefore distinguished by WEIGHT alone. docx's built-in
+ * Heading2 is Calibri Light at 13pt in #2F5496, which is a different font in
+ * a different size, so leaving it alone would have shipped neither of the two
+ * things that were asked for.
+ */
+const BODY_FONT = "Calibri";
+const BODY_SIZE_HALF_POINTS = 24;
+const HEADING_SPACING = { before: 240, after: 120 };
+/**
+ * One 12pt Calibri line, rounded up from its ~293-twip natural height. Only
+ * ever used to RESERVE room, so rounding up is the safe direction.
+ */
+const HEADING_LINE_TWIPS = 320;
+const HEADING_BLOCK_TWIPS =
+  HEADING_SPACING.before + HEADING_SPACING.after + HEADING_LINE_TWIPS;
 
 /**
  * The widest an image can render before Word clips it. A crop is cut at its
@@ -78,12 +119,56 @@ const twipsToDocxPx = (twips: number) => (twips / TWIPS_PER_INCH) * DOCX_PX_PER_
  * captures, so an uncapped width is most of the document's visual content,
  * not an edge case.
  */
-const USABLE_WIDTH_PX = twipsToDocxPx(
-  PAGE_SIZE.width - PAGE_MARGIN.left - PAGE_MARGIN.right,
-);
+const USABLE_WIDTH_PX = twipsToDocxPx(USABLE_WIDTH_TWIPS);
 const USABLE_HEIGHT_PX = twipsToDocxPx(
   PAGE_SIZE.height - PAGE_MARGIN.top - PAGE_MARGIN.bottom,
 );
+
+/**
+ * The tallest a capture may render in the CONSTRUCTED document: the usable
+ * height, less the judul that has to fit above it on the same page.
+ *
+ * Capping at the full usable height instead makes a capture that fills the
+ * page exactly and pushes its own heading off the top of it -- a judul on one
+ * page and its evidence on the next, which reads to a validator as a heading
+ * with nothing filed under it.
+ *
+ * For a portrait A4 page cut at 300 DPI the WIDTH cap binds first and this
+ * never fires, which is why the test for it uses a tall narrow crop: a
+ * whole-page capture cannot tell a correct height cap from a missing one.
+ */
+const CAPTURE_HEIGHT_PX = twipsToDocxPx(
+  PAGE_SIZE.height - PAGE_MARGIN.top - PAGE_MARGIN.bottom - HEADING_BLOCK_TWIPS,
+);
+
+/**
+ * The DOKUMEN VALIDASI banner, transcribed from
+ * `lab/dokumen-validasi-breakdown/header-example.docx`.
+ *
+ * EMU, 914400 per inch. The width and the offset are what that file's
+ * `wp14:pctWidth` of 94100 and `wp14:pctPosVOffset` of 3000 resolve to
+ * against this page size; they are recorded resolved because docx has no
+ * percentage form and a reader comparing the two files needs the same
+ * numbers in both.
+ *
+ * It is anchored to the PAGE rather than to the text column on purpose: at
+ * 7.777in it is wider than the 6.922in column and would otherwise be clipped
+ * to it.
+ */
+const BANNER = {
+  widthEmu: 7111365,
+  heightEmu: 283210,
+  topEmu: 320040,
+  /** `schemeClr tx2` in the sample's own theme. */
+  fill: "44546A",
+  /** The sample inherits this from `wps:style/a:fontRef`; see `bannerHeader`. */
+  ink: "FFFFFF",
+  /** 14pt, in half-points, with the sample's 1pt letter-spacing. */
+  sizeHalfPoints: 28,
+  characterSpacing: 20,
+} as const;
+
+const EMU_PER_DOCX_PX = 914400 / DOCX_PX_PER_INCH;
 
 /**
  * Word's default table cell margin, one side, in twips (0.075in).
@@ -135,7 +220,44 @@ function scaledImageRun(
 
 function imageParagraph(slot: FilledSlot): Paragraph {
   return new Paragraph({
-    children: [scaledImageRun(slot, USABLE_WIDTH_PX, USABLE_HEIGHT_PX)],
+    children: [scaledImageRun(slot, USABLE_WIDTH_PX, CAPTURE_HEIGHT_PX)],
+  });
+}
+
+/**
+ * The heading one whole-page capture is filed under.
+ *
+ * THE JUDUL LEADS, ALWAYS, and that is the whole rule. `resolveAdded` labels
+ * every bagian under an ADDED judul "Halaman 1", "Halaman 2", ... -- a
+ * POSITION, not a name -- so titling a page with the slot label alone prints
+ * "Halaman 2" over a capture and drops the heading the operator actually
+ * typed. The position qualifies the judul instead, and only once there is
+ * more than one page to tell apart: "Kontrak Induk (Halaman 1)" over the only
+ * page there is says nothing the judul did not already say.
+ *
+ * A label that already opens with the judul is used as it stands, because
+ * `AO_TEMPLATE` has one -- "SP (lanjutan)" under "SP" -- and a rule that
+ * always qualifies would print "SP (SP (lanjutan))" over it.
+ */
+function captureHeading(
+  title: string,
+  label: string,
+  captures: number,
+): string {
+  if (captures <= 1) return title;
+  if (label === title || label.startsWith(title)) return label;
+  return `${title} (${label})`;
+}
+
+function headingParagraph(text: string, pageBreakBefore: boolean): Paragraph {
+  return new Paragraph({
+    text,
+    heading: HeadingLevel.HEADING_2,
+    // A judul and what is filed under it belong on one page. A capture is
+    // sized to just under a full page, so without this the heading is left
+    // alone at the foot of one page and its evidence opens the next.
+    keepNext: true,
+    pageBreakBefore,
   });
 }
 
@@ -161,21 +283,33 @@ function renderSection(
   byKey: Map<string, FilledSlot[]>,
   quote: string,
 ): (Paragraph | Table)[] {
-  const heading = new Paragraph({
-    text: section.title,
-    heading: HeadingLevel.HEADING_2,
-  });
-
   if (section.layout === "images") {
-    // An empty section still emits its heading: the sample ships MOM, BASO,
-    // and BA Penjelasan Order empty, and the operator fills them by hand.
-    return [
-      heading,
-      ...section.slots
-        .flatMap((slotDef) => byKey.get(slotDef.key) ?? [])
-        .map(imageParagraph),
-    ];
+    // ONE PAGE PER TITLE AND CAPTURE. A whole-page capture is most of a page
+    // by itself, so anything else sharing that page is either a second
+    // picture shrunk to squeeze in beside it or a heading parted from the
+    // evidence it names.
+    const captures = section.slots.flatMap((slotDef) =>
+      (byKey.get(slotDef.key) ?? []).map((crop) => ({ slotDef, crop })),
+    );
+
+    // An empty judul still emits its heading, and still takes a page: the
+    // sample ships MOM, BASO and BA Penjelasan Order empty for the operator
+    // to fill by hand, and the page IS the room to do that in.
+    if (captures.length === 0) return [headingParagraph(section.title, true)];
+
+    return captures.flatMap(({ slotDef, crop }) => [
+      headingParagraph(
+        captureHeading(section.title, slotDef.label, captures.length),
+        true,
+      ),
+      imageParagraph(crop),
+    ]);
   }
+
+  // A table judul flows rather than starting a page: its captures are
+  // fragments cut from within a page, not whole ones, so several fit
+  // together. `keepNext` is what keeps the heading with the first row.
+  const heading = headingParagraph(section.title, false);
 
   // A `<w:tbl>` with no `<w:tr>` is schema-invalid and Word refuses the file.
   // The AO template has no slotless table section, but this takes a Template,
@@ -189,6 +323,9 @@ function renderSection(
       rows: section.slots.map((slotDef) => {
         const crops = byKey.get(slotDef.key) ?? [];
         return new TableRow({
+          // A row Word is free to break puts a bagian's label on one page and
+          // the evidence for it on the next.
+          cantSplit: true,
           children: [
             new TableCell({
               children: [
@@ -210,6 +347,163 @@ function renderSection(
       }),
     }),
   ];
+}
+
+/**
+ * The banner that heads every page, as a docx `Header`.
+ *
+ * NO `outline` IS PASSED, and that is not an omission. docx emits a bare
+ * `<a:noFill/>` ahead of the solid fill whenever one is given, which puts two
+ * members of one DrawingML choice group inside `<wps:spPr>` and out of order
+ * besides -- Word's repair dialog rather than a deliverable. A wps shape with
+ * no `<a:ln>` and no `wps:style` draws no outline anyway, which is what the
+ * sample's explicit `<a:ln><a:noFill/></a:ln>` is there to achieve.
+ *
+ * The ink is explicit for the same class of reason: the sample inherits white
+ * from `wps:style/a:fontRef`, and docx emits no `wps:style` at all, so left
+ * implicit this is black text on a navy bar.
+ */
+function bannerHeader(title: string): Header {
+  return new Header({
+    children: [
+      new Paragraph({
+        children: [
+          new WpsShapeRun({
+            type: "wps",
+            transformation: {
+              width: BANNER.widthEmu / EMU_PER_DOCX_PX,
+              height: BANNER.heightEmu / EMU_PER_DOCX_PX,
+            },
+            floating: {
+              horizontalPosition: {
+                relative: HorizontalPositionRelativeFrom.PAGE,
+                align: HorizontalPositionAlign.CENTER,
+              },
+              verticalPosition: {
+                relative: VerticalPositionRelativeFrom.PAGE,
+                offset: BANNER.topEmu,
+              },
+              allowOverlap: true,
+              wrap: { type: TextWrappingType.NONE },
+            },
+            solidFill: { type: "rgb", value: BANNER.fill },
+            bodyProperties: {
+              verticalAnchor: VerticalAnchor.CENTER,
+              // The bar is 22.3pt tall and the text 14pt; docx's default
+              // 3.6pt inset top and bottom leaves 15.1pt, which clips it.
+              margins: { top: 0, bottom: 0 },
+            },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: title,
+                    bold: true,
+                    allCaps: true,
+                    characterSpacing: BANNER.characterSpacing,
+                    size: BANNER.sizeHalfPoints,
+                    color: BANNER.ink,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+const GRID_BORDER = {
+  style: BorderStyle.SINGLE,
+  size: 4,
+  color: "auto",
+} as const;
+
+/**
+ * The sample's `TableGrid` style, spelled out because this document declares
+ * no such style to reference.
+ *
+ * docx@9.7.1 happens to emit exactly these borders on a table that asks for
+ * none, so passing them changes no byte today. It is a PIN rather than a
+ * no-op: the client's table is bordered because they drew it bordered, and a
+ * docx release that flipped its default would otherwise take the borders out
+ * of the deliverable with nothing here to notice. (AGENTS.md's note that this
+ * path emits "no table borders" is from an older docx and is not true of
+ * this one.)
+ */
+const TABLE_GRID_BORDERS = {
+  top: GRID_BORDER,
+  bottom: GRID_BORDER,
+  left: GRID_BORDER,
+  right: GRID_BORDER,
+  insideHorizontal: GRID_BORDER,
+  insideVertical: GRID_BORDER,
+} as const;
+
+/**
+ * The order-details table's column widths, from
+ * `lab/dokumen-validasi-breakdown/order-details-example.docx`: 1176, 1938,
+ * 1984 and 5174 twips.
+ *
+ * SCALED, because that is 10272 twips of table inside a 9968-twip text
+ * column -- the example overruns the very page it was measured on. The
+ * remainder lands in the last column so the parts sum to the column exactly
+ * rather than to a rounding error either side of it.
+ */
+const SAMPLE_ORDER_DETAIL_COLUMNS = [1176, 1938, 1984, 5174];
+
+const ORDER_DETAIL_COLUMNS = ((sample: number[], total: number) => {
+  const sum = sample.reduce((a, b) => a + b, 0);
+  const scaled = sample.map((w) => Math.round((w * total) / sum));
+  scaled[scaled.length - 1] =
+    total - scaled.slice(0, -1).reduce((a, b) => a + b, 0);
+  return scaled;
+})(SAMPLE_ORDER_DETAIL_COLUMNS, USABLE_WIDTH_TWIPS);
+
+/**
+ * The order details, at the top of the first page, shaped like the client's
+ * own: bordered, with each label bold and right-aligned against the value it
+ * names. The six values are `HeaderFields`, which is what this table always
+ * printed; what changed on 2026-09-11 is only its shape.
+ */
+function orderDetailsTable(header: HeaderFields): Table {
+  const rows = [
+    ["ID EPIC :", header.idEpic, "NAMA Proyek :", header.namaProyek],
+    ["QUOTE :", header.quote, "CC :", header.cc],
+    ["ORDER :", header.order, "JENIS ORDER :", header.jenisOrder],
+  ];
+
+  return new Table({
+    width: { size: USABLE_WIDTH_TWIPS, type: WidthType.DXA },
+    columnWidths: ORDER_DETAIL_COLUMNS,
+    borders: TABLE_GRID_BORDERS,
+    rows: rows.map(
+      (cells) =>
+        new TableRow({
+          cantSplit: true,
+          children: cells.map(
+            (text, column) =>
+              new TableCell({
+                width: {
+                  size: ORDER_DETAIL_COLUMNS[column],
+                  type: WidthType.DXA,
+                },
+                children: [
+                  // Columns 0 and 2 hold the labels.
+                  column % 2 === 0
+                    ? new Paragraph({
+                        alignment: AlignmentType.RIGHT,
+                        children: [new TextRun({ text, bold: true })],
+                      })
+                    : new Paragraph(text),
+                ],
+              }),
+          ),
+        }),
+    ),
+  });
 }
 
 // -------------------------------------------------------------------------
@@ -541,10 +835,20 @@ async function buildFromTemplate(
  * committable template (the two sample forms share three section names out of
  * eleven and twelve, and `documents/` is gitignored client material, so a
  * template is a per-run operator input that a caller may simply not have),
- * and the operator UI calls the three-argument form today. It is the lesser
- * output and the 2026-09-03 findings say exactly how: no header part, no
- * theme, no `Normal` style so Word's own default font applies, and no table
- * borders. Prefer the template whenever there is one.
+ * and the operator UI calls the three-argument form today.
+ *
+ * THE 2026-09-03 LIST OF WHAT THIS PATH LACKED IS NOW LARGELY CLOSED. It read
+ * "no header part, no theme, no `Normal` style so Word's own default font
+ * applies, and no table borders". Of those, the client asked for three back on
+ * 2026-09-11 and they are built here: `bannerHeader` writes the header part,
+ * `styles.default.document` sets Calibri 12 in place of Word's default, and
+ * the borders were never actually missing (see `TABLE_GRID_BORDERS`). What is
+ * still genuinely absent is the THEME, which nothing has asked for.
+ *
+ * It is still the lesser output, because a template carries the operator's own
+ * numbering, `customXml`, data-bound fields and section list rather than this
+ * file's transcription of one sample's. Prefer the template whenever there is
+ * one.
  */
 export async function buildDocx(
   template: Template,
@@ -558,34 +862,39 @@ export async function buildDocx(
 
   const byKey = groupByKey(filled);
 
-  const headerTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      ["ID EPIC :", header.idEpic, "NAMA Proyek :", header.namaProyek],
-      ["QUOTE :", header.quote, "CC :", header.cc],
-      ["ORDER :", header.order, "JENIS ORDER :", header.jenisOrder],
-    ].map(
-      (cells) =>
-        new TableRow({
-          children: cells.map(
-            (text) => new TableCell({ children: [new Paragraph(text)] }),
-          ),
-        }),
-    ),
-  });
-
   const doc = new Document({
     title: template.label,
+    styles: {
+      default: {
+        document: {
+          run: { font: BODY_FONT, size: BODY_SIZE_HALF_POINTS },
+        },
+        heading2: {
+          run: {
+            font: BODY_FONT,
+            size: BODY_SIZE_HALF_POINTS,
+            bold: true,
+            color: "000000",
+          },
+          paragraph: { spacing: HEADING_SPACING },
+        },
+      },
+    },
     sections: [
       {
         properties: {
           page: {
             size: { width: PAGE_SIZE.width, height: PAGE_SIZE.height },
-            margin: { ...PAGE_MARGIN },
+            margin: {
+              ...PAGE_MARGIN,
+              header: PAGE_HEADER_TWIPS,
+              footer: PAGE_HEADER_TWIPS,
+            },
           },
         },
+        headers: { default: bannerHeader(template.label) },
         children: [
-          headerTable,
+          orderDetailsTable(header),
           ...template.sections.flatMap((section) =>
             renderSection(section, byKey, header.quote),
           ),

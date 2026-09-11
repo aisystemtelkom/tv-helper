@@ -147,6 +147,54 @@ the field row list together, because they are two views of one order. It is a
 order, the sections that ship empty, and the two-part KB table split all match
 the sample as it stands.
 
+### What the constructed packet looks like, and who decided
+
+Four things, asked for on **2026-09-11** and transcribed from
+`lab/dokumen-validasi-breakdown/`. **They apply to the CONSTRUCTED path only.**
+The `--template` path patches the operator's own stripped Form Validasi, which
+already carries its own header, fonts and section order; rebuilding any of that
+there would destroy the thing that path exists to preserve.
+
+- **A navy `DOKUMEN VALIDASI` banner heads every page**, from
+  `header-example.docx`: a floating `wps` rectangle anchored to the PAGE (it is
+  7.78in wide against a 6.92in text column, so anchoring it to the column would
+  clip it), `#44546A`, white bold caps at 14pt with 1pt letter-spacing.
+  `bannerHeader` builds it with docx's own `WpsShapeRun` -- no OOXML surgery.
+- **The order details sit at the top of page 1**, shaped like
+  `order-details-example.docx`: bordered, labels bold and right-aligned against
+  their values, that file's own column widths scaled to the usable column
+  (it declares 10272 twips of table inside a 9968-twip column and overruns the
+  page it was measured on). The six values are the `HeaderFields` this table
+  always printed; only its shape changed.
+- **Calibri 12 throughout, judul included.** A judul is distinguished by WEIGHT
+  alone, because docx's built-in Heading2 is Calibri *Light* at 13pt in blue --
+  a different font in a different size from the two things asked for.
+- **One page per judul and capture, for captures not in a table.** Every
+  `layout: "images"` capture takes a page of its own; a table judul flows, with
+  `keepNext` on its heading and `cantSplit` on every row so a bagian's label
+  and its evidence cannot be split apart.
+
+**THE JUDUL LEADS EVERY PAGE, and that rule exists because of added judul.**
+`resolveAdded` labels the bagian under an added judul `Halaman 1`, `Halaman 2`,
+... -- a POSITION, not a name -- so titling a page with the slot label alone
+prints "Halaman 2" over a capture and drops the heading the operator typed.
+`captureHeading` puts the judul first and lets the position qualify it, and only
+once there is more than one page to tell apart. A label that already opens with
+the judul is used as it stands, because `AO_TEMPLATE` has one: `SP (lanjutan)`
+under `SP`, which a rule that always qualified would print as
+`SP (SP (lanjutan))`.
+
+**Verified in Word, not only in XML**, on 2026-09-11 over an 11-capture packet:
+11 pages, every judul on the page with its picture, `Normal` and `Heading 2`
+both reporting Calibri 12, and the banner reporting `#44546A` at 560x22.3pt.
+An XML assertion cannot tell you where Word decided to break a page.
+
+**Known and left alone:** an EMPTY `layout: "images"` judul takes a page, but a
+table judul following it flows onto that same page, so `MOM` shares with `BA
+Splitting` and `SBR Pricing`. Nothing asked for a page break before a table
+judul and adding one would grow the packet; the empty judul are pasted into by
+hand, so if that room matters, that is the one-line change.
+
 ### `AO_TEMPLATE` IS A STARTING SUGGESTION, NOT THE FORM
 
 **The section list is now per-ORDER.** This file used to describe the template
@@ -833,6 +881,24 @@ READ, and both halves of that sentence are load-bearing.
   own `<w:sectPr>` and scales both dimensions together. Four of the fillable
   slots are whole-page captures, so an uncapped width is most of the document's
   visual content, not an edge case.
+- **THE HEIGHT CAP IS `CAPTURE_HEIGHT_PX`, NOT THE USABLE HEIGHT, and a
+  whole-page capture cannot test it.** The constructed path reserves
+  `HEADING_BLOCK_TWIPS` above every capture so the judul and its picture share
+  a page. For a portrait A4 page cut at 300 DPI the WIDTH cap binds first and
+  the height cap never fires, so a test that feeds it a page-shaped crop passes
+  whether the reservation is there or not. The test in
+  `scripts/test-pipeline.mjs` feeds it 800x6000 for that reason.
+- **THE CONSTRUCTED PATH'S TOP MARGIN IS 1080 TWIPS, NOT THE SAMPLE'S 873.**
+  The banner occupies 504-950 twips down from the page edge. The sample clears
+  it with two empty paragraphs in its own header, which pushes the body down by
+  an amount only Word computes; this exporter has to know the usable height to
+  size a capture against it, so the clearance is stated instead. Everything
+  else in `<w:sectPr>` is still the sample's.
+- **docx@9.7.1 BORDERS EVERY TABLE BY DEFAULT.** This file used to say the
+  constructed path emits "no table borders"; measured on 2026-09-11, all seven
+  tables come out with `single`/`sz=4` on all six edges whether asked or not.
+  `TABLE_GRID_BORDERS` is passed anyway, as a pin against a release that flips
+  the default, not because it changes a byte today.
 - **A slot can hold more than one crop, and NOTHING DECLARES HOW MANY.** The
   sample's `KB (lanjutan)` ToP row stacks two pictures in one cell, and
   `SlotDef.crops` used to say so. An operator found what that produces: the
