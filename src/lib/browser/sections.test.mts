@@ -305,12 +305,20 @@ test("a blank heading is refused, and an unknown id is refused", () => {
 test("moving a judul writes an order and touches no state", () => {
   const run = runWithEvidence(runId("move"));
 
-  const moved = applySectionEdit(run, { tag: "move-section", id: "kb", by: -1 });
+  const moved = applySectionEdit(run, {
+    tag: "move-section",
+    id: "kb-lanjutan",
+    by: -1,
+  });
 
   assert.deepEqual(moved.removing, []);
   assert.deepEqual(moved.removingSections, []);
   assert.equal(moved.run.slots, run.slots);
-  assert.deepEqual(renderedIds(moved.run).slice(0, 3), ["ba-permintaan", "kb", "sp"]);
+  assert.deepEqual(renderedIds(moved.run).slice(0, 3), [
+    "kb-lanjutan",
+    "kb",
+    "konfigurasi-epic",
+  ]);
 });
 
 test("a move skips a hidden judul, and the hidden one keeps its place", () => {
@@ -321,22 +329,39 @@ test("a move skips a hidden judul, and the hidden one keeps its place", () => {
    * is not in it.
    */
   const run = runWithEvidence(runId("move-hidden"));
-  const hidden = applySectionEdit(run, { tag: "remove-section", id: "sp" });
-  assert.deepEqual(renderedIds(hidden.run).slice(0, 2), ["ba-permintaan", "kb"]);
+  const hidden = applySectionEdit(run, {
+    tag: "remove-section",
+    id: "kb-lanjutan",
+    // `kb-lanjutan` holds seeded bagian but no zone in this fixture, so the
+    // removal owes no opt-in. See the `removing` tests below.
+  });
+  assert.deepEqual(renderedIds(hidden.run).slice(0, 2), ["kb", "konfigurasi-epic"]);
 
-  const moved = applySectionEdit(hidden.run, { tag: "move-section", id: "kb", by: -1 });
-  assert.deepEqual(renderedIds(moved.run).slice(0, 2), ["kb", "ba-permintaan"]);
+  const moved = applySectionEdit(hidden.run, {
+    tag: "move-section",
+    id: "konfigurasi-epic",
+    by: -1,
+  });
+  assert.deepEqual(renderedIds(moved.run).slice(0, 2), ["konfigurasi-epic", "kb"]);
 
-  // And `sp` comes back between them, where it was, rather than at the bottom
-  // of the packet -- which is what an order written from the RESOLVED list
-  // would have produced.
-  const restored = applySectionEdit(moved.run, { tag: "restore-section", id: "sp" });
-  assert.deepEqual(renderedIds(restored.run).slice(0, 3), ["kb", "sp", "ba-permintaan"]);
+  // And `kb-lanjutan` comes back between them, where it was, rather than at the
+  // bottom of the packet -- which is what an order written from the RESOLVED
+  // list would have produced.
+  const restored = applySectionEdit(moved.run, {
+    tag: "restore-section",
+    id: "kb-lanjutan",
+  });
+  assert.deepEqual(renderedIds(restored.run).slice(0, 3), [
+    "konfigurasi-epic",
+    "kb-lanjutan",
+    "kb",
+  ]);
 });
 
 test("moving past the end of the packet changes nothing, by identity", () => {
   const run = runWithEvidence(runId("move-edge"));
-  const first = applySectionEdit(run, { tag: "move-section", id: "ba-permintaan", by: -1 });
+  // `kb` is the first judul in the packet, so there is nowhere above it to go.
+  const first = applySectionEdit(run, { tag: "move-section", id: "kb", by: -1 });
 
   // IDENTITY, not an equal copy: `editSections` skips the write on it, so a
   // press that did nothing does not advance the revision and refuse whatever
@@ -369,7 +394,7 @@ test("removing a judul drops every state under it and NAMES the ones with a crop
   }
   // Other judul are untouched.
   assert.ok(keys.includes("kbLanjutan.top"));
-  assert.ok(keys.includes("ba.permintaan"));
+  assert.ok(keys.includes("kbLanjutan.ttdPejabat"));
 
   // ONLY THE ZONE-CARRIERS ARE NAMED, which is precisely `CaptureLossError`'s
   // own test: a capture nobody found evidence for costs nothing to re-seed, and
@@ -536,11 +561,11 @@ test("an omitted count is not a waiver, it is the caller not asking", () => {
   // dialog, and it must keep working.
   const empty = applySectionEdit(run, {
     tag: "remove-section",
-    id: "sp",
+    id: "kb-lanjutan",
     droppingCaptures: 0,
   });
   assert.deepEqual(empty.removing, []);
-  assert.equal(renderedIds(empty.run).includes("sp"), false);
+  assert.equal(renderedIds(empty.run).includes("kb-lanjutan"), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -1184,7 +1209,7 @@ test("a no-op edit does not advance the revision", async () => {
   const id = runId("e2e-noop");
   const stored = await putRun(runWithEvidence(id));
 
-  const after = await editSections(id, { tag: "move-section", id: "ba-permintaan", by: -1 });
+  const after = await editSections(id, { tag: "move-section", id: "kb", by: -1 });
 
   // A press that did nothing must not advance the revision: doing so would
   // refuse whatever the screen is holding, for no change at all.

@@ -257,10 +257,10 @@ export {
  * be more than 1 lanjutan" and "any section could be more than a page" the
  * same code path.
  *
- * Non-fillable slots are left out. The sample ships MOM, BASO, BA Splitting,
- * SBR Pricing and BA Penjelasan Order as deliberately empty sections that the
- * operator completes by hand; putting them in the work list would ask the
- * operator to hunt for evidence that is known not to be in the bundle.
+ * Non-fillable slots are left out. The form ships `Konfigurasi (Excel dari
+ * EPIC)` and `Konfigurasi` as deliberately empty judul that the operator
+ * completes from EPIC by hand; putting their bagian in the work list would ask
+ * the operator to hunt for evidence that is known not to be in the bundle.
  * `scripts/generate.mjs` skips them on the same test.
  */
 export function seedSlots(template: Template = AO_TEMPLATE): SlotState[] {

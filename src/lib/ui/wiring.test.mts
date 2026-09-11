@@ -366,7 +366,7 @@ test("only unsearched and not-found slots are offered to the search", () => {
     { key: "kb.tanggal", label: "Tanggal", status: "pending" },
     { key: "kb.jangkaWaktu", label: "Jangka Waktu", status: "outstanding" },
     { key: "kbLanjutan.detail", label: "Detail", status: "proposed", zone: ZONE },
-    { key: "email.1", label: "Email", status: "unfilled" },
+    { key: "kbLanjutan.ttdPejabat", label: "TTD Pejabat", status: "unfilled" },
   ];
 
   // `outstanding` is included: that IS the dokumen tambahan loop. `proposed`
@@ -394,7 +394,7 @@ test("only unsearched and not-found slots are offered to the search", () => {
  */
 const EDITED_OVERLAY: TemplateOverlay = {
   ...emptyOverlay(AO_TEMPLATE),
-  sections: { email: { removed: true } },
+  sections: { "kb-lanjutan": { removed: true } },
   added: [
     {
       id: "u:lampiran",
@@ -412,7 +412,7 @@ test("a bagian nothing will ever search is not offered to the search", () => {
     { key: "kb.nomor", label: "Nomor", status: "pending" },
     // Its judul was deleted from this order. The state stays; the question
     // stops being askable.
-    { key: "email.1", label: "Email", status: "outstanding" },
+    { key: "kbLanjutan.detail", label: "Detail", status: "outstanding" },
     // The operator's own judul. Nothing can search it, by design.
     { key: "u:lampiran-1", label: "Halaman 1", status: "pending" },
   ];
@@ -422,7 +422,7 @@ test("a bagian nothing will ever search is not offered to the search", () => {
   // two go up as `wanted`, the route finds no def for either, and both come
   // back as "tidak ditemukan" -- a word fixed to mean SEARCHED AND NOT FOUND --
   // on every reading pass, for ever.
-  assert.deepEqual(wantedKeys(run, AO_TEMPLATE), ["kb.nomor", "email.1"]);
+  assert.deepEqual(wantedKeys(run, AO_TEMPLATE), ["kb.nomor", "kbLanjutan.detail"]);
   assert.deepEqual(wantedKeys(run, EDITED_TEMPLATE), ["kb.nomor"]);
 
   // And the request carries the filtered list, not a second opinion.

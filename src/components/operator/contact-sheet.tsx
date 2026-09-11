@@ -1232,77 +1232,12 @@ function Sheet({
         );
       })}
 
-      {manualSections.length > 0 ? (
-        <Slab
-          id="bagian-diisi-manual"
-          headingId="judul-diisi-manual"
-          title="Diisi manual"
-          voice="app"
-          style={{ scrollMarginTop: offset + 16 }}
-          meta={
-            /* JUDUL, NOT BAGIAN, and the correction is the glossary's rather
-               than a preference. Each row here is a whole heading of the
-               DOKUMEN VALIDASI with its own bagian under it; "7 bagian" over a
-               list of seven headings named the wrong object, which now matters
-               because the operator can act on a judul from this very list. */
-            <>
-              <KopFigure>{manualSections.length}</KopFigure> judul
-            </>
-          }
-          hint={
-            /* KEPT, where the section guidance was not: this one hands the
-               operator work they would not otherwise know they had. The rows
-               say "diisi manual" and nothing on the screen says by whom or
-               when, and a bagian nobody fills is an empty cell in a signed
-               packet. The list below changes with the template; this does
-               not, so it sits behind the mark and the names stay. */
-            <Hint label="Kenapa bagian ini dikirim kosong">
-              Bagian ini tetap muncul di DOKUMEN VALIDASI, lengkap dengan judul
-              dan kotaknya, tapi kosong. Tidak ada dokumen order yang bisa
-              mendukungnya, jadi Anda yang mengisinya setelah berkas hasil
-              dibuat.
-            </Hint>
-          }
-        >
-          <ManualLines
-            rows={manualSections.map((section) => ({
-              id: section.def.id,
-              title: section.title,
-              fields:
-                section.entries.length === 0
-                  ? "(hanya judul bagian)"
-                  : section.entries
-                      .map((entry) => displayLabel(entry.def.label))
-                      .join(", "),
-              /* THE SAME CLUSTER, ON THE JUDUL NOBODY SEARCHES. These are the
-                 likeliest ones to be taken out of an order: the packet ships
-                 them blank, so a judul the operator's paperwork does not have
-                 is a heading over an empty box in the deliverable. Demoting
-                 them to one line each was about the space they take, never
-                 about whether they are part of the order. */
-              controls: (
-                <JudulBar
-                  section={{ id: section.def.id, title: section.title }}
-                  position={packetPosition(template, section.def.id).at}
-                  total={template.sections.length}
-                  provenance={provenanceOf(run, section.def)}
-                  cost={sectionRemovalCost(run, section.def.id)}
-                  divided={false}
-                  onEdit={onSectionEdit}
-                  onHidden={sayHidden}
-                />
-              ),
-            }))}
-          />
-        </Slab>
-      ) : null}
-
-      {/* THE FOOT: what this order's packet contains, and the two things that
+      {/* THE FOOT: what this order's packet contains, and the things that
           change it wholesale. It sits BELOW the work and above the integrity
-          notice, because adding a judul and bringing one back are both
-          answers to "something is missing from this packet", which is a
-          question an operator asks after reading the sheet rather than
-          before. */}
+          notice, because adding a judul, bringing one back and taking out a
+          heading the packet ships blank are all answers to "is this packet
+          right", which is a question an operator asks after reading the sheet
+          rather than before. */}
       <Slab
         id="bagian-judul-order"
         headingId="judul-judul-order"
@@ -1317,6 +1252,50 @@ function Sheet({
       >
         <div className="flex flex-col gap-6">
           <TambahJudul onEdit={onSectionEdit} />
+
+          {/* MOVED OUT OF THE LEMBAR PERIKSA, AT THE OPERATOR'S REQUEST, and
+              the move is the whole of the change: these judul are still in the
+              packet, still printed, still renameable and still removable.
+
+              It used to be a titled block of its own in the middle of the
+              review, under a mark reading "Kenapa bagian ini dikirim kosong".
+              With the form carrying eight judul it no longer declares, that
+              block was seven headings and twenty-eight keys of chrome sitting
+              between the operator and the evidence they came to check -- on a
+              surface whose entire argument is that the evidence gets the
+              space. The operator's word for it: *"no need to display them
+              here."*
+
+              It is not deleted, because nothing else on any screen can rename,
+              reorder or take out a judul that ships blank, and a heading over
+              an empty box for paperwork this order does not have is exactly
+              the one an operator wants out. So it lives here, beside the other
+              two whole-packet gestures, as a register rather than a block. */}
+          <JudulDiisiManual
+            rows={manualSections.map((section) => ({
+              id: section.def.id,
+              title: section.title,
+              fields:
+                section.entries.length === 0
+                  ? "(hanya judul bagian)"
+                  : section.entries
+                      .map((entry) => displayLabel(entry.def.label))
+                      .join(", "),
+              controls: (
+                <JudulBar
+                  section={{ id: section.def.id, title: section.title }}
+                  position={packetPosition(template, section.def.id).at}
+                  total={template.sections.length}
+                  provenance={provenanceOf(run, section.def)}
+                  cost={sectionRemovalCost(run, section.def.id)}
+                  divided={false}
+                  onEdit={onSectionEdit}
+                  onHidden={sayHidden}
+                />
+              ),
+            }))}
+          />
+
           <JudulDisembunyikan rows={hidden} onEdit={onSectionEdit} />
         </div>
       </Slab>
@@ -1442,10 +1421,13 @@ function CaptureLine({
 /**
  * A slot no PDF can back, inside a section that holds work.
  *
- * The current template has none: every slot in the five work sections is
- * fillable, and the thirteen that are not live in sections that hold nothing
- * else. The tool is document-agnostic though, so a mixed section is legal, and
- * a slot nobody will ever rule on is one quiet ruled line rather than a plate.
+ * The current form has none, and now has none by a wider margin than before:
+ * its only judul holding work are `KB` and `KB (lanjutan)`, every bagian under
+ * both is fillable, and the six that are not live under the two judul that
+ * hold nothing else. An added judul is all-fillable too. The tool is
+ * document-agnostic though, so a mixed judul is legal -- `--sections` takes a
+ * hand-written overlay, and the next base form may declare one -- and a bagian
+ * nobody will ever rule on is one quiet ruled line rather than a plate.
  */
 function ManualRow({ label }: { label: string }) {
   return (
@@ -1624,51 +1606,73 @@ function BulkConfirm({
 }
 
 /**
- * The sections nothing can be found for: one ruled line each, and nothing else.
+ * The judul this order PRINTS AND DOES NOT FILL: one ruled line each, at the
+ * foot, and nothing else.
  *
- * Four of the template's twelve sections hold only `fillable: false` slots and
- * three hold no slots at all, so seven of them ask the operator for nothing.
- * As full sections they were most of the scroll length of the primary screen,
- * carrying the same headings and the same weight as the five that hold work.
- * They are still ACCOUNTED FOR, by name, because they do appear in the
- * exported packet and the operator is the one who fills them.
+ * The base form declares two -- `Konfigurasi (Excel dari EPIC)` and
+ * `Konfigurasi` -- and an order can hide either or add nothing like them, so
+ * this list is read off the resolved form rather than named here. Both ship as
+ * a heading over their own labelled but EMPTY rows, which is the deliverable:
+ * the operator pastes into those cells from EPIC after the packet is written.
  *
- * EACH ROW CARRIES ITS OWN JUDUL CONTROLS, and that is not an exception to the
- * demotion: what was demoted is the SPACE these judul take, never their
- * standing in the packet. They are printed, so they can be renamed, moved and
- * taken out like any other, and they are the ones an operator is most likely
- * to want out -- a heading over an empty box for paperwork this order does not
- * have.
+ * IT IS AT THE FOOT RATHER THAN IN THE REVIEW, and that is the operator's own
+ * correction. It used to be a titled block in the middle of the lembar
+ * periksa, which was defensible while the form declared SEVEN such judul and
+ * they had to be accounted for somewhere the eye would reach. Two of them do
+ * not need a block, and the five that made it one are no longer in the form.
+ *
+ * EACH ROW STILL CARRIES ITS OWN JUDUL CONTROLS, and that is why the list was
+ * moved rather than deleted: nothing else on any screen can rename, reorder or
+ * take out a judul that ships blank. They are printed, so they can be edited
+ * like any other, and they are the ones an operator is most likely to want out
+ * -- a heading over an empty box for paperwork this order does not have.
  */
-function ManualLines({
+function JudulDiisiManual({
   rows,
 }: {
   rows: { id: string; title: string; fields: string; controls: ReactNode }[];
 }) {
+  if (rows.length === 0) return null;
+
   return (
-    <ul className="flex flex-col">
+    <div className="flex flex-col gap-2">
+      <h3 className="text-[0.875rem] font-bold text-ink">
+        Judul yang diisi manual ({rows.length})
+      </h3>
+      {/* PROSE ON THE PAGE, not a hint behind a mark, for the reason
+          `JudulDisembunyikan`'s sentence is: this hands the operator work they
+          would not otherwise know they had. The rows say the judul is filled
+          manually and nothing else on screen says by whom or when, and a
+          bagian nobody fills is an empty cell in a signed packet. */}
+      <p className="max-w-[74ch] text-[0.8125rem] text-ink-2">
+        Judul ini tetap dicetak di DOKUMEN VALIDASI, lengkap dengan kotaknya,
+        tapi kosong. Tidak ada dokumen order yang bisa mendukungnya, jadi Anda
+        yang mengisinya setelah berkas hasil dibuat.
+      </p>
       {/* A HAIRLINE, NOT A 2px RULE. `--line` is separation between content and
           nothing else, and a 2px border used to divide a list is the decorative
-          hard edge the material rejects. Seven of these stacked at 2px read as
-          a stamped grid; at 1px they read as a register, which is what a list
-          of sections the operator fills in by hand is. */}
-      {rows.map((row) => (
-        <li
-          key={row.id}
-          className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0"
-        >
-          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            <span className="lt-figure text-[0.875rem] text-ink-2">
-              {row.title}
-            </span>
-            <span className="lt-figure text-[0.8125rem] text-ink-3">
-              {row.fields}
-            </span>
-          </div>
-          {row.controls}
-        </li>
-      ))}
-    </ul>
+          hard edge the material rejects. A stack of these at 2px reads as a
+          stamped grid; at 1px they read as a register, which is what a list of
+          judul the operator fills in by hand is. */}
+      <ul className="flex flex-col">
+        {rows.map((row) => (
+          <li
+            key={row.id}
+            className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+              <span className="lt-figure text-[0.875rem] text-ink-2">
+                {row.title}
+              </span>
+              <span className="lt-figure text-[0.8125rem] text-ink-3">
+                {row.fields}
+              </span>
+            </div>
+            {row.controls}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

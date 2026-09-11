@@ -334,9 +334,17 @@ function wholePageZone(page: WirePage): Zone | null {
  * there is no region inside the page to find, and asking for one returns a
  * plausible-looking fragment every time. It is how those slots failed the
  * first measurement run, and routing them out of the model took that gate from
- * 6/12 to 9/12. Four of this template's twelve captures are whole-page
- * (`ba.permintaan`, `sp.1`, `sp.2`, `email.1`), so a third of the deliverable's
- * evidence was a fragment of the right page presented as the page.
+ * 6/12 to 9/12. Four of the sample packet's twelve captures are whole-page, so
+ * a third of the deliverable's evidence was a fragment of the right page
+ * presented as the page.
+ *
+ * `AO_TEMPLATE` NO LONGER DECLARES AN `images` JUDUL, and this is not therefore
+ * dead. It is what every ADDED judul resolves to (`resolveAdded` supplies the
+ * layout and `AddedSection` has no field to override it), so the route still
+ * walks `images` sections -- it simply finds only judul a person put there,
+ * which the `slot.added || section.added` guard below then skips because their
+ * pages were chosen rather than classified. The branch stands for the next base
+ * form that declares a whole-page bagian, and `propose.test.mts` drives it.
  *
  * Which page is `classifyPages`'s question, not `locateSlot`'s, and a slot
  * with no candidate is reported OUTSTANDING rather than given an arbitrary
@@ -354,6 +362,11 @@ function wholePageZone(page: WirePage): Zone | null {
  * search with `sp.1` confirmed.
  *
  * ## THE ORDINAL IS READ FROM THE SLOT, NOT COUNTED OFF ITS SIBLINGS
+ *
+ * `sp.1` and `sp.2` below are the WORKED EXAMPLE this defect was found on, not
+ * slots the form still declares: `AO_TEMPLATE` dropped its `SP` judul with the
+ * rest of the non-KB ones. The hazard is unchanged and is why `pageOrdinal` is
+ * required rather than derived. `propose.test.mts` still drives it.
  *
  * This used to advance a running counter over the section's fillable slots,
  * keyed by docType, deliberately including the ones this request did not want

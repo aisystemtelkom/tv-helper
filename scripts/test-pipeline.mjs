@@ -855,29 +855,82 @@ test("locateSlot still raises on a malformed range rather than silently trimming
 
 import { AO_TEMPLATE } from "../src/lib/forms/template.ts";
 
-test("AO template lists the sample's sections in order", () => {
+test("AO template lists the four judul it still declares, in order", () => {
   assert.deepEqual(
     AO_TEMPLATE.sections.map((s) => s.title),
-    ["BA Permintaan", "SP", "KB", "KB (lanjutan)", "Konfigurasi (Excel dari EPIC)",
-     "Konfigurasi", "Email", "MOM", "BA Splitting", "SBR Pricing", "BASO",
-     "BA Penjelasan Order"],
+    ["KB", "KB (lanjutan)", "Konfigurasi (Excel dari EPIC)", "Konfigurasi"],
   );
 });
 
-test("AO template keeps the sample's empty sections", () => {
-  const splitting = AO_TEMPLATE.sections.find((s) => s.title === "BA Splitting");
+/*
+ * THE BASE FORM IS KB AND TWO TITLES, AND THAT IS THE WHOLE OF IT.
+ *
+ * It used to transcribe all twelve of the sample's judul, which asserted that
+ * every order's packet has a BA Permintaan, an SP, an Email, a MOM, a BA
+ * Splitting, an SBR Pricing, a BASO and a BA Penjelasan Order in it. The
+ * operator's report (2026-09-11): *"Anything outside of KB shouldn't be rigid
+ * required field."* They are right, and AGENTS.md already recorded the
+ * measurement that says so -- the two sample bundles share TWO headings out of
+ * about a dozen, so a transcription of one order's packet was never the form.
+ *
+ * What those eight declarations bought was a judul list that is wrong for most
+ * orders and cannot be told it is wrong: `BA Permintaan` took page 1 of a
+ * berkas as a whole-page capture, judul discovery read the same page and
+ * proposed `BERITA ACARA PERMINTAAN ORDER` out of it, and the operator was
+ * shown one document under two headings with nothing on screen relating them.
+ * `recordProposals` screens a usulan only against `overlay.added`, so a base
+ * judul cannot suppress one; with the base judul gone there is nothing left to
+ * collide with, which is why no screening rule was added for it.
+ *
+ * They are not lost. Judul discovery proposes them per berkas and `Tambah
+ * judul` adds one by hand, both of which put a person in front of every
+ * heading before it reaches the packet.
+ */
+test("nothing outside KB is declared, so nothing outside KB is required", () => {
+  for (const gone of ["ba-permintaan", "sp", "email", "mom", "ba-splitting",
+                      "sbr-pricing", "baso", "ba-penjelasan-order"]) {
+    assert.equal(
+      AO_TEMPLATE.sections.find((s) => s.id === gone),
+      undefined,
+      `"${gone}" is declared again. A judul the base form declares is one ` +
+        "every order is told it owes evidence for, and reports `tidak " +
+        "ditemukan` against when the order has no such document. Only KB " +
+        "earns that; the rest arrive per order from discovery or Tambah judul.",
+    );
+  }
+});
+
+test("the two surviving judul ship as titles over their own empty rows", () => {
+  const titleOnly = AO_TEMPLATE.sections.filter(
+    (s) => !s.slots.some((x) => x.fillable),
+  );
   assert.deepEqual(
-    splitting.slots.map((s) => s.label),
-    ["Nomor", "Detail Kontrak", "Detail Splitting", "TTD Pejabat"],
+    titleOnly.map((s) => s.title),
+    ["Konfigurasi (Excel dari EPIC)", "Konfigurasi"],
   );
-  assert.ok(splitting.slots.every((s) => !s.fillable));
+  // The rows still print. A deliberately empty cell under a labelled row is
+  // the deliverable here, which is why these two were kept and the other five
+  // title-only judul were not: the operator fills these from EPIC by hand.
+  assert.deepEqual(
+    titleOnly.flatMap((s) => s.slots.map((x) => x.label)),
+    ["SID", "Konfigurasi", "{{quote}}", "Price & SA", "BW", "BA"],
+  );
 });
 
-test("exactly eleven slots are fillable from PDFs in v1", () => {
+test("exactly seven slots are fillable from PDFs, and every one is KB", () => {
   const fillable = AO_TEMPLATE.sections.flatMap((s) =>
     s.slots.filter((x) => x.fillable),
   );
-  assert.equal(fillable.length, 11);
+  assert.equal(fillable.length, 7);
+  // All seven share one docType, which is what lets them share one search pool
+  // and one page listing. See `proposeZones`' pool grouping.
+  assert.deepEqual([...new Set(fillable.map((s) => s.docType))], ["KB"]);
+  // And every one is located INSIDE a page. `layout: "images"` is now reached
+  // only by an added judul, whose pages a person picked.
+  assert.deepEqual(
+    [...new Set(AO_TEMPLATE.sections.map((s) => s.layout))],
+    ["table"],
+  );
 });
 
 test("the KB table splits in two as the sample does", () => {
@@ -945,11 +998,12 @@ test("every fillable slot is one capture until something finds another", () => {
   const fillable = AO_TEMPLATE.sections.flatMap((s) =>
     s.slots.filter((x) => x.fillable),
   );
-  assert.equal(fillable.length, 11);
-  // Eleven slots, eleven seeded captures. The sample's twelfth picture is
-  // ToP's continuation, which is now found rather than asserted.
+  assert.equal(fillable.length, 7);
+  // Seven slots, seven seeded captures. ToP's continuation is found rather
+  // than asserted, and every other picture in the packet now belongs to a
+  // judul a person put there.
   const totalCrops = fillable.reduce((sum, s) => sum + (s.crops ?? 1), 0);
-  assert.equal(totalCrops, 11);
+  assert.equal(totalCrops, 7);
 });
 
 import JSZip from "jszip";
@@ -1137,14 +1191,56 @@ test("cropToPng refuses a page that is not the size the box was measured on", as
   assert.ok(png.length > 0);
 });
 
+/**
+ * THE BASE FORM PLUS ONE WHOLE-PAGE JUDUL, which is the shape `resolveAdded`
+ * gives every judul an order adds -- `layout: "images"`, one bagian per page,
+ * no docType, no hint.
+ *
+ * `AO_TEMPLATE` no longer declares an images section of its own, so the
+ * exporter's whole-page behaviour (a picture as a PARAGRAPH rather than in a
+ * table cell, capped at the text column rather than at a cell) has no base
+ * judul left to be exercised through. It is not dead: it is what every added
+ * judul and every accepted usulan resolves to, and it is the half of the
+ * exporter that carries most of a packet's visual content. So the tests that
+ * measure it build the shape here instead of borrowing `SP`.
+ */
+const AO_WITH_ADDED_JUDUL = (() => {
+  const overlay = {
+    ...emptyOverlay(AO_TEMPLATE),
+    added: [
+      {
+        id: "u:lampiran",
+        title: "Lampiran",
+        origin: "human",
+        slots: [
+          { id: "u:lampiran.1", label: "Halaman 1" },
+          { id: "u:lampiran.2", label: "Halaman 2" },
+        ],
+      },
+    ],
+  };
+  // Resolved through the real thing rather than hand-written, so these tests
+  // measure the exporter against exactly what an accepted usulan becomes --
+  // including `layout: "images"`, which `resolveAdded` supplies and an
+  // `AddedSection` has no field to override.
+  assertOverlay(overlay);
+  return resolveTemplate(AO_TEMPLATE, overlay);
+})();
+
 test("buildDocx emits every section, including the empty ones", async () => {
   const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
 
   const xml = await documentXml(bytes);
 
-  for (const title of ["BA Permintaan", "SP", "KB", "MOM", "BASO",
-                       "BA Penjelasan Order"]) {
+  for (const title of ["KB", "KB (lanjutan)", "Konfigurasi (Excel dari EPIC)",
+                       "Konfigurasi"]) {
     assert.ok(xml.includes(title), `missing section: ${title}`);
+  }
+  // And the eight the form stopped declaring are not smuggled in by anything
+  // downstream: a heading in the packet now means a person put it there.
+  for (const gone of ["BA Permintaan", "MOM", "BASO", "BA Splitting",
+                      "SBR Pricing", "BA Penjelasan Order"]) {
+    assert.equal(xml.includes(gone), false, `stale section: ${gone}`);
   }
   assert.ok(xml.includes("LOP999001"));
   // The quote number is a row label in the Konfigurasi table, not just header.
@@ -1154,15 +1250,15 @@ test("buildDocx emits every section, including the empty ones", async () => {
 });
 
 test("buildDocx keeps a row for every unfilled table slot", async () => {
-  // The six EPIC/spreadsheet slots and the BA Splitting / SBR Pricing rows
-  // ship with an EMPTY right cell on purpose: that cell is where the operator
-  // pastes. Dropping the row would ship a document that looks finished.
+  // The six EPIC slots ship with an EMPTY right cell on purpose: that cell is
+  // where the operator pastes after the packet is written. Dropping the row
+  // would ship a document that looks finished. They are the reason
+  // `konfigurasi-epic` and `konfigurasi` survived the cut that took MOM, BASO,
+  // BA Splitting, SBR Pricing and BA Penjelasan Order out of the form.
   const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, []);
   const xml = await documentXml(bytes);
 
-  for (const label of ["SID", "Konfigurasi", "Price &amp; SA", "BW", "BA",
-                       "Detail Kontrak", "Detail Splitting",
-                       "Nomor dan tanggal (tidak ada)", "Diskon ke CC"]) {
+  for (const label of ["SID", "Konfigurasi", "Price &amp; SA", "BW", "BA"]) {
     assert.ok(
       tableRows(xml).some((row) => row.includes(label)),
       `missing row: ${label}`,
@@ -1194,7 +1290,7 @@ test("buildDocx writes real png media parts at their true size", async () => {
   const bytes = await buildDocx(
     AO_TEMPLATE,
     { ...AO_HEADER, namaProyek: "P", cc: "C" },
-    [{ key: "ba.permintaan", png, widthPx: 600, heightPx: 300 }],
+    [{ key: "kb.nomor", png, widthPx: 600, heightPx: 300 }],
   );
 
   const zip = await JSZip.loadAsync(bytes);
@@ -1245,8 +1341,12 @@ test("buildDocx shrinks a crop wider than the usable column instead of letting W
 
   const widthPx = 2481;
   const heightPx = 3507;
-  const bytes = await buildDocx(AO_TEMPLATE, AO_HEADER, [
-    { key: "ba.permintaan", png, widthPx, heightPx },
+  // Through an ADDED judul, because that is where a whole-page capture comes
+  // from now, and because the cap this test measures is the text column --
+  // a picture in a table cell is capped by the narrower cell instead, which
+  // would pass this assertion while measuring something else.
+  const bytes = await buildDocx(AO_WITH_ADDED_JUDUL, AO_HEADER, [
+    { key: "u:lampiran.1", png, widthPx, heightPx },
   ]);
 
   const xml = await documentXml(bytes);
@@ -1320,9 +1420,11 @@ test("buildDocx stacks both of a slot's crops in that one cell", async () => {
   assert.equal(media.length, 2, `expected two media parts, got ${media}`);
 });
 
-test("buildDocx emits both SP pages as separate pictures", async () => {
-  // An "images" section is one picture per slot, unlike the ToP cell, and SP
-  // has two of them.
+test("buildDocx emits an added judul's pages as separate pictures", async () => {
+  // An "images" section is one picture per slot, unlike the ToP cell, and a
+  // judul accepted off a two-page usulan has two of them. This used to be
+  // asserted through `SP`; the behaviour is identical and the shape is now
+  // where every whole-page judul actually comes from.
   const canvas = createCanvas(400, 200);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "white";
@@ -1333,9 +1435,9 @@ test("buildDocx emits both SP pages as separate pictures", async () => {
   );
 
   const xml = await documentXml(
-    await buildDocx(AO_TEMPLATE, AO_HEADER, [
-      { key: "sp.1", png, widthPx: 400, heightPx: 200 },
-      { key: "sp.2", png, widthPx: 400, heightPx: 200 },
+    await buildDocx(AO_WITH_ADDED_JUDUL, AO_HEADER, [
+      { key: "u:lampiran.1", png, widthPx: 400, heightPx: 200 },
+      { key: "u:lampiran.2", png, widthPx: 400, heightPx: 200 },
     ]),
   );
 
@@ -1571,11 +1673,59 @@ test("groupKeysByDocTypes never gives cc/alamat the Email pool, or picContacts t
   assert.deepEqual(groupFor("namaProyek").docTypes, defaultDocTypes);
 });
 
-test("orderPaperworkDocTypes lists every layout:images fillable slot's docType", () => {
-  assert.deepEqual(
-    [...orderPaperworkDocTypes(AO_TEMPLATE)].sort(),
-    ["BAPermintaan", "Email", "SP"].sort(),
-  );
+test("orderPaperworkDocTypes reads the layout:images fillable slots there are", () => {
+  // A hand-built form, because AO_TEMPLATE no longer declares a whole-page
+  // judul to read. This is still the behaviour every ADDED judul's shape would
+  // exercise if one carried a docType, and the next base form to declare a
+  // whole-page bagian gets it back unchanged.
+  const withImages = {
+    ...AO_TEMPLATE,
+    sections: [
+      ...AO_TEMPLATE.sections,
+      {
+        id: "u:ba",
+        title: "BA Permintaan",
+        layout: "images",
+        ask: { title: "BA Permintaan" },
+        slots: [
+          { key: "u:ba.1", label: "Halaman 1", docType: "BAPermintaan",
+            ask: { label: "Halaman 1", hint: "h" }, fillable: true,
+            pageOrdinal: 0 },
+          // Not fillable, so not counted: the question is which pages this
+          // form's own paperwork CAPTURES, not which docTypes it mentions.
+          { key: "u:ba.2", label: "Halaman 2", docType: "Email",
+            ask: { label: "Halaman 2", hint: "h" }, fillable: false },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual([...orderPaperworkDocTypes(withImages)], ["BAPermintaan"]);
+});
+
+/*
+ * AND ON THE SHIPPED FORM IT IS EMPTY, WHICH CHANGES NOTHING TODAY.
+ *
+ * This ranks the pool for a backed fieldKey that has no `FIELD_DOC_TYPES`
+ * entry of its own, and there is exactly one such key -- `namaProyek`, which
+ * `NEVER_EXTRACTED` stops before it is ever asked. The three keys that do get
+ * extracted (`cc`, `alamat`, `picContacts`) all carry their own entry and are
+ * ranked by it. An empty list means an UNRANKED pool, never a smaller one:
+ * `rankedPoolForDocTypes` still shows every page either way, so the worst this
+ * can cost is ordering, and today it cannot even cost that.
+ *
+ * Pinned rather than left to be rediscovered, because "the default pool ranker
+ * returns nothing" reads like a defect to anyone who meets it cold.
+ */
+test("the shipped form ranks no default pool, and no extracted key needs one", () => {
+  assert.deepEqual(orderPaperworkDocTypes(AO_TEMPLATE), []);
+  for (const key of extractableFieldKeys(AO_TEMPLATE)) {
+    assert.ok(
+      FIELD_DOC_TYPES[key],
+      `"${key}" is extracted and has no FIELD_DOC_TYPES entry, so it would ` +
+        "fall back to orderPaperworkDocTypes -- which the shipped form now " +
+        "answers empty. Give it its own entry.",
+    );
+  }
 });
 
 import { extractJson } from "../src/lib/pipeline/json.ts";
@@ -2071,10 +2221,10 @@ test("a whole-page capture is reported as NOT answered, not as 'no lanjutan'", (
   // whole-page capture with verdict `whole-page-capture` precisely because
   // such a capture ends at its page's last content line BY CONSTRUCTION, so
   // running off the bottom says nothing about it -- and `no-content-line` is
-  // the same kind of non-answer. Four of AO_TEMPLATE's twelve captures are
-  // whole-page, so printing those as "checked, no lanjutan" would put the
-  // affirmative over a third of the packet's evidence with nothing having
-  // looked. The run log and the OUTSTANDING json both read this.
+  // the same kind of non-answer. Whole-page captures are most of a finished
+  // packet's evidence, so printing those as "checked, no lanjutan" would put
+  // the affirmative over the bulk of it with nothing having looked. The run
+  // log and the OUTSTANDING json both read this.
   const entry = (verdict, looksLikeContinuation = false) => ({
     key: "k",
     label: "L",
