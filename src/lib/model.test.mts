@@ -25,10 +25,14 @@ import test from "node:test";
 
 delete process.env.GEMINI_MAX_OUTPUT_TOKENS;
 delete process.env.GEMINI_OCR_MAX_OUTPUT_TOKENS;
+delete process.env.GEMINI_CHECKPOINT_MAX_OUTPUT_TOKENS;
 
-const { MAX_OUTPUT_TOKENS, OCR_MAX_OUTPUT_TOKENS, isTransient } = await import(
-  "./model.ts"
-);
+const {
+  CHECKPOINT_MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS,
+  OCR_MAX_OUTPUT_TOKENS,
+  isTransient,
+} = await import("./model.ts");
 
 // ---------------------------------------------------------------------------
 // The output caps.
@@ -44,6 +48,15 @@ test("the OCR cap is separate from the global runaway guard", () => {
     "a dense 300 DPI page was measured emitting 2554 output tokens of blocks " +
       "and boxes, well past the verdict-sized guard",
   );
+});
+
+test("Konfig Excel and Input EPIC have their own cap, above the global guard", () => {
+  // One entry per isian of a 30-to-72-field workbook. A comparison over pages
+  // that did not hold the values was measured thinking through 3924 of the
+  // 4096 tokens and returning truncated JSON, which the route reports as a
+  // reply that could not be used.
+  assert.equal(CHECKPOINT_MAX_OUTPUT_TOKENS, 16384);
+  assert.ok(CHECKPOINT_MAX_OUTPUT_TOKENS > MAX_OUTPUT_TOKENS);
 });
 
 // ---------------------------------------------------------------------------

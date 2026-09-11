@@ -27,7 +27,7 @@ import { requireApiUser } from "@/lib/auth/require-user";
 import {
   chatModel,
   providerOptions,
-  MAX_OUTPUT_TOKENS,
+  CHECKPOINT_MAX_OUTPUT_TOKENS,
   MODEL_ID,
   MODEL_TARGET,
 } from "@/lib/model";
@@ -70,7 +70,7 @@ async function ask(prompt: string): Promise<string> {
   const result = await generateText({
     model: chatModel(),
     prompt,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    maxOutputTokens: CHECKPOINT_MAX_OUTPUT_TOKENS,
     providerOptions,
   });
 
@@ -105,9 +105,9 @@ async function ask(prompt: string): Promise<string> {
 
   if (result.finishReason === "length") {
     console.warn(
-      `[config] hit the ${MAX_OUTPUT_TOKENS}-token output cap; the reply is ` +
-        "truncated and will almost certainly fail to parse. Raise " +
-        "GEMINI_MAX_OUTPUT_TOKENS if this is legitimate.",
+      `[config] hit the ${CHECKPOINT_MAX_OUTPUT_TOKENS}-token output cap; the ` +
+        "reply is truncated and will almost certainly fail to parse. Raise " +
+        "GEMINI_CHECKPOINT_MAX_OUTPUT_TOKENS if this is legitimate.",
     );
   }
 
