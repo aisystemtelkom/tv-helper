@@ -62,6 +62,7 @@ import type {
   EpicBasis,
   EpicCapture,
   EpicEntry,
+  FencedBerkas,
 } from "../config/types.ts";
 import {
   configEntryId,
@@ -103,9 +104,16 @@ export type ConfigEdit =
       tag: "attach-workbook";
       workbook: ConfigWorkbook;
       entries: readonly ConfigEntry[];
+      /** The berkas marked tanpa AI when this reading ran. `ConfigCheck.fenced`. */
+      fenced?: readonly FencedBerkas[];
     }
   /** A comparison against the scans came back. Decisions already made survive. */
-  | { tag: "record-comparison"; entries: readonly ConfigEntry[] }
+  | {
+      tag: "record-comparison";
+      entries: readonly ConfigEntry[];
+      /** Absent keeps the stored record. `ConfigCheck.fenced`. */
+      fenced?: readonly FencedBerkas[];
+    }
   /** Terima, Tolak, or Ketik sendiri on one isian. */
   | {
       tag: "decide";
@@ -151,9 +159,9 @@ export function applyConfigEdit(
 ): ConfigEditResult {
   switch (edit.tag) {
     case "attach-workbook":
-      return attachWorkbook(run, edit.workbook, edit.entries);
+      return attachWorkbook(run, edit.workbook, edit.entries, edit.fenced);
     case "record-comparison":
-      return recordComparison(run, edit.entries);
+      return recordComparison(run, edit.entries, edit.fenced);
     case "decide":
       return decideConfig(run, edit.entryId, edit.decision, edit.manualValue);
     case "mark-researched":
@@ -441,6 +449,7 @@ export function attachWorkbook(
   run: BrowserRun,
   workbook: ConfigWorkbook,
   entries: readonly ConfigEntry[],
+  fenced?: readonly FencedBerkas[],
 ): ConfigEditResult {
   if (!workbook?.id || !workbook.digest || !workbook.sheet) {
     throw new ConfigEditError(
@@ -461,6 +470,7 @@ export function attachWorkbook(
       workbook,
       entries: [...entries],
       researched: run.konfigurasi.researched,
+      ...(fenced ? { fenced: [...fenced] } : {}),
     },
   });
 }
@@ -489,6 +499,7 @@ export function attachWorkbook(
 export function recordComparison(
   run: BrowserRun,
   entries: readonly ConfigEntry[],
+  fenced?: readonly FencedBerkas[],
 ): ConfigEditResult {
   if (!run.konfigurasi.workbook) {
     throw new ConfigEditError(
@@ -507,11 +518,24 @@ export function recordComparison(
     return withDecision(entry, before.decision, before.manualValue);
   });
 
-  if (sameData(folded, run.konfigurasi.entries)) return unchanged(run);
+  // A NEW FENCE RECORD IS A CHANGE EVEN WHEN EVERY VERDICT CAME BACK THE SAME.
+  // The sentence it feeds would otherwise keep naming a berkas this reading did
+  // look in.
+  const nextFenced = fenced === undefined ? run.konfigurasi.fenced : [...fenced];
+  if (
+    sameData(folded, run.konfigurasi.entries) &&
+    sameData(nextFenced, run.konfigurasi.fenced)
+  ) {
+    return unchanged(run);
+  }
 
   return decided(run, {
     ...run,
-    konfigurasi: { ...run.konfigurasi, entries: folded },
+    konfigurasi: {
+      ...run.konfigurasi,
+      entries: folded,
+      ...(nextFenced ? { fenced: nextFenced } : {}),
+    },
   });
 }
 

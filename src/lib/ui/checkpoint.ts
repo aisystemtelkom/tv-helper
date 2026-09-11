@@ -31,6 +31,7 @@ import type {
   ConfigField,
   ConfigWorkbook,
   EpicEntry,
+  FencedBerkas,
 } from "../config/types.ts";
 // From the leaf modules rather than from `./runtime.ts`, for the reason
 // `propose.ts` imports them that way: this module is pure apart from its fetch
@@ -209,6 +210,91 @@ export function buildResearchRequest(
     fields: [...fields],
     retry: true,
   };
+}
+
+/**
+ * The same comparison again, over every isian this order already holds.
+ *
+ * FOR ONE REASON ONLY: a berkas the last reading was not allowed to look in has
+ * since been let back in (`fenceReport`), so the verdicts on screen describe a
+ * smaller bundle than the order now offers. It is NOT the re-search. It asks
+ * the first-pass question, carries no `retry`, and leaves the budget the client
+ * set on widening the question alone.
+ *
+ * `fields` AND NO `sheet`, for the reason `buildResearchRequest` gives and one
+ * more: re-interpreting the sheet mints new `ConfigField.id`s, and
+ * `recordComparison` keeps a ruling only for an id it still recognises, so a
+ * re-read would put every decision the operator made back on the amber list.
+ */
+export function buildRecompareRequest(
+  run: BrowserRun,
+  fields: readonly ConfigField[],
+): ConfigRequest {
+  return { runId: run.id, pages: wirePages(run), fields: [...fields] };
+}
+
+/**
+ * Every berkas marked tanpa AI right now, in the order's own order, as a
+ * comparison records them. See `ConfigCheck.fenced`.
+ *
+ * THE SAME `aiExcludedSources` `wirePages` STRIPS BY, so a record written
+ * beside a request cannot disagree with it about which berkas were given.
+ */
+export function fencedBerkas(run: BrowserRun): FencedBerkas[] {
+  const fenced = aiExcludedSources(run);
+  return run.sources
+    .filter((source) => fenced.has(source.id))
+    .map((source) => ({ id: source.id, name: source.name }));
+}
+
+export type FenceReport = {
+  /** Berkas the register on screen was compared without, and still fenced. */
+  skipped: FencedBerkas[];
+  /** Berkas let back in since, so the verdicts are older than the choice. */
+  nowRead: FencedBerkas[];
+  /** False for a comparison made before the fence was recorded. */
+  known: boolean;
+};
+
+/**
+ * What the register on screen was compared without, and what changed since.
+ *
+ * FOR A COMPARISON THAT RECORDED ITS FENCE both halves are exact. A berkas
+ * removed from the order since is in neither: there is nothing left in it to
+ * read.
+ *
+ * FOR ONE MADE BEFORE THE FENCE WAS RECORDED, `skipped` is the fence as it
+ * stands, which is the one a comparison run now would use, and `nowRead` is
+ * every berkas carrying `ai: true`, which only `withSourceAi` switching a berkas
+ * BACK ever writes. That may name one switched back before the comparison ran,
+ * and costs the operator a re-comparison they did not need. The alternative
+ * left such an order no way to compare again at all, since the same workbook
+ * re-handed over is recognised by its bytes and offers no key.
+ */
+export function fenceReport(run: BrowserRun): FenceReport {
+  const check = run.konfigurasi;
+  if (check.entries.length === 0) return { skipped: [], nowRead: [], known: true };
+
+  if (check.fenced === undefined) {
+    return {
+      skipped: fencedBerkas(run),
+      nowRead: run.sources
+        .filter((source) => source.ai === true)
+        .map((source) => ({ id: source.id, name: source.name })),
+      known: false,
+    };
+  }
+
+  const current = new Map(run.sources.map((source) => [source.id, source]));
+  const skipped: FencedBerkas[] = [];
+  const nowRead: FencedBerkas[] = [];
+  for (const berkas of check.fenced) {
+    const source = current.get(berkas.id);
+    if (!source) continue;
+    if (source.ai === false) skipped.push(berkas);
+    else nowRead.push(berkas);
+  }
+  return { skipped, nowRead, known: true };
 }
 
 export function buildEpicRequest(

@@ -233,6 +233,15 @@ export type ConfigWorkbook = {
   unusable?: string[];
 };
 
+/**
+ * A berkas the operator had marked tanpa AI when a comparison ran, so that
+ * comparison never looked inside it.
+ *
+ * THE NAME IS COPIED, NOT LOOKED UP, because the sentence it feeds is about the
+ * reading that happened rather than about the order as it stands now.
+ */
+export type FencedBerkas = { id: string; name: string };
+
 /** Konfig Excel's whole state, as one order carries it. */
 export type ConfigCheck = {
   /** Absent until the operator hands a workbook over. */
@@ -248,6 +257,25 @@ export type ConfigCheck = {
    * budget that resets when the operator refreshes the tab is not a budget.
    */
   researched: boolean;
+  /**
+   * THE BERKAS THE VERDICTS ON SCREEN WERE COMPARED WITHOUT: every berkas marked
+   * tanpa AI when the last comparison or re-search ran.
+   *
+   * `tidak ditemukan` is fixed to mean SEARCHED AND NOT FOUND, and an isian whose
+   * value is printed only in a fenced berkas comes back exactly that. On
+   * 2026-09-11 a register of such rows was reported as the check being broken.
+   * The fence is the operator's choice and stays in force; what was missing is
+   * the screen naming the berkas the reading did not look in, and noticing when
+   * one of them has since been let back in.
+   *
+   * STORED RATHER THAN READ OFF `run.sources`, because the fence can move after
+   * the comparison. Read live, switching a berkas back to dibaca AI would make
+   * the sentence vanish while every verdict it explains stayed on screen.
+   *
+   * Absent means a comparison made before this was recorded, which is UNKNOWN,
+   * never "nothing was fenced". Empty means nothing was.
+   */
+  fenced?: FencedBerkas[];
 };
 
 /** An order that has not reached Konfig Excel yet. Never `undefined`. */
