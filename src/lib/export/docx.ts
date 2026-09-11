@@ -167,8 +167,9 @@ function renderSection(
   });
 
   if (section.layout === "images") {
-    // An empty section still emits its heading: the sample ships MOM, BASO,
-    // and BA Penjelasan Order empty, and the operator fills them by hand.
+    // An empty section still emits its heading. A judul the operator added
+    // but has not captured yet is exactly this, and so is one whose usulan
+    // they refused: the heading is the record that the packet wants it.
     return [
       heading,
       ...section.slots

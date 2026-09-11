@@ -142,19 +142,68 @@ semantic step, which is the part a language model is good at.
 | Export | `src/lib/export/docx.ts` | the deliverable |
 
 `src/lib/forms/template.ts` (`AO_TEMPLATE`) declares the docx section list and
-the field row list together, because they are two views of one order. It is a
-**transcription of the sample, not a redesign**: section names, row labels,
-order, the sections that ship empty, and the two-part KB table split all match
-the sample as it stands.
+the field row list together, because they are two views of one order.
+`fieldRows` is still a **transcription of the sample**, and so is the two-part
+KB table split. The SECTION LIST is not, any more -- see below.
 
-### `AO_TEMPLATE` IS A STARTING SUGGESTION, NOT THE FORM
+### `AO_TEMPLATE` IS FOUR JUDUL, AND ONLY KB IS SEARCHED
 
-**The section list is now per-ORDER.** This file used to describe the template
-as the form every run is measured against, and that stopped being true: the two
-sample bundles share **two headings out of about a dozen**, so a transcription
-of one order's packet is a good starting point for the next and nothing more.
-An order renames a judul, drops one, reorders the packet, and adds one the form
-does not name.
+**It used to transcribe all twelve of the sample's judul, and on 2026-09-11 it
+stopped.** What it declares now, in order:
+
+| judul | layout | bagian |
+| --- | --- | --- |
+| `KB` | table | Nomor, Para Pihak, Tanggal, Jangka Waktu -- all fillable |
+| `KB (lanjutan)` | table | Detail, ToP, TTD Pejabat -- all fillable |
+| `Konfigurasi (Excel dari EPIC)` | table | SID, Konfigurasi -- none fillable |
+| `Konfigurasi` | table | `{{quote}}`, Price & SA, BW, BA -- none fillable |
+
+`BA Permintaan`, `SP`, `Email`, `MOM`, `BA Splitting`, `SBR Pricing`, `BASO`
+and `BA Penjelasan Order` are **GONE from the base form**. They arrive per
+order, from judul discovery or `Tambah judul`.
+
+- **A DECLARED JUDUL IS A REQUIRED ONE, which is the whole reason.** Declaring
+  it seeds a capture, searches for it, and reports `tidak ditemukan` when the
+  order has no such document -- a word fixed to mean SEARCHED AND NOT FOUND,
+  which sends the operator to fetch a berkas that was never going to exist.
+  The operator's report, 2026-09-11: *"Anything outside of KB shouldn't be
+  rigid required field."* The two sample bundles share **two headings out of
+  about a dozen**, so this file already held the measurement that says a
+  transcription of one order's packet was never the form.
+- **IT ALSO PRODUCED A DUPLICATE HEADING THE TOOL COULD NOT SEE.** `BA
+  Permintaan` took page 1 of a berkas as a whole-page capture; discovery read
+  the same page and proposed `BERITA ACARA PERMINTAAN ORDER` out of it; the
+  operator got one document under two headings. `recordProposals` screens a
+  usulan against `overlay.added` ONLY (`fullyClaimedBy`), so a base judul
+  cannot suppress one. **No screening rule was added for it** -- with those
+  judul gone there is nothing left to collide with, since every surviving
+  judul is either KB (crops inside a page, never a whole-page claim) or
+  title-only.
+- **`Konfigurasi (Excel dari EPIC)` and `Konfigurasi` survived because the
+  operator asked for exactly those two to keep shipping.** They print as a
+  heading over their own labelled but EMPTY rows and are filled from EPIC by
+  hand after the packet is written. A deliberately empty cell is the
+  deliverable.
+- **NOTHING IN THE BASE FORM IS `layout: "images"` ANY MORE.** That path is not
+  dead: `resolveAdded` gives every bagian under an added judul exactly that
+  layout, so `wholePageProposals` in `src/app/api/propose/handler.ts`, the
+  whole-page branch of `scripts/generate.mjs` and `SlotDef.pageOrdinal` all
+  stay live and stay covered by `propose.test.mts` fixtures. Do not delete them
+  because `AO_TEMPLATE` no longer reaches them.
+- **`orderPaperworkDocTypes(AO_TEMPLATE)` now returns `[]`**, and that changes
+  nothing: it ranks the pool for a backed fieldKey with no `FIELD_DOC_TYPES`
+  entry, the only such key is `namaProyek`, and `NEVER_EXTRACTED` stops that
+  one before it is asked. An empty list is an UNRANKED pool, never a smaller
+  one. `scripts/test-pipeline.mjs` pins both halves.
+- **A stored order made before this still holds its `ba.permintaan`, `sp.1`,
+  `sp.2` and `email.1` states.** They become orphans: the outstanding panel
+  lists them as *"potongan tidak punya tempat di dokumen ini"* with **Buang
+  potongan ini**, and one carrying a zone BLOCKS that order's export until it
+  is discarded. That is the machinery `unmatchedStates` and `blockingItems`
+  exist for; there is deliberately no migration.
+
+**An order still renames a judul, drops one, reorders the packet, and adds one
+the form does not name.** That is what makes the short base form liveable:
 
 - The edits are a **DIFF, not a copy of the form**:
   `TemplateOverlay` in `src/lib/forms/overlay.ts`, stored on the run.
@@ -209,6 +258,13 @@ model call is made**. Asking the model to find a whole page inside that page is
 a category error, and it is exactly how those slots failed the first
 measurement run: a plausible-looking fragment every time. Only `layout:
 "table"` slots go through `locateSlot`.
+
+**`AO_TEMPLATE` DECLARES NO `images` JUDUL ANY MORE, and this routing is not
+therefore dead.** Every judul an order ADDS resolves to `layout: "images"`
+(`resolveAdded`, and `AddedSection` has no field to override it), so the branch
+is what fills them -- see `--discover-sections` and the `pages: [...]` rule
+below. It is also what the next base form to declare a whole-page bagian will
+need. Do not collapse it because the shipped form happens not to reach it.
 
 Two other things in `scripts/generate.mjs` that are easy to "simplify" back
 into bugs:
@@ -307,9 +363,11 @@ roughly an order of magnitude.**
   per run. It is now the prompt's leading text, which lets Gemini's implicit
   prefix cache serve it at 10% of the input rate; measured 57% of a run's input
   tokens served cached, taking locate from $0.27 to $0.11.
-- **Seven, not twenty.** `AO_TEMPLATE` has 20 `layout: "table"` slots but only
-  **7 are `fillable`**, and all 7 carry `docType: "KB"`. Counting table slots
-  instead of fillable ones overstates locate's cost by 3x.
+- **Seven, not thirteen.** `AO_TEMPLATE` has 13 `layout: "table"` slots but
+  only **7 are `fillable`**, and all 7 carry `docType: "KB"`. Counting table
+  slots instead of fillable ones overstates locate's cost. (It was 7 of 20
+  before the form was cut back to four judul; the 7 did not move, which is why
+  the cost table below still holds.)
 - The per-image numbers in the cost table are correct and now apply to the
   validator path as well as to the chat route and the smoke test.
 
@@ -400,6 +458,17 @@ its date.
 - It is twelve crops, not the eleven the original design names: `SP` and `KB /
   ToP` each supply two crops on two *different* pages, so each needs its own
   `locateSlot` call.
+- **FOUR OF THE TWELVE NOW MEASURE A PATH THE BASE FORM NO LONGER TAKES, and
+  the harness cannot tell you so.** `BA Permintaan`, `Email` and both `SP` rows
+  are the whole-document rows; they carry **no `slotKey`**, so `askedAs` never
+  looks them up and the gate kept running unchanged when `AO_TEMPLATE` dropped
+  those judul on 2026-09-11. They still score the SAMPLE's own crops honestly
+  and they still cover the whole-page path an ADDED judul takes, so they were
+  kept rather than deleted -- but "Whole-document (no model) 4/4" is no longer
+  a statement about the shipped form. **The eight model-located rows all carry
+  a `slotKey`, all of them `kb.*` or `kbLanjutan.*`, and every one still
+  resolves**, which is why that cut owed no gate run: it moved no prompt and
+  removed no slot the gate asks about.
 
 The bundle those numbers are measured over is **29 pages**: the merged
 contract scan is 27 and the SPLITBA scan is 2. 27 is the merged PDF alone,
@@ -435,6 +504,12 @@ whole-page captures the model was never asked about, and its renames cannot
 reach a prompt by construction (see `SlotAsk`). What the gate measures is the
 one thing an operator's edits cannot move, which is why the fence around
 `ask` exists at all.
+
+**AND THE BASE FORM IS NOW ALMOST EXACTLY WHAT THE GATE SCORES.** Cutting
+`AO_TEMPLATE` back to KB plus two title-only judul left its seven fillable
+bagian as the only searched ones, and those are precisely the eight
+`slotKey`-bearing ground-truth rows (ToP supplies two). The four whole-document
+rows are the remainder, and the bullet above says what they now measure.
 
 **AND THE GATE IS OWED A RUN.** The `hint` to `ask.hint` rename is a
 prompt-builder change, so this file's own rule applies to it. Its byte-identity
@@ -831,8 +906,9 @@ READ, and both halves of that sentence are load-bearing.
 - **Word does not shrink an oversized inline image to its column; it clips
   it.** The exporter caps width at the usable column derived from the sample's
   own `<w:sectPr>` and scales both dimensions together. Four of the fillable
-  slots are whole-page captures, so an uncapped width is most of the document's
-  visual content, not an edge case.
+  slots are whole-page captures in the SAMPLE, and every bagian under a judul
+  an order adds or accepts is one, so an uncapped width is most of the
+  document's visual content, not an edge case.
 - **A slot can hold more than one crop, and NOTHING DECLARES HOW MANY.** The
   sample's `KB (lanjutan)` ToP row stacks two pictures in one cell, and
   `SlotDef.crops` used to say so. An operator found what that produces: the
@@ -849,10 +925,11 @@ READ, and both halves of that sentence are load-bearing.
   because the extent call's measured error is a legible crop of the NEXT
   clause and a headless run has no operator to reject one.
 - **An empty section still emits its heading, and an unfilled table row still
-  emits its row.** The sample ships MOM, BASO, BA Splitting, SBR Pricing, and
-  BA Penjelasan Order empty, and the operator fills them by hand. A deliberately
-  empty cell is the deliverable. (A `<w:tbl>` with no `<w:tr>`, on the other
-  hand, is schema-invalid and Word refuses the file.)
+  emits its row.** `Konfigurasi (Excel dari EPIC)` and `Konfigurasi` ship as
+  headings over empty rows the operator fills from EPIC, and a judul added but
+  not yet captured ships as a bare heading. A deliberately empty cell is the
+  deliverable. (A `<w:tbl>` with no `<w:tr>`, on the other hand, is
+  schema-invalid and Word refuses the file.)
 - **Use `Packer.toArrayBuffer`, not `toBuffer`.** `toBuffer` asks JSZip for a
   "nodebuffer", which throws in a browser with no `Buffer` polyfill, and this
   pipeline is meant to run in the browser.
@@ -1266,7 +1343,7 @@ src/lib/model.ts               the provider boundary: model ids, cost, credentia
                                MODEL_ID reasons, OCR_MODEL_ID reads scans
 src/lib/cost.ts                the price table and the per-stage cost ledger
 src/lib/forms/template.ts      AO_TEMPLATE: docx section list + field row
-                               list. A STARTING SUGGESTION, not the form;
+                               list. FOUR JUDUL, and only KB is searched;
                                SlotAsk is the frozen half a prompt sees
 src/lib/forms/overlay.ts       TemplateOverlay: one order's diff against that
                                base, assertOverlay (the fence), resolveTemplate

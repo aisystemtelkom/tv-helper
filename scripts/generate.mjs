@@ -1686,9 +1686,10 @@ export function continuationChecks(template, zones, pages, check) {
  * for. Two of stage 1's declines carry no information at all:
  * `whole-page-capture` (such a capture ends at its page's last content line BY
  * CONSTRUCTION) and `no-content-line`, which the module declines rather than
- * guesses at. Four of this template's twelve captures are whole-page, so
- * reporting those as "checked, no lanjutan" would put the affirmative on a
- * third of the packet's evidence with nothing having looked.
+ * guesses at. Whole-page captures are most of a finished packet's evidence --
+ * every bagian under an added or accepted judul is one -- so reporting those as
+ * "checked, no lanjutan" would put the affirmative on the bulk of it with
+ * nothing having looked.
  */
 export function continuationAnswered(entry) {
   return (
@@ -2947,7 +2948,7 @@ async function main() {
   // its page's last content line BY CONSTRUCTION, so the geometry says nothing
   // about it) and `no-content-line`. Printing those as "checked, no lanjutan"
   // is the same wrong-and-quiet `/api/propose`'s `continuationChecked` flag
-  // was fixed for, and four of this template's twelve captures are whole-page.
+  // was fixed for, and whole-page captures are most of a finished packet.
   for (const entry of checks) {
     console.log(
       entry.looksLikeContinuation

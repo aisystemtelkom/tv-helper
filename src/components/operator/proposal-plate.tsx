@@ -244,11 +244,12 @@ function readCatatan(catatan: SlotDef["catatan"]): {
 /**
  * How large a crop is allowed to get.
  *
- * `full` caps at 70vh because four of the twelve captures in the sample are
- * whole-page captures by design, and an uncapped A4 at this column width is a
- * screen and a half each: the sheet becomes enormous and the decision controls
- * fall off the bottom of the picture they belong to. The plate scrolls; the
- * picture must not push the verdict out of the viewport.
+ * `full` caps at 70vh because whole-page captures are ordinary rather than
+ * exceptional -- every bagian under a judul the operator added or accepted off
+ * a usulan is one -- and an uncapped A4 at this column width is a screen and a
+ * half each: the sheet becomes enormous and the decision controls fall off the
+ * bottom of the picture they belong to. The plate scrolls; the picture must
+ * not push the verdict out of the viewport.
  *
  * `proof` is a settled capture: still a real picture of the real crop, small
  * enough that the remaining work is what makes the sheet long.

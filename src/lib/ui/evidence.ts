@@ -162,11 +162,11 @@ export type Citation = {
    * exactly this, and it is the shape the design asks the operator to catch
    * by eye.
    *
-   * Never true for a `wholePage` capture. Four of the twelve captures are
-   * whole pages by design, so warning "covers 100% of the page - check it has
-   * not run on into a footer" over them would have put a false alarm on a
-   * third of the sheet -- the same alarm fatigue the `ambiguous` flag caused,
-   * on the same signal.
+   * Never true for a `wholePage` capture. Every bagian under an added or
+   * accepted judul is a whole page by design, so warning "covers 100% of the
+   * page - check it has not run on into a footer" over them would put a false
+   * alarm on most of the sheet -- the same alarm fatigue the `ambiguous` flag
+   * caused, on the same signal.
    */
   spansPage: boolean;
   /**

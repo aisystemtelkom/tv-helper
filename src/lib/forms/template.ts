@@ -306,18 +306,61 @@ export type Template = {
 };
 
 /**
- * Transcribed from `Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx`
- * (word/document.xml), with `fieldRows` transcribed from the order sheet that
- * accompanied it. This is a transcription, not a redesign: section names, row
- * labels, order, the empty sections, and the KB table's two-part split all
- * match the sample as it stands.
+ * KB, AND TWO HEADINGS THE OPERATOR FILLS FROM EPIC. That is the whole base
+ * form, and the shortness is the point.
  *
- * Every section here is one of two kinds (the Task 7 finding this encodes):
- *   - "images": a human filling the sample screenshots the whole page.
- *     There is no region inside the page to locate -- the whole rendered
- *     page (or one of several, for SP) is the capture.
- *   - "table": a specific field lives at a location within a page, so a
- *     slot here is something `locateSlot` finds.
+ * ## It used to transcribe all twelve of the sample's judul, and that was wrong
+ *
+ * `fieldRows` is still transcribed from the order sheet that accompanied
+ * `Form_Validasi_LOP999001_1-70000000001-contohvpn (2).docx`, and the KB
+ * table's two-part split still matches that sample. The SECTION LIST no longer
+ * does, deliberately. It used to carry `BA Permintaan`, `SP`, `Email`, `MOM`,
+ * `BA Splitting`, `SBR Pricing`, `BASO` and `BA Penjelasan Order` beside these
+ * four, which asserted that every order's packet contains all of them.
+ *
+ * AGENTS.md already held the measurement that says otherwise: the two sample
+ * bundles share TWO headings out of about a dozen. A judul the base form
+ * declares is one every order is TOLD IT OWES EVIDENCE FOR -- it seeds a
+ * capture, it is searched, and when the order has no such document it reports
+ * `tidak ditemukan`, which means "we looked and found nothing" and sends the
+ * operator to fetch a berkas that was never going to exist. The operator's own
+ * words, 2026-09-11: *"Anything outside of KB shouldn't be rigid required
+ * field."*
+ *
+ * What the surplus declarations also bought was a DUPLICATE HEADING the tool
+ * could not see. `BA Permintaan` took page 1 of a berkas as a whole-page
+ * capture; judul discovery read the same page and proposed `BERITA ACARA
+ * PERMINTAAN ORDER` out of it; the operator was shown one document under two
+ * headings. `recordProposals` screens a usulan against `overlay.added` only, so
+ * a base judul cannot suppress one -- and no screening rule was added here,
+ * because with those judul gone there is nothing left to collide with. Every
+ * surviving judul is either KB (crops inside a page, never a whole-page claim)
+ * or title-only.
+ *
+ * NONE OF THE EIGHT IS LOST. `src/lib/pipeline/sections.ts` proposes headings
+ * per berkas off the scans, and `add-section` adds one by hand; both put a
+ * person in front of the heading before it can reach the packet, which is more
+ * review than a compile-time constant ever gave them.
+ *
+ * ## What is left, and why these four
+ *
+ * `kb` and `kb-lanjutan` are the only judul with `fillable` bagian, so they are
+ * the only thing searched. All seven carry `docType: "KB"` and `layout:
+ * "table"`: a specific field at a location within a page, which is what
+ * `locateSlot` finds. They are also the only rows the measurement gate scores
+ * by `slotKey`, so the base form and the thing the gate measures are now the
+ * same short list.
+ *
+ * `konfigurasi-epic` and `konfigurasi` declare no fillable bagian at all. They
+ * print as a heading over their own labelled but EMPTY rows, and the operator
+ * fills them from EPIC after the packet is written -- a deliberately empty cell
+ * is the deliverable. They are kept where `MOM`, `BASO` and the rest were not
+ * because the operator asked for exactly these two to keep shipping.
+ *
+ * `layout: "images"` is no longer reached by anything here. It is what
+ * `resolveAdded` gives every bagian under an ADDED judul, whose pages a person
+ * picked, so the whole-page path in `src/app/api/propose/handler.ts` stays live
+ * and stays covered -- it is simply no longer something the base form asks for.
  *
  * `ask.title` and every `ask.label` below are seeded VERBATIM from the
  * `title` and `label` beside them, which is what makes the split that
@@ -329,83 +372,6 @@ export const AO_TEMPLATE: Template = {
   id: "AO",
   label: "DOKUMEN VALIDASI",
   sections: [
-    {
-      id: "ba-permintaan",
-      title: "BA Permintaan",
-      layout: "images",
-      ask: { title: "BA Permintaan" },
-      slots: [
-        {
-          key: "ba.permintaan",
-          label: "BA Permintaan",
-          docType: "BAPermintaan",
-          ask: {
-            label: "BA Permintaan",
-            hint: "the whole Berita Acara Permintaan Order page",
-          },
-          catatan: {
-            adalah:
-              "Satu halaman penuh Berita Acara Permintaan Order, diambil " +
-              "sebagai tangkapan satu halaman.",
-            bukan:
-              "Bukan area di dalam halaman, dan bukan Berita Acara lain " +
-              "seperti BA Splitting atau BASO.",
-          },
-          fillable: true,
-          pageOrdinal: 0,
-        },
-      ],
-    },
-    {
-      id: "sp",
-      title: "SP",
-      layout: "images",
-      ask: { title: "SP" },
-      slots: [
-        {
-          key: "sp.1",
-          label: "SP",
-          docType: "SP",
-          ask: {
-            label: "SP",
-            hint: "the whole Surat Penunjukan page",
-          },
-          catatan: {
-            adalah:
-              "Halaman pertama Surat Penunjukan, diambil utuh sebagai " +
-              "tangkapan satu halaman.",
-            bukan:
-              "Bukan Perjanjian Kerjasama, bukan Berita Acara Permintaan " +
-              "Order, dan bukan halaman lanjutan Surat Penunjukan.",
-          },
-          fillable: true,
-          pageOrdinal: 0,
-        },
-        {
-          key: "sp.2",
-          label: "SP (lanjutan)",
-          docType: "SP",
-          ask: {
-            label: "SP (lanjutan)",
-            hint: "the second whole page of the Surat Penunjukan",
-          },
-          catatan: {
-            adalah:
-              "Halaman lanjutan Surat Penunjukan, juga diambil utuh sebagai " +
-              "tangkapan satu halaman.",
-            bukan:
-              "Bukan halaman pertama yang sudah dipakai pada bagian SP di " +
-              "atasnya.",
-          },
-          fillable: true,
-          // 1, not 0, and the difference is which SP page this bagian crops.
-          // `wholePageProposals` reads this number directly, so it is the only
-          // thing deciding that: deleting `sp.1` for one order now leaves this
-          // 1 alone rather than sliding it to 0.
-          pageOrdinal: 1,
-        },
-      ],
-    },
     {
       id: "kb",
       title: "KB",
@@ -688,143 +654,6 @@ export const AO_TEMPLATE: Template = {
           fillable: false,
         },
       ],
-    },
-    {
-      id: "email",
-      title: "Email",
-      layout: "images",
-      ask: { title: "Email" },
-      slots: [
-        {
-          key: "email.1",
-          label: "Email",
-          docType: "Email",
-          ask: {
-            label: "Email",
-            hint: "the whole printed email thread page",
-          },
-          catatan: {
-            adalah:
-              "Satu halaman penuh cetakan utas email yang meminta order ini, " +
-              "diambil sebagai tangkapan satu halaman.",
-            bukan:
-              "Bukan lampiran email yang tercetak di halaman terpisah, dan " +
-              "bukan surat atau berita acara.",
-          },
-          fillable: true,
-          pageOrdinal: 0,
-        },
-      ],
-    },
-    {
-      id: "mom",
-      title: "MOM",
-      layout: "images",
-      ask: { title: "MOM" },
-      slots: [],
-    },
-    {
-      id: "ba-splitting",
-      title: "BA Splitting",
-      layout: "table",
-      ask: { title: "BA Splitting" },
-      slots: [
-        {
-          key: "baSplitting.nomor",
-          label: "Nomor",
-          docType: null,
-          ask: {
-            label: "Nomor",
-            hint: "the BA Splitting number, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-        {
-          key: "baSplitting.detailKontrak",
-          label: "Detail Kontrak",
-          docType: null,
-          ask: {
-            label: "Detail Kontrak",
-            hint: "the contract detail, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-        {
-          key: "baSplitting.detailSplitting",
-          label: "Detail Splitting",
-          docType: null,
-          ask: {
-            label: "Detail Splitting",
-            hint: "the splitting detail, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-        {
-          key: "baSplitting.ttdPejabat",
-          label: "TTD Pejabat",
-          docType: null,
-          ask: {
-            label: "TTD Pejabat",
-            hint: "the signing official's signature block, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-      ],
-    },
-    {
-      id: "sbr-pricing",
-      title: "SBR Pricing",
-      layout: "table",
-      ask: { title: "SBR Pricing" },
-      slots: [
-        {
-          key: "sbrPricing.nomorTanggal",
-          // The sample keeps this parenthetical -- there is no SBR pricing
-          // document number in this bundle -- and this row transcribes it
-          // deliberately intact.
-          label: "Nomor dan tanggal (tidak ada)",
-          docType: null,
-          ask: {
-            label: "Nomor dan tanggal (tidak ada)",
-            hint: "the SBR pricing document's number and date, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-        {
-          key: "sbrPricing.diskonCc",
-          label: "Diskon ke CC",
-          docType: null,
-          ask: {
-            label: "Diskon ke CC",
-            hint: "the discount extended to the customer, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-        {
-          key: "sbrPricing.ttdPejabat",
-          label: "TTD Pejabat",
-          docType: null,
-          ask: {
-            label: "TTD Pejabat",
-            hint: "the signing official's signature block, not backed by a PDF in v1",
-          },
-          fillable: false,
-        },
-      ],
-    },
-    {
-      id: "baso",
-      title: "BASO",
-      layout: "images",
-      ask: { title: "BASO" },
-      slots: [],
-    },
-    {
-      id: "ba-penjelasan-order",
-      title: "BA Penjelasan Order",
-      layout: "images",
-      ask: { title: "BA Penjelasan Order" },
-      slots: [],
     },
   ],
   // The 34 rows of the order's field list, transcribed from the sample's own
