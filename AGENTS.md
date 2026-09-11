@@ -286,6 +286,37 @@ the form does not name.** That is what makes the short base form liveable:
   suggested is structurally unable to reach the docx exporter until a person
   moves it into `added`. There is no code path from a proposal to a
   deliverable.
+- **A REORDER IS A PERMUTATION OF THE VISIBLE JUDUL, OR IT IS REFUSED.**
+  `reorder-sections` (`src/lib/browser/sections.ts`) takes the whole
+  arrangement in one edit and throws `OverlayError` unless `ids` names every
+  VISIBLE judul exactly once and nothing else. The defect it closes is silent:
+  `ordered()` in `overlay.ts` APPENDS any section a stored order does not name,
+  so that a forgotten id is never a deleted judul, and that same kindness ships
+  a judul missing from a SHORT list at the BOTTOM of a packet that opens
+  cleanly. A duplicate is the same silence with the other sign, because
+  `ordered()` places the first mention and skips the second. It refuses rather
+  than repairs because there is no honest repair: appending the missing id,
+  leaving it where it sat and dropping it are three different documents, and
+  the edit cannot tell which one was dragged.
+
+  **A hidden judul keeps its stored position**, which is what lets
+  **Kembalikan** put one back where the operator left it. `overlay.order`
+  holds hidden ids too, but the screen can neither show nor submit one (naming
+  one is refused in a sentence of its own: restore it first). So the submitted
+  sequence is SPLICED into the visible positions of `fullOrder` and every
+  hidden id keeps its index. Writing the submitted list out as the whole order
+  would drop them, and the next restore would land at the bottom by the same
+  `ordered()` rule. An arrangement that changes nothing comes back BY
+  IDENTITY, so `editSections` skips the write and a drag that ended where it
+  started spends no revision.
+
+  **The visible list is derived twice, and agrees by construction only.**
+  `contact-sheet.tsx` draws `template.sections`; `reorderSections` recomputes
+  `fullOrder` filtered by `isVisible`. Should they ever disagree, every drag on
+  the happy path is refused in front of an operator, so `sections.test.mts`
+  drives the round trip over an added judul, one hidden in the MIDDLE of the
+  packet and an order already stored -- over the unedited base the two cannot
+  differ.
 
 ### `SlotDef.hint` IS NOW `SlotDef.ask.hint`, AND IT IS FROZEN
 
@@ -1211,9 +1242,10 @@ process: do not translate them, and do not number them.
   periksa") are now SCROLLS to a section of the one page, measured against the
   sticky strip with the same `stickyHeader()` the contact sheet uses. An order
   already read still opens at its review, which is what `landingPhase`'s
-  "mid-flow if it can be" became. The tambahan loop is still the head of the
-  lembar periksa, and an ingest fault is printed once, in the upload section,
-  never also beside the sheet.
+  "mid-flow if it can be" became. The tambahan loop is still the sheet's
+  `head` but no longer its first block: **Susunan judul** is drawn above it
+  (see below). An ingest fault is printed once, in the upload section, never
+  also beside the sheet.
 - **`2 Checkpoint`** is the old `Berkas`. What it does did not change: it builds
   and hands over the DOKUMEN VALIDASI.
 - **`3 Konfig Excel`** takes the operator's EPIC order-configuration workbook,
@@ -1250,6 +1282,57 @@ the key, which an operator called redundant: the key is down, that already
 reads as unavailable. THE RULE DID NOT CHANGE, ONLY THE PLACE. A refusal, a
 fault, or anything the operator must act on still belongs on the page in prose,
 because the test is whether they may miss it entirely and be no worse off.
+
+**SUSUNAN JUDUL IS A SECOND VIEW OF THE JUDUL LIST, AND IT TOOK NO CONTROL
+AWAY.** The operator asked for it in one sentence: *"after upload, show a list
+of the juduls of the order, with dragable to reorder and an TAMBAH button,
+that's where the user add new juduls for the dokumen tambahan."*
+`SusunanJudul` in `judul.tsx` sits at the top of the lembar periksa, above the
+tambahan loop, so it appears once the reading pass has run (`ContactSheet` is
+behind `hasBeenSearched`), not the moment a berkas lands. It draws the judul
+IN PACKET ORDER, which the sheet below it cannot: the sheet is ordered by what
+owes work.
+
+- **Every judul in the review KEEPS its `JudulBar`** -- Ganti nama, Naikkan,
+  Turunkan, Hapus judul -- and the list carries none of them. That was the
+  operator's answer when asked. Do not remove `JudulBar` from anywhere because
+  a drag now exists: the keys act on one judul while the operator reads what
+  is filed under it, which is where "this judul is not part of this order" is
+  decided.
+- **A usulan is NOT in the list**, also by the operator's answer. It stays a
+  separate accept queue in the outstanding panel and joins the list only once
+  a person accepts it, so there is no Terima and no Tolak here.
+- **`Tambah judul` MOVED into the list from the foot slab, and was not
+  copied.** The foot keeps the judul that ship blank and the hidden ones with
+  Kembalikan.
+- **`judul.tsx`'s header used to read "Buttons, not drag"**, and its reason
+  survives as a requirement on the drag rather than a refusal of it. The
+  handle is a real `Btn` carrying the packet position; ArrowUp and ArrowDown
+  move a row one place, focus follows the row it moved, and each move is
+  announced in a polite live region. The drag itself is hand-rolled on pointer
+  events in `zone-editor.tsx`'s shape, with no dependency.
+- **The write happens ONCE, on pointerup, with the complete order**, never on
+  pointermove: an ingest advances the revision once per page, and a write per
+  frame would be a queue of refusals. A drag that ends where it started calls
+  nothing.
+- **THE MOVE IS SPOKEN ONLY ONCE THE WRITE HAS LANDED, and one gesture waits
+  for the last.** `onReorder` returns the write's promise, which is why this is
+  the one judul control in `contact-sheet.tsx` not written as `void`. The first
+  version announced before writing, so a refused reorder was read aloud as done
+  to exactly the operator who cannot see the order stay put. The list is not
+  optimistic either, so a second gesture computed off rows that predate the
+  write in flight submitted a superseded arrangement: ArrowDown then ArrowUp
+  inside one round trip left a judul a place from where it started. `writing`
+  in `SusunanJudul` refuses a key press or a new drag until the last write
+  settles. A refusal stays silent in the list and is reported, as every other
+  judul edit's is, by the shell's `Interruption`.
+- **A lifted row has no hue.** It owes no decision and is no fault, so it
+  rises through `--surface-lift`, `--line-strong` and the top-edge highlight,
+  and a 2px `--ink` rule marks where it will land. Never `--mark`.
+- **`arrangeRef` shares `headRef`'s keyboard fence** in `contact-sheet.tsx`.
+  The sheet's cursor keys listen on `window`, so without it one ArrowDown would
+  move a judul AND walk the sheet's cursor, scrolling the list out from under
+  the hand using it.
 
 **THE OPERATOR IS NOT THE AUDIENCE FOR OUR ENGINEERING.** Recorded because half
 a redesign's worth of copy had to be deleted to learn it: no screen tells them

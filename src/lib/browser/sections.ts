@@ -75,6 +75,13 @@ export type SectionEdit =
   | { tag: "rename-slot"; id: NodeId; label: string }
   /** One place up or down the packet, past the next VISIBLE judul. */
   | { tag: "move-section"; id: NodeId; by: -1 | 1 }
+  /**
+   * THE COMPLETE ARRANGEMENT of the judul this order prints, in packet order.
+   *
+   * Every visible judul exactly once and nothing else: see `reorderSections`
+   * for why a short list is the dangerous shape rather than the loud one.
+   */
+  | { tag: "reorder-sections"; ids: NodeId[] }
   /** The judul stops being part of this order, and its bagian go with it. */
   | {
       tag: "remove-section";
@@ -344,6 +351,8 @@ function route(
       return renameSlot(run, edit.id, edit.label, base);
     case "move-section":
       return moveSection(run, edit.id, edit.by, base);
+    case "reorder-sections":
+      return reorderSections(run, edit.ids, base);
     case "remove-section":
       return removeSection(run, edit.id, base, edit.droppingCaptures);
     case "restore-section":
@@ -513,6 +522,128 @@ function moveSection(
   const next = [...order];
   next[at] = order[swap];
   next[swap] = id;
+
+  const overlay = copyOverlay(run.overlay);
+  overlay.order = next;
+  return overlayOnly(run, overlay);
+}
+
+/**
+ * THE WHOLE PACKET RE-ARRANGED IN ONE GESTURE, rather than one swap at a time.
+ *
+ * `moveSection` can be wrong by one place. This takes the entire arrangement at
+ * once, and the arrangement is what the docx prints its headings in, so the
+ * rule here is a PERMUTATION CHECK: the submitted ids must be exactly the
+ * VISIBLE judul, each once, nothing else. It REFUSES; it never repairs.
+ *
+ * ## The defect it is shaped around is silent, which is why the check is strict
+ *
+ * `ordered()` in `../forms/overlay.ts` deliberately APPENDS any section the
+ * stored order does not name, because an order that forgot one must never
+ * DELETE it. That kindness is exactly what makes a SHORT list dangerous instead
+ * of loud: an arrangement that lost an id on its way here does not throw, does
+ * not lose the judul, and does not look wrong -- it slides that judul to the
+ * BOTTOM of the packet, under every other heading, in a document that opens
+ * cleanly and that a validator signs. A DUPLICATE is the same failure wearing
+ * the other sign: the resolver places the first mention and ignores the second,
+ * so one heading moves, one does not, and nothing on screen says which reading
+ * happened.
+ *
+ * AND THERE IS NO HONEST REPAIR. A list that is not a permutation does not say
+ * where the operator meant the id it omitted to go; appending it, leaving it
+ * where it sat, and dropping it are three different documents, and this
+ * function cannot tell which one was dragged. So it names what was wrong --
+ * which id is unknown, which is missing, which was sent twice -- and writes
+ * nothing.
+ *
+ * ## THE SUBMITTED ORDER IS THE VISIBLE ONE; THE STORED ORDER IS NOT
+ *
+ * `overlay.order` is the FULL order, hidden judul included, because a removed
+ * judul keeps its place there so that restoring it puts it back where the
+ * operator left it (see `fullOrder`, and `moveSection`, which skips past a
+ * hidden neighbour for the same reason). The screen cannot show a hidden judul
+ * and so cannot submit one, so the new sequence is SPLICED INTO the visible
+ * positions of the stored order and every hidden id stays exactly where it
+ * sits. Writing the submitted list out as the whole order instead would drop
+ * every hidden judul out of it, and the next "Kembalikan" would land it at the
+ * bottom of the packet.
+ *
+ * NO `SlotState` IS TOUCHED, as in `moveSection`: `run.slots` passes through by
+ * reference, so `removing` is empty by construction rather than by promise.
+ */
+function reorderSections(
+  run: BrowserRun,
+  ids: NodeId[],
+  base: Template,
+): SectionEditResult {
+  if (!Array.isArray(ids)) {
+    throw new OverlayError(
+      "reorder-sections: ids must be an array holding the complete order of " +
+        "this order's visible judul",
+    );
+  }
+
+  const order = fullOrder(base, run.overlay);
+  const visible = order.filter((id) => isVisible(run.overlay, id));
+
+  const sent = new Set<NodeId>();
+  for (const [at, id] of ids.entries()) {
+    assertNodeId(id);
+    if (sent.has(id)) {
+      throw new OverlayError(
+        `reorder-sections: ids[${at}] names "${id}" a second time. An ` +
+          "arrangement naming one judul twice is not an arrangement: the " +
+          "resolver places the first mention and ignores the second, so one " +
+          "heading would move and one would stay, with nothing on screen " +
+          "saying which. Send each visible judul exactly once.",
+      );
+    }
+    sent.add(id);
+    if (visible.includes(id)) continue;
+    // A HIDDEN JUDUL IS ITS OWN SENTENCE, not a plain "unknown". It is a real
+    // judul of this order, the id is not a typo, and the remedy is a different
+    // one: bring it back into the packet first, and then arrange it.
+    if (order.includes(id)) {
+      throw new OverlayError(
+        `reorder-sections: ids[${at}] names "${id}", which this order is ` +
+          "hiding. A removed judul keeps its stored position so that " +
+          "restoring it puts it back where it was, so there is no place for " +
+          "it in an arrangement of the packet. Restore it first.",
+      );
+    }
+    throw new OverlayError(
+      `reorder-sections: ids[${at}] names "${id}", which is not a judul this ` +
+        "order prints",
+    );
+  }
+
+  const missing = visible.filter((id) => !sent.has(id));
+  if (missing.length > 0) {
+    throw new OverlayError(
+      "reorder-sections: the arrangement does not name " +
+        `${missing.map((id) => `"${id}"`).join(", ")}, which this order ` +
+        "prints. A short arrangement is the quiet failure rather than the " +
+        "loud one: nothing throws and no judul is lost, but the resolver " +
+        "appends whatever an order did not name, so each of these would ship " +
+        "at the BOTTOM of the packet. Send the complete order.",
+    );
+  }
+
+  // ALREADY THIS ARRANGEMENT. Returning the run BY IDENTITY is what lets
+  // `editSections` skip the write, exactly as `moveSection` does at the end of
+  // the packet: a drag that ends where it started would otherwise advance the
+  // revision and refuse whatever the screen is holding, for no change at all.
+  if (visible.every((id, at) => id === ids[at])) return unchanged(run);
+
+  // SPLICED, NOT REPLACED. Only the visible positions take a submitted id; a
+  // hidden one keeps the index it already had.
+  let taken = 0;
+  const next = order.map((id) => {
+    if (!isVisible(run.overlay, id)) return id;
+    const replacement = ids[taken];
+    taken += 1;
+    return replacement;
+  });
 
   const overlay = copyOverlay(run.overlay);
   overlay.order = next;
