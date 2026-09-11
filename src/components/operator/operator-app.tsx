@@ -90,6 +90,7 @@ import {
   type ExtractionCache,
 } from "@/lib/ui/extract";
 import { useRunTemplate } from "@/lib/ui/use-run-template";
+import { susunanRows } from "@/lib/ui/headings";
 
 import { Btn, Interruption, Notice, OwedCount, shortenFileName } from "./chrome";
 import { ContactSheet, stickyHeader } from "./contact-sheet";
@@ -104,6 +105,7 @@ import {
   type IngestProgress,
   type QueuedDocument,
 } from "./ingest-panel";
+import { SusunanJudul } from "./judul";
 import { OutstandingPanel, type RoundLog } from "./outstanding-panel";
 import { ToastHost, useSay } from "./toast";
 import { ZoneEditor, type EditorTarget } from "./zone-editor";
@@ -134,8 +136,10 @@ const runtime = liveRuntime;
  * step, the upload section first and the whole lembar periksa revealed below
  * it once the reading pass has run, with the same functionality and design.
  * So `ingest` is gone from this list rather than renamed -- `IngestPanel` is
- * the top of the page and `ContactSheet` the bottom -- and the gate that used
- * to lock Periksa now decides whether the bottom half is drawn at all.
+ * the top of the page and `ContactSheet` the bottom, with `SusunanJudul`
+ * between them -- and the gate that used to lock Periksa now decides whether
+ * the bottom half is drawn at all. It does not gate the list between the two;
+ * the note where that list is rendered says why.
  * Removing the id rather than keeping it unused is deliberate: every leftover
  * `phase === "ingest"` is now a compile error instead of a dead branch.
  *
@@ -1727,6 +1731,16 @@ function Workspace({
     [run, runtime],
   );
 
+  /*
+   * SUSUNAN JUDUL'S ROWS: this order's judul IN PACKET ORDER, the visible ones
+   * only, which is exactly the arrangement `reorder-sections` takes back. Read
+   * off `template`, this order's resolved form, never the module constant.
+   */
+  const susunan = useMemo(
+    () => (run ? susunanRows(run, template) : []),
+    [run, template],
+  );
+
   const counts = run ? progressOf(run, template) : null;
 
   // Bagian the model has not been asked about yet, or was asked and missed:
@@ -2055,7 +2069,10 @@ function Workspace({
              for the same reason: before it, there is nothing to review and
              an empty sheet would read as a pass that found nothing. The
              upload section STAYS above it, because adding a dokumen
-             tambahan and reading again is part of reviewing an order. */
+             tambahan and reading again is part of reviewing an order.
+
+             Susunan judul sits between the two halves and is the one block
+             here that is NOT behind `searched`; its own note says why. */
           <>
             <div id={UPLOAD_SECTION}>
               {/* The list of SAVED orders is no longer handed down: it is
@@ -2088,6 +2105,64 @@ function Workspace({
                 wanted={wanted}
               />
             </div>
+
+            {/* SUSUNAN JUDUL: what this order's DOKUMEN VALIDASI contains, and
+                in what order it will be printed.
+
+                THE OPERATOR ASKED FOR IT IN THIS PLACE, in these words:
+                *"after upload, show a list of the juduls of the order, with
+                dragable to reorder and an TAMBAH button, that's where the user
+                add new juduls for the dokumen tambahan."* So it is directly
+                under the upload section, and Tambah judul rides inside the
+                list because that is where they said they would reach for it.
+
+                IT IS NOT BEHIND `searched`, AND THAT IS WHY IT IS HERE RATHER
+                THAN IN THE SHEET. It used to be the first block of
+                `ContactSheet`, which appears only once Baca dengan AI has run,
+                and that hid the list and its Tambah judul from the case it was
+                asked for: a BA Permintaan or an Email in a berkas marked tanpa
+                AI, which no reading pass will ever propose a judul out of. The
+                operator adds that judul by hand straight after upload, so the
+                list is drawn the moment an order is open, read or not.
+
+                STILL ABOVE THE SHEET'S `head`, AND THAT IS THE REST OF THE
+                PLACEMENT ARGUMENT. The head is what is still MISSING: the
+                bagian with no evidence, and the dokumen tambahan question. Both
+                of its answers are decisions about the packet's SHAPE -- fetch
+                another berkas, add a judul for the one just fetched -- and
+                judging a gap in a list you have not seen is the harder half of
+                that. So the packet is stated first and what it is short of
+                second.
+
+                IT ADDS A VIEW AND TAKES NO CONTROL AWAY. Every judul in the
+                sheet keeps its own `JudulBar` -- Ganti nama, Naikkan, Turunkan,
+                Hapus judul -- at the operator's explicit choice when the
+                question was put to them: this list is the packet's order seen
+                WHOLE, while those keys act on ONE judul while the operator
+                reads what sits under it. A usulan is deliberately absent; it
+                stays an accept queue in the outstanding panel and joins this
+                list once a person has stood behind it.
+
+                Drawing it outside the sheet costs the sheet's keyboard fence
+                nothing, because the fence recognises the list by its own
+                attribute (`insideSusunanJudul`) rather than by a ref. */}
+            {run ? (
+              <SusunanJudul
+                rows={susunan}
+                /* THE PROMISE IS HANDED BACK, never a `void`, because this
+                   list SPEAKS: it announces a move to a screen reader only
+                   once the write has landed, and takes no second gesture while
+                   one is pending. Written as `void` it announced first, so a
+                   refused reorder was read out as done. The refusal itself is
+                   still the `Interruption` in the sticky header; the list
+                   stays silent and swallows it. */
+                onReorder={(ids) =>
+                  editSections({ tag: "reorder-sections", ids })
+                }
+                onEdit={editSections}
+              />
+            ) : null}
+
             {run && searched ? (
               <section id={REVIEW_SECTION} aria-label="Lembar periksa">
                 <ContactSheet
@@ -2095,10 +2170,12 @@ function Workspace({
                   actions={actions}
                   pending={pending}
                   fresh={fresh}
-                  /* The judul controls: rename, move, hide, restore, add. They act
-                     on THIS order's form, which lives in `run.overlay` and nowhere
-                     else, so every one of them goes through the run lock rather
-                     than through a run this component is holding. */
+                  /* The judul controls on the sheet: rename, move, hide,
+                     restore. Adding a judul and arranging the packet are
+                     `SusunanJudul`'s, above. They act on THIS order's form,
+                     which lives in `run.overlay` and nowhere else, so every one
+                     of them goes through the run lock rather than through a run
+                     this component is holding. */
                   onSectionEdit={editSections}
                   /* What is missing, and the question about a dokumen tambahan, at
                      the TOP of the sheet rather than on a phase of their own. */

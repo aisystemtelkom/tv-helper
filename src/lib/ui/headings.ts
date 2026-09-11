@@ -17,9 +17,9 @@
  * dialog under-reports a loss that cannot be undone. Deriving it from
  * `applySectionEdit` makes disagreement structurally impossible.
  *
- * NOTHING HERE IS STORED. The hidden list, the packet position and the
- * provenance line are all derived from the base form plus this order's
- * overlay on every render. A stored copy of any of them is a second spelling
+ * NOTHING HERE IS STORED. The hidden list, the packet position, the
+ * provenance line and the susunan judul rows are all derived from the base
+ * form plus this order's overlay on every render. A stored copy of any of them is a second spelling
  * of a fact the overlay already carries, and the two can disagree.
  */
 
@@ -257,4 +257,74 @@ export function provenanceOf(
     return { kind: "renamed", wasCalled: declared.title };
   }
   return { kind: "declared" };
+}
+
+/** One row of `SusunanJudul`: a judul this order prints, and one line about it. */
+export type SusunanRow = { id: NodeId; title: string; note: string };
+
+/**
+ * THE PACKET'S RUNNING ORDER, as the rows `SusunanJudul` draws.
+ *
+ * `template.sections` UNTOUCHED: every judul this order prints, once, IN
+ * PACKET ORDER, which is exactly the arrangement `reorder-sections` expects to
+ * be handed back permuted. It is not the lembar periksa's order, which puts the
+ * judul that owe work first, and it never carries a hidden judul, which the
+ * resolved form already leaves out and which `reorder-sections` refuses by
+ * name.
+ *
+ * IT MOVED HERE OUT OF `contact-sheet.tsx`, and the move is the reason it is a
+ * function rather than a memo inside a screen. The shell draws the list now,
+ * under the upload section and before any reading pass, because a judul for a
+ * berkas marked tanpa AI has to be addable with no pass at all, and the contact
+ * sheet exists only after one. A builder that both the shell and a test can
+ * reach is also the only way to pin the one thing here that goes wrong
+ * quietly: `reorderSections` derives the visible judul a second time, on its
+ * own, and refuses any list that is not a permutation of it.
+ */
+export function susunanRows(
+  run: BrowserRun,
+  template: Template,
+  base: Template = AO_TEMPLATE,
+): SusunanRow[] {
+  return template.sections.map((section) => ({
+    id: section.id,
+    title: section.title,
+    note: judulNote(run, section, base),
+  }));
+}
+
+/**
+ * The one line under a judul's name in `SusunanJudul`.
+ *
+ * IT SAYS WHAT THE LIST ITSELF CANNOT DRAW, and nothing else. The title is
+ * above it and the packet position is on the handle beside it, so the two facts
+ * left are how much is filed under the heading and whose heading it is. It is
+ * kept to a clause because this list is read as a SHAPE -- a dozen rows scanned
+ * top to bottom to see whether the packet is in the right order -- and a
+ * sentence per row is what stops a list being scannable.
+ *
+ * A judul the form declares says nothing about its origin, for
+ * `ProvenanceLine`'s own reason: a note on every row announcing that a heading
+ * came with the product is furniture on every order forever. A RENAME says
+ * nothing here either, although `provenanceOf` knows about it -- `JudulBar`
+ * prints what the judul used to be called beside the judul itself, which is
+ * where that fact is acted on.
+ */
+function judulNote(
+  run: BrowserRun,
+  section: SectionDef,
+  base: Template,
+): string {
+  const holds =
+    section.slots.length === 0
+      ? "hanya judul"
+      : `${section.slots.length} bagian`;
+  const provenance = provenanceOf(run, section, base);
+  const whose =
+    provenance.kind === "human"
+      ? "Anda tambahkan"
+      : provenance.kind === "llm"
+        ? "usulan AI yang Anda terima"
+        : null;
+  return whose ? `${holds}, ${whose}` : holds;
 }

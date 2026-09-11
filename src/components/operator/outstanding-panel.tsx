@@ -1082,7 +1082,7 @@ function UsulanJudul({
              names what is missing in their terms and stops there. */
           <Note>
             Usulan di atas belum bisa diputuskan di layar ini. Judul bisa
-            ditambahkan sendiri lewat Tambah judul di lembar periksa.
+            ditambahkan sendiri lewat Tambah judul di Susunan judul.
           </Note>
         )}
       </div>
