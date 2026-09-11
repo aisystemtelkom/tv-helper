@@ -169,6 +169,39 @@ function quotaProject(): string | undefined {
   );
 }
 
+/** The three things `annotateImage` asks of a credential. A test hands in its own. */
+export type VisionAuth = Pick<GoogleAuth, "getAccessToken" | "getClient" | "getProjectId">;
+
+/**
+ * The project to bill when no variable names one: THE CREDENTIAL'S OWN QUOTA
+ * PROJECT FIRST, and only then the project ADC resolves.
+ *
+ * They are two different settings and only the first is this app's.
+ * `gcloud auth application-default set-quota-project` writes the project INTO
+ * the ADC file, which is the setup every error in this file prescribes, and
+ * `getProjectId()` never reads it: it answers with gcloud's ACTIVE project,
+ * which follows whatever the developer last pointed gcloud at for any other
+ * piece of work.
+ *
+ * MEASURED 2026-09-11. A machine whose ADC carried this app's quota project had
+ * its active gcloud project switched to an unrelated one, and every local
+ * Vision call went out billed to that project and came back
+ *
+ *     403 "Caller does not have required permission to use project <other>"
+ *
+ * which `/api/ocr` reported as "the reply could not be used". The same four
+ * EPIC captures read cleanly billed to the credential's own project.
+ *
+ * A service account carries no quota project, so Cloud Run falls through to
+ * the project the metadata server names, exactly as it did before.
+ */
+async function credentialProject(auth: VisionAuth): Promise<string | undefined> {
+  const credential = await auth.getClient().catch(() => undefined);
+  const own = credential?.quotaProjectId?.trim();
+  if (own) return own;
+  return auth.getProjectId().catch(() => undefined);
+}
+
 /**
  * A ceiling on one request, not a budget.
  *
@@ -248,7 +281,11 @@ export function isTransientVisionError(error: unknown): boolean {
 export async function annotateImage(
   image: { bytes: Uint8Array; mediaType: string },
   options: { feature: string; languageHints: readonly string[] },
+  deps: { auth?: VisionAuth; fetchImpl?: typeof fetch } = {},
 ): Promise<unknown> {
+  const credential = deps.auth ?? client();
+  const fetchImpl = deps.fetchImpl ?? fetch;
+
   // A PRE-MINTED TOKEN, for environments that have no ADC to find.
   //
   // Production does not use this: on Cloud Run the runtime service account is
@@ -263,7 +300,7 @@ export async function annotateImage(
   // downloaded service-account key, which is why `docs/runbook-deploy.md`
   // forbids those. Mint one with `gcloud auth print-access-token`.
   const override = process.env.VISION_ACCESS_TOKEN?.trim();
-  const token = override || (await client().getAccessToken());
+  const token = override || (await credential.getAccessToken());
   if (!token) {
     throw new VisionUnavailable(
       "Application Default Credentials produced no access token for Cloud " +
@@ -276,14 +313,16 @@ export async function annotateImage(
     );
   }
 
-  // Falls back to whatever project ADC itself resolved, so a developer who has
-  // run `gcloud config set project` does not have to set a second variable.
+  // Falls back to the credential's own quota project and then to whatever
+  // project ADC resolved, so a developer who has run `set-quota-project` does
+  // not have to set a second variable. See `credentialProject` for why the
+  // order of those two is the whole fix.
   const project =
-    quotaProject() ?? (override ? undefined : await client().getProjectId().catch(() => undefined));
+    quotaProject() ?? (override ? undefined : await credentialProject(credential));
 
   let response: Response;
   try {
-    response = await fetch(annotateUrl(project), {
+    response = await fetchImpl(annotateUrl(project), {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
