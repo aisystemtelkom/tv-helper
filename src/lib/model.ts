@@ -148,6 +148,24 @@ export const OCR_MAX_OUTPUT_TOKENS = Number(
 );
 
 /**
+ * Konfig Excel's and Input EPIC's own cap, for the reason OCR has one.
+ *
+ * Both answer with one entry PER ISIAN of the operator's workbook, and the real
+ * workbooks hold 30 to 72 of them, so a legitimate reply is long the way a
+ * page's line list is long. The 4096 guard was sized for four-field verdicts.
+ *
+ * MEASURED 2026-09-11 on a real 30-field client workbook with one of its two
+ * berkas marked tanpa AI: the comparison spent 3924 of the 4096 tokens THINKING
+ * about values that were not in the pages it was shown, stopped at "length",
+ * and handed back 360 characters of JSON. `/api/config` reported that as "the
+ * model answered and the reply could not be used". The eleven other calls in
+ * the same trials used 1491 to 2589. Still a ceiling, not a budget.
+ */
+export const CHECKPOINT_MAX_OUTPUT_TOKENS = Number(
+  process.env.GEMINI_CHECKPOINT_MAX_OUTPUT_TOKENS ?? 16384,
+);
+
+/**
  * Anything with the shape this function reads. Deliberately `unknown`-valued:
  * these properties are what a provider or the platform happens to hang on a
  * rejection, not a contract anybody typed for us, so the checks below test the
