@@ -1517,9 +1517,10 @@ export function IngestPanel({
           {/* THE WAY FORWARD IS NOT BUILT HERE, and the gate it carries is
               worth recording where somebody looks for it.
 
-              This block is the top of Berkas Order, and the lembar periksa
-              is drawn directly under it the moment the reading pass has run,
-              so the way on from here is the page itself rather than a key. A
+              This block is the top of Berkas Order. Susunan judul is drawn
+              under it as soon as an order is open, and the lembar periksa
+              under that the moment the reading pass has run, so the way on
+              from here is the page itself rather than a key. A
               "Buka lembar periksa" button here would point at something
               already on screen, and a key that goes nowhere is the first thing
               an operator stops trusting. The timeline and the step nav in

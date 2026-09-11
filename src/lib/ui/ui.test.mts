@@ -93,6 +93,7 @@ import {
   removalNeedsDialog,
   removeSectionEdit,
   sectionRemovalCost,
+  susunanRows,
 } from "./headings.ts";
 import {
   clampBox,
@@ -1825,6 +1826,64 @@ test("a judul the operator typed is not attributed to the model", () => {
       HEADINGS_BASE,
     ),
     { kind: "human" },
+  );
+});
+
+test("susunan judul lists what the packet prints, in packet order, and nothing hidden", () => {
+  /*
+   * THE ROWS THE SHELL HANDS `SusunanJudul`, and therefore the arrangement the
+   * list hands back to `reorder-sections`. That edit derives the visible judul
+   * on its own and refuses anything that is not a permutation of them, so a
+   * builder that listed a hidden judul, dropped an added one or followed the
+   * lembar periksa's work-first order would have every drag refused in front
+   * of an operator.
+   *
+   * Over the hardest shape this fixture can make: an arrangement already
+   * stored, a judul hidden in the MIDDLE of it, and one the operator typed,
+   * which that stored order does not name and which therefore lands last.
+   */
+  const overlay = emptyOverlay(HEADINGS_BASE);
+  overlay.order = ["tiga", "dua", "satu"];
+  overlay.sections = { dua: { removed: true } };
+  const { run } = applySectionEdit(
+    headingsRun(overlay),
+    { tag: "add-section", title: "Lampiran Harga" },
+    minter(),
+    HEADINGS_BASE,
+  );
+
+  const rows = susunanRows(
+    run,
+    resolveTemplate(HEADINGS_BASE, run.overlay),
+    HEADINGS_BASE,
+  );
+  assert.deepEqual(rows, [
+    // A judul that declares no bagian says so, rather than "0 bagian".
+    { id: "tiga", title: "Tiga", note: "hanya judul" },
+    { id: "satu", title: "Satu", note: "2 bagian" },
+    {
+      id: "u:mint-1",
+      title: "Lampiran Harga",
+      note: "1 bagian, Anda tambahkan",
+    },
+  ]);
+
+  // And the same list handed back permuted is one the edit accepts, and the
+  // packet then prints it in exactly that order.
+  const reversed = rows.map((row) => row.id).reverse();
+  const { run: moved } = applySectionEdit(
+    run,
+    { tag: "reorder-sections", ids: reversed },
+    minter(),
+    HEADINGS_BASE,
+  );
+  assert.deepEqual(
+    susunanRows(
+      moved,
+      resolveTemplate(HEADINGS_BASE, moved.overlay),
+      HEADINGS_BASE,
+    ).map((row) => row.id),
+    reversed,
   );
 });
 

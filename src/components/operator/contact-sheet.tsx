@@ -97,19 +97,25 @@
  * shortcut that fires on a screen the operator is not looking at decides
  * evidence they cannot see.
  *
- * THE ARRANGEMENT LIST IS FENCED THE SAME WAY, AND IT IS THE ONE THAT COLLIDES
- * RATHER THAN DISTRACTS. `SusunanJudul` is drawn ABOVE `head` -- the packet
- * stated whole before what it is short of -- and it binds ArrowUp and
- * ArrowDown to moving a judul. These listeners are on `window`, so unless
- * `arrangeRef` sits in the same fence as `headRef` one press moves a heading
- * AND walks this sheet's cursor, scrolling the list out from under the hand
- * that was using it.
+ * THE ARRANGEMENT LIST IS FENCED THE SAME WAY, ALTHOUGH THIS SHEET NO LONGER
+ * DRAWS IT. `SusunanJudul` is drawn by the shell, above this sheet and before
+ * any reading pass, because a judul for a berkas marked tanpa AI has to be
+ * addable with no pass at all and this sheet exists only after one. The list
+ * binds ArrowUp and ArrowDown to moving a judul, and these listeners are on
+ * `window`. The arrows alone would now be safe, since the cursor walks on an
+ * arrow only while focus is inside this sheet; `j`, `k` and the decision keys
+ * are not fenced by focus, so a `1` pressed on one of the list's handles would
+ * accept a crop the operator is not looking at. So focus inside the list takes
+ * the keyboard with it exactly as the head does. The list is recognised by
+ * `insideSusunanJudul` -- its own attribute, read with `closest()` -- rather
+ * than by a ref, because a ref needs this sheet to render the thing it points
+ * at. Drawn inside the sheet again, the same check would still stop one
+ * ArrowDown from moving a heading AND walking this cursor.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, Ref } from "react";
 
-import type { SectionDef } from "@/lib/forms/template";
 import { resolvePage } from "@/lib/ui/evidence";
 import {
   hiddenSections,
@@ -144,7 +150,7 @@ import {
   BagianName,
   JudulBar,
   JudulDisembunyikan,
-  SusunanJudul,
+  insideSusunanJudul,
   type JudulSubject,
   type SectionEditor,
 } from "./judul";
@@ -201,38 +207,6 @@ function displayLabel(label: string): string {
 function captionFor(entry: SlotAggregate, ordinal: number): string {
   const label = displayLabel(entry.def.label);
   return captureLabel(label, ordinal);
-}
-
-/**
- * The one line under a judul's name in `SusunanJudul`.
- *
- * IT SAYS WHAT THE LIST ITSELF CANNOT DRAW, and nothing else. The title is
- * above it and the packet position is on the handle beside it, so the two facts
- * left are how much is filed under the heading and whose heading it is. It is
- * kept to a clause because this list is read as a SHAPE -- a dozen rows scanned
- * top to bottom to see whether the packet is in the right order -- and a
- * sentence per row is what stops a list being scannable.
- *
- * A judul the form declares says nothing about its origin, for
- * `ProvenanceLine`'s own reason: a note on every row announcing that a heading
- * came with the product is furniture on every order forever. A RENAME says
- * nothing here either, although `provenanceOf` knows about it -- `JudulBar`
- * prints what the judul used to be called beside the judul itself, which is
- * where that fact is acted on.
- */
-function judulNote(run: BrowserRun, section: SectionDef): string {
-  const holds =
-    section.slots.length === 0
-      ? "hanya judul"
-      : `${section.slots.length} bagian`;
-  const provenance = provenanceOf(run, section);
-  const whose =
-    provenance.kind === "human"
-      ? "Anda tambahkan"
-      : provenance.kind === "llm"
-        ? "usulan AI yang Anda terima"
-        : null;
-  return whose ? `${holds}, ${whose}` : holds;
 }
 
 /**
@@ -448,9 +422,9 @@ type SheetProps = {
    * ONE EDIT AT A TIME, APPLIED TO WHAT IS STORED, and the promise is what
    * says it landed.
    *
-   * Required, not optional: the judul controls exist nowhere else in the
-   * product, so a caller that omitted this would render a sheet whose keys
-   * silently do nothing. It resolves when the write has reached IndexedDB and
+   * Required, not optional: the keys on this sheet that act on one judul
+   * exist nowhere else in the product, so a caller that omitted this would
+   * render a sheet whose keys silently do nothing. It resolves when the write has reached IndexedDB and
    * rejects when storage refused it, which is what lets a rename field hold
    * the operator's words at 40% until the decision is real.
    */
@@ -525,9 +499,6 @@ function Sheet({
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headRef = useRef<HTMLDivElement | null>(null);
-  /* The arrangement list, for the same reason `headRef` exists: it binds the
-     arrow keys itself, and this sheet's own window listener binds them too. */
-  const arrangeRef = useRef<HTMLDivElement | null>(null);
   const wrappers = useRef(new Map<string, HTMLDivElement>());
   const confirmBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -556,26 +527,6 @@ function Sheet({
     }
     return out;
   }, [workSections]);
-
-  /**
-   * THE PACKET'S RUNNING ORDER, read off the resolved form rather than off the
-   * sheet.
-   *
-   * `sections` above is ordered by what owes work, which is the right order to
-   * REVIEW in and is not the order the DOKUMEN VALIDASI prints. This is
-   * `template.sections` untouched: every judul this order prints, once, in
-   * packet order, which is exactly the arrangement `reorder-sections` expects
-   * to be handed back.
-   */
-  const arrangement = useMemo(
-    () =>
-      template.sections.map((section) => ({
-        id: section.id,
-        title: section.title,
-        note: judulNote(run, section),
-      })),
-    [run, template],
-  );
 
   /** Which section's bulk accept is waiting for its second click. */
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -853,10 +804,11 @@ function Sheet({
    * everyone who has not engaged with the list; `j` and `k` scroll nothing, so
    * they need no such fence.
    *
-   * THE HEAD AND ANY OPEN DIALOG TAKE THE KEYBOARD WITH THEM. These listeners
-   * are on `window`, so without this a `1` typed while the operator is reading
-   * the head, or while the dokumen tambahan dialog is open over the sheet,
-   * would accept a crop that is behind a scrim and out of sight.
+   * THE HEAD, THE ARRANGEMENT LIST AND ANY OPEN DIALOG TAKE THE KEYBOARD WITH
+   * THEM. These listeners are on `window`, so without this a `1` typed while
+   * the operator is reading the head, moving a judul in the list the shell
+   * draws above this sheet, or working in the dokumen tambahan dialog open
+   * over the sheet, would accept a crop that is out of sight.
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -878,18 +830,21 @@ function Sheet({
       }
 
       // THE HEAD AND THE ARRANGEMENT LIST EACH TAKE THE KEYBOARD WITH THEM.
-      // The head is a briefing the operator is reading; the arrangement list
-      // binds ArrowUp and ArrowDown to moving a judul, and these listeners are
-      // on `window`, so without the fence one press would move a heading AND
-      // walk this sheet's cursor, scrolling the list out from under the hand
-      // that was using it.
+      // The head is a briefing the operator is reading, and it is this
+      // sheet's own child, so a ref finds it. The arrangement list binds
+      // ArrowUp and ArrowDown to moving a judul and is drawn by the shell,
+      // outside this sheet, so it is found by its own attribute instead:
+      // without that, a `j` or a `1` pressed on one of its handles would walk
+      // this cursor or decide a crop the operator is not looking at. See the
+      // note at the top of this file.
       const active = document.activeElement;
-      const elsewhere = [headRef.current, arrangeRef.current].some(
-        (region) =>
-          region !== null &&
-          ((target !== null && region.contains(target)) ||
-            (active !== null && region.contains(active))),
-      );
+      const head = headRef.current;
+      const elsewhere =
+        (head !== null &&
+          ((target !== null && head.contains(target)) ||
+            (active !== null && head.contains(active)))) ||
+        insideSusunanJudul(target) ||
+        insideSusunanJudul(active);
       if (elsewhere) return;
 
       const inSheet = Boolean(
@@ -1000,56 +955,6 @@ function Sheet({
 
   return (
     <div ref={rootRef} className="flex flex-col gap-6">
-      {/* SUSUNAN JUDUL: what this order's DOKUMEN VALIDASI contains, and in
-          what order it will be printed.
-
-          THE OPERATOR ASKED FOR IT IN THIS PLACE, in these words: *"after
-          upload, show a list of the juduls of the order, with dragable to
-          reorder and an TAMBAH button, that's where the user add new juduls for
-          the dokumen tambahan."* `1 Berkas Order` draws `IngestPanel` and then
-          this sheet on one page, so the top of this tree IS "after upload", and
-          Tambah judul rides inside the list rather than at the foot of the
-          sheet because that is where they said they would reach for it.
-
-          ABOVE `head` RATHER THAN BELOW IT, AND THAT IS THE WHOLE PLACEMENT
-          ARGUMENT. The head is what is still MISSING: the bagian with no
-          evidence, and the dokumen tambahan question. Both of its answers are
-          decisions about the packet's SHAPE -- fetch another berkas, add a
-          judul for the one just fetched -- and judging a gap in a list you have
-          not seen is the harder half of that. So the packet is stated first and
-          what it is short of second. A list printed under the outstanding panel
-          would also not be the thing the sentence above asked for.
-
-          IT ADDS A VIEW AND TAKES NO CONTROL AWAY. Every judul below keeps its
-          own `JudulBar` -- Ganti nama, Naikkan, Turunkan, Hapus judul -- at the
-          operator's explicit choice when the question was put to them. The two
-          are not shorthand for each other: this list is the packet's order seen
-          WHOLE, while the keys act on ONE judul while the operator is reading
-          what sits under it, which is where "this judul is not part of this
-          order" is actually decided (see `judul.tsx`'s own header). Naikkan and
-          Turunkan also carry `packetPosition`'s figure beside them, which is
-          the only thing that makes a move visible at all on a sheet that is not
-          in packet order.
-
-          A usulan is deliberately absent. An AI-proposed judul stays an accept
-          queue in the outstanding panel and joins this list once a person has
-          stood behind it, so there is no Terima and no Tolak here: arranging a
-          packet around a heading nobody has ruled on would be arranging it
-          around a heading that may not exist. */}
-      <div ref={arrangeRef}>
-        <SusunanJudul
-          rows={arrangement}
-          /* THE PROMISE IS HANDED BACK, unlike every other judul edit on this
-             screen, because this list SPEAKS: it announces a move to a screen
-             reader, and it may say so only once the write has landed. Written
-             as `void` it announced first, so a refused reorder was read out as
-             done. The refusal itself is still the shell's `Interruption` in
-             the sticky header; the list stays silent and swallows it. */
-          onReorder={(ids) => onSectionEdit({ tag: "reorder-sections", ids })}
-          onEdit={onSectionEdit}
-        />
-      </div>
-
       {/* ABOVE THE SHEET, and inside the scroll. The head is what is still
           missing: it is read once on arrival and then it has to leave, so it
           must not become a sticky band above a sheet the operator is scrolling
@@ -1359,12 +1264,13 @@ function Sheet({
           which is a question an operator asks after reading the sheet rather
           than before.
 
-          TAMBAH JUDUL IS NO LONGER HERE: it moved into `SusunanJudul` at the
-          top of this tree, where the operator asked for it, and it MOVED rather
-          than being copied. Adding a judul is the one gesture in this block
-          that was never an answer to "is this packet right" -- it is what
-          somebody does holding a dokumen tambahan in front of them, before they
-          have read anything. */}
+          TAMBAH JUDUL IS NO LONGER HERE: it moved into `SusunanJudul`, which
+          the shell draws above this sheet, where the operator asked for it,
+          and it MOVED rather than being copied. Adding a judul is the one
+          gesture in this block that was never an answer to "is this packet
+          right" -- it is what somebody does holding a dokumen tambahan in front
+          of them, before they have read anything, which is also why that list
+          does not wait for the reading pass this sheet waits for. */}
       <Slab
         id="bagian-judul-order"
         headingId="judul-judul-order"

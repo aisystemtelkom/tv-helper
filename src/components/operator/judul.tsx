@@ -1,14 +1,20 @@
 "use client";
 
 /**
- * THE JUDUL CONTROLS, on the lembar periksa and nowhere else.
+ * THE JUDUL CONTROLS, on Berkas Order and nowhere else.
  *
  * A judul is one heading of the DOKUMEN VALIDASI together with the bagian
  * under it. "This judul is not part of this order" is a judgement that forms
  * while an operator is looking at the sheet and reading what sits under each
- * heading, so the controls are ON THE SHEET. A manage-sections screen of its
- * own would ask for the same judgement twice: once there, in the abstract, and
- * again here when they see what it did.
+ * heading, so the keys that act on ONE judul are ON THE SHEET. A
+ * manage-sections screen of its own would ask for the same judgement twice:
+ * once there, in the abstract, and again here when they see what it did.
+ *
+ * `SusunanJudul` is the one control drawn off the sheet, directly ABOVE it on
+ * the same page, and for the opposite reason: arranging the packet and adding
+ * a judul are done before anything has been read, so the shell draws the list
+ * the moment an order is open rather than behind the reading pass the sheet
+ * waits for.
  *
  * ## The cluster is ALWAYS PRESENT
  *
@@ -521,7 +527,7 @@ export function BagianName({
 }
 
 /* ------------------------------------------------------------------ *
- * The foot of the sheet.
+ * Adding a judul.
  * ------------------------------------------------------------------ */
 
 /**
@@ -596,13 +602,41 @@ function handleFor(list: HTMLOListElement | null, id: NodeId) {
 }
 
 /**
+ * Is this node inside `SusunanJudul`, wherever the list is drawn?
+ *
+ * THE LIST IS RECOGNISED BY ITS OWN ATTRIBUTE, NOT BY A REF, because the one
+ * screen that has to recognise it does not render it. `ContactSheet` binds
+ * `j`, `k`, the decision keys and the arrows on `window`, and this list binds
+ * ArrowUp and ArrowDown to moving a judul. The sheet used to draw the list and
+ * fence it with a ref of its own; the shell draws it now, above the sheet, and
+ * a ref the sheet no longer fills fences nothing. The attribute is written on
+ * the list's root below and read here, so its name has one file to drift in.
+ */
+export function insideSusunanJudul(node: Element | null): boolean {
+  return Boolean(node?.closest("[data-susunan-judul]"));
+}
+
+/**
  * SUSUNAN JUDUL: what is in this order's DOKUMEN VALIDASI, and in what order.
  *
  * The operator asked for it in one sentence: *"after upload, show a list of the
  * juduls of the order, with dragable to reorder and an TAMBAH button, that's
- * where the user add new juduls for the dokumen tambahan."* So it sits at the
- * top of the lembar periksa, directly under the upload section, and it is the
- * first thing they read once the berkas have been handed over.
+ * where the user add new juduls for the dokumen tambahan."* So the shell draws
+ * it directly under the upload section and above the lembar periksa, and it is
+ * the first thing they read once a berkas has been handed over.
+ *
+ * ## IT IS NOT BEHIND THE READING PASS
+ *
+ * It used to be the first block of `ContactSheet`, and the sheet is drawn only
+ * once Baca dengan AI has run. That hid the list, and the Tambah judul inside
+ * it, from exactly the case it was asked for: a BA Permintaan or an Email in a
+ * berkas marked tanpa AI. No reading pass will ever propose a judul out of that
+ * berkas, so the operator adds it by hand straight after upload, and a list
+ * that appeared only after a pass made them run one first to add a heading the
+ * pass cannot touch. So it is drawn whenever an order is open, read or not.
+ *
+ * It is a slab like the upload section above it and the sheet's blocks below,
+ * because it is a block of the same page and not a caption to either of them.
  *
  * ## IT ADDS A VIEW, IT REPLACES NOTHING
  *
@@ -665,7 +699,10 @@ export function SusunanJudul({
   onReorder,
   onEdit,
 }: {
-  /** The judul this order actually prints, IN PACKET ORDER. */
+  /**
+   * The judul this order actually prints, IN PACKET ORDER, as `susunanRows`
+   * builds them.
+   */
   rows: readonly { id: NodeId; title: string; note: string }[];
   /**
    * Handed the complete new order of these same ids, and RETURNS THE WRITE.
@@ -676,6 +713,7 @@ export function SusunanJudul({
   onEdit: SectionEditor;
 }) {
   const list = useRef<HTMLOListElement | null>(null);
+  const headingId = useId();
   /**
    * The live gesture, in a ref and mirrored into state.
    *
@@ -876,178 +914,192 @@ export function SusunanJudul({
   const single = rows.length < 2;
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {/* Sentence case. Uppercase in this product quotes a document, and this
-            heading is the app naming its own list. */}
-        <h3 className="text-[0.875rem] font-bold text-ink">Susunan judul</h3>
-        <span className="lt-kotak">{rows.length} judul</span>
+    <section
+      aria-labelledby={headingId}
+      className="lt-slab"
+      // What `insideSusunanJudul` looks for. See there.
+      data-susunan-judul=""
+    >
+      <div className="lt-kop">
+        {/* Sentence case, and the app's voice rather than the document's:
+            uppercase in this product quotes a document, and this heading is
+            the app naming its own list. An h2, level with the upload section's
+            kop above it and the sheet's below, because it is a block of the
+            same page. */}
+        <h2 id={headingId}>Susunan judul</h2>
+        {/* `lt-kop-right`, where every kop in the product keeps its count. */}
+        <span className="lt-kop-right flex items-baseline gap-2">
+          <span className="lt-figure">{rows.length}</span>
+          judul
+        </span>
       </div>
 
-      <p className="max-w-[74ch] text-[0.8125rem] text-ink-2">
-        {rows.length === 0
-          ? "Belum ada judul di order ini. Tambahkan judul yang ada di dokumen Anda."
-          : single
-            ? "Urutan ini yang dipakai saat DOKUMEN VALIDASI dibuat."
-            : /* THE NUMBER IS THE HANDLE, so the sentence names the number
-                 rather than a grip glyph the operator has to recognise first.
-                 `icons.tsx` rules out an identical glyph on every row of a
-                 homogeneous list anyway, and the figure discriminates where a
-                 grip would not: it is this judul's place in the packet. */
-              "Urutan ini yang dipakai saat DOKUMEN VALIDASI dibuat. Geser nomor di sebelah kiri untuk memindahkan judul, atau tekan panah atas dan panah bawah."}
-      </p>
+      <div className="lt-slab-body flex flex-col gap-4">
+        <p className="max-w-[74ch] text-[0.8125rem] text-ink-2">
+          {rows.length === 0
+            ? "Belum ada judul di order ini. Tambahkan judul yang ada di dokumen Anda."
+            : single
+              ? "Urutan ini yang dipakai saat DOKUMEN VALIDASI dibuat."
+              : /* THE NUMBER IS THE HANDLE, so the sentence names the number
+                   rather than a grip glyph the operator has to recognise first.
+                   `icons.tsx` rules out an identical glyph on every row of a
+                   homogeneous list anyway, and the figure discriminates where a
+                   grip would not: it is this judul's place in the packet. */
+                "Urutan ini yang dipakai saat DOKUMEN VALIDASI dibuat. Geser nomor di sebelah kiri untuk memindahkan judul, atau tekan panah atas dan panah bawah."}
+        </p>
 
-      {rows.length > 0 ? (
-        <ol
-          ref={list}
-          className="flex flex-col gap-2"
-          // A drag that selects the headings it passes over leaves the sheet
-          // striped on pointerup. Only while a gesture is live: text on a
-          // resting list is worth being able to copy.
-          // Both spellings. Safari still honours only the prefixed one, and
-          // this has to behave on a teammate's Mac.
-          style={
-            drag ? { userSelect: "none", WebkitUserSelect: "none" } : undefined
-          }
-        >
-          {rows.map((row, i) => {
-            const lifted = drag?.from === i;
-            // WHERE THE RULE GOES, counted among the rows that are NOT moving.
-            // The dragged row still occupies its own slot, so its index cannot
-            // be used to place a marker for itself, and every row below it
-            // stands one place earlier in that reduced list.
-            const settled = drag && i > drag.from ? i - 1 : i;
-            const ruleAbove = drag !== null && !lifted && drag.to === settled;
-            // LANDING LAST HAS NO ROW TO SIT ABOVE, so it is drawn under the
-            // last row that is NOT moving -- which is the second to last one
-            // when it is the last row itself being dragged. Reading it off
-            // `rows.length - 1` unconditionally drew nothing at all in that
-            // case, and the one gesture with no feedback would be the one that
-            // ends where it started.
-            const lastSettled =
-              drag !== null && drag.from === rows.length - 1
-                ? rows.length - 2
-                : rows.length - 1;
-            const ruleBelow =
-              drag !== null &&
-              !lifted &&
-              i === lastSettled &&
-              drag.to === rows.length - 1;
+        {rows.length > 0 ? (
+          <ol
+            ref={list}
+            className="flex flex-col gap-2"
+            // A drag that selects the headings it passes over leaves the sheet
+            // striped on pointerup. Only while a gesture is live: text on a
+            // resting list is worth being able to copy.
+            // Both spellings. Safari still honours only the prefixed one, and
+            // this has to behave on a teammate's Mac.
+            style={
+              drag ? { userSelect: "none", WebkitUserSelect: "none" } : undefined
+            }
+          >
+            {rows.map((row, i) => {
+              const lifted = drag?.from === i;
+              // WHERE THE RULE GOES, counted among the rows that are NOT moving.
+              // The dragged row still occupies its own slot, so its index cannot
+              // be used to place a marker for itself, and every row below it
+              // stands one place earlier in that reduced list.
+              const settled = drag && i > drag.from ? i - 1 : i;
+              const ruleAbove = drag !== null && !lifted && drag.to === settled;
+              // LANDING LAST HAS NO ROW TO SIT ABOVE, so it is drawn under the
+              // last row that is NOT moving -- which is the second to last one
+              // when it is the last row itself being dragged. Reading it off
+              // `rows.length - 1` unconditionally drew nothing at all in that
+              // case, and the one gesture with no feedback would be the one that
+              // ends where it started.
+              const lastSettled =
+                drag !== null && drag.from === rows.length - 1
+                  ? rows.length - 2
+                  : rows.length - 1;
+              const ruleBelow =
+                drag !== null &&
+                !lifted &&
+                i === lastSettled &&
+                drag.to === rows.length - 1;
 
-            return (
-              <li
-                key={row.id}
-                data-judul-row={row.id}
-                className="lt-row relative"
-                style={
-                  lifted && drag
-                    ? {
-                        // ELEVATION IN THIS SYSTEM'S OWN VOCABULARY: a lighter
-                        // fill, the top-edge highlight that says a solid block
-                        // is raised, and the boundary of something active. No
-                        // drop shadow, because `--lift` belongs to paper alone,
-                        // and no hue, because a row under the operator's finger
-                        // owes no decision.
-                        zIndex: 2,
-                        transform: `translateY(${drag.dy}px)`,
-                        background: "var(--surface-lift)",
-                        borderColor: "var(--line-strong)",
-                        boxShadow: "inset 0 1px 0 0 rgb(255 255 255 / 10%)",
-                      }
-                    : undefined
-                }
-              >
-                {ruleAbove || ruleBelow ? (
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      // Inset to the row's own side padding, so the rule reads
-                      // as belonging to the list rather than to the bench.
-                      left: "0.85rem",
-                      right: "0.85rem",
-                      top: ruleAbove ? "-5px" : undefined,
-                      bottom: ruleAbove ? undefined : "-5px",
-                      height: "2px",
-                      borderRadius: "2px",
-                      // Ink, never amber: this marks a position, and a position
-                      // is not a decision owed.
-                      background: "var(--ink)",
-                    }}
-                  />
-                ) : null}
-
-                <div className="flex items-center gap-3">
-                  <Btn
-                    data-flat="true"
-                    data-judul-handle={row.id}
-                    className="h-11 w-11 shrink-0 px-0"
-                    disabled={single}
-                    reason="Hanya ada satu judul di order ini, jadi tidak ada yang bisa diurutkan."
-                    // The whole phrase, because the figure on its own says
-                    // nothing about what taking hold of it does, and the arrow
-                    // keys are invisible to anybody who cannot see the cursor
-                    // change.
-                    aria-label={`Pindahkan judul ${row.title}, judul ke-${i + 1} dari ${rows.length}. Tekan panah atas atau panah bawah untuk memindahkan.`}
-                    style={{
-                      // Without this a touch drag scrolls the page instead of
-                      // moving the row.
-                      touchAction: "none",
-                      cursor: single ? undefined : lifted ? "grabbing" : "grab",
-                    }}
-                    onPointerDown={(event) => onHandleDown(event, i)}
-                    onPointerMove={onHandleMove}
-                    onPointerUp={(event) => endDrag(event, true)}
-                    onPointerCancel={(event) => endDrag(event, false)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
-                        return;
-                      }
-                      // The page scrolls on an arrow key otherwise, which moves
-                      // the list out from under the row being moved.
-                      event.preventDefault();
-                      move(i, event.key === "ArrowUp" ? -1 : 1);
-                    }}
-                  >
-                    <span className="lt-figure">{i + 1}</span>
-                  </Btn>
-
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    {/* The document's voice: a judul title is a transcription
-                        of the operator's paperwork, and it stays mono through a
-                        rename, because a renamed judul quotes a different
-                        order's paperwork. */}
+              return (
+                <li
+                  key={row.id}
+                  data-judul-row={row.id}
+                  className="lt-row relative"
+                  style={
+                    lifted && drag
+                      ? {
+                          // ELEVATION IN THIS SYSTEM'S OWN VOCABULARY: a lighter
+                          // fill, the top-edge highlight that says a solid block
+                          // is raised, and the boundary of something active. No
+                          // drop shadow, because `--lift` belongs to paper alone,
+                          // and no hue, because a row under the operator's finger
+                          // owes no decision.
+                          zIndex: 2,
+                          transform: `translateY(${drag.dy}px)`,
+                          background: "var(--surface-lift)",
+                          borderColor: "var(--line-strong)",
+                          boxShadow: "inset 0 1px 0 0 rgb(255 255 255 / 10%)",
+                        }
+                      : undefined
+                  }
+                >
+                  {ruleAbove || ruleBelow ? (
                     <span
-                      className="lt-figure truncate text-[0.875rem] font-semibold text-ink"
-                      title={row.title}
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        // Inset to the row's own side padding, so the rule reads
+                        // as belonging to the list rather than to the bench.
+                        left: "0.85rem",
+                        right: "0.85rem",
+                        top: ruleAbove ? "-5px" : undefined,
+                        bottom: ruleAbove ? undefined : "-5px",
+                        height: "2px",
+                        borderRadius: "2px",
+                        // Ink, never amber: this marks a position, and a position
+                        // is not a decision owed.
+                        background: "var(--ink)",
+                      }}
+                    />
+                  ) : null}
+
+                  <div className="flex items-center gap-3">
+                    <Btn
+                      data-flat="true"
+                      data-judul-handle={row.id}
+                      className="h-11 w-11 shrink-0 px-0"
+                      disabled={single}
+                      reason="Hanya ada satu judul di order ini, jadi tidak ada yang bisa diurutkan."
+                      // The whole phrase, because the figure on its own says
+                      // nothing about what taking hold of it does, and the arrow
+                      // keys are invisible to anybody who cannot see the cursor
+                      // change.
+                      aria-label={`Pindahkan judul ${row.title}, judul ke-${i + 1} dari ${rows.length}. Tekan panah atas atau panah bawah untuk memindahkan.`}
+                      style={{
+                        // Without this a touch drag scrolls the page instead of
+                        // moving the row.
+                        touchAction: "none",
+                        cursor: single ? undefined : lifted ? "grabbing" : "grab",
+                      }}
+                      onPointerDown={(event) => onHandleDown(event, i)}
+                      onPointerMove={onHandleMove}
+                      onPointerUp={(event) => endDrag(event, true)}
+                      onPointerCancel={(event) => endDrag(event, false)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+                          return;
+                        }
+                        // The page scrolls on an arrow key otherwise, which moves
+                        // the list out from under the row being moved.
+                        event.preventDefault();
+                        move(i, event.key === "ArrowUp" ? -1 : 1);
+                      }}
                     >
-                      {row.title}
-                    </span>
-                    {row.note ? (
+                      <span className="lt-figure">{i + 1}</span>
+                    </Btn>
+
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      {/* The document's voice: a judul title is a transcription
+                          of the operator's paperwork, and it stays mono through a
+                          rename, because a renamed judul quotes a different
+                          order's paperwork. */}
                       <span
-                        className="truncate text-[0.8125rem] text-ink-2"
-                        title={row.note}
+                        className="lt-figure truncate text-[0.875rem] font-semibold text-ink"
+                        title={row.title}
                       >
-                        {row.note}
+                        {row.title}
                       </span>
-                    ) : null}
+                      {row.note ? (
+                        <span
+                          className="truncate text-[0.8125rem] text-ink-2"
+                          title={row.note}
+                        >
+                          {row.note}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        ) : null}
 
-      {/* MOVED HERE FROM THE FOOT SLAB, at the operator's request: this list is
-          where judul get added. The control itself is unchanged, and its old
-          call site goes rather than being duplicated. */}
-      <TambahJudul onEdit={onEdit} />
+        {/* MOVED HERE FROM THE FOOT SLAB, at the operator's request: this list is
+            where judul get added. The control itself is unchanged, and its old
+            call site goes rather than being duplicated. */}
+        <TambahJudul onEdit={onEdit} />
 
-      {/* Keyboard and pointer feedback only. The list itself is visible, and a
-          live region repeating it would read the packet twice. */}
-      <div className="sr-only" role="status" aria-live="polite">
-        <p key={said.seq}>{said.text}</p>
+        {/* Keyboard and pointer feedback only. The list itself is visible, and a
+            live region repeating it would read the packet twice. */}
+        <div className="sr-only" role="status" aria-live="polite">
+          <p key={said.seq}>{said.text}</p>
+        </div>
       </div>
     </section>
   );

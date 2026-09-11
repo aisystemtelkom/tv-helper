@@ -550,9 +550,11 @@ test("the arrangement the SCREEN hands back is a permutation this edit accepts, 
    * THE CONTRACT BETWEEN `SusunanJudul` AND THIS EDIT, pinned in the one place
    * that can hold both ends of it.
    *
-   * `contact-sheet.tsx` builds the list it draws out of `template.sections`,
-   * which is `resolveTemplate(AO_TEMPLATE, run.overlay).sections` -- exactly
-   * what `renderedIds` is. The component then hands that list back permuted.
+   * `susunanRows` (`src/lib/ui/headings.ts`) builds the list the shell hands
+   * the component out of `template.sections`, which is
+   * `resolveTemplate(AO_TEMPLATE, run.overlay).sections` -- exactly what
+   * `renderedIds` is, and `ui.test.mts` drives that builder through this same
+   * edit. The component then hands that list back permuted.
    * `reorderSections` computes its OWN idea of the visible judul, out of
    * `fullOrder` filtered by `isVisible`, and REFUSES anything that is not a
    * permutation of it. Those are two separate derivations of one list, in two

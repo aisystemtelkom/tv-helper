@@ -311,8 +311,9 @@ the form does not name.** That is what makes the short base form liveable:
   started spends no revision.
 
   **The visible list is derived twice, and agrees by construction only.**
-  `contact-sheet.tsx` draws `template.sections`; `reorderSections` recomputes
-  `fullOrder` filtered by `isVisible`. Should they ever disagree, every drag on
+  `susunanRows` in `src/lib/ui/headings.ts` draws `template.sections`;
+  `reorderSections` recomputes `fullOrder` filtered by `isVisible`. Should
+  they ever disagree, every drag on
   the happy path is refused in front of an operator, so `sections.test.mts`
   drives the round trip over an added judul, one hidden in the MIDDLE of the
   packet and an order already stored -- over the unedited base the two cannot
@@ -1242,10 +1243,11 @@ process: do not translate them, and do not number them.
   periksa") are now SCROLLS to a section of the one page, measured against the
   sticky strip with the same `stickyHeader()` the contact sheet uses. An order
   already read still opens at its review, which is what `landingPhase`'s
-  "mid-flow if it can be" became. The tambahan loop is still the sheet's
-  `head` but no longer its first block: **Susunan judul** is drawn above it
-  (see below). An ingest fault is printed once, in the upload section, never
-  also beside the sheet.
+  "mid-flow if it can be" became. **Susunan judul** is drawn BETWEEN the two
+  halves, under the upload section and above the sheet, and it is NOT behind
+  `hasBeenSearched` (see below). The tambahan loop is still the sheet's `head`
+  and its first block. An ingest fault is printed once, in the upload section,
+  never also beside the sheet.
 - **`2 Checkpoint`** is the old `Berkas`. What it does did not change: it builds
   and hands over the DOKUMEN VALIDASI.
 - **`3 Konfig Excel`** takes the operator's EPIC order-configuration workbook,
@@ -1287,11 +1289,18 @@ because the test is whether they may miss it entirely and be no worse off.
 AWAY.** The operator asked for it in one sentence: *"after upload, show a list
 of the juduls of the order, with dragable to reorder and an TAMBAH button,
 that's where the user add new juduls for the dokumen tambahan."*
-`SusunanJudul` in `judul.tsx` sits at the top of the lembar periksa, above the
-tambahan loop, so it appears once the reading pass has run (`ContactSheet` is
-behind `hasBeenSearched`), not the moment a berkas lands. It draws the judul
-IN PACKET ORDER, which the sheet below it cannot: the sheet is ordered by what
-owes work.
+`SusunanJudul` in `judul.tsx` is drawn by `operator-app.tsx` directly under the
+upload section and ABOVE the lembar periksa, the moment an order is open,
+whether or not a reading pass has run. It used to be the first block of
+`ContactSheet`, which is behind `hasBeenSearched`, so the list and the
+`Tambah judul` inside it appeared only after `Baca dengan AI`. That hid them
+from the operator's central case: a BA Permintaan or an Email inside a berkas
+marked **tanpa AI**, which no reading pass will ever propose a judul out of,
+and which they must be able to add as a judul by hand straight after upload.
+It draws the judul IN PACKET ORDER, which the sheet below it cannot: the sheet
+is ordered by what owes work. Its rows come from `susunanRows` in
+`src/lib/ui/headings.ts`, and it is a slab of its own, like the upload section
+above it and the sheet's blocks below.
 
 - **Every judul in the review KEEPS its `JudulBar`** -- Ganti nama, Naikkan,
   Turunkan, Hapus judul -- and the list carries none of them. That was the
@@ -1316,8 +1325,9 @@ owes work.
   frame would be a queue of refusals. A drag that ends where it started calls
   nothing.
 - **THE MOVE IS SPOKEN ONLY ONCE THE WRITE HAS LANDED, and one gesture waits
-  for the last.** `onReorder` returns the write's promise, which is why this is
-  the one judul control in `contact-sheet.tsx` not written as `void`. The first
+  for the last.** `onReorder` returns the write's promise, which is why its
+  call site in `operator-app.tsx` hands `editSections`' promise straight back
+  and is never written as `void`. The first
   version announced before writing, so a refused reorder was read aloud as done
   to exactly the operator who cannot see the order stay put. The list is not
   optimistic either, so a second gesture computed off rows that predate the
@@ -1329,8 +1339,15 @@ owes work.
 - **A lifted row has no hue.** It owes no decision and is no fault, so it
   rises through `--surface-lift`, `--line-strong` and the top-edge highlight,
   and a 2px `--ink` rule marks where it will land. Never `--mark`.
-- **`arrangeRef` shares `headRef`'s keyboard fence** in `contact-sheet.tsx`.
-  The sheet's cursor keys listen on `window`, so without it one ArrowDown would
+- **The list is fenced out of the sheet's keyboard BY ITS OWN ATTRIBUTE, not
+  by a ref.** Its root carries `data-susunan-judul`, and `contact-sheet.tsx`'s
+  window listener checks `insideSusunanJudul` (exported from `judul.tsx`,
+  beside the attribute it reads) with `closest()`, next to `headRef`. It was
+  `arrangeRef`, which fenced nothing once the sheet stopped rendering the list.
+  The sheet walks its cursor on an arrow only while focus is inside the sheet,
+  but `j`, `k` and the decision keys are global, so without the fence a `1`
+  pressed on a handle would accept a crop the operator is not looking at. And
+  should the list ever be drawn inside the sheet again, one ArrowDown would
   move a judul AND walk the sheet's cursor, scrolling the list out from under
   the hand using it.
 
