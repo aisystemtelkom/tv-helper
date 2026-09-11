@@ -64,6 +64,7 @@ improvise a synonym.
 | a slot (one cell needing evidence) | **bagian** | |
 | a section (one heading of the packet, WITH the bagian under it) | **judul** | one heading of the DOKUMEN VALIDASI together with everything filed beneath it. NEVER "bagian", which is one cell needing evidence: `KB` is a judul and `Nomor` is a bagian inside it. The word was needed the day a section became something an order could rename, move, hide and add, because until then a section had no operator-facing name at all. The manual register's kop counts **judul**, not bagian, for the same reason |
 | a judul this order is not printing | **disembunyikan dari order ini** | a judul the FORM declares that this order took out. It is hidden rather than deleted: the form still declares it, the row is at the foot of the lembar periksa, and **Kembalikan** brings the NAME back. It never promises the potongan back, because removing the judul dropped them |
+| the packet's running order of judul, as one list | **susunan judul** | the list at the top of the lembar periksa: one row per judul this order prints, in the order the DOKUMEN VALIDASI prints them. It is a second view of the judul list and took no control away, so every judul in the review keeps its own **Naikkan** and **Turunkan**. A usulan is never in it; it joins once a person has accepted it. Each row's handle is its packet position, so the sentence over the list names the number rather than a grip glyph |
 | a zone (the rectangle) | **area** | |
 | a crop (the cut picture) | **potongan** | |
 | evidence | **bukti** | |
@@ -177,6 +178,7 @@ about, in the one place they go to decide whether to fetch another document.
 | Rename (a judul, or a bagian) | **Ganti nama** |
 | Move one place up the packet | **Naikkan** |
 | Move one place down the packet | **Turunkan** |
+| Drag a judul to another place in the packet | **Geser** (the number beside it; the arrow keys do the same, one place per press) |
 | Take a judul out of this order | **Hapus judul** |
 | Delete it with the crops it holds | **Hapus judul dan N potongannya** |
 | Add a judul this order has | **Tambah judul** |

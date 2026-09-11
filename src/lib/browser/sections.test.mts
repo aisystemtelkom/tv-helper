@@ -299,7 +299,7 @@ test("a blank heading is refused, and an unknown id is refused", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Moving
+// 2. Moving, and rearranging the whole packet
 // ---------------------------------------------------------------------------
 
 test("moving a judul writes an order and touches no state", () => {
@@ -369,6 +369,299 @@ test("moving past the end of the packet changes nothing, by identity", () => {
   assert.equal(first.run, run);
   assert.deepEqual(first.removing, []);
   assert.deepEqual(first.removingSections, []);
+});
+
+test("a reorder rewrites the whole packet at once and touches no state", () => {
+  const run = runWithEvidence(runId("reorder"));
+  assert.deepEqual(renderedIds(run), [
+    "kb",
+    "kb-lanjutan",
+    "konfigurasi-epic",
+    "konfigurasi",
+  ]);
+
+  const moved = applySectionEdit(run, {
+    tag: "reorder-sections",
+    ids: ["konfigurasi", "kb", "konfigurasi-epic", "kb-lanjutan"],
+  });
+
+  assert.deepEqual(renderedIds(moved.run), [
+    "konfigurasi",
+    "kb",
+    "konfigurasi-epic",
+    "kb-lanjutan",
+  ]);
+  // A rearrangement is a name-level edit, exactly as a rename and a move are:
+  // the evidence array passes through by reference, so `CaptureLossError` has
+  // nothing to find and neither opt-in is spent.
+  assert.deepEqual(moved.removing, []);
+  assert.deepEqual(moved.removingSections, []);
+  assert.equal(moved.run.slots, run.slots);
+  assert.equal(moved.run.pages, run.pages);
+});
+
+test("a reorder splices into the VISIBLE positions, and a hidden judul keeps its place", () => {
+  /*
+   * The same property `move-section` has, tested the same way round: a removed
+   * judul keeps its stored POSITION so that "Kembalikan" puts it back where the
+   * operator left it. The screen can neither show nor submit a hidden judul, so
+   * an arrangement written out as the whole order would drop every hidden id
+   * from it -- and `ordered()` appends what an order does not name, so the next
+   * restore would land at the bottom of the packet instead.
+   */
+  const run = runWithEvidence(runId("reorder-hidden"));
+  const hidden = applySectionEdit(run, { tag: "remove-section", id: "kb-lanjutan" });
+  assert.deepEqual(renderedIds(hidden.run), [
+    "kb",
+    "konfigurasi-epic",
+    "konfigurasi",
+  ]);
+
+  const moved = applySectionEdit(hidden.run, {
+    tag: "reorder-sections",
+    ids: ["konfigurasi", "konfigurasi-epic", "kb"],
+  });
+
+  assert.deepEqual(renderedIds(moved.run), [
+    "konfigurasi",
+    "konfigurasi-epic",
+    "kb",
+  ]);
+  // THE STORED ORDER STILL NAMES THE HIDDEN JUDUL, at the index it already
+  // held: the three submitted ids took the three visible positions and index 1
+  // was not one of them.
+  assert.deepEqual(moved.run.overlay.order, [
+    "konfigurasi",
+    "kb-lanjutan",
+    "konfigurasi-epic",
+    "kb",
+  ]);
+
+  const restored = applySectionEdit(moved.run, {
+    tag: "restore-section",
+    id: "kb-lanjutan",
+  });
+  assert.deepEqual(renderedIds(restored.run), [
+    "konfigurasi",
+    "kb-lanjutan",
+    "konfigurasi-epic",
+    "kb",
+  ]);
+});
+
+test("a reorder that FORGETS a judul is refused rather than quietly appended", () => {
+  /*
+   * THE FAILURE THIS EDIT EXISTS TO REFUSE. `ordered()` appends whatever an
+   * order does not name -- deliberately, so that a forgotten id is never a
+   * deleted judul -- which means a short arrangement throws nothing, loses
+   * nothing, and ships the omitted heading at the BOTTOM of a packet that opens
+   * cleanly.
+   */
+  const run = runWithEvidence(runId("reorder-short"));
+
+  assert.throws(
+    () =>
+      applySectionEdit(run, {
+        tag: "reorder-sections",
+        ids: ["kb", "kb-lanjutan", "konfigurasi-epic"],
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OverlayError);
+      assert.match(error.message, /does not name "konfigurasi"/);
+      return true;
+    },
+  );
+
+  // And nothing was written on the way to refusing.
+  assert.equal(run.overlay.order, undefined);
+  assert.deepEqual(renderedIds(run), [
+    "kb",
+    "kb-lanjutan",
+    "konfigurasi-epic",
+    "konfigurasi",
+  ]);
+});
+
+test("a reorder naming a judul this order does not print is refused, hidden or unknown", () => {
+  const run = runWithEvidence(runId("reorder-unknown"));
+
+  assert.throws(
+    () =>
+      applySectionEdit(run, {
+        tag: "reorder-sections",
+        ids: ["kb", "kb-lanjutan", "konfigurasi-epic", "u:never-existed"],
+      }),
+    /is not a judul this order prints/,
+  );
+
+  // A HIDDEN judul gets its own sentence: the id is real, and the remedy is to
+  // restore it rather than to correct a typo.
+  const hidden = applySectionEdit(run, { tag: "remove-section", id: "kb-lanjutan" });
+  assert.throws(
+    () =>
+      applySectionEdit(hidden.run, {
+        tag: "reorder-sections",
+        ids: ["kb", "kb-lanjutan", "konfigurasi-epic", "konfigurasi"],
+      }),
+    /this order is hiding/,
+  );
+});
+
+test("a reorder naming one judul twice is refused", () => {
+  /*
+   * The other half of the permutation rule, and the same silence: the resolver
+   * places the first mention and ignores the second, so one heading moves, one
+   * stays, and the packet reads as if the drag half worked.
+   */
+  const run = runWithEvidence(runId("reorder-duplicate"));
+
+  assert.throws(
+    () =>
+      applySectionEdit(run, {
+        tag: "reorder-sections",
+        ids: ["kb", "kb", "kb-lanjutan", "konfigurasi-epic"],
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OverlayError);
+      assert.match(error.message, /names "kb" a second time/);
+      return true;
+    },
+  );
+});
+
+test("a reorder that changes nothing returns the run by identity", () => {
+  const run = runWithEvidence(runId("reorder-noop"));
+
+  // A drag that ended where it started. `editSections` skips the write on
+  // identity, so this must not advance the revision and refuse whatever the
+  // screen is holding.
+  const same = applySectionEdit(run, {
+    tag: "reorder-sections",
+    ids: ["kb", "kb-lanjutan", "konfigurasi-epic", "konfigurasi"],
+  });
+
+  assert.equal(same.run, run);
+  assert.deepEqual(same.removing, []);
+  assert.deepEqual(same.removingSections, []);
+});
+
+test("the arrangement the SCREEN hands back is a permutation this edit accepts, hidden judul and all", () => {
+  /*
+   * THE CONTRACT BETWEEN `SusunanJudul` AND THIS EDIT, pinned in the one place
+   * that can hold both ends of it.
+   *
+   * `contact-sheet.tsx` builds the list it draws out of `template.sections`,
+   * which is `resolveTemplate(AO_TEMPLATE, run.overlay).sections` -- exactly
+   * what `renderedIds` is. The component then hands that list back permuted.
+   * `reorderSections` computes its OWN idea of the visible judul, out of
+   * `fullOrder` filtered by `isVisible`, and REFUSES anything that is not a
+   * permutation of it. Those are two separate derivations of one list, in two
+   * files, agreeing by nothing but construction: if they ever disagree, every
+   * drag on the happy path is refused in front of an operator.
+   *
+   * So this drives the round trip over the hardest overlay available -- a judul
+   * the operator ADDED, one they HID in the middle of the packet, and an
+   * arrangement already stored from an earlier move -- rather than over the
+   * unedited base, where the two derivations cannot differ.
+   *
+   * AND IT PINS WHAT THE HIDDEN JUDUL MAY NOT DO. `overlay.order` carries
+   * hidden ids and the screen can neither see nor submit one, so a reorder is
+   * spliced into the visible positions. The hidden judul must come out of that
+   * neither moved, nor dropped, nor back in the packet.
+   */
+  const seeded = runWithEvidence(runId("reorder-contract"));
+  const mint = mintIds();
+
+  const added = applySectionEdit(
+    seeded,
+    { tag: "add-section", title: "Berita Acara Uji Terima" },
+    mint,
+  ).run;
+  const addedId = added.overlay.added[0].id;
+
+  // HIDDEN IN THE MIDDLE OF THE PACKET, not at its end: a splice that wrote the
+  // submitted list out as the whole order would be indistinguishable from a
+  // correct one if the only hidden id sat past the last visible position.
+  const hidden = applySectionEdit(added, {
+    tag: "remove-section",
+    id: "kb-lanjutan",
+  }).run;
+
+  // AND AN ARRANGEMENT ALREADY STORED, so this reorder is rewriting an order
+  // rather than writing the first one.
+  const arranged = applySectionEdit(hidden, {
+    tag: "move-section",
+    id: "konfigurasi",
+    by: -1,
+  }).run;
+
+  const before = arranged.overlay.order ?? [];
+  assert.deepEqual(before, [
+    "kb",
+    "kb-lanjutan",
+    "konfigurasi",
+    "konfigurasi-epic",
+    addedId,
+  ]);
+
+  // What the screen draws, and therefore what it hands back.
+  const onScreen = renderedIds(arranged);
+  assert.deepEqual(onScreen, ["kb", "konfigurasi", "konfigurasi-epic", addedId]);
+
+  // A DRAG THAT ENDED WHERE IT STARTED. The component refuses to call at all,
+  // and this is the second net under that: identity, so `editSections` skips
+  // the write instead of advancing the revision for nothing.
+  assert.equal(
+    applySectionEdit(arranged, { tag: "reorder-sections", ids: onScreen }).run,
+    arranged,
+  );
+
+  const wanted = [addedId, "konfigurasi-epic", "kb", "konfigurasi"];
+  const moved = applySectionEdit(arranged, {
+    tag: "reorder-sections",
+    ids: wanted,
+  });
+
+  // The packet now prints exactly what was dragged, in that order.
+  assert.deepEqual(renderedIds(moved.run), wanted);
+
+  const after = moved.run.overlay.order ?? [];
+  // NOTHING GAINED AND NOTHING LOST: the stored order is the same multiset of
+  // ids it was, so the hidden judul was neither dropped nor duplicated.
+  assert.deepEqual([...after].sort(), [...before].sort());
+  assert.deepEqual(
+    after.filter((id) => id === "kb-lanjutan"),
+    ["kb-lanjutan"],
+  );
+  // NOT MOVED: it keeps the index it already held, because the four submitted
+  // ids took the four VISIBLE positions and index 1 was not one of them.
+  assert.equal(after.indexOf("kb-lanjutan"), before.indexOf("kb-lanjutan"));
+  // NOT RESURRECTED: the tombstone is untouched and the packet is still four
+  // judul long.
+  assert.equal(moved.run.overlay.sections["kb-lanjutan"]?.removed, true);
+  assert.ok(!renderedIds(moved.run).includes("kb-lanjutan"));
+
+  // A NAME-LEVEL EDIT, so none of `putRun`'s content guards is owed anything:
+  // the evidence and the pages pass through BY REFERENCE, and nothing the
+  // operator authored is discarded.
+  assert.deepEqual(moved.removing, []);
+  assert.deepEqual(moved.removingSections, []);
+  assert.equal(moved.run.slots, arranged.slots);
+  assert.equal(moved.run.pages, arranged.pages);
+  assert.deepEqual(moved.run.overlay.added, arranged.overlay.added);
+
+  // And "Kembalikan" still puts it back where the operator left it.
+  const restored = applySectionEdit(moved.run, {
+    tag: "restore-section",
+    id: "kb-lanjutan",
+  });
+  assert.deepEqual(renderedIds(restored.run), [
+    addedId,
+    "kb-lanjutan",
+    "konfigurasi-epic",
+    "kb",
+    "konfigurasi",
+  ]);
 });
 
 // ---------------------------------------------------------------------------
